@@ -7,14 +7,14 @@ WORKDIR /app/web
 # Copy frontend package files
 COPY Web/package*.json ./
 
-# Install dependencies - use npm install instead of npm ci
+# Install dependencies
 RUN npm install
 
 # Copy frontend source
 COPY Web/ .
 
-# Build frontend using npx to avoid permission issues
-RUN npx vite build
+# Build frontend - use node to run vite directly
+RUN node node_modules/vite/bin/vite.js build
 
 # Stage 2: Build Backend
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-builder
