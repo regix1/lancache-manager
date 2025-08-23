@@ -25,6 +25,28 @@ public class SteamService
         _rateLimiter = new SemaphoreSlim(1, 1);
     }
 
+    public async Task<Dictionary<string, string>> GetMultipleAppNamesAsync(List<string> appIds)
+    {
+        var results = new Dictionary<string, string>();
+        
+        foreach (var appId in appIds.Distinct())
+        {
+            if (string.IsNullOrEmpty(appId) || appId == "unknown")
+            {
+                results[appId] = "Unknown";
+                continue;
+            }
+            
+            var name = await GetSteamAppNameAsync(appId);
+            results[appId] = name;
+            
+            // Small delay between API calls
+            await Task.Delay(50);
+        }
+        
+        return results;
+    }  
+
     public async Task<string> GetAppNameAsync(string appId, string service)
     {
         if (string.IsNullOrEmpty(appId))
