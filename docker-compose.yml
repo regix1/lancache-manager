@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  lancache-manager:
+    image: lancache-manager:latest
+    container_name: lancache-manager
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      # Persistent data (database and log position file)
+      - ./data:/data
+      
+      # Mount Lancache logs directory (read-only)
+      # Adjust this path to match your Lancache installation
+      - ${LANCACHE_LOGS_DIR:-/var/lancache/logs}:/logs:ro
+      
+      # Optional: Mount cache directory for statistics (read-only)
+      # Comment out if not needed
+      - ${LANCACHE_CACHE_DIR:-/var/lancache/cache}:/cache:ro
+    environment:
+      # Optional: Set your timezone (defaults to UTC)
+      - TZ=${TZ:-America/Chicago}
+    networks:
+      - lancache-network
+
+networks:
+  lancache-network:
+    driver: bridge

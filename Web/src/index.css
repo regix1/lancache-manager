@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-dark-bg: #0f1419;
+    --color-dark-surface: #1a1f2e;
+    --color-dark-border: #2a3441;
+  }
+
+  * {
+    border-color: var(--color-dark-border);
+  }
+
+  body {
+    background-color: var(--color-dark-bg);
+    color: white;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: var(--color-dark-surface);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-dark-border);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #4b5563;
+  }
+}
+
+/* Custom utility classes for Tailwind v4 */
+@layer utilities {
+  .bg-dark-bg {
+    background-color: var(--color-dark-bg);
+  }
+  
+  .bg-dark-surface {
+    background-color: var(--color-dark-surface);
+  }
+  
+  .bg-dark-border {
+    background-color: var(--color-dark-border);
+  }
+  
+  .border-dark-border {
+    border-color: var(--color-dark-border);
+  }
+  
+  .text-accent-blue {
+    color: #3b82f6;
+  }
+  
+  .text-accent-green {
+    color: #10b981;
+  }
+  
+  .text-accent-red {
+    color: #ef4444;
+  }
+  
+  .text-accent-yellow {
+    color: #f59e0b;
+  }
+  
+  .text-accent-purple {
+    color: #8b5cf6;
+  }
+  
+  .bg-accent-blue {
+    background-color: #3b82f6;
+  }
+  
+  .bg-accent-green {
+    background-color: #10b981;
+  }
+  
+  .bg-accent-red {
+    background-color: #ef4444;
+  }
+  
+  .bg-accent-yellow {
+    background-color: #f59e0b;
+  }
+  
+  .bg-accent-purple {
+    background-color: #8b5cf6;
+  }
+
+  .animate-gradient {
+    background-size: 200% 200%;
+    animation: gradient 3s ease infinite;
+  }
+
+  @keyframes gradient {
+    0%, 100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  .glass {
+    background-color: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(10px);
+  }
+
+  .glow {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+  }
+
+  .text-gradient {
+    background: linear-gradient(to right, #3b82f6, #8b5cf6);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
