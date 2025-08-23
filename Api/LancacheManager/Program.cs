@@ -93,6 +93,7 @@ builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<SteamService>(); // Must be before DatabaseService
 builder.Services.AddHostedService<LogWatcherService>();
+builder.Services.AddHostedService<DownloadCleanupService>(); // NEW cleanup service
 builder.Services.AddScoped<DatabaseService>(); // Depends on SteamService
 
 // Add sample log generator only in development or if explicitly enabled
@@ -163,15 +164,26 @@ using (var scope = app.Services.CreateScope())
             }
         }
         
-        if (dbContext.Database.GetPendingMigrations().Any())
+        // Check if SteamApps table exists, if not create it
+        try
         {
-            logger.LogInformation("Applying database migrations...");
-            dbContext.Database.Migrate();
+            await dbContext.Database.ExecuteSqlRawAsync(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SteamApps'");
         }
-        else
+        catch
         {
-            dbContext.Database.EnsureCreated();
+            logger.LogWarning("SteamApps table missing, creating it...");
+            await dbContext.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS SteamApps (
+                    AppId TEXT NOT NULL PRIMARY KEY,
+                    Name TEXT NOT NULL,
+                    LastUpdated TEXT NOT NULL
+                )");
+            logger.LogInformation("SteamApps table created successfully");
         }
+        
+        // Ensure database exists
+        dbContext.Database.EnsureCreated();
         
         logger.LogInformation("Database is ready");
         logger.LogInformation($"Environment: {app.Environment.EnvironmentName}");

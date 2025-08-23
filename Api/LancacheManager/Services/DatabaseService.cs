@@ -24,12 +24,16 @@ public class DatabaseService
 
     public async Task ProcessLogEntry(LogEntry entry)
     {
-        // Find or create active download session
+        // Only process substantial downloads (skip small requests under 100KB)
+        if (entry.BytesServed < 1024 * 100)
+            return;
+
+        // Find or create active download session (2 minute window)
         var download = await _context.Downloads
             .Where(d => d.ClientIp == entry.ClientIp && 
                        d.Service == entry.Service &&
                        d.IsActive &&
-                       d.EndTime > DateTime.UtcNow.AddMinutes(-5))
+                       d.EndTime > DateTime.UtcNow.AddMinutes(-2))
             .FirstOrDefaultAsync();
 
         bool isNewDownload = false;
@@ -43,7 +47,8 @@ public class DatabaseService
                 EndTime = entry.Timestamp,
                 Depot = entry.DepotId ?? "unknown",
                 App = await _steamService.GetAppNameAsync(entry.DepotId ?? "", entry.Service),
-                IsActive = true
+                IsActive = true,
+                Status = "Downloading"
             };
             _context.Downloads.Add(download);
             isNewDownload = true;
@@ -58,6 +63,18 @@ public class DatabaseService
         else
         {
             download.CacheMissBytes += entry.BytesServed;
+        }
+
+        // Auto-complete stale downloads
+        var inactiveDownloads = await _context.Downloads
+            .Where(d => d.IsActive && 
+                       d.EndTime < DateTime.UtcNow.AddMinutes(-2))
+            .ToListAsync();
+        
+        foreach (var inactiveDownload in inactiveDownloads)
+        {
+            inactiveDownload.IsActive = false;
+            inactiveDownload.Status = "Completed";
         }
 
         // Update client stats
