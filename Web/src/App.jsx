@@ -56,9 +56,9 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-40">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo and Title */}
@@ -103,9 +103,9 @@ function App() {
             </nav>
 
             {/* Right side controls */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {/* Online indicator */}
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-100 dark:bg-green-900 rounded-full">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-green-100 dark:bg-green-900/30 rounded-full">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                 <span className="text-xs font-medium text-green-700 dark:text-green-300">Online</span>
               </div>
@@ -121,14 +121,6 @@ function App() {
                 ) : (
                   <Moon className="w-5 h-5" />
                 )}
-              </button>
-
-              {/* Settings button */}
-              <button
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                aria-label="Settings"
-              >
-                <Settings className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -161,22 +153,22 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1">
-        <div className="max-w-7xl mx-auto">
+      <main className="flex-1 overflow-auto">
+        <div className="container mx-auto max-w-7xl">
           {renderContent()}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               © 2024 LanCache Manager • Monitor your game cache server
             </p>
-            <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
               <a 
-                href="https://github.com/lancachenet/monolithic" 
+                href="https://lancache.net" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="hover:text-blue-500 transition-colors"
@@ -185,7 +177,7 @@ function App() {
               </a>
               <span>•</span>
               <a 
-                href="https://github.com" 
+                href="https://github.com/regix1/lancache-manager" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="hover:text-blue-500 transition-colors"
