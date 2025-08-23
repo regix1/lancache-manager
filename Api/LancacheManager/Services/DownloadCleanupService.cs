@@ -8,9 +8,7 @@ public class DownloadCleanupService : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DownloadCleanupService> _logger;
 
-    public DownloadCleanupService(
-        IServiceProvider serviceProvider,
-        ILogger<DownloadCleanupService> logger)
+    public DownloadCleanupService(IServiceProvider serviceProvider, ILogger<DownloadCleanupService> logger)
     {
         _serviceProvider = serviceProvider;
         _logger = logger;
@@ -23,37 +21,44 @@ public class DownloadCleanupService : BackgroundService
             try
             {
                 using var scope = _serviceProvider.CreateScope();
-                var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                // Mark downloads as complete if no activity for 2 minutes
-                var staleDownloads = await dbContext.Downloads
-                    .Where(d => d.IsActive && 
-                               d.EndTime < DateTime.UtcNow.AddMinutes(-2))
+                var cutoff = DateTime.UtcNow.AddMinutes(-2);
+                var staleDownloads = await context.Downloads
+                    .Where(d => d.IsActive && d.EndTime < cutoff)
                     .ToListAsync(stoppingToken);
+
+                foreach (var download in staleDownloads)
+                {
+                    download.IsActive = false;
+                    
+                    // Update client download count
+                    var client = await context.ClientStats.FindAsync(download.ClientIp);
+                    if (client != null)
+                    {
+                        client.TotalDownloads++;
+                    }
+                    
+                    // Update service download count
+                    var service = await context.ServiceStats.FindAsync(download.Service);
+                    if (service != null)
+                    {
+                        service.TotalDownloads++;
+                    }
+                }
 
                 if (staleDownloads.Any())
                 {
-                    foreach (var download in staleDownloads)
-                    {
-                        download.IsActive = false;
-                        download.Status = "Completed";
-                        _logger.LogInformation(
-                            "Marked download as complete: {Service} for {Client}, Total: {Total:F2} GB", 
-                            download.Service, 
-                            download.ClientIp, 
-                            download.TotalBytes / (1024.0 * 1024.0 * 1024.0));
-                    }
-
-                    await dbContext.SaveChangesAsync(stoppingToken);
+                    await context.SaveChangesAsync(stoppingToken);
+                    _logger.LogInformation($"Marked {staleDownloads.Count} downloads as complete");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during download cleanup");
+                _logger.LogError(ex, "Error in cleanup service");
             }
 
-            // Run every 30 seconds
-            await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            await Task.Delay(30000, stoppingToken);
         }
     }
 }

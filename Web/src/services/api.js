@@ -1,35 +1,59 @@
 import axios from 'axios';
 
-const api = {
-  async getLatestDownloads(count = 20) {
-    const response = await axios.get(`/api/downloads/latest?count=${count}`);
-    return response.data;
+const api = axios.create({
+  baseURL: '/api',
+  timeout: 10000,
+});
+
+// Request interceptor
+api.interceptors.request.use(
+  (config) => {
+    // Add any auth headers if needed
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor
+api.interceptors.response.use(
+  (response) => response.data,
+  (error) => {
+    console.error('API Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+export default {
+  // Downloads
+  async getLatestDownloads(count = 50) {
+    return api.get('/downloads/latest', { params: { count } });
   },
 
+  async getActiveDownloads() {
+    return api.get('/downloads/active');
+  },
+
+  // Stats
   async getClientStats() {
-    const response = await axios.get('/api/stats/clients');
-    return response.data;
+    return api.get('/stats/clients');
   },
 
   async getServiceStats() {
-    const response = await axios.get('/api/stats/services');
-    return response.data;
+    return api.get('/stats/services');
   },
 
+  // Management
   async getCacheInfo() {
-    const response = await axios.get('/api/management/cache-info');
-    return response.data;
+    return api.get('/management/cache-info');
   },
 
   async clearCache(service = null) {
-    const response = await axios.post('/api/management/clear-cache', { service });
-    return response.data;
+    return api.post('/management/clear-cache', { service });
   },
 
   async resetDatabase() {
-    const response = await axios.post('/api/management/reset-database');
-    return response.data;
-  }
+    return api.post('/management/reset-database');
+  },
 };
-
-export default api;

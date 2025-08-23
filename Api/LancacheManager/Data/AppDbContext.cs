@@ -10,29 +10,13 @@ public class AppDbContext : DbContext
     public DbSet<Download> Downloads { get; set; }
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
-    public DbSet<SteamApp> SteamApps { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<Download>()
-            .HasKey(d => d.Id);
-            
-        modelBuilder.Entity<ClientStats>()
-            .HasKey(c => c.ClientIp);
-            
-        modelBuilder.Entity<ServiceStats>()
-            .HasKey(s => s.Service);
-            
-        modelBuilder.Entity<SteamApp>()
-            .HasKey(s => s.AppId);
-            
-        modelBuilder.Entity<Download>()
-            .HasIndex(d => d.ClientIp);
-            
-        modelBuilder.Entity<Download>()
-            .HasIndex(d => d.Service);
-            
-        modelBuilder.Entity<Download>()
-            .HasIndex(d => d.StartTime);
+        modelBuilder.Entity<ClientStats>().HasKey(c => c.ClientIp);
+        modelBuilder.Entity<ServiceStats>().HasKey(s => s.Service);
+        modelBuilder.Entity<Download>().HasIndex(d => d.ClientIp);
+        modelBuilder.Entity<Download>().HasIndex(d => d.Service);
+        modelBuilder.Entity<Download>().HasIndex(d => d.StartTime);
     }
 }

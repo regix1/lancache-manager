@@ -5,55 +5,51 @@ namespace LancacheManager.Services;
 public class CacheManagementService
 {
     private readonly IConfiguration _configuration;
+    private readonly ILogger<CacheManagementService> _logger;
 
-    public CacheManagementService(IConfiguration configuration)
+    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger)
     {
         _configuration = configuration;
+        _logger = logger;
     }
 
     public CacheInfo GetCacheInfo()
     {
-        var cachePath = _configuration["LanCache:CachePath"] ?? "C:/temp/lancache/cache";
+        var cachePath = _configuration["LanCache:CachePath"] ?? "/cache";
         var info = new CacheInfo();
 
-        // Create directory if it doesn't exist (for testing)
-        if (!Directory.Exists(cachePath))
+        try
         {
-            Directory.CreateDirectory(cachePath);
-            
-            // Create sample service directories for testing
-            var services = new[] { "steam", "epic", "origin", "blizzard", "wsus" };
-            foreach (var service in services)
+            if (Directory.Exists(cachePath))
             {
-                Directory.CreateDirectory(Path.Combine(cachePath, service));
+                var driveInfo = new DriveInfo(Path.GetPathRoot(cachePath) ?? "/");
+                info.TotalCacheSize = driveInfo.TotalSize;
+                info.FreeCacheSize = driveInfo.AvailableFreeSpace;
+                info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
+
+                // Get service sizes
+                foreach (var dir in Directory.GetDirectories(cachePath))
+                {
+                    var dirName = Path.GetFileName(dir);
+                    var size = GetDirectorySize(dir);
+                    info.ServiceSizes[dirName] = size;
+                    info.TotalFiles += Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length;
+                }
             }
         }
-
-        if (Directory.Exists(cachePath))
+        catch (Exception ex)
         {
-            var driveInfo = new DriveInfo(Path.GetPathRoot(cachePath)!);
-            info.TotalCacheSize = driveInfo.TotalSize;
-            info.FreeCacheSize = driveInfo.AvailableFreeSpace;
-            info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
-
-            // Get service-specific sizes
-            var serviceDirs = Directory.GetDirectories(cachePath);
-            foreach (var dir in serviceDirs)
-            {
-                var dirInfo = new DirectoryInfo(dir);
-                var size = GetDirectorySize(dirInfo);
-                info.ServiceSizes[Path.GetFileName(dir)] = size;
-                info.TotalFiles += Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length;
-            }
+            _logger.LogError(ex, "Error getting cache info");
         }
 
         return info;
     }
 
-    private long GetDirectorySize(DirectoryInfo dir)
+    private long GetDirectorySize(string path)
     {
         try
         {
+            var dir = new DirectoryInfo(path);
             return dir.GetFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
         }
         catch
@@ -62,13 +58,13 @@ public class CacheManagementService
         }
     }
 
-    public Task<bool> ClearCache(string? service = null)
+    public Task ClearCache(string? service)
     {
-        var cachePath = _configuration["LanCache:CachePath"] ?? "C:/temp/lancache/cache";
+        var cachePath = _configuration["LanCache:CachePath"] ?? "/cache";
         
         try
         {
-            if (service != null)
+            if (!string.IsNullOrEmpty(service))
             {
                 var servicePath = Path.Combine(cachePath, service);
                 if (Directory.Exists(servicePath))
@@ -79,19 +75,18 @@ public class CacheManagementService
             }
             else
             {
-                // Clear all cache
-                var dirs = Directory.GetDirectories(cachePath);
-                foreach (var dir in dirs)
+                foreach (var dir in Directory.GetDirectories(cachePath))
                 {
                     Directory.Delete(dir, true);
                     Directory.CreateDirectory(dir);
                 }
             }
-            return Task.FromResult(true);
         }
-        catch
+        catch (Exception ex)
         {
-            return Task.FromResult(false);
+            _logger.LogError(ex, "Error clearing cache");
         }
+        
+        return Task.CompletedTask;
     }
 }

@@ -22,7 +22,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../Api/wwwroot',
+    outDir: '../wwwroot',
     emptyOutDir: true
   }
 })

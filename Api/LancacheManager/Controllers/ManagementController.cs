@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
-using LancacheManager.Models;
 
 namespace LancacheManager.Controllers;
 
@@ -10,98 +9,36 @@ public class ManagementController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
     private readonly DatabaseService _dbService;
-    private readonly ILogger<ManagementController> _logger;
 
-    public ManagementController(
-        CacheManagementService cacheService,
-        DatabaseService dbService,
-        ILogger<ManagementController> logger)
+    public ManagementController(CacheManagementService cacheService, DatabaseService dbService)
     {
         _cacheService = cacheService;
         _dbService = dbService;
-        _logger = logger;
     }
 
-    /// <summary>
-    /// Clear cache for a specific service or all services
-    /// </summary>
-    [HttpPost("cache/clear")]
-    public async Task<ActionResult> ClearCache([FromBody] ManagementAction action)
+    [HttpGet("cache-info")]
+    public IActionResult GetCacheInfo()
     {
-        try
-        {
-            var success = await _cacheService.ClearCache(action.Service);
-            if (success)
-            {
-                _logger.LogInformation("Cache cleared for service: {Service}", action.Service ?? "all");
-                return Ok(new { message = $"Cache cleared successfully for {action.Service ?? "all services"}" });
-            }
-            
-            return StatusCode(500, new { error = "Failed to clear cache" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error clearing cache");
-            return StatusCode(500, new { error = "Failed to clear cache" });
-        }
+        var info = _cacheService.GetCacheInfo();
+        return Ok(info);
     }
 
-    /// <summary>
-    /// Reset database (clear all statistics)
-    /// </summary>
-    [HttpPost("database/reset")]
-    public async Task<ActionResult> ResetDatabase()
+    [HttpPost("clear-cache")]
+    public async Task<IActionResult> ClearCache([FromBody] ClearCacheRequest request)
     {
-        try
-        {
-            await _dbService.ResetDatabase();
-            _logger.LogInformation("Database reset successfully");
-            return Ok(new { message = "Database reset successfully" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error resetting database");
-            return StatusCode(500, new { error = "Failed to reset database" });
-        }
+        await _cacheService.ClearCache(request?.Service);
+        return Ok(new { message = "Cache cleared" });
     }
 
-    /// <summary>
-    /// Get system status
-    /// </summary>
-    [HttpGet("status")]
-    public async Task<ActionResult> GetStatus()
+    [HttpPost("reset-database")]
+    public async Task<IActionResult> ResetDatabase()
     {
-        try
-        {
-            var cacheInfo = _cacheService.GetCacheInfo();
-            var activeDownloads = await _dbService.GetActiveDownloads();
-            var clientStats = await _dbService.GetClientStats();
-            var serviceStats = await _dbService.GetServiceStats();
-            
-            var status = new
-            {
-                Cache = new
-                {
-                    TotalSize = cacheInfo.TotalCacheSize,
-                    UsedSize = cacheInfo.UsedCacheSize,
-                    FreeSize = cacheInfo.FreeCacheSize,
-                    UsagePercent = cacheInfo.UsagePercent
-                },
-                Statistics = new
-                {
-                    ActiveDownloads = activeDownloads.Count,
-                    TotalClients = clientStats.Count,
-                    TotalServices = serviceStats.Count
-                },
-                Timestamp = DateTime.UtcNow
-            };
-            
-            return Ok(status);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting system status");
-            return StatusCode(500, new { error = "Failed to retrieve system status" });
-        }
+        await _dbService.ResetDatabase();
+        return Ok(new { message = "Database reset" });
     }
+}
+
+public class ClearCacheRequest
+{
+    public string? Service { get; set; }
 }
