@@ -6,13 +6,15 @@ WORKDIR /app/web
 
 # Copy frontend package files
 COPY Web/package*.json ./
-RUN npm ci
+
+# Install dependencies - use npm install instead of npm ci
+RUN npm install
 
 # Copy frontend source
 COPY Web/ .
 
-# Build frontend
-RUN npm run build
+# Build frontend using npx to avoid permission issues
+RUN npx vite build
 
 # Stage 2: Build Backend
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-builder
@@ -22,7 +24,7 @@ WORKDIR /app
 COPY Api/ ./Api/
 
 # Copy built frontend to wwwroot
-COPY --from=frontend-builder /app/Api/LancacheManager/wwwroot ./Api/LancacheManager/wwwroot/
+COPY --from=frontend-builder /app/web/dist ./Api/LancacheManager/wwwroot/
 
 # Restore and publish backend
 WORKDIR /app/Api/LancacheManager
@@ -47,17 +49,15 @@ RUN mkdir -p /data \
     && mkdir -p /logs \
     && mkdir -p /cache
 
-# Set environment variables
+# Set DEFAULT environment variables
 ENV ASPNETCORE_URLS=http://+:80
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV TZ=UTC
-ENV LANG=en_US.UTF-8
 ENV ConnectionStrings__DefaultConnection="Data Source=/data/lancache-manager.db"
+ENV TZ=UTC
 
 # Add labels
 LABEL org.opencontainers.image.title="Lancache Manager"
 LABEL org.opencontainers.image.description="Web-based monitoring and management for Lancache"
-LABEL org.opencontainers.image.vendor="Your Organization"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
@@ -69,8 +69,10 @@ VOLUME ["/data", "/logs"]
 # Expose port
 EXPOSE 80
 
-# Run as non-root user
-RUN adduser -D -u 1000 lancache
+# Create non-root user and set permissions
+RUN adduser -D -u 1000 lancache && \
+    chown -R lancache:lancache /app /data /logs /cache
+
 USER lancache
 
 # Run the application
