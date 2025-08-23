@@ -6,8 +6,10 @@ namespace LancacheManager.Services;
 public class LogParserService
 {
     private readonly ILogger<LogParserService> _logger;
+    
+    // Updated regex to match your actual log format
     private static readonly Regex LogRegex = new(
-        @"^\[?(?<service>\w+)\]?\s+(?<ip>\d+\.\d+\.\d+\.\d+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS)""",
+        @"^\[(?<service>\w+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS)""",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public LogParserService(ILogger<LogParserService> logger)
@@ -22,51 +24,84 @@ public class LogParserService
         try
         {
             var match = LogRegex.Match(line);
-            if (!match.Success)
+            if (match.Success)
             {
-                // Try simpler pattern
-                var simpleMatch = Regex.Match(line, @"(?<ip>\d+\.\d+\.\d+\.\d+).*?\[(?<time>[^\]]+)\].*?(?<status>\d+)\s+(?<bytes>\d+)");
-                if (!simpleMatch.Success) return null;
-                
                 return new LogEntry
                 {
-                    Service = DetermineService(line),
-                    ClientIp = simpleMatch.Groups["ip"].Value,
-                    BytesServed = long.Parse(simpleMatch.Groups["bytes"].Value),
-                    StatusCode = int.Parse(simpleMatch.Groups["status"].Value),
-                    CacheStatus = line.Contains("HIT") ? "HIT" : "MISS",
-                    Timestamp = ParseTimestamp(simpleMatch.Groups["time"].Value)
+                    Service = match.Groups["service"].Value.ToLower(),
+                    ClientIp = match.Groups["ip"].Value,
+                    Url = match.Groups["url"].Value,
+                    StatusCode = int.Parse(match.Groups["status"].Value),
+                    BytesServed = long.Parse(match.Groups["bytes"].Value),
+                    CacheStatus = match.Groups["cache"].Value.ToUpper(),
+                    Timestamp = ParseTimestamp(match.Groups["time"].Value)
                 };
             }
 
-            return new LogEntry
+            // Fallback for simpler format
+            if (line.Contains("HIT") || line.Contains("MISS"))
             {
-                Service = match.Groups["service"].Value.ToLower(),
-                ClientIp = match.Groups["ip"].Value,
-                Url = match.Groups["url"].Value,
-                StatusCode = int.Parse(match.Groups["status"].Value),
-                BytesServed = long.Parse(match.Groups["bytes"].Value),
-                CacheStatus = match.Groups["cache"].Value,
-                Timestamp = ParseTimestamp(match.Groups["time"].Value)
-            };
+                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 10)
+                {
+                    return new LogEntry
+                    {
+                        Service = ExtractService(line),
+                        ClientIp = ExtractIp(line),
+                        BytesServed = ExtractBytes(line),
+                        StatusCode = 200,
+                        CacheStatus = line.Contains("HIT") ? "HIT" : "MISS",
+                        Timestamp = DateTime.UtcNow
+                    };
+                }
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug($"Failed to parse line: {ex.Message}");
-            return null;
+            _logger.LogTrace($"Failed to parse line: {ex.Message}");
         }
+
+        return null;
     }
 
-    private string DetermineService(string line)
+    private string ExtractService(string line)
     {
-        var lowerLine = line.ToLower();
-        if (lowerLine.Contains("steam")) return "steam";
-        if (lowerLine.Contains("epic")) return "epic";
-        if (lowerLine.Contains("origin") || lowerLine.Contains("ea.com")) return "origin";
-        if (lowerLine.Contains("blizzard") || lowerLine.Contains("battle.net")) return "blizzard";
-        if (lowerLine.Contains("uplay") || lowerLine.Contains("ubisoft")) return "uplay";
-        if (lowerLine.Contains("wsus") || lowerLine.Contains("windowsupdate")) return "wsus";
-        if (lowerLine.Contains("apple")) return "apple";
+        if (line.StartsWith("["))
+        {
+            var end = line.IndexOf(']');
+            if (end > 0)
+            {
+                return line.Substring(1, end - 1).ToLower();
+            }
+        }
+        return DetermineServiceFromLine(line);
+    }
+
+    private string ExtractIp(string line)
+    {
+        var match = Regex.Match(line, @"\b(?:\d{1,3}\.){3}\d{1,3}\b");
+        return match.Success ? match.Value : "unknown";
+    }
+
+    private long ExtractBytes(string line)
+    {
+        var match = Regex.Match(line, @"\s(\d{4,})\s");
+        if (match.Success && long.TryParse(match.Groups[1].Value, out var bytes))
+        {
+            return bytes;
+        }
+        return 0;
+    }
+
+    private string DetermineServiceFromLine(string line)
+    {
+        var lower = line.ToLower();
+        if (lower.Contains("steam")) return "steam";
+        if (lower.Contains("wsus") || lower.Contains("windowsupdate") || lower.Contains("microsoft")) return "wsus";
+        if (lower.Contains("epic")) return "epic";
+        if (lower.Contains("origin")) return "origin";
+        if (lower.Contains("blizzard")) return "blizzard";
+        if (lower.Contains("uplay")) return "uplay";
         return "other";
     }
 
@@ -74,7 +109,9 @@ public class LogParserService
     {
         try
         {
-            if (DateTime.TryParseExact(timestamp.Replace(" -0500", ""), 
+            // Handle format: 22/Aug/2025:22:30:06 -0500
+            timestamp = timestamp.Replace(" -0500", "").Replace(" -0600", "");
+            if (DateTime.TryParseExact(timestamp, 
                 "dd/MMM/yyyy:HH:mm:ss", 
                 System.Globalization.CultureInfo.InvariantCulture,
                 System.Globalization.DateTimeStyles.AssumeUniversal,
