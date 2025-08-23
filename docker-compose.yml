@@ -2,11 +2,8 @@ version: '3.8'
 
 services:
   lancache-manager:
-    image: lancache-manager:latest
+    image: ghcr.io/regix1/lancache-manager:latest
     container_name: lancache-manager
-    build:
-      context: .
-      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "8080:80"
@@ -14,18 +11,33 @@ services:
       # Persistent data (database and log position file)
       - ./data:/data
       
-      # Mount Lancache logs directory (read-only)
-      # Adjust this path to match your Lancache installation
-      - ${LANCACHE_LOGS_DIR:-/var/lancache/logs}:/logs:ro
+      # Mount your actual Lancache logs directory (read-only)
+      - /mnt/logs:/logs:ro
       
-      # Optional: Mount cache directory for statistics (read-only)
-      # Comment out if not needed
-      - ${LANCACHE_CACHE_DIR:-/var/lancache/cache}:/cache:ro
+      # Mount your actual cache directory for statistics (read-only)
+      - /mnt/cache/cache:/cache:ro
     environment:
-      # Optional: Set your timezone (defaults to UTC)
-      - TZ=${TZ:-America/Chicago}
+      # User and group IDs (matching your other container)
+      - PUID=1006
+      - PGID=1006
+      
+      # Your timezone
+      - TZ=America/Chicago
+      
+      # Optional: Override paths if needed
+      # - LanCache__LogPath=/logs/access.log
+      # - LanCache__CachePath=/cache
     networks:
       - lancache-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
 
 networks:
   lancache-network:
