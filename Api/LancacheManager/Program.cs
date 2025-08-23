@@ -9,7 +9,6 @@ var builder = WebApplication.CreateBuilder(args);
 // Set default connection string if not provided
 if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("DefaultConnection")))
 {
-    // Use /data if it exists (Docker), otherwise use local directory
     var dataPath = Directory.Exists("/data") ? "/data" : ".";
     var dbPath = Path.Combine(dataPath, "lancache-manager.db");
     builder.Configuration["ConnectionStrings:DefaultConnection"] = $"Data Source={dbPath}";
@@ -20,7 +19,6 @@ if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("DefaultConne
 // Set default log path if not provided
 if (string.IsNullOrEmpty(builder.Configuration["LanCache:LogPath"]))
 {
-    // The LogWatcherService will auto-detect, but we can set a hint
     if (Directory.Exists("/logs"))
     {
         builder.Configuration["LanCache:LogPath"] = "/logs/access.log";
@@ -63,6 +61,9 @@ builder.Services.AddSwaggerGen(c =>
 
 builder.Services.AddSignalR();
 
+// Add HttpClient for external API calls
+builder.Services.AddHttpClient();
+
 // Add CORS
 builder.Services.AddCors(options =>
 {
@@ -80,7 +81,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     options.UseSqlite(connectionString);
     
-    // Enable sensitive data logging in development
     if (builder.Environment.IsDevelopment())
     {
         options.EnableSensitiveDataLogging();
@@ -88,11 +88,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     }
 });
 
-// Add custom services
+// Add custom services - ORDER MATTERS!
 builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddSingleton<CacheManagementService>();
+builder.Services.AddSingleton<SteamService>(); // Must be before DatabaseService
 builder.Services.AddHostedService<LogWatcherService>();
-builder.Services.AddScoped<DatabaseService>();
+builder.Services.AddScoped<DatabaseService>(); // Depends on SteamService
 
 // Add sample log generator only in development or if explicitly enabled
 if (builder.Environment.IsDevelopment() || 
@@ -117,12 +118,10 @@ if (app.Environment.IsDevelopment())
         c.RoutePrefix = "swagger";
     });
     
-    // Development exception page
     app.UseDeveloperExceptionPage();
 }
 else
 {
-    // Production error handling
     app.UseExceptionHandler("/error");
 }
 
@@ -152,7 +151,6 @@ using (var scope = app.Services.CreateScope())
     
     try
     {
-        // Create database directory if it doesn't exist
         var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
         if (!string.IsNullOrEmpty(connectionString))
         {
@@ -165,7 +163,6 @@ using (var scope = app.Services.CreateScope())
             }
         }
         
-        // Apply any pending migrations or create database
         if (dbContext.Database.GetPendingMigrations().Any())
         {
             logger.LogInformation("Applying database migrations...");
@@ -173,13 +170,10 @@ using (var scope = app.Services.CreateScope())
         }
         else
         {
-            // Ensure database exists
             dbContext.Database.EnsureCreated();
         }
         
         logger.LogInformation("Database is ready");
-        
-        // Log configuration for debugging
         logger.LogInformation($"Environment: {app.Environment.EnvironmentName}");
         logger.LogInformation($"Database: {connectionString}");
         logger.LogInformation($"Log Path Hint: {builder.Configuration["LanCache:LogPath"] ?? "Auto-detect"}");
@@ -192,7 +186,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// Log startup information
 var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
 startupLogger.LogInformation("==============================================");
 startupLogger.LogInformation("Lancache Manager started successfully!");
