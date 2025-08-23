@@ -23,13 +23,14 @@ public class DatabaseService
         _logger = logger;
     }
 
-    public async Task ProcessLogEntry(LogEntry entry)
+    public async Task ProcessLogEntryBatch(List<LogEntry> entries, bool sendRealtimeUpdates)
     {
-        // Skip small entries (less than 1MB)
-        if (entry.BytesServed < 1024 * 1024) return;
+        if (!entries.Any()) return;
 
-        // Create session key
-        var sessionKey = $"{entry.ClientIp}_{entry.Service}";
+        // All entries in batch are for same client/service
+        var firstEntry = entries.First();
+        var sessionKey = $"{firstEntry.ClientIp}_{firstEntry.Service}";
+        
         bool shouldCreateNewDownload = false;
         
         lock (_sessionLock)
@@ -37,7 +38,7 @@ public class DatabaseService
             if (_sessionTracker.TryGetValue(sessionKey, out var lastActivity))
             {
                 // If more than 5 minutes since last activity, it's a new download session
-                if (entry.Timestamp - lastActivity > TimeSpan.FromMinutes(5))
+                if (firstEntry.Timestamp - lastActivity > TimeSpan.FromMinutes(5))
                 {
                     shouldCreateNewDownload = true;
                 }
@@ -46,13 +47,13 @@ public class DatabaseService
             {
                 shouldCreateNewDownload = true;
             }
-            _sessionTracker[sessionKey] = entry.Timestamp;
+            _sessionTracker[sessionKey] = entries.Max(e => e.Timestamp);
         }
 
         // Find existing active download for this session
         var download = await _context.Downloads
-            .Where(d => d.ClientIp == entry.ClientIp &&
-                       d.Service == entry.Service &&
+            .Where(d => d.ClientIp == firstEntry.ClientIp &&
+                       d.Service == firstEntry.Service &&
                        d.IsActive)
             .OrderByDescending(d => d.StartTime)
             .FirstOrDefaultAsync();
@@ -68,61 +69,65 @@ public class DatabaseService
             // Create new download session
             download = new Download
             {
-                Service = entry.Service,
-                ClientIp = entry.ClientIp,
-                StartTime = entry.Timestamp,
-                EndTime = entry.Timestamp,
+                Service = firstEntry.Service,
+                ClientIp = firstEntry.ClientIp,
+                StartTime = entries.Min(e => e.Timestamp),
+                EndTime = entries.Max(e => e.Timestamp),
                 IsActive = true
             };
             _context.Downloads.Add(download);
-            _logger.LogDebug($"Created new download session for {entry.ClientIp} - {entry.Service}");
+            _logger.LogDebug($"Created new download session for {firstEntry.ClientIp} - {firstEntry.Service}");
         }
         else
         {
             // Update existing download session
-            download.EndTime = entry.Timestamp;
+            download.EndTime = entries.Max(e => e.Timestamp);
         }
 
-        // Update bytes
-        if (entry.CacheStatus == "HIT")
-            download.CacheHitBytes += entry.BytesServed;
-        else
-            download.CacheMissBytes += entry.BytesServed;
+        // Aggregate bytes from all entries
+        var totalHitBytes = entries.Where(e => e.CacheStatus == "HIT").Sum(e => e.BytesServed);
+        var totalMissBytes = entries.Where(e => e.CacheStatus == "MISS").Sum(e => e.BytesServed);
+
+        download.CacheHitBytes += totalHitBytes;
+        download.CacheMissBytes += totalMissBytes;
 
         // Update client stats
-        var clientStats = await _context.ClientStats.FindAsync(entry.ClientIp);
+        var clientStats = await _context.ClientStats.FindAsync(firstEntry.ClientIp);
         if (clientStats == null)
         {
-            clientStats = new ClientStats { ClientIp = entry.ClientIp };
+            clientStats = new ClientStats { ClientIp = firstEntry.ClientIp };
             _context.ClientStats.Add(clientStats);
         }
 
-        if (entry.CacheStatus == "HIT")
-            clientStats.TotalCacheHitBytes += entry.BytesServed;
-        else
-            clientStats.TotalCacheMissBytes += entry.BytesServed;
-        
-        clientStats.LastSeen = entry.Timestamp;
+        clientStats.TotalCacheHitBytes += totalHitBytes;
+        clientStats.TotalCacheMissBytes += totalMissBytes;
+        clientStats.LastSeen = entries.Max(e => e.Timestamp);
 
         // Update service stats  
-        var serviceStats = await _context.ServiceStats.FindAsync(entry.Service);
+        var serviceStats = await _context.ServiceStats.FindAsync(firstEntry.Service);
         if (serviceStats == null)
         {
-            serviceStats = new ServiceStats { Service = entry.Service };
+            serviceStats = new ServiceStats { Service = firstEntry.Service };
             _context.ServiceStats.Add(serviceStats);
         }
 
-        if (entry.CacheStatus == "HIT")
-            serviceStats.TotalCacheHitBytes += entry.BytesServed;
-        else
-            serviceStats.TotalCacheMissBytes += entry.BytesServed;
-        
-        serviceStats.LastActivity = entry.Timestamp;
+        serviceStats.TotalCacheHitBytes += totalHitBytes;
+        serviceStats.TotalCacheMissBytes += totalMissBytes;
+        serviceStats.LastActivity = entries.Max(e => e.Timestamp);
 
         await _context.SaveChangesAsync();
 
-        // Notify clients via SignalR
-        await _hubContext.Clients.All.SendAsync("DownloadUpdate", download);
+        // Only send SignalR updates if requested (not during preload)
+        if (sendRealtimeUpdates)
+        {
+            await _hubContext.Clients.All.SendAsync("DownloadUpdate", download);
+        }
+    }
+
+    public async Task ProcessLogEntry(LogEntry entry)
+    {
+        // Convert single entry to batch
+        await ProcessLogEntryBatch(new List<LogEntry> { entry }, true);
     }
 
     public async Task<List<Download>> GetLatestDownloads(int count)
