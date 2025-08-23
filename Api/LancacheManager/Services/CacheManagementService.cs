@@ -62,7 +62,7 @@ public class CacheManagementService
         }
     }
 
-    public async Task<bool> ClearCache(string? service = null)
+    public Task<bool> ClearCache(string? service = null)
     {
         var cachePath = _configuration["LanCache:CachePath"] ?? "C:/temp/lancache/cache";
         
@@ -87,11 +87,11 @@ public class CacheManagementService
                     Directory.CreateDirectory(dir);
                 }
             }
-            return true;
+            return Task.FromResult(true);
         }
         catch
         {
-            return false;
+            return Task.FromResult(false);
         }
     }
 }

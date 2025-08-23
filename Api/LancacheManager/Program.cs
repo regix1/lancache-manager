@@ -193,13 +193,13 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Log startup information
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
-logger.LogInformation("==============================================");
-logger.LogInformation("Lancache Manager started successfully!");
-logger.LogInformation($"Environment: {app.Environment.EnvironmentName}");
-logger.LogInformation($"URLs: {builder.Configuration["ASPNETCORE_URLS"] ?? "http://localhost:5000"}");
-logger.LogInformation("API Documentation: /swagger");
-logger.LogInformation("Health Check: /health");
-logger.LogInformation("==============================================");
+var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+startupLogger.LogInformation("==============================================");
+startupLogger.LogInformation("Lancache Manager started successfully!");
+startupLogger.LogInformation($"Environment: {app.Environment.EnvironmentName}");
+startupLogger.LogInformation($"URLs: {builder.Configuration["ASPNETCORE_URLS"] ?? "http://localhost:5000"}");
+startupLogger.LogInformation("API Documentation: /swagger");
+startupLogger.LogInformation("Health Check: /health");
+startupLogger.LogInformation("==============================================");
 
 app.Run();
