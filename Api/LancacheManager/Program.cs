@@ -1,210 +1,119 @@
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using LancacheManager.Services;
-using LancacheManager.Hubs;
 using LancacheManager.Data;
+using LancacheManager.Hubs;
+using LancacheManager.Services;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Set default connection string if not provided
-if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("DefaultConnection")))
-{
-    var dataPath = Directory.Exists("/data") ? "/data" : ".";
-    var dbPath = Path.Combine(dataPath, "lancache-manager.db");
-    builder.Configuration["ConnectionStrings:DefaultConnection"] = $"Data Source={dbPath}";
-    
-    Console.WriteLine($"Using default database path: {dbPath}");
-}
-
-// Set default log path if not provided
-if (string.IsNullOrEmpty(builder.Configuration["LanCache:LogPath"]))
-{
-    if (Directory.Exists("/logs"))
-    {
-        builder.Configuration["LanCache:LogPath"] = "/logs/access.log";
-    }
-    else if (Directory.Exists("/var/lancache/logs"))
-    {
-        builder.Configuration["LanCache:LogPath"] = "/var/lancache/logs/access.log";
-    }
-}
-
-// Set default cache path if not provided
-if (string.IsNullOrEmpty(builder.Configuration["LanCache:CachePath"]))
-{
-    if (Directory.Exists("/cache"))
-    {
-        builder.Configuration["LanCache:CachePath"] = "/cache";
-    }
-    else if (Directory.Exists("/var/lancache/cache"))
-    {
-        builder.Configuration["LanCache:CachePath"] = "/var/lancache/cache";
-    }
-    else
-    {
-        builder.Configuration["LanCache:CachePath"] = Path.Combine(Path.GetTempPath(), "lancache/cache");
-    }
-}
-
-// Add services
+// Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
-    {
-        Title = "Lancache Manager API",
-        Version = "v1",
-        Description = "API for monitoring and managing Lancache"
-    });
+    c.SwaggerDoc("v1", new() { Title = "LanCache Manager API", Version = "v1" });
 });
 
+// Add SignalR
 builder.Services.AddSignalR();
-
-// Add HttpClient for external API calls
-builder.Services.AddHttpClient();
 
 // Add CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-               .AllowAnyMethod()
-               .AllowAnyHeader();
-    });
+    options.AddPolicy("AllowReactApp",
+        policy =>
+        {
+            policy.WithOrigins(
+                    "http://localhost:3000",
+                    "http://localhost:5173",
+                    "http://localhost:5174"
+                )
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        });
 });
 
-// Add SQLite with automatic migration
+// Add Database
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
+        ?? "Data Source=lancache.db;";
     options.UseSqlite(connectionString);
-    
-    if (builder.Environment.IsDevelopment())
-    {
-        options.EnableSensitiveDataLogging();
-        options.EnableDetailedErrors();
-    }
 });
 
-// Add custom services - ORDER MATTERS!
+// Add HttpClient for external API calls
+builder.Services.AddHttpClient();
+
+// Register Services
 builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddSingleton<CacheManagementService>();
-builder.Services.AddSingleton<SteamService>(); // Must be before DatabaseService
-builder.Services.AddHostedService<LogWatcherService>();
-builder.Services.AddHostedService<DownloadCleanupService>(); // NEW cleanup service
-builder.Services.AddScoped<DatabaseService>(); // Depends on SteamService
+builder.Services.AddScoped<DatabaseService>();
+builder.Services.AddScoped<SteamService>();
 
-// Add sample log generator only in development or if explicitly enabled
-if (builder.Environment.IsDevelopment() || 
-    builder.Configuration.GetValue<bool>("LanCache:GenerateSampleLogs", false))
+// Register Background Services
+builder.Services.AddHostedService<LogWatcherService>();
+builder.Services.AddHostedService<DownloadCleanupService>();
+
+// Conditionally add sample log generator for development
+if (builder.Configuration.GetValue<bool>("LanCache:GenerateSampleLogs", false))
 {
     builder.Services.AddHostedService<SampleLogGeneratorService>();
 }
 
-// Add health checks
-builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AppDbContext>("database");
-
 var app = builder.Build();
 
-// Configure pipeline
+// Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Lancache Manager API v1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "LanCache Manager API v1");
         c.RoutePrefix = "swagger";
     });
-    
-    app.UseDeveloperExceptionPage();
-}
-else
-{
-    app.UseExceptionHandler("/error");
 }
 
-app.UseCors("AllowAll");
+// Use CORS
+app.UseCors("AllowReactApp");
 
-// Health check endpoint
-app.MapHealthChecks("/health");
-
-// Serve static files from wwwroot (React app)
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
-app.UseRouting();
-app.UseAuthorization();
-
+// Map controllers
 app.MapControllers();
-app.MapHub<DownloadHub>("/downloadHub");
 
-// Fallback to index.html for client-side routing
-app.MapFallbackToFile("index.html");
+// Map SignalR hub
+app.MapHub<DownloadHub>("/hubs/downloads");
 
-// Ensure database is created and migrated
+// Create database on startup
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    await dbContext.Database.EnsureCreatedAsync();
     
-    try
-    {
-        var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-        if (!string.IsNullOrEmpty(connectionString))
-        {
-            var dbPath = connectionString.Replace("Data Source=", "").Trim();
-            var dbDirectory = Path.GetDirectoryName(dbPath);
-            if (!string.IsNullOrEmpty(dbDirectory) && !Directory.Exists(dbDirectory))
-            {
-                Directory.CreateDirectory(dbDirectory);
-                logger.LogInformation($"Created database directory: {dbDirectory}");
-            }
-        }
-        
-        // Check if SteamApps table exists, if not create it
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='SteamApps'");
-        }
-        catch
-        {
-            logger.LogWarning("SteamApps table missing, creating it...");
-            await dbContext.Database.ExecuteSqlRawAsync(@"
-                CREATE TABLE IF NOT EXISTS SteamApps (
-                    AppId TEXT NOT NULL PRIMARY KEY,
-                    Name TEXT NOT NULL,
-                    LastUpdated TEXT NOT NULL
-                )");
-            logger.LogInformation("SteamApps table created successfully");
-        }
-        
-        // Ensure database exists
-        dbContext.Database.EnsureCreated();
-        
-        logger.LogInformation("Database is ready");
-        logger.LogInformation($"Environment: {app.Environment.EnvironmentName}");
-        logger.LogInformation($"Database: {connectionString}");
-        logger.LogInformation($"Log Path Hint: {builder.Configuration["LanCache:LogPath"] ?? "Auto-detect"}");
-        logger.LogInformation($"Cache Path: {builder.Configuration["LanCache:CachePath"] ?? "Not configured"}");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "An error occurred while initializing the database");
-        throw;
-    }
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    logger.LogInformation("Database initialized at: {Path}", dbContext.Database.GetDbConnection().DataSource);
 }
 
-var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
-startupLogger.LogInformation("==============================================");
-startupLogger.LogInformation("Lancache Manager started successfully!");
-startupLogger.LogInformation($"Environment: {app.Environment.EnvironmentName}");
-startupLogger.LogInformation($"URLs: {builder.Configuration["ASPNETCORE_URLS"] ?? "http://localhost:5000"}");
-startupLogger.LogInformation("API Documentation: /swagger");
-startupLogger.LogInformation("Health Check: /health");
-startupLogger.LogInformation("==============================================");
+// Add health check endpoint
+app.MapGet("/health", () => Results.Ok(new 
+{ 
+    status = "healthy", 
+    timestamp = DateTime.UtcNow 
+}));
+
+// Add root endpoint
+app.MapGet("/", () => Results.Ok(new
+{
+    name = "LanCache Manager API",
+    version = "1.0.0",
+    endpoints = new
+    {
+        swagger = "/swagger",
+        health = "/health",
+        downloads = "/api/downloads",
+        games = "/api/games",
+        stats = "/api/stats",
+        management = "/api/management",
+        signalr = "/hubs/downloads"
+    }
+}));
 
 app.Run();
