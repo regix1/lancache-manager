@@ -11,7 +11,8 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
     <PackageReference Include="System.Reactive" Version="6.0.0" />
   </ItemGroup>
-  <ItemGroup>
+  <!-- REMOVE THIS SECTION - IT'S CAUSING THE DUPLICATE -->
+  <!-- <ItemGroup>
     <Content Include="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
+  </ItemGroup> -->
 </Project>

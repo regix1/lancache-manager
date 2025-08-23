@@ -1,0 +1,19 @@
+# Ignore wwwroot in the Api project to prevent conflicts
+Api/LancacheManager/wwwroot/
+
+# Ignore build outputs
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+
+# Ignore node_modules if any exist
+**/node_modules/
+
+# Ignore database files
+*.db
+*.db-shm
+*.db-wal
+
+# Ignore logs
+*.log

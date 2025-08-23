@@ -23,6 +23,9 @@ WORKDIR /app
 # Copy backend project
 COPY Api/ ./Api/
 
+# Clean wwwroot to prevent duplicates (IMPORTANT)
+RUN rm -rf ./Api/LancacheManager/wwwroot/* || true
+
 # Copy built frontend from where vite actually outputs it
 COPY --from=frontend-builder /app/Api/wwwroot ./Api/LancacheManager/wwwroot/
 
