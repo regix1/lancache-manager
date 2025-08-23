@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     public DbSet<Download> Downloads { get; set; }
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
+    public DbSet<SteamApp> SteamApps { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -21,6 +22,9 @@ public class AppDbContext : DbContext
             
         modelBuilder.Entity<ServiceStats>()
             .HasKey(s => s.Service);
+            
+        modelBuilder.Entity<SteamApp>()
+            .HasKey(s => s.AppId);
             
         modelBuilder.Entity<Download>()
             .HasIndex(d => d.ClientIp);

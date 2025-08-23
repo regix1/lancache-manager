@@ -10,11 +10,16 @@ public class DatabaseService
 {
     private readonly AppDbContext _context;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly SteamService _steamService;
 
-    public DatabaseService(AppDbContext context, IHubContext<DownloadHub> hubContext)
+    public DatabaseService(
+        AppDbContext context, 
+        IHubContext<DownloadHub> hubContext,
+        SteamService steamService)
     {
         _context = context;
         _hubContext = hubContext;
+        _steamService = steamService;
     }
 
     public async Task ProcessLogEntry(LogEntry entry)
@@ -37,6 +42,7 @@ public class DatabaseService
                 StartTime = entry.Timestamp,
                 EndTime = entry.Timestamp,
                 Depot = entry.DepotId ?? "unknown",
+                App = await _steamService.GetAppNameAsync(entry.DepotId ?? "", entry.Service),
                 IsActive = true
             };
             _context.Downloads.Add(download);

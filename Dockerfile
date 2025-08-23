@@ -13,7 +13,7 @@ RUN npm install
 # Copy frontend source
 COPY Web/ .
 
-# Build frontend - it outputs to ../Api/wwwroot as per vite.config.js
+# Build frontend
 RUN node node_modules/vite/bin/vite.js build
 
 # Stage 2: Build Backend
@@ -23,10 +23,10 @@ WORKDIR /app
 # Copy backend project
 COPY Api/ ./Api/
 
-# Clean wwwroot to prevent duplicates (IMPORTANT)
+# Clean wwwroot to prevent duplicates
 RUN rm -rf ./Api/LancacheManager/wwwroot/* || true
 
-# Copy built frontend from where vite actually outputs it
+# Copy built frontend
 COPY --from=frontend-builder /app/Api/wwwroot ./Api/LancacheManager/wwwroot/
 
 # Restore and publish backend
@@ -52,7 +52,7 @@ RUN mkdir -p /data \
     && mkdir -p /logs \
     && mkdir -p /cache
 
-# Set DEFAULT environment variables
+# Set environment variables
 ENV ASPNETCORE_URLS=http://+:80
 ENV ASPNETCORE_ENVIRONMENT=Production
 ENV ConnectionStrings__DefaultConnection="Data Source=/data/lancache-manager.db"
@@ -64,7 +64,7 @@ LABEL org.opencontainers.image.description="Web-based monitoring and management 
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost/api/management/cache-info || exit 1
+  CMD curl -f http://localhost/health || exit 1
 
 # Volume for persistent data
 VOLUME ["/data", "/logs"]
