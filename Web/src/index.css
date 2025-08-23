@@ -1,109 +1,18 @@
 @import "tailwindcss";
+@import "@heroui/react/styles.css";
 
-/* Define custom theme variables using Tailwind v4's @theme directive */
-@theme {
-  /* Custom spacing for specific needs */
-  --spacing: 0.25rem;
-  
-  /* Custom breakpoints if needed */
-  --breakpoint-3xl: 120rem;
-  
-  /* Brand colors that extend Tailwind's palette */
-  --color-brand-primary: oklch(0.623 0.214 259.815);
-  --color-brand-secondary: oklch(0.627 0.265 303.9);
-  
-  /* Custom animation timing functions */
-  --ease-bounce-in: cubic-bezier(0.68, -0.55, 0.265, 1.55);
-  
-  /* Container sizes for components */
-  --container-dashboard: 90rem;
-}
-
-/* Custom variants for specific interactions */
-@custom-variant loading (&[data-loading="true"]);
-@custom-variant processing (&[data-processing="true"]);
-
-/* Minimal custom utilities for LanCache-specific needs */
-@utility cache-hit {
-  background: linear-gradient(to right, var(--color-green-500), var(--color-blue-500));
-}
-
-@utility cache-miss {
-  background: linear-gradient(to right, var(--color-red-500), var(--color-orange-500));
-}
-
-/* Base styles using Tailwind's @layer directive */
+/* HeroUI handles most theming, we just need minimal customization */
 @layer base {
-  /* Only override what's absolutely necessary */
-  html {
-    scroll-behavior: smooth;
+  :root {
+    --heroui-primary: 59 130 246;
+    --heroui-secondary: 139 92 246;
+    --heroui-success: 34 197 94;
+    --heroui-warning: 245 158 11;
+    --heroui-danger: 239 68 68;
   }
   
-  /* Custom focus styles for better accessibility */
-  *:focus-visible {
-    @apply outline-2 outline-offset-2 outline-blue-500;
-  }
-}
-
-/* Component classes for complex, reusable patterns */
-@layer components {
-  /* Stats card component */
-  .stat-card {
-    @apply rounded-lg bg-white p-6 shadow-md ring-1 ring-black/5 dark:bg-gray-800 dark:ring-white/10;
-  }
-  
-  /* Button variants using Tailwind utilities */
-  .btn-primary {
-    @apply rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-2 font-medium text-white shadow-lg transition-all hover:scale-105 hover:shadow-xl active:scale-100;
-  }
-  
-  .btn-secondary {
-    @apply rounded-lg border border-gray-300 bg-white px-4 py-2 font-medium text-gray-700 transition-all hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700;
-  }
-  
-  .btn-danger {
-    @apply rounded-lg bg-red-500 px-4 py-2 font-medium text-white transition-all hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  
-  /* Table styles */
-  .data-table {
-    @apply w-full divide-y divide-gray-200 dark:divide-gray-700;
-  }
-  
-  .data-table thead {
-    @apply bg-gray-50 dark:bg-gray-700;
-  }
-  
-  .data-table th {
-    @apply px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400;
-  }
-  
-  .data-table td {
-    @apply px-4 py-3 text-sm;
-  }
-  
-  .data-table tbody tr {
-    @apply transition-colors hover:bg-gray-50 dark:hover:bg-gray-700;
-  }
-}
-
-/* Utility layer for one-off utilities */
-@layer utilities {
-  /* Smooth scrollbar styling */
-  .scrollbar-thin {
-    scrollbar-width: thin;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-track {
-    @apply bg-gray-100 dark:bg-gray-800;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-gray-400 dark:bg-gray-600 rounded;
+  .dark {
+    --heroui-background: 15 23 42;
+    --heroui-foreground: 248 250 252;
   }
 }

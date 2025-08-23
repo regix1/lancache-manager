@@ -9,10 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@heroui/react": "^2.8.2",
     "@microsoft/signalr": "^8.0.7",
     "axios": "^1.7.2",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
+    "framer-motion": "^12.23.12",
     "lucide-react": "^0.400.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -21,7 +23,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "tailwindcss": "^4.0.0",
+    "tailwindcss": "^4.1.12",
     "vite": "^7.1.3"
   }
 }

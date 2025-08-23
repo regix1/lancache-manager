@@ -1,0 +1,11 @@
+export { default as Tabs, TabsProps } from './tabs.mjs';
+export { default as Tab, TabItemProps } from './base/tab-item-base.mjs';
+export { useTabs } from './use-tabs.mjs';
+import 'react';
+import '@heroui/aria-utils';
+import '@heroui/system';
+import '@heroui/theme';
+import '@heroui/react-utils';
+import '@react-stately/tabs';
+import '@react-aria/tabs';
+import 'framer-motion';

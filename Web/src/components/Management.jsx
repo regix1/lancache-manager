@@ -1,4 +1,20 @@
 import React, { useState, useEffect } from 'react';
+import { 
+  Card, 
+  CardBody, 
+  CardHeader,
+  Button, 
+  Progress,
+  Divider,
+  Chip,
+  Modal,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  useDisclosure,
+  Spinner
+} from '@heroui/react';
 import { Database, HardDrive, Trash2, AlertTriangle, RotateCcw, FileText, Loader } from 'lucide-react';
 import axios from 'axios';
 
@@ -7,6 +23,9 @@ function Management() {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [message, setMessage] = useState('');
+  const [loadError, setLoadError] = useState(false);
+  const {isOpen, onOpen, onOpenChange} = useDisclosure();
+  const [modalAction, setModalAction] = useState(null);
 
   useEffect(() => {
     loadCacheInfo();
@@ -14,103 +33,83 @@ function Management() {
 
   const loadCacheInfo = async () => {
     try {
-      const response = await axios.get('/api/management/cache');
+      setLoadError(false);
+      const response = await axios.get('/api/management/cache', {
+        timeout: 5000 // 5 second timeout
+      });
       setCacheInfo(response.data);
     } catch (error) {
       console.error('Error loading cache info:', error);
+      setLoadError(true);
+      // Set some default data so the UI isn't broken
+      setCacheInfo({
+        totalCacheSize: 0,
+        usedCacheSize: 0,
+        freeCacheSize: 0,
+        totalFiles: 0,
+        serviceSizes: {}
+      });
     }
   };
 
   const handleClearCache = async (service = null) => {
-    const confirmMsg = service 
-      ? `Are you sure you want to clear the cache for ${service}?`
-      : 'Are you sure you want to clear ALL cache? This will delete all cached game files!';
-    
-    if (!window.confirm(confirmMsg)) return;
-    
-    setLoading(true);
-    try {
-      await axios.delete(`/api/management/cache${service ? `?service=${service}` : ''}`);
-      setMessage(`Cache cleared for ${service || 'all services'}`);
-      await loadCacheInfo();
-    } catch (error) {
-      setMessage('Error clearing cache');
-    }
-    setLoading(false);
-    setTimeout(() => setMessage(''), 5000);
+    setModalAction({ type: 'clearCache', service });
+    onOpen();
   };
 
   const handleResetDatabase = async () => {
-    if (!window.confirm('Are you sure you want to reset the database? This will delete all download history and statistics!')) return;
-    
-    setLoading(true);
-    try {
-      await axios.delete('/api/management/database');
-      setMessage('Database reset successfully');
-      await loadCacheInfo();
-    } catch (error) {
-      setMessage('Error resetting database');
-    }
-    setLoading(false);
-    setTimeout(() => setMessage(''), 5000);
+    setModalAction({ type: 'resetDatabase' });
+    onOpen();
   };
 
   const handleResetLogs = async () => {
-    const confirmed = window.confirm(
-      '⚠️ RESET LOG POSITION\n\n' +
-      'This will:\n' +
-      '• Clear all download history\n' +
-      '• Reset statistics\n' +
-      '• Start monitoring from the current end of the log file\n' +
-      '• Only track NEW downloads going forward\n\n' +
-      'Continue?'
-    );
-    
-    if (!confirmed) return;
-    
-    setLoading(true);
-    try {
-      const response = await axios.post('/api/management/reset-logs');
-      setMessage(response.data.message);
-      setTimeout(() => window.location.reload(), 3000);
-    } catch (error) {
-      setMessage('Error resetting logs');
-    }
-    setLoading(false);
+    setModalAction({ type: 'resetLogs' });
+    onOpen();
   };
 
   const handleProcessAllLogs = async () => {
-    const confirmed = window.confirm(
-      '⚠️ PROCESS ENTIRE LOG FILE\n\n' +
-      'WARNING: This will process your ENTIRE log file from the beginning!\n\n' +
-      'This can:\n' +
-      '• Take a VERY long time (10+ minutes for large logs)\n' +
-      '• Create thousands of database entries\n' +
-      '• Use significant CPU and memory\n\n' +
-      'Continue?'
-    );
-    
-    if (!confirmed) return;
-    
+    setModalAction({ type: 'processLogs' });
+    onOpen();
+  };
+
+  const executeAction = async () => {
+    onOpenChange(false);
     setLoading(true);
-    setProcessing(true);
+    
     try {
-      const response = await axios.post('/api/management/process-all-logs');
-      const { logSizeMB, estimatedTimeMinutes } = response.data;
-      
-      setMessage(
-        `Processing ${logSizeMB.toFixed(1)} MB log file. ` +
-        `Estimated time: ${estimatedTimeMinutes} minutes. ` +
-        `The page will refresh when complete.`
-      );
-      
-      // Reload after estimated time
-      setTimeout(() => window.location.reload(), estimatedTimeMinutes * 60 * 1000);
+      switch (modalAction?.type) {
+        case 'clearCache':
+          await axios.delete(`/api/management/cache${modalAction.service ? `?service=${modalAction.service}` : ''}`);
+          setMessage(`Cache cleared for ${modalAction.service || 'all services'}`);
+          break;
+        case 'resetDatabase':
+          await axios.delete('/api/management/database');
+          setMessage('Database reset successfully');
+          break;
+        case 'resetLogs':
+          const resetResponse = await axios.post('/api/management/reset-logs');
+          setMessage(resetResponse.data.message);
+          setTimeout(() => window.location.reload(), 3000);
+          break;
+        case 'processLogs':
+          setProcessing(true);
+          const processResponse = await axios.post('/api/management/process-all-logs');
+          const { logSizeMB, estimatedTimeMinutes } = processResponse.data;
+          setMessage(
+            `Processing ${logSizeMB.toFixed(1)} MB log file. ` +
+            `Estimated time: ${estimatedTimeMinutes} minutes. ` +
+            `The page will refresh when complete.`
+          );
+          setTimeout(() => window.location.reload(), estimatedTimeMinutes * 60 * 1000);
+          break;
+      }
+      await loadCacheInfo();
     } catch (error) {
-      setMessage('Error setting up log processing');
-      setProcessing(false);
+      setMessage('Error: ' + error.message);
     }
+    
     setLoading(false);
+    setTimeout(() => setMessage(''), 5000);
   };
 
   const formatBytes = (bytes) => {
@@ -121,139 +120,195 @@ function Management() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
+  const getModalContent = () => {
+    switch (modalAction?.type) {
+      case 'clearCache':
+        return {
+          title: modalAction.service ? `Clear ${modalAction.service} Cache` : 'Clear All Cache',
+          body: modalAction.service 
+            ? `Are you sure you want to clear the cache for ${modalAction.service}?`
+            : 'Are you sure you want to clear ALL cache? This will delete all cached game files!',
+          color: 'warning'
+        };
+      case 'resetDatabase':
+        return {
+          title: 'Reset Database',
+          body: 'Are you sure you want to reset the database? This will delete all download history and statistics!',
+          color: 'danger'
+        };
+      case 'resetLogs':
+        return {
+          title: 'Reset Log Position',
+          body: 'This will clear all download history, reset statistics, and start monitoring from the current end of the log file. Only NEW downloads will be tracked going forward.',
+          color: 'primary'
+        };
+      case 'processLogs':
+        return {
+          title: 'Process Entire Log File',
+          body: 'WARNING: This will process your ENTIRE log file from the beginning! This can take a VERY long time (10+ minutes for large logs) and create thousands of database entries.',
+          color: 'secondary'
+        };
+      default:
+        return { title: '', body: '', color: 'default' };
+    }
+  };
+
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-semibold mb-6">System Management</h2>
+    <div className="space-y-6">
+      <h2 className="text-2xl font-semibold">System Management</h2>
 
       {/* Status Messages */}
       {message && (
-        <div className={`mb-6 p-4 rounded-lg ${
-          message.includes('Error') ? 'bg-red-500' : 
-          message.includes('Processing') ? 'bg-blue-500' : 'bg-green-500'
-        } text-white`}>
-          {message.includes('Processing') && <Loader className="inline w-4 h-4 mr-2 animate-spin" />}
-          {message}
-        </div>
+        <Card className={message.includes('Error') ? 'bg-danger-50' : message.includes('Processing') ? 'bg-primary-50' : 'bg-success-50'}>
+          <CardBody className="flex flex-row items-center gap-3">
+            {message.includes('Processing') && <Spinner size="sm" />}
+            <p className="font-medium">{message}</p>
+          </CardBody>
+        </Card>
       )}
 
       {/* Processing Indicator */}
       {processing && (
-        <div className="mb-6 p-4 bg-blue-500 text-white rounded-lg">
-          <div className="flex items-center gap-3">
-            <Loader className="w-5 h-5 animate-spin" />
-            <div>
-              <div className="font-semibold">Processing Log File</div>
-              <div className="text-sm opacity-90">This may take several minutes. Please wait...</div>
+        <Card className="bg-primary-50">
+          <CardBody>
+            <div className="flex items-center gap-3">
+              <Spinner color="primary" />
+              <div>
+                <p className="font-semibold">Processing Log File</p>
+                <p className="text-sm text-default-500">This may take several minutes. Please wait...</p>
+              </div>
             </div>
-          </div>
-        </div>
+            <Progress 
+              size="sm"
+              isIndeterminate
+              aria-label="Processing..."
+              className="mt-3"
+              color="primary"
+            />
+          </CardBody>
+        </Card>
       )}
 
-      <div className="grid gap-6">
-        {/* Cache Information */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow">
-          <div className="flex items-center gap-2 mb-4">
-            <HardDrive className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="text-lg font-semibold">Cache Storage</h3>
-          </div>
-          
+      {/* Cache Information */}
+      <Card>
+        <CardHeader className="flex items-center gap-2">
+          <HardDrive className="h-5 w-5 text-default-500" />
+          <h3 className="text-lg font-semibold">Cache Storage</h3>
+          {loadError && (
+            <Chip color="warning" size="sm" className="ml-auto">
+              Using Default Values
+            </Chip>
+          )}
+        </CardHeader>
+        <Divider />
+        <CardBody>
           {cacheInfo ? (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Total Size</span>
+                  <p className="text-sm text-default-500">Total Size</p>
                   <p className="text-xl font-semibold">{formatBytes(cacheInfo.totalCacheSize)}</p>
                 </div>
                 <div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Used</span>
+                  <p className="text-sm text-default-500">Used</p>
                   <p className="text-xl font-semibold">{formatBytes(cacheInfo.usedCacheSize)}</p>
                 </div>
                 <div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Free</span>
+                  <p className="text-sm text-default-500">Free</p>
                   <p className="text-xl font-semibold">{formatBytes(cacheInfo.freeCacheSize)}</p>
                 </div>
                 <div>
-                  <span className="text-sm text-gray-600 dark:text-gray-400">Total Files</span>
+                  <p className="text-sm text-default-500">Total Files</p>
                   <p className="text-xl font-semibold">{cacheInfo.totalFiles.toLocaleString()}</p>
                 </div>
               </div>
               
               {Object.keys(cacheInfo.serviceSizes).length > 0 && (
-                <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <h4 className="font-semibold mb-3">Service Breakdown</h4>
-                  <div className="space-y-2">
-                    {Object.entries(cacheInfo.serviceSizes).map(([service, size]) => (
-                      <div key={service} className="flex justify-between items-center py-1">
-                        <span className="text-gray-600 dark:text-gray-400 capitalize">{service}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono text-sm">{formatBytes(size)}</span>
-                          <button
-                            onClick={() => handleClearCache(service)}
-                            disabled={loading}
-                            className="p-1.5 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
-                            title={`Clear ${service} cache`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                <>
+                  <Divider />
+                  <div>
+                    <h4 className="font-semibold mb-3">Service Breakdown</h4>
+                    <div className="space-y-2">
+                      {Object.entries(cacheInfo.serviceSizes).map(([service, size]) => (
+                        <div key={service} className="flex justify-between items-center">
+                          <span className="text-default-600 capitalize">{service}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-sm">{formatBytes(size)}</span>
+                            <Button
+                              isIconOnly
+                              size="sm"
+                              color="danger"
+                              variant="light"
+                              onPress={() => handleClearCache(service)}
+                              isDisabled={loading}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
           ) : (
-            <div className="py-8 text-center text-gray-500">
-              <Loader className="w-8 h-8 mx-auto mb-2 animate-spin" />
-              Loading cache information...
+            <div className="flex justify-center py-8">
+              <Spinner label="Loading cache information..." />
             </div>
           )}
-        </div>
+        </CardBody>
+      </Card>
 
-        {/* Action Buttons */}
-        <div className="grid md:grid-cols-2 gap-4">
-          <button
-            onClick={() => handleClearCache()}
-            disabled={loading || processing}
-            className="bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 transition-colors font-medium"
-          >
-            <Trash2 className="w-5 h-5" />
-            Clear All Cache
-          </button>
+      {/* Action Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Button
+          color="warning"
+          startContent={<Trash2 className="h-5 w-5" />}
+          onPress={() => handleClearCache()}
+          isDisabled={loading || processing}
+          className="font-medium"
+        >
+          Clear All Cache
+        </Button>
 
-          <button
-            onClick={handleResetDatabase}
-            disabled={loading || processing}
-            className="bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 transition-colors font-medium"
-          >
-            <Database className="w-5 h-5" />
-            Reset Database
-          </button>
+        <Button
+          color="danger"
+          startContent={<Database className="h-5 w-5" />}
+          onPress={handleResetDatabase}
+          isDisabled={loading || processing}
+          className="font-medium"
+        >
+          Reset Database
+        </Button>
 
-          <button
-            onClick={handleResetLogs}
-            disabled={loading || processing}
-            className="bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 transition-colors font-medium"
-          >
-            <RotateCcw className="w-5 h-5" />
-            Reset Log Position
-          </button>
+        <Button
+          color="primary"
+          startContent={<RotateCcw className="h-5 w-5" />}
+          onPress={handleResetLogs}
+          isDisabled={loading || processing}
+          className="font-medium"
+        >
+          Reset Log Position
+        </Button>
 
-          <button
-            onClick={handleProcessAllLogs}
-            disabled={loading || processing}
-            className="bg-purple-500 hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 transition-colors font-medium"
-          >
-            <FileText className="w-5 h-5" />
-            Process Entire Log
-          </button>
-        </div>
+        <Button
+          color="secondary"
+          startContent={<FileText className="h-5 w-5" />}
+          onPress={handleProcessAllLogs}
+          isDisabled={loading || processing}
+          className="font-medium"
+        >
+          Process Entire Log
+        </Button>
+      </div>
 
-        {/* Warning Box */}
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+      {/* Warning Box */}
+      <Card className="bg-warning-50 border-warning">
+        <CardBody>
           <div className="flex gap-3">
-            <AlertTriangle className="w-5 h-5 text-yellow-600 dark:text-yellow-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-yellow-800 dark:text-yellow-200">
+            <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
+            <div className="text-sm">
               <p className="font-semibold mb-2">Important Notes:</p>
               <ul className="space-y-1 list-disc list-inside">
                 <li><strong>Reset Log Position:</strong> Starts fresh from current log position, only tracking new downloads</li>
@@ -263,8 +318,39 @@ function Management() {
               </ul>
             </div>
           </div>
-        </div>
-      </div>
+        </CardBody>
+      </Card>
+
+      {/* Confirmation Modal */}
+      <Modal 
+        isOpen={isOpen} 
+        onOpenChange={onOpenChange}
+        backdrop="blur"
+      >
+        <ModalContent>
+          {(onClose) => {
+            const content = getModalContent();
+            return (
+              <>
+                <ModalHeader className="flex flex-col gap-1">
+                  {content.title}
+                </ModalHeader>
+                <ModalBody>
+                  <p>{content.body}</p>
+                </ModalBody>
+                <ModalFooter>
+                  <Button color="default" variant="light" onPress={onClose}>
+                    Cancel
+                  </Button>
+                  <Button color={content.color} onPress={executeAction}>
+                    Confirm
+                  </Button>
+                </ModalFooter>
+              </>
+            );
+          }}
+        </ModalContent>
+      </Modal>
     </div>
   );
 }

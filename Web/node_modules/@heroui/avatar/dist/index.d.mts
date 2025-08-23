@@ -1,0 +1,12 @@
+export { default as Avatar, AvatarProps } from './avatar.mjs';
+export { default as AvatarGroup, AvatarGroupProps } from './avatar-group.mjs';
+export { useAvatar } from './use-avatar.mjs';
+export { useAvatarGroup } from './use-avatar-group.mjs';
+export { AvatarIcon } from './avatar-icon.mjs';
+export { AvatarGroupProvider, useAvatarGroupContext } from './avatar-group-context.mjs';
+import '@heroui/system';
+import 'tailwind-variants';
+import 'react';
+import '@heroui/theme';
+import '@heroui/react-utils';
+import 'react/jsx-runtime';
