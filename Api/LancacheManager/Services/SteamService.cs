@@ -109,7 +109,8 @@ public class SteamService
                     return $"Steam App {appId}";
                 }
 
-                var json = await response.ReadAsStringAsync();
+                // FIX: Use Content.ReadAsStringAsync() instead of ReadAsStringAsync()
+                var json = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
                 
                 if (doc.RootElement.TryGetProperty(appId, out var appData) &&
