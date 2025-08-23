@@ -13,7 +13,7 @@ RUN npm install
 # Copy frontend source
 COPY Web/ .
 
-# Build frontend - use node to run vite directly
+# Build frontend - it outputs to ../Api/wwwroot as per vite.config.js
 RUN node node_modules/vite/bin/vite.js build
 
 # Stage 2: Build Backend
@@ -23,8 +23,8 @@ WORKDIR /app
 # Copy backend project
 COPY Api/ ./Api/
 
-# Copy built frontend to wwwroot
-COPY --from=frontend-builder /app/web/dist ./Api/LancacheManager/wwwroot/
+# Copy built frontend from where vite actually outputs it
+COPY --from=frontend-builder /app/Api/wwwroot ./Api/LancacheManager/wwwroot/
 
 # Restore and publish backend
 WORKDIR /app/Api/LancacheManager
