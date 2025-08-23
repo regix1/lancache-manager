@@ -107,16 +107,20 @@ public class DatabaseService
 
     public async Task<List<ClientStats>> GetClientStats()
     {
-        return await _context.ClientStats
-            .OrderByDescending(c => c.TotalBytes)
-            .ToListAsync();
+        // First get all stats, then sort in memory (EF Core can't translate calculated properties)
+        var stats = await _context.ClientStats.ToListAsync();
+        
+        // Sort by TotalBytes (calculated property) in memory
+        return stats.OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes).ToList();
     }
 
     public async Task<List<ServiceStats>> GetServiceStats()
     {
-        return await _context.ServiceStats
-            .OrderByDescending(s => s.TotalBytes)
-            .ToListAsync();
+        // First get all stats, then sort in memory (EF Core can't translate calculated properties)
+        var stats = await _context.ServiceStats.ToListAsync();
+        
+        // Sort by TotalBytes (calculated property) in memory
+        return stats.OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes).ToList();
     }
 
     public async Task ResetDatabase()
