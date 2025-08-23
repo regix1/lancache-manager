@@ -32,7 +32,7 @@ public class StatsController : ControllerBase
         {
             var cacheInfo = _cacheService.GetCacheInfo();
             var activeDownloads = await _dbService.GetActiveDownloads();
-            var recentStats = await _dbService.GetRecentStats(24); // Last 24 hours
+            dynamic recentStats = await _dbService.GetRecentStats(24); // Use dynamic to access properties
             
             var overview = new
             {
@@ -47,9 +47,9 @@ public class StatsController : ControllerBase
                 Downloads = new
                 {
                     Active = activeDownloads.Count,
-                    Last24Hours = recentStats.DownloadCount,
-                    TotalBytesServed = recentStats.TotalBytes,
-                    CacheHitRate = recentStats.CacheHitRate
+                    Last24Hours = (int)recentStats.DownloadCount,
+                    TotalBytesServed = (long)recentStats.TotalBytes,
+                    CacheHitRate = (double)recentStats.CacheHitRate
                 },
                 TopServices = recentStats.TopServices,
                 TopClients = recentStats.TopClients

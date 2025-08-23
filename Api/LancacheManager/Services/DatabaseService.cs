@@ -233,10 +233,11 @@ public class DatabaseService
                 g.Key.Service,
                 g.Key.Depot,
                 g.Key.App,
-                TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 DownloadCount = g.Count()
             })
-            .OrderByDescending(g => g.TotalBytes)
+            .OrderByDescending(g => g.TotalCacheHitBytes + g.TotalCacheMissBytes)
             .Take(count)
             .ToListAsync();
         
@@ -254,7 +255,8 @@ public class DatabaseService
                 GameId = group.Depot,
                 GameName = gameName,
                 Service = group.Service,
-                TotalBytes = group.TotalBytes,
+                TotalCacheHitBytes = group.TotalCacheHitBytes,
+                TotalCacheMissBytes = group.TotalCacheMissBytes,
                 DownloadCount = group.DownloadCount
             });
         }
@@ -275,12 +277,13 @@ public class DatabaseService
                 g.Key.Service,
                 g.Key.Depot,
                 g.Key.App,
-                TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 DownloadCount = g.Count(),
                 LastDownloaded = g.Max(d => d.EndTime)
             })
             .OrderByDescending(g => g.DownloadCount)
-            .ThenByDescending(g => g.TotalBytes)
+            .ThenByDescending(g => g.TotalCacheHitBytes + g.TotalCacheMissBytes)
             .Take(count)
             .ToListAsync();
         
@@ -298,7 +301,8 @@ public class DatabaseService
                 GameId = group.Depot,
                 GameName = gameName,
                 Service = group.Service,
-                TotalBytes = group.TotalBytes,
+                TotalCacheHitBytes = group.TotalCacheHitBytes,
+                TotalCacheMissBytes = group.TotalCacheMissBytes,
                 DownloadCount = group.DownloadCount,
                 LastDownloaded = group.LastDownloaded
             });
@@ -345,10 +349,11 @@ public class DatabaseService
                 g.Key.Service,
                 g.Key.Depot,
                 g.Key.App,
-                TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 DownloadCount = g.Count()
             })
-            .OrderByDescending(g => g.TotalBytes)
+            .OrderByDescending(g => g.TotalCacheHitBytes + g.TotalCacheMissBytes)
             .Take(count)
             .ToListAsync();
         
@@ -360,7 +365,8 @@ public class DatabaseService
                 GameId = group.Depot,
                 GameName = group.App,
                 Service = group.Service,
-                TotalBytes = group.TotalBytes,
+                TotalCacheHitBytes = group.TotalCacheHitBytes,
+                TotalCacheMissBytes = group.TotalCacheMissBytes,
                 DownloadCount = group.DownloadCount
             });
         }

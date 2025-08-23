@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("LancacheManager")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4f1052104146cc1d20461ba8870762bd0ff040ad")]
 [assembly: System.Reflection.AssemblyProductAttribute("LancacheManager")]
 [assembly: System.Reflection.AssemblyTitleAttribute("LancacheManager")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
