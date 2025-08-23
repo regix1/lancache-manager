@@ -11,6 +11,10 @@ public class DatabaseService
     private readonly AppDbContext _context;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ILogger<DatabaseService> _logger;
+    
+    // Track ongoing sessions to group downloads properly
+    private static readonly Dictionary<string, DateTime> _sessionTracker = new();
+    private static readonly object _sessionLock = new object();
 
     public DatabaseService(AppDbContext context, IHubContext<DownloadHub> hubContext, ILogger<DatabaseService> logger)
     {
@@ -24,17 +28,44 @@ public class DatabaseService
         // Skip small entries (less than 1MB)
         if (entry.BytesServed < 1024 * 1024) return;
 
-        // Find or create active download
+        // Create session key
+        var sessionKey = $"{entry.ClientIp}_{entry.Service}";
+        bool shouldCreateNewDownload = false;
+        
+        lock (_sessionLock)
+        {
+            if (_sessionTracker.TryGetValue(sessionKey, out var lastActivity))
+            {
+                // If more than 5 minutes since last activity, it's a new download session
+                if (entry.Timestamp - lastActivity > TimeSpan.FromMinutes(5))
+                {
+                    shouldCreateNewDownload = true;
+                }
+            }
+            else
+            {
+                shouldCreateNewDownload = true;
+            }
+            _sessionTracker[sessionKey] = entry.Timestamp;
+        }
+
+        // Find existing active download for this session
         var download = await _context.Downloads
             .Where(d => d.ClientIp == entry.ClientIp &&
                        d.Service == entry.Service &&
-                       d.IsActive &&
-                       d.EndTime > DateTime.UtcNow.AddMinutes(-2))
+                       d.IsActive)
+            .OrderByDescending(d => d.StartTime)
             .FirstOrDefaultAsync();
 
-        bool isNewDownload = false;
-        if (download == null)
+        if (download == null || shouldCreateNewDownload)
         {
+            // Mark old download as complete if exists
+            if (download != null)
+            {
+                download.IsActive = false;
+            }
+
+            // Create new download session
             download = new Download
             {
                 Service = entry.Service,
@@ -44,11 +75,15 @@ public class DatabaseService
                 IsActive = true
             };
             _context.Downloads.Add(download);
-            isNewDownload = true;
+            _logger.LogDebug($"Created new download session for {entry.ClientIp} - {entry.Service}");
+        }
+        else
+        {
+            // Update existing download session
+            download.EndTime = entry.Timestamp;
         }
 
-        // Update download
-        download.EndTime = entry.Timestamp;
+        // Update bytes
         if (entry.CacheStatus == "HIT")
             download.CacheHitBytes += entry.BytesServed;
         else
@@ -68,9 +103,8 @@ public class DatabaseService
             clientStats.TotalCacheMissBytes += entry.BytesServed;
         
         clientStats.LastSeen = entry.Timestamp;
-        if (isNewDownload) clientStats.TotalDownloads++;
 
-        // Update service stats
+        // Update service stats  
         var serviceStats = await _context.ServiceStats.FindAsync(entry.Service);
         if (serviceStats == null)
         {
@@ -84,7 +118,6 @@ public class DatabaseService
             serviceStats.TotalCacheMissBytes += entry.BytesServed;
         
         serviceStats.LastActivity = entry.Timestamp;
-        if (isNewDownload) serviceStats.TotalDownloads++;
 
         await _context.SaveChangesAsync();
 
@@ -102,7 +135,7 @@ public class DatabaseService
 
     public async Task<List<Download>> GetActiveDownloads()
     {
-        var cutoff = DateTime.UtcNow.AddMinutes(-2);
+        var cutoff = DateTime.UtcNow.AddMinutes(-5);
         return await _context.Downloads
             .Where(d => d.IsActive && d.EndTime > cutoff)
             .OrderByDescending(d => d.StartTime)
@@ -111,19 +144,13 @@ public class DatabaseService
 
     public async Task<List<ClientStats>> GetClientStats()
     {
-        // Get all client stats first, then sort in memory (EF Core can't translate calculated properties)
         var stats = await _context.ClientStats.ToListAsync();
-        
-        // Sort by TotalBytes (calculated property) in memory
         return stats.OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes).ToList();
     }
 
     public async Task<List<ServiceStats>> GetServiceStats()
     {
-        // Get all service stats first, then sort in memory (EF Core can't translate calculated properties)
         var stats = await _context.ServiceStats.ToListAsync();
-        
-        // Sort by TotalBytes (calculated property) in memory
         return stats.OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes).ToList();
     }
 
@@ -133,6 +160,19 @@ public class DatabaseService
         _context.ClientStats.RemoveRange(_context.ClientStats);
         _context.ServiceStats.RemoveRange(_context.ServiceStats);
         await _context.SaveChangesAsync();
+        
+        // Clear position file
+        var positionFile = "/data/logposition.txt";
+        if (File.Exists(positionFile))
+        {
+            File.Delete(positionFile);
+        }
+        
+        // Clear session tracker
+        lock (_sessionLock)
+        {
+            _sessionTracker.Clear();
+        }
         
         _logger.LogInformation("Database reset completed");
     }

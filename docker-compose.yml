@@ -5,40 +5,22 @@ services:
     image: ghcr.io/regix1/lancache-manager:latest
     container_name: lancache-manager
     restart: unless-stopped
+    user: root
     ports:
       - "8080:80"
     volumes:
-      # Persistent data (database and log position file)
+      # Your data directory
       - ./data:/data
       
-      # Mount your actual Lancache logs directory (read-only)
+      # Your actual paths from CACHE_ROOT
       - /mnt/logs:/logs:ro
-      
-      # Mount your actual cache directory for statistics (read-only)
       - /mnt/cache/cache:/cache:ro
     environment:
-      # User and group IDs (matching your other container)
       - PUID=1006
       - PGID=1006
-      
-      # Your timezone
       - TZ=America/Chicago
-      
-      # Optional: Override paths if needed
-      # - LanCache__LogPath=/logs/access.log
-      # - LanCache__CachePath=/cache
-    networks:
-      - lancache-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-
-networks:
-  lancache-network:
-    driver: bridge
+      - ASPNETCORE_URLS=http://+:80
+      - LanCache__LogPath=/logs/access.log
+      - LanCache__CachePath=/cache
+      - LanCache__StartFromEndOfLog=true
+      - LanCache__ProcessHistoricalLogs=false
