@@ -12,15 +12,14 @@ RUN npm ci --quiet
 COPY Web/ ./
 RUN npm run build
 
-# Stage 2: Build Backend  
+# Stage 2: Build Backend
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-builder
 WORKDIR /src
 
-# Copy the backend project
-COPY Api/ ./Api/
+# Copy the backend project (it's in Api/LancacheManager/)
+COPY Api/LancacheManager/ ./
 
-# Restore and publish (your .csproj is directly in Api folder)
-WORKDIR /src/Api
+# Restore and publish
 RUN dotnet restore LancacheManager.csproj
 RUN dotnet publish LancacheManager.csproj -c Release -o /app/publish
 

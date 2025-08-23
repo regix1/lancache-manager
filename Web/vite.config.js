@@ -22,18 +22,8 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist',  // Always use dist folder
+    outDir: 'dist',  // Build to dist folder
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          signalr: ['@microsoft/signalr'],
-          charts: ['recharts'],
-          utils: ['axios', 'date-fns', 'clsx']
-        }
-      }
-    }
+    chunkSizeWarningLimit: 1000
   }
 })
