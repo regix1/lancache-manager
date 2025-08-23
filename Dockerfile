@@ -45,6 +45,8 @@ ENV ASPNETCORE_ENVIRONMENT=Production
 ENV ConnectionStrings__DefaultConnection="Data Source=/data/lancache.db"
 ENV LanCache__LogPath=/logs/access.log
 ENV LanCache__CachePath=/cache
+ENV LanCache__StartFromEndOfLog=true
+ENV LanCache__ProcessHistoricalLogs=false
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \

@@ -11,7 +11,6 @@ public class LogWatcherService : BackgroundService
     private readonly ILogger<LogWatcherService> _logger;
     private long _lastPosition = 0;
     private readonly string _positionFile = "/data/logposition.txt";
-    private DateTime _lastLogTime = DateTime.UtcNow;
     private int _consecutiveEmptyReads = 0;
 
     public LogWatcherService(
@@ -42,7 +41,7 @@ public class LogWatcherService : BackgroundService
         // Load saved position
         await LoadPosition();
 
-        // If no saved position, start from near the end of file
+        // If no saved position, initialize based on configuration
         if (_lastPosition == 0)
         {
             await InitializePosition(logPath);
@@ -57,17 +56,28 @@ public class LogWatcherService : BackgroundService
         try
         {
             var fileInfo = new FileInfo(logPath);
-            if (fileInfo.Length > 1_000_000) // If file is larger than 1MB
+            var startFromEnd = _configuration.GetValue<bool>("LanCache:StartFromEndOfLog", true);
+            var processHistorical = _configuration.GetValue<bool>("LanCache:ProcessHistoricalLogs", false);
+            
+            if (!processHistorical || startFromEnd)
             {
-                // Start from last 100KB of file
-                _lastPosition = Math.Max(0, fileInfo.Length - 100_000);
-                _logger.LogInformation($"Large log file detected. Starting from position {_lastPosition:N0} (last 100KB)");
+                // Start from the end of file (only process new entries)
+                _lastPosition = fileInfo.Length;
+                _logger.LogInformation($"Starting from END of log file (position {_lastPosition:N0})");
+                _logger.LogInformation($"Only NEW log entries will be processed");
+            }
+            else if (fileInfo.Length > 100_000_000) // If file is larger than 100MB
+            {
+                // Start from last 10MB for large files
+                _lastPosition = Math.Max(0, fileInfo.Length - 10_000_000);
+                _logger.LogInformation($"Large log file detected. Starting from position {_lastPosition:N0} (last 10MB)");
             }
             else
             {
                 _lastPosition = 0;
                 _logger.LogInformation("Starting from beginning of log file");
             }
+            
             await SavePosition();
         }
         catch (Exception ex)
@@ -83,12 +93,23 @@ public class LogWatcherService : BackgroundService
         using var reader = new StreamReader(stream, Encoding.UTF8, true, 4096);
 
         // Seek to last position
-        if (_lastPosition > 0 && _lastPosition < stream.Length)
+        if (_lastPosition > 0 && _lastPosition <= stream.Length)
         {
             stream.Seek(_lastPosition, SeekOrigin.Begin);
-            // Skip partial line
-            await reader.ReadLineAsync();
-            _logger.LogInformation($"Resumed from position {_lastPosition:N0}");
+            
+            // If we're not at the end, skip the partial line
+            if (_lastPosition < stream.Length)
+            {
+                await reader.ReadLineAsync();
+            }
+            
+            _logger.LogInformation($"Resumed from position {_lastPosition:N0} of {stream.Length:N0} total bytes");
+        }
+        else if (_lastPosition > stream.Length)
+        {
+            // File was rotated or truncated, start from beginning
+            _lastPosition = 0;
+            _logger.LogWarning("Log file appears to have been rotated, starting from beginning");
         }
 
         var entries = new List<LogEntry>();
@@ -126,8 +147,8 @@ public class LogWatcherService : BackgroundService
                         linesProcessed = 0;
                     }
 
-                    // Report progress every 10 seconds
-                    if (DateTime.UtcNow - lastReportTime > TimeSpan.FromSeconds(10))
+                    // Report progress every 30 seconds
+                    if (DateTime.UtcNow - lastReportTime > TimeSpan.FromSeconds(30))
                     {
                         _logger.LogDebug($"Processed {linesProcessed} lines, position: {_lastPosition:N0}");
                         lastReportTime = DateTime.UtcNow;
@@ -147,8 +168,8 @@ public class LogWatcherService : BackgroundService
 
                     _consecutiveEmptyReads++;
                     
-                    // Only log "waiting" message every 10th empty read (every 10 seconds)
-                    if (_consecutiveEmptyReads % 10 == 1)
+                    // Only log "waiting" message every 30th empty read (every 30 seconds)
+                    if (_consecutiveEmptyReads % 30 == 1)
                     {
                         _logger.LogDebug($"Waiting for new log entries... (position: {_lastPosition:N0})");
                     }

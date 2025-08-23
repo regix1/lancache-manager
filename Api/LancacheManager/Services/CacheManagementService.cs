@@ -27,26 +27,47 @@ public class CacheManagementService
                 info.FreeCacheSize = driveInfo.AvailableFreeSpace;
                 info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
 
-                // Get service sizes
-                foreach (var dir in Directory.GetDirectories(cachePath))
+                // Get service sizes - look for directories that look like services
+                var serviceDirs = new[] { "steam", "epic", "origin", "blizzard", "uplay", "riot", "wsus" };
+                
+                foreach (var service in serviceDirs)
                 {
-                    try
+                    var servicePath = Path.Combine(cachePath, service);
+                    if (Directory.Exists(servicePath))
                     {
-                        var dirName = Path.GetFileName(dir);
-                        // Skip hidden directories and numeric directories
-                        if (dirName.StartsWith(".") || dirName.All(char.IsDigit))
-                            continue;
-                            
-                        var size = GetDirectorySize(dir);
-                        if (size > 0)
+                        try
                         {
-                            info.ServiceSizes[dirName] = size;
-                            info.TotalFiles += CountFiles(dir);
+                            var size = GetDirectorySize(servicePath);
+                            if (size > 0)
+                            {
+                                info.ServiceSizes[service] = size;
+                                info.TotalFiles += CountFiles(servicePath);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"Could not get size for {service}");
                         }
                     }
-                    catch (Exception ex)
+                }
+
+                // Also check for any other directories that might be cache
+                foreach (var dir in Directory.GetDirectories(cachePath))
+                {
+                    var dirName = Path.GetFileName(dir);
+                    // Skip if already processed or if it's a system directory
+                    if (!serviceDirs.Contains(dirName) && !dirName.StartsWith(".") && !dirName.All(char.IsDigit))
                     {
-                        _logger.LogWarning(ex, $"Could not get size for {dir}");
+                        try
+                        {
+                            var size = GetDirectorySize(dir);
+                            if (size > 0)
+                            {
+                                info.ServiceSizes[dirName] = size;
+                                info.TotalFiles += CountFiles(dir);
+                            }
+                        }
+                        catch { }
                     }
                 }
             }
@@ -66,14 +87,9 @@ public class CacheManagementService
             long size = 0;
             var dir = new DirectoryInfo(path);
             
-            foreach (var file in dir.GetFiles("*", SearchOption.AllDirectories))
-            {
-                try
-                {
-                    size += file.Length;
-                }
-                catch { }
-            }
+            // Use parallel processing for large directories
+            var files = dir.GetFiles("*", SearchOption.AllDirectories);
+            size = files.Sum(f => f.Length);
             
             return size;
         }
@@ -107,18 +123,28 @@ public class CacheManagementService
                 var servicePath = Path.Combine(cachePath, service);
                 if (Directory.Exists(servicePath))
                 {
-                    await Task.Run(() => DeleteDirectoryContents(servicePath));
+                    await Task.Run(() => {
+                        Directory.Delete(servicePath, true);
+                        Directory.CreateDirectory(servicePath);
+                    });
                     _logger.LogInformation($"Cleared cache for service: {service}");
                 }
             }
             else
             {
-                // Clear all services
-                var tasks = Directory.GetDirectories(cachePath)
-                    .Select(dir => Task.Run(() => DeleteDirectoryContents(dir)))
-                    .ToArray();
-                    
-                await Task.WhenAll(tasks);
+                // Clear all known service directories
+                var services = new[] { "steam", "epic", "origin", "blizzard", "uplay", "riot", "wsus" };
+                foreach (var svc in services)
+                {
+                    var servicePath = Path.Combine(cachePath, svc);
+                    if (Directory.Exists(servicePath))
+                    {
+                        await Task.Run(() => {
+                            Directory.Delete(servicePath, true);
+                            Directory.CreateDirectory(servicePath);
+                        });
+                    }
+                }
                 _logger.LogInformation("Cleared all cache");
             }
         }
@@ -126,49 +152,6 @@ public class CacheManagementService
         {
             _logger.LogError(ex, "Error clearing cache");
             throw;
-        }
-    }
-
-    private void DeleteDirectoryContents(string path)
-    {
-        try
-        {
-            // Use system command for better performance and handling
-            if (OperatingSystem.IsLinux())
-            {
-                // Use rm -rf for Linux (more reliable)
-                using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "/bin/rm",
-                    Arguments = $"-rf \"{path}/*\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                });
-                process?.WaitForExit();
-                
-                // Recreate the directory
-                if (!Directory.Exists(path))
-                {
-                    Directory.CreateDirectory(path);
-                }
-            }
-            else
-            {
-                // Windows or fallback
-                var dir = new DirectoryInfo(path);
-                foreach (var file in dir.GetFiles())
-                {
-                    try { file.Delete(); } catch { }
-                }
-                foreach (var subDir in dir.GetDirectories())
-                {
-                    try { subDir.Delete(true); } catch { }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error deleting contents of {path}");
         }
     }
 }

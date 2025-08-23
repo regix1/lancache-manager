@@ -21,7 +21,7 @@ public class DatabaseService
 
     public async Task ProcessLogEntry(LogEntry entry)
     {
-        // Skip small entries
+        // Skip small entries (less than 1MB)
         if (entry.BytesServed < 1024 * 1024) return;
 
         // Find or create active download
@@ -32,6 +32,7 @@ public class DatabaseService
                        d.EndTime > DateTime.UtcNow.AddMinutes(-2))
             .FirstOrDefaultAsync();
 
+        bool isNewDownload = false;
         if (download == null)
         {
             download = new Download
@@ -43,6 +44,7 @@ public class DatabaseService
                 IsActive = true
             };
             _context.Downloads.Add(download);
+            isNewDownload = true;
         }
 
         // Update download
@@ -66,6 +68,7 @@ public class DatabaseService
             clientStats.TotalCacheMissBytes += entry.BytesServed;
         
         clientStats.LastSeen = entry.Timestamp;
+        if (isNewDownload) clientStats.TotalDownloads++;
 
         // Update service stats
         var serviceStats = await _context.ServiceStats.FindAsync(entry.Service);
@@ -81,10 +84,11 @@ public class DatabaseService
             serviceStats.TotalCacheMissBytes += entry.BytesServed;
         
         serviceStats.LastActivity = entry.Timestamp;
+        if (isNewDownload) serviceStats.TotalDownloads++;
 
         await _context.SaveChangesAsync();
 
-        // Notify clients
+        // Notify clients via SignalR
         await _hubContext.Clients.All.SendAsync("DownloadUpdate", download);
     }
 
@@ -107,7 +111,7 @@ public class DatabaseService
 
     public async Task<List<ClientStats>> GetClientStats()
     {
-        // First get all stats, then sort in memory (EF Core can't translate calculated properties)
+        // Get all client stats first, then sort in memory (EF Core can't translate calculated properties)
         var stats = await _context.ClientStats.ToListAsync();
         
         // Sort by TotalBytes (calculated property) in memory
@@ -116,7 +120,7 @@ public class DatabaseService
 
     public async Task<List<ServiceStats>> GetServiceStats()
     {
-        // First get all stats, then sort in memory (EF Core can't translate calculated properties)
+        // Get all service stats first, then sort in memory (EF Core can't translate calculated properties)
         var stats = await _context.ServiceStats.ToListAsync();
         
         // Sort by TotalBytes (calculated property) in memory
@@ -129,5 +133,7 @@ public class DatabaseService
         _context.ClientStats.RemoveRange(_context.ClientStats);
         _context.ServiceStats.RemoveRange(_context.ServiceStats);
         await _context.SaveChangesAsync();
+        
+        _logger.LogInformation("Database reset completed");
     }
 }

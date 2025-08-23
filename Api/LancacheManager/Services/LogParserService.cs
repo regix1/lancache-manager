@@ -7,7 +7,7 @@ public class LogParserService
 {
     private readonly ILogger<LogParserService> _logger;
     
-    // Updated regex to match your actual log format
+    // Regex to match your actual log format: [steam] IP ... "GET /depot/123/chunk/abc HTTP/1.1" 200 1234 ... "HIT/MISS"
     private static readonly Regex LogRegex = new(
         @"^\[(?<service>\w+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS)""",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -41,19 +41,16 @@ public class LogParserService
             // Fallback for simpler format
             if (line.Contains("HIT") || line.Contains("MISS"))
             {
-                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length >= 10)
+                return new LogEntry
                 {
-                    return new LogEntry
-                    {
-                        Service = ExtractService(line),
-                        ClientIp = ExtractIp(line),
-                        BytesServed = ExtractBytes(line),
-                        StatusCode = 200,
-                        CacheStatus = line.Contains("HIT") ? "HIT" : "MISS",
-                        Timestamp = DateTime.UtcNow
-                    };
-                }
+                    Service = ExtractService(line),
+                    ClientIp = ExtractIp(line),
+                    BytesServed = ExtractBytes(line),
+                    StatusCode = 200,
+                    CacheStatus = line.Contains("HIT") ? "HIT" : "MISS",
+                    Timestamp = DateTime.UtcNow,
+                    Url = ""
+                };
             }
         }
         catch (Exception ex)
@@ -85,10 +82,18 @@ public class LogParserService
 
     private long ExtractBytes(string line)
     {
-        var match = Regex.Match(line, @"\s(\d{4,})\s");
-        if (match.Success && long.TryParse(match.Groups[1].Value, out var bytes))
+        // Look for numbers that are likely byte counts (4+ digits)
+        var matches = Regex.Matches(line, @"\b(\d{4,})\b");
+        foreach (Match match in matches)
         {
-            return bytes;
+            if (long.TryParse(match.Groups[1].Value, out var bytes))
+            {
+                // Return the first reasonable byte count found
+                if (bytes > 100 && bytes < 10_000_000_000) // Between 100 bytes and 10GB
+                {
+                    return bytes;
+                }
+            }
         }
         return 0;
     }
@@ -99,9 +104,10 @@ public class LogParserService
         if (lower.Contains("steam")) return "steam";
         if (lower.Contains("wsus") || lower.Contains("windowsupdate") || lower.Contains("microsoft")) return "wsus";
         if (lower.Contains("epic")) return "epic";
-        if (lower.Contains("origin")) return "origin";
-        if (lower.Contains("blizzard")) return "blizzard";
-        if (lower.Contains("uplay")) return "uplay";
+        if (lower.Contains("origin") || lower.Contains("ea.com")) return "origin";
+        if (lower.Contains("blizzard") || lower.Contains("battle.net")) return "blizzard";
+        if (lower.Contains("uplay") || lower.Contains("ubisoft")) return "uplay";
+        if (lower.Contains("riot")) return "riot";
         return "other";
     }
 
@@ -109,8 +115,8 @@ public class LogParserService
     {
         try
         {
-            // Handle format: 22/Aug/2025:22:30:06 -0500
-            timestamp = timestamp.Replace(" -0500", "").Replace(" -0600", "");
+            // Handle format: 27/Apr/2025:17:48:27 -0500
+            timestamp = timestamp.Replace(" -0500", "").Replace(" -0600", "").Replace(" -0400", "").Replace(" -0700", "");
             if (DateTime.TryParseExact(timestamp, 
                 "dd/MMM/yyyy:HH:mm:ss", 
                 System.Globalization.CultureInfo.InvariantCulture,

@@ -16,6 +16,9 @@ public class DownloadCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Wait a bit for the app to start
+        await Task.Delay(5000, stoppingToken);
+        
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -28,27 +31,13 @@ public class DownloadCleanupService : BackgroundService
                     .Where(d => d.IsActive && d.EndTime < cutoff)
                     .ToListAsync(stoppingToken);
 
-                foreach (var download in staleDownloads)
-                {
-                    download.IsActive = false;
-                    
-                    // Update client download count
-                    var client = await context.ClientStats.FindAsync(download.ClientIp);
-                    if (client != null)
-                    {
-                        client.TotalDownloads++;
-                    }
-                    
-                    // Update service download count
-                    var service = await context.ServiceStats.FindAsync(download.Service);
-                    if (service != null)
-                    {
-                        service.TotalDownloads++;
-                    }
-                }
-
                 if (staleDownloads.Any())
                 {
+                    foreach (var download in staleDownloads)
+                    {
+                        download.IsActive = false;
+                    }
+
                     await context.SaveChangesAsync(stoppingToken);
                     _logger.LogInformation($"Marked {staleDownloads.Count} downloads as complete");
                 }
@@ -58,6 +47,7 @@ public class DownloadCleanupService : BackgroundService
                 _logger.LogError(ex, "Error in cleanup service");
             }
 
+            // Run every 30 seconds
             await Task.Delay(30000, stoppingToken);
         }
     }
