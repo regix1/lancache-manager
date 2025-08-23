@@ -80,7 +80,6 @@ function Downloads() {
   const filterDownloads = () => {
     let filtered = [...downloads];
 
-    // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter(d => 
         d.clientIp.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -88,12 +87,10 @@ function Downloads() {
       );
     }
 
-    // Apply service filter
     if (filterService !== 'all') {
       filtered = filtered.filter(d => d.service === filterService);
     }
 
-    // Apply active filter
     if (showActiveOnly) {
       filtered = filtered.filter(d => d.isActive);
     }
@@ -131,54 +128,64 @@ function Downloads() {
     <div className="p-6">
       <h2 className="text-2xl font-semibold mb-6">Download History</h2>
 
-      {/* Search and Filter Bar - Fixed */}
+      {/* Fixed Search and Filter Bar */}
       <div className="mb-6 flex flex-col md:flex-row gap-3">
+        {/* Search Input - Fixed with proper padding */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none" />
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Search className="h-5 w-5 text-gray-400" />
+          </div>
           <input
             type="text"
             placeholder="Search by IP or service..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg 
-                     bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                     focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="block w-full pl-10 pr-3 py-2 border border-gray-300 dark:border-gray-600 
+                     rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                     placeholder-gray-500 dark:placeholder-gray-400
+                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
         </div>
 
-        <select
-          value={filterService}
-          onChange={(e) => setFilterService(e.target.value)}
-          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg 
-                   bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                   focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer
-                   appearance-none bg-no-repeat bg-right pr-10"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`,
-            backgroundPosition: 'right 0.5rem center',
-            backgroundSize: '1.5em 1.5em'
-          }}
-        >
-          <option value="all">All Services</option>
-          {services.filter(s => s !== 'all').map(service => (
-            <option key={service} value={service}>
-              {service.toUpperCase()}
-            </option>
-          ))}
-        </select>
+        {/* Service Filter Dropdown - Fixed styling */}
+        <div className="relative">
+          <select
+            value={filterService}
+            onChange={(e) => setFilterService(e.target.value)}
+            className="block w-full px-4 py-2 pr-8 border border-gray-300 dark:border-gray-600 
+                     rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
+                     focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+                     appearance-none cursor-pointer"
+          >
+            <option value="all">All Services</option>
+            {services.filter(s => s !== 'all').map(service => (
+              <option key={service} value={service}>
+                {service.toUpperCase()}
+              </option>
+            ))}
+          </select>
+          {/* Custom dropdown arrow */}
+          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </div>
+        </div>
 
+        {/* Active Only Button */}
         <button
           onClick={() => setShowActiveOnly(!showActiveOnly)}
-          className={`px-4 py-2 rounded-lg border transition-colors flex items-center gap-2
+          className={`px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 min-w-[140px]
                     ${showActiveOnly 
                       ? 'bg-blue-500 text-white border-blue-500 hover:bg-blue-600' 
                       : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'}`}
         >
           <Filter className="w-4 h-4" />
-          Active Only
+          <span>Active Only</span>
         </button>
       </div>
 
+      {/* Results count */}
       <div className="text-sm text-gray-500 dark:text-gray-400 mb-4">
         Showing {filteredDownloads.length} of {downloads.length} downloads
       </div>
@@ -223,50 +230,50 @@ function Downloads() {
                 <tr>
                   <td colSpan="9" className="px-4 py-12 text-center text-gray-500 dark:text-gray-400">
                     <Download className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    No downloads found
+                    <div>No downloads found</div>
                   </td>
                 </tr>
               ) : (
                 filteredDownloads.map((download, index) => (
-                  <tr key={download.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-4 py-3">
+                  <tr key={download.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <span className="inline-flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${getServiceColor(download.service)}`}></span>
                         <span className="font-medium uppercase">{download.service}</span>
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-sm">{download.clientIp}</td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 font-mono text-sm whitespace-nowrap">{download.clientIp}</td>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">
                       {formatDate(download.startTime)}
                     </td>
-                    <td className="px-4 py-3 text-sm">
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">
                       {formatDate(download.endTime)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-green-600 dark:text-green-400 font-medium">
                         {formatBytes(download.cacheHitBytes)}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-red-600 dark:text-red-400 font-medium">
                         {formatBytes(download.cacheMissBytes)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-semibold">
+                    <td className="px-4 py-3 font-semibold whitespace-nowrap">
                       {formatBytes(download.totalBytes)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
-                        <div className="w-20 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
+                        <div className="w-16 bg-gray-200 dark:bg-gray-600 rounded-full h-2">
                           <div 
                             className="bg-green-500 h-2 rounded-full transition-all duration-300"
                             style={{ width: `${download.hitRate}%` }}
                           ></div>
                         </div>
-                        <span className="text-sm font-medium">{download.hitRate.toFixed(1)}%</span>
+                        <span className="text-sm font-medium min-w-[45px]">{download.hitRate.toFixed(1)}%</span>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 whitespace-nowrap">
                       {download.isActive ? (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                           <Clock className="w-3 h-3 animate-pulse" />

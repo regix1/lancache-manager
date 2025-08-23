@@ -1,197 +1,206 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, RefreshCw, HardDrive, Download, Users, Activity, Settings } from 'lucide-react';
-import * as signalR from '@microsoft/signalr';
-import clsx from 'clsx';
+import { Sun, Moon, Home, Download, BarChart3, Settings, Menu, X } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import Downloads from './components/Downloads';
 import Statistics from './components/Statistics';
 import Management from './components/Management';
-import api from './services/api';
+import StatusIndicator from './components/StatusIndicator';
 
-export default function App() {
-  const [darkMode, setDarkMode] = useState(true);
+function App() {
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved ? JSON.parse(saved) : true;
+  });
+  
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [downloads, setDownloads] = useState([]);
-  const [clientStats, setClientStats] = useState([]);
-  const [serviceStats, setServiceStats] = useState([]);
-  const [cacheInfo, setCacheInfo] = useState(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [connection, setConnection] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', darkMode);
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
   }, [darkMode]);
 
-  useEffect(() => {
-    const newConnection = new signalR.HubConnectionBuilder()
-      .withUrl('/downloadHub')
-      .withAutomaticReconnect()
-      .configureLogging(signalR.LogLevel.Information)
-      .build();
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+  };
 
-    newConnection.onreconnecting(() => {
-      setConnectionStatus('reconnecting');
-    });
+  const navigation = [
+    { id: 'dashboard', name: 'Dashboard', icon: Home },
+    { id: 'downloads', name: 'Downloads', icon: Download },
+    { id: 'statistics', name: 'Statistics', icon: BarChart3 },
+    { id: 'management', name: 'Management', icon: Settings },
+  ];
 
-    newConnection.onreconnected(() => {
-      setConnectionStatus('connected');
-    });
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setMobileMenuOpen(false);
+  };
 
-    newConnection.onclose(() => {
-      setConnectionStatus('disconnected');
-    });
-
-    const startConnection = async () => {
-      try {
-        await newConnection.start();
-        console.log('Connected to SignalR hub');
-        setConnectionStatus('connected');
-        
-        newConnection.on('DownloadUpdate', (download) => {
-          setDownloads(prev => {
-            const index = prev.findIndex(d => d.id === download.id);
-            if (index >= 0) {
-              const updated = [...prev];
-              updated[index] = download;
-              return updated.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
-            }
-            return [download, ...prev].slice(0, 100);
-          });
-        });
-      } catch (err) {
-        console.error('SignalR Connection Error:', err);
-        setConnectionStatus('disconnected');
-      }
-    };
-
-    startConnection();
-    setConnection(newConnection);
-    loadData();
-
-    return () => {
-      newConnection.stop();
-    };
-  }, []);
-
-  const loadData = async () => {
-    setIsRefreshing(true);
-    try {
-      const [downloadsData, clientData, serviceData, cacheData] = await Promise.all([
-        api.getLatestDownloads(100),
-        api.getClientStats(),
-        api.getServiceStats(),
-        api.getCacheInfo()
-      ]);
-      setDownloads(downloadsData || []);
-      setClientStats(clientData || []);
-      setServiceStats(serviceData || []);
-      setCacheInfo(cacheData || {});
-    } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setIsRefreshing(false);
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return <Dashboard />;
+      case 'downloads':
+        return <Downloads />;
+      case 'statistics':
+        return <Statistics />;
+      case 'management':
+        return <Management />;
+      default:
+        return <Dashboard />;
     }
   };
 
-  const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: HardDrive },
-    { id: 'downloads', label: 'Downloads', icon: Download },
-    { id: 'statistics', label: 'Statistics', icon: Activity },
-    { id: 'management', label: 'Management', icon: Settings },
-  ];
-
   return (
-    <div className={clsx(
-      'min-h-screen transition-colors duration-200',
-      darkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-50 text-gray-900'
-    )}>
-      <header className={clsx(
-        'border-b transition-colors duration-200',
-        darkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-      )}>
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <HardDrive className="w-8 h-8 text-blue-500" />
-                <h1 className="text-2xl font-bold">LanCache Manager</h1>
-              </div>
-              <nav className="flex gap-1">
-                {tabs.map(tab => {
-                  const Icon = tab.icon;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={clsx(
-                        'px-4 py-2 rounded-lg flex items-center gap-2 transition-all duration-200',
-                        activeTab === tab.id
-                          ? 'bg-blue-500 text-white'
-                          : darkMode
-                          ? 'hover:bg-gray-700 text-gray-300'
-                          : 'hover:bg-gray-100 text-gray-600'
-                      )}
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className={clsx(
-                'w-2 h-2 rounded-full',
-                connectionStatus === 'connected' ? 'bg-green-500' :
-                connectionStatus === 'reconnecting' ? 'bg-yellow-500 animate-pulse' :
-                'bg-red-500'
-              )} />
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      {/* Header */}
+      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <div className="px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo and Title */}
+            <div className="flex items-center">
               <button
-                onClick={loadData}
-                disabled={isRefreshing}
-                className={clsx(
-                  'p-2 rounded-lg transition-all duration-200',
-                  darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100',
-                  isRefreshing && 'animate-spin'
-                )}
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
               >
-                <RefreshCw className="w-5 h-5" />
+                {mobileMenuOpen ? (
+                  <X className="w-5 h-5" />
+                ) : (
+                  <Menu className="w-5 h-5" />
+                )}
               </button>
+              <div className="flex items-center ml-3 md:ml-0">
+                <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3">
+                  <span className="text-white font-bold text-lg">L</span>
+                </div>
+                <h1 className="text-xl font-semibold">LanCache Manager</h1>
+              </div>
+            </div>
+
+            {/* Desktop Navigation */}
+            <nav className="hidden md:flex space-x-1">
+              {navigation.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleTabChange(item.id)}
+                    className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                      activeTab === item.id
+                        ? 'bg-blue-500 text-white'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{item.name}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Right side controls */}
+            <div className="flex items-center gap-2">
+              {/* Online indicator */}
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1 bg-green-100 dark:bg-green-900 rounded-full">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-xs font-medium text-green-700 dark:text-green-300">Online</span>
+              </div>
+
+              {/* Dark mode toggle */}
               <button
-                onClick={() => setDarkMode(!darkMode)}
-                className={clsx(
-                  'p-2 rounded-lg transition-all duration-200',
-                  darkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
-                )}
+                onClick={toggleDarkMode}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Toggle dark mode"
               >
-                {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                {darkMode ? (
+                  <Sun className="w-5 h-5" />
+                ) : (
+                  <Moon className="w-5 h-5" />
+                )}
+              </button>
+
+              {/* Settings button */}
+              <button
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                aria-label="Settings"
+              >
+                <Settings className="w-5 h-5" />
               </button>
             </div>
           </div>
         </div>
+
+        {/* Mobile Navigation Menu */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-200 dark:border-gray-700">
+            <nav className="px-4 py-2 space-y-1">
+              {navigation.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleTabChange(item.id)}
+                    className={`w-full px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                      activeTab === item.id
+                        ? 'bg-blue-500 text-white'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{item.name}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+        )}
       </header>
 
-      <main className="container mx-auto px-4 py-6">
-        {activeTab === 'dashboard' && (
-          <Dashboard
-            downloads={downloads}
-            clientStats={clientStats}
-            serviceStats={serviceStats}
-            cacheInfo={cacheInfo}
-            darkMode={darkMode}
-          />
-        )}
-        {activeTab === 'downloads' && (
-          <Downloads downloads={downloads} darkMode={darkMode} />
-        )}
-        {activeTab === 'statistics' && (
-          <Statistics clientStats={clientStats} serviceStats={serviceStats} darkMode={darkMode} />
-        )}
-        {activeTab === 'management' && (
-          <Management cacheInfo={cacheInfo} darkMode={darkMode} onRefresh={loadData} />
-        )}
+      {/* Main Content */}
+      <main className="flex-1">
+        <div className="max-w-7xl mx-auto">
+          {renderContent()}
+        </div>
       </main>
+
+      {/* Footer */}
+      <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              © 2024 LanCache Manager • Monitor your game cache server
+            </p>
+            <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+              <a 
+                href="https://github.com/lancachenet/monolithic" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="hover:text-blue-500 transition-colors"
+              >
+                LanCache.NET
+              </a>
+              <span>•</span>
+              <a 
+                href="https://github.com" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="hover:text-blue-500 transition-colors"
+              >
+                GitHub
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {/* Status Indicator for processing */}
+      <StatusIndicator />
     </div>
   );
 }
+
+export default App;
