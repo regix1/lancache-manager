@@ -19,14 +19,15 @@ public class DownloadsController : ControllerBase
     [HttpGet("latest")]
     public async Task<ActionResult<List<Download>>> GetLatestDownloads([FromQuery] int count = 20)
     {
-        var downloads = await _dbService.GetLatestDownloads(count);
+        // Only get downloads from the last 24 hours
+        var downloads = await _dbService.GetRecentDownloads(count);
         return Ok(downloads);
     }
 
     [HttpGet("active")]
     public async Task<ActionResult<List<Download>>> GetActiveDownloads()
     {
-        var downloads = await _dbService.GetLatestDownloads(100);
-        return Ok(downloads.Where(d => d.IsActive).ToList());
+        var downloads = await _dbService.GetActiveDownloads();
+        return Ok(downloads);
     }
 }

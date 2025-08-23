@@ -24,14 +24,15 @@ public class DatabaseService
 
     public async Task ProcessLogEntry(LogEntry entry)
     {
-        // Only process substantial downloads (skip small requests under 100KB)
-        if (entry.BytesServed < 1024 * 100)
+        // Only process substantial downloads (skip small requests under 1MB)
+        if (entry.BytesServed < 1024 * 1024)
             return;
 
-        // Find or create active download session (2 minute window)
+        // Find active download for this specific depot/app (not just service)
         var download = await _context.Downloads
             .Where(d => d.ClientIp == entry.ClientIp && 
                        d.Service == entry.Service &&
+                       d.Depot == (entry.DepotId ?? "unknown") &&
                        d.IsActive &&
                        d.EndTime > DateTime.UtcNow.AddMinutes(-2))
             .FirstOrDefaultAsync();
@@ -63,6 +64,14 @@ public class DatabaseService
         else
         {
             download.CacheMissBytes += entry.BytesServed;
+        }
+        
+        // If download gets too large (>10GB), complete it and start fresh
+        if (download.TotalBytes > 10L * 1024 * 1024 * 1024)
+        {
+            download.IsActive = false;
+            download.Status = "Completed";
+            // Next request will create a new download session
         }
 
         // Auto-complete stale downloads
@@ -129,6 +138,29 @@ public class DatabaseService
             .ToListAsync();
     }
 
+    public async Task<List<Download>> GetRecentDownloads(int count = 20)
+    {
+        // Only show downloads from the last 24 hours
+        var cutoffTime = DateTime.UtcNow.AddHours(-24);
+        
+        return await _context.Downloads
+            .Where(d => d.StartTime > cutoffTime)
+            .OrderByDescending(d => d.StartTime)
+            .Take(count)
+            .ToListAsync();
+    }
+
+    public async Task<List<Download>> GetActiveDownloads()
+    {
+        // Only truly active downloads (activity in last 2 minutes)
+        var activeTime = DateTime.UtcNow.AddMinutes(-2);
+        
+        return await _context.Downloads
+            .Where(d => d.IsActive && d.EndTime > activeTime)
+            .OrderByDescending(d => d.StartTime)
+            .ToListAsync();
+    }
+
     public async Task<List<ClientStats>> GetClientStats()
     {
         return await _context.ClientStats
@@ -148,6 +180,7 @@ public class DatabaseService
         _context.Downloads.RemoveRange(_context.Downloads);
         _context.ClientStats.RemoveRange(_context.ClientStats);
         _context.ServiceStats.RemoveRange(_context.ServiceStats);
+        _context.SteamApps.RemoveRange(_context.SteamApps);
         await _context.SaveChangesAsync();
     }
 }
