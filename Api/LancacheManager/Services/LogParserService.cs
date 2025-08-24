@@ -7,7 +7,8 @@ public class LogParserService
 {
     private readonly ILogger<LogParserService> _logger;
     
-    // Regex to match your actual log format: [steam] IP ... "GET /depot/123/chunk/abc HTTP/1.1" 200 1234 ... "HIT/MISS"
+    // Updated regex to match your actual log format:
+    // [service] IP / - - - [timestamp] "METHOD URL HTTP/version" status bytes "-" "user-agent" "HIT/MISS" "domain" "-"
     private static readonly Regex LogRegex = new(
         @"^\[(?<service>\w+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS)""",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -23,100 +24,67 @@ public class LogParserService
 
         try
         {
+            // Skip heartbeat requests
+            if (line.Contains("lancache-heartbeat"))
+            {
+                return null;
+            }
+
             var match = LogRegex.Match(line);
             if (match.Success)
             {
+                var service = match.Groups["service"].Value.ToLower();
+                var clientIp = match.Groups["ip"].Value;
+                var url = match.Groups["url"].Value;
+                var statusCode = int.Parse(match.Groups["status"].Value);
+                var bytesServed = long.Parse(match.Groups["bytes"].Value);
+                var cacheStatus = match.Groups["cache"].Value.ToUpper();
+                var timestamp = ParseTimestamp(match.Groups["time"].Value);
+
+                // Skip localhost entries unless they're actual downloads
+                if (clientIp == "127.0.0.1" && bytesServed < 1000)
+                {
+                    return null;
+                }
+
+                _logger.LogTrace($"Parsed: {service} {clientIp} {bytesServed} bytes {cacheStatus}");
+
                 return new LogEntry
                 {
-                    Service = match.Groups["service"].Value.ToLower(),
-                    ClientIp = match.Groups["ip"].Value,
-                    Url = match.Groups["url"].Value,
-                    StatusCode = int.Parse(match.Groups["status"].Value),
-                    BytesServed = long.Parse(match.Groups["bytes"].Value),
-                    CacheStatus = match.Groups["cache"].Value.ToUpper(),
-                    Timestamp = ParseTimestamp(match.Groups["time"].Value)
+                    Service = service,
+                    ClientIp = clientIp,
+                    Url = url,
+                    StatusCode = statusCode,
+                    BytesServed = bytesServed,
+                    CacheStatus = cacheStatus,
+                    Timestamp = timestamp
                 };
             }
-
-            // Fallback for simpler format
-            if (line.Contains("HIT") || line.Contains("MISS"))
+            else
             {
-                return new LogEntry
+                // Log first few failures for debugging
+                if (_logger.IsEnabled(LogLevel.Trace))
                 {
-                    Service = ExtractService(line),
-                    ClientIp = ExtractIp(line),
-                    BytesServed = ExtractBytes(line),
-                    StatusCode = 200,
-                    CacheStatus = line.Contains("HIT") ? "HIT" : "MISS",
-                    Timestamp = DateTime.UtcNow,
-                    Url = ""
-                };
+                    _logger.LogTrace($"Failed to parse line: {line.Substring(0, Math.Min(100, line.Length))}...");
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogTrace($"Failed to parse line: {ex.Message}");
+            _logger.LogTrace($"Error parsing line: {ex.Message}");
         }
 
         return null;
-    }
-
-    private string ExtractService(string line)
-    {
-        if (line.StartsWith("["))
-        {
-            var end = line.IndexOf(']');
-            if (end > 0)
-            {
-                return line.Substring(1, end - 1).ToLower();
-            }
-        }
-        return DetermineServiceFromLine(line);
-    }
-
-    private string ExtractIp(string line)
-    {
-        var match = Regex.Match(line, @"\b(?:\d{1,3}\.){3}\d{1,3}\b");
-        return match.Success ? match.Value : "unknown";
-    }
-
-    private long ExtractBytes(string line)
-    {
-        // Look for numbers that are likely byte counts (4+ digits)
-        var matches = Regex.Matches(line, @"\b(\d{4,})\b");
-        foreach (Match match in matches)
-        {
-            if (long.TryParse(match.Groups[1].Value, out var bytes))
-            {
-                // Return the first reasonable byte count found
-                if (bytes > 100 && bytes < 10_000_000_000) // Between 100 bytes and 10GB
-                {
-                    return bytes;
-                }
-            }
-        }
-        return 0;
-    }
-
-    private string DetermineServiceFromLine(string line)
-    {
-        var lower = line.ToLower();
-        if (lower.Contains("steam")) return "steam";
-        if (lower.Contains("wsus") || lower.Contains("windowsupdate") || lower.Contains("microsoft")) return "wsus";
-        if (lower.Contains("epic")) return "epic";
-        if (lower.Contains("origin") || lower.Contains("ea.com")) return "origin";
-        if (lower.Contains("blizzard") || lower.Contains("battle.net")) return "blizzard";
-        if (lower.Contains("uplay") || lower.Contains("ubisoft")) return "uplay";
-        if (lower.Contains("riot")) return "riot";
-        return "other";
     }
 
     private DateTime ParseTimestamp(string timestamp)
     {
         try
         {
-            // Handle format: 27/Apr/2025:17:48:27 -0500
+            // Remove timezone offset
             timestamp = timestamp.Replace(" -0500", "").Replace(" -0600", "").Replace(" -0400", "").Replace(" -0700", "");
+            
+            // Parse format: 22/Aug/2025:22:30:06
             if (DateTime.TryParseExact(timestamp, 
                 "dd/MMM/yyyy:HH:mm:ss", 
                 System.Globalization.CultureInfo.InvariantCulture,
@@ -126,7 +94,10 @@ public class LogParserService
                 return result.ToUniversalTime();
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogTrace($"Error parsing timestamp '{timestamp}': {ex.Message}");
+        }
         
         return DateTime.UtcNow;
     }

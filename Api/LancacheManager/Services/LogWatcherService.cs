@@ -55,11 +55,20 @@ public class LogWatcherService : BackgroundService
     {
         var fileInfo = new FileInfo(_logPath);
         
+        _logger.LogInformation($"Log file size: {fileInfo.Length / 1024.0 / 1024.0:F1} MB");
+        
         // Check for bulk processing marker
         bool hasBulkProcessingMarker = File.Exists(_processingMarker);
         
+        if (hasBulkProcessingMarker)
+        {
+            _logger.LogInformation("Found bulk processing marker - will process entire log");
+        }
+        
         // Load saved position
         await LoadPosition();
+        
+        _logger.LogInformation($"Loaded position: {_lastPosition:N0} (File size: {fileInfo.Length:N0})");
         
         // Determine starting position
         if (hasBulkProcessingMarker)
@@ -73,19 +82,21 @@ public class LogWatcherService : BackgroundService
             else
             {
                 // Resume bulk processing
-                _logger.LogInformation($"Bulk processing: resuming from {_lastPosition:N0} ({(fileInfo.Length - _lastPosition) / 1024.0 / 1024.0:F1} MB remaining)");
+                var remaining = fileInfo.Length - _lastPosition;
+                _logger.LogInformation($"Bulk processing: resuming from {_lastPosition:N0} ({remaining / 1024.0 / 1024.0:F1} MB remaining)");
             }
             _isBulkProcessing = true;
         }
         else if (_lastPosition >= 0 && _lastPosition <= fileInfo.Length)
         {
             // Normal operation - use saved position
-            _logger.LogInformation($"Starting from saved position: {_lastPosition:N0}");
+            var behind = fileInfo.Length - _lastPosition;
+            _logger.LogInformation($"Starting from saved position: {_lastPosition:N0} ({behind / 1024.0 / 1024.0:F1} MB behind)");
             
             // Auto-enable bulk mode if we're far behind
-            if (fileInfo.Length - _lastPosition > 100_000_000) // 100MB behind
+            if (behind > 100_000_000) // 100MB behind
             {
-                _logger.LogInformation($"Large backlog detected: {(fileInfo.Length - _lastPosition) / 1024.0 / 1024.0:F1} MB to process");
+                _logger.LogInformation($"Large backlog detected: {behind / 1024.0 / 1024.0:F1} MB to process - enabling bulk mode");
                 _isBulkProcessing = true;
             }
         }
@@ -145,11 +156,37 @@ public class LogWatcherService : BackgroundService
                     _consecutiveEmptyReads = 0;
                     linesProcessed++;
 
+                    // Debug logging for first few lines
+                    if (linesProcessed <= 5)
+                    {
+                        _logger.LogWarning($"DEBUG Line {linesProcessed}: {line.Substring(0, Math.Min(150, line.Length))}...");
+                    }
+
                     var entry = _parser.ParseLine(line);
+                    
+                    // Debug logging for parsing results
+                    if (linesProcessed <= 5)
+                    {
+                        if (entry != null)
+                        {
+                            _logger.LogWarning($"DEBUG Parsed: Service={entry.Service}, Client={entry.ClientIp}, Bytes={entry.BytesServed}, Status={entry.CacheStatus}");
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"DEBUG: Line {linesProcessed} did NOT parse");
+                        }
+                    }
+
                     if (entry != null && entry.BytesServed > 1024) // Only process entries > 1KB
                     {
                         entriesProcessed++;
                         _batchBuffer.Add(entry);
+                        
+                        // Debug logging when we add to buffer
+                        if (entriesProcessed <= 5)
+                        {
+                            _logger.LogWarning($"DEBUG: Added entry {entriesProcessed} to buffer (size now: {_batchBuffer.Count})");
+                        }
                     }
 
                     // Process batch when ready
