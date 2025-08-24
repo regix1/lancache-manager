@@ -11,15 +11,25 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 
-// Add CORS
+// Add CORS - Allow any origin in production since we're serving from same container
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        }
+        else
+        {
+            // In production, allow same origin since frontend and backend are served together
+            policy.AllowAnyOrigin()
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
     });
 });
 
@@ -49,10 +59,17 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+
+// Serve static files (built Vite app)
 app.UseDefaultFiles();
 app.UseStaticFiles();
+
+// API routes
 app.MapControllers();
 app.MapHub<DownloadHub>("/downloadHub");
+
+// SPA fallback - serve index.html for any non-API routes
+app.MapFallbackToFile("index.html");
 
 // Initialize database
 using (var scope = app.Services.CreateScope())

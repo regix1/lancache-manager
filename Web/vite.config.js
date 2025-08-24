@@ -7,11 +7,11 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:8080',  // Match your ASP.NET Core port
         changeOrigin: true
       },
       '/downloadHub': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:8080',  // Match your ASP.NET Core port
         ws: true,
         changeOrigin: true
       }
