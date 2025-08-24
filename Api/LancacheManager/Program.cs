@@ -11,9 +11,6 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 
-// Add response caching
-builder.Services.AddResponseCaching();
-
 // Configure CORS
 builder.Services.AddCors(options =>
 {
@@ -26,8 +23,8 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure database with connection pooling
-builder.Services.AddDbContextPool<AppDbContext>(options =>
+// Simple database configuration - NO POOLING, NO OPTIMIZATIONS
+builder.Services.AddDbContext<AppDbContext>(options =>
 {
     var dbPath = "/data/lancache.db";
     
@@ -37,13 +34,9 @@ builder.Services.AddDbContextPool<AppDbContext>(options =>
         Directory.CreateDirectory("/data");
     }
     
-    // Use connection string WITHOUT Journal Mode (will be set as PRAGMA)
-    var connectionString = $"Data Source={dbPath};" +
-        "Cache=Shared;" +
-        "Mode=ReadWriteCreate;";
-    
-    options.UseSqlite(connectionString);
-}, poolSize: 128);
+    // Simple connection string
+    options.UseSqlite($"Data Source={dbPath}");
+});
 
 // Register services
 builder.Services.AddSingleton<LogParserService>();
@@ -52,8 +45,9 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddHostedService<LogWatcherService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
 
-// Add memory cache for API responses
+// Add memory cache for storing stats
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<StatsCache>();
 
 // Configure logging
 builder.Logging.ClearProviders();
@@ -70,9 +64,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowAll");
-
-// Use response caching
-app.UseResponseCaching();
 
 // Serve static files
 app.UseDefaultFiles();
@@ -117,7 +108,7 @@ app.MapFallback(async context =>
     }
 });
 
-// Ensure database is created with optimizations
+// Ensure database is created
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -125,35 +116,12 @@ using (var scope = app.Services.CreateScope())
     
     try
     {
-        // Create database if it doesn't exist
         await dbContext.Database.EnsureCreatedAsync();
+        logger.LogInformation($"Database initialized at: /data/lancache.db");
         
-        // Apply SQLite performance optimizations via PRAGMA commands
-        using (var connection = dbContext.Database.GetDbConnection())
-        {
-            await connection.OpenAsync();
-            using (var command = connection.CreateCommand())
-            {
-                // Set WAL mode for better concurrency
-                command.CommandText = "PRAGMA journal_mode=WAL";
-                await command.ExecuteNonQueryAsync();
-                
-                // Other performance optimizations
-                command.CommandText = "PRAGMA synchronous=NORMAL";
-                await command.ExecuteNonQueryAsync();
-                
-                command.CommandText = "PRAGMA cache_size=10000";
-                await command.ExecuteNonQueryAsync();
-                
-                command.CommandText = "PRAGMA temp_store=MEMORY";
-                await command.ExecuteNonQueryAsync();
-                
-                command.CommandText = "PRAGMA mmap_size=30000000000";
-                await command.ExecuteNonQueryAsync();
-            }
-        }
-        
-        logger.LogInformation($"Database initialized with performance optimizations at: /data/lancache.db");
+        // Load initial stats into cache
+        var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
+        await statsCache.RefreshFromDatabase(dbContext);
     }
     catch (Exception ex)
     {
