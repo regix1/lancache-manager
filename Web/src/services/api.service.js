@@ -79,17 +79,45 @@ class ApiService {
     }
   }
 
-  // Clear all cache files from disk
+  // Start async cache clearing operation
   static async clearAllCache() {
     try {
       const res = await fetch(`${API_BASE}/management/cache/clear-all`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(120000) // 2 minute timeout for large cache
+        signal: AbortSignal.timeout(10000) // 10 second timeout to start operation
       });
       return await this.handleResponse(res);
     } catch (error) {
       console.error('clearAllCache error:', error);
+      throw error;
+    }
+  }
+
+  // Get status of cache clearing operation
+  static async getCacheClearStatus(operationId) {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/clear-status/${operationId}`, { 
+        signal: AbortSignal.timeout(5000)
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getCacheClearStatus error:', error);
+      throw error;
+    }
+  }
+
+  // Cancel cache clearing operation
+  static async cancelCacheClear(operationId) {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/clear-cancel/${operationId}`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('cancelCacheClear error:', error);
       throw error;
     }
   }

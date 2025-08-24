@@ -52,6 +52,12 @@ builder.Services.AddSingleton<SteamService>();
 builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
+
+// Register the new CacheClearingService for async cache operations
+builder.Services.AddSingleton<CacheClearingService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());
+
+// Register background services
 builder.Services.AddHostedService<LogWatcherService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
 

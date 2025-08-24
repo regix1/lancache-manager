@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, Info, HardDrive, FileText, X } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
+import * as signalR from '@microsoft/signalr';
 
 const ManagementTab = () => {
   const { 
@@ -25,16 +26,29 @@ const ManagementTab = () => {
     services: []
   });
   
+  // Cache clearing state
+  const [cacheClearOperation, setCacheClearOperation] = useState(null);
+  const [cacheClearProgress, setCacheClearProgress] = useState(null);
+  const [showCacheClearModal, setShowCacheClearModal] = useState(false);
+  
   // Use refs instead of state for interval management
   const statusPollingInterval = useRef(null);
   const processingErrorLogged = useRef(false);
   const longIntervalSet = useRef(false);
+  const cacheClearPollingInterval = useRef(null);
+  const signalRConnection = useRef(null);
 
   // Clean up polling on unmount
   useEffect(() => {
     return () => {
       if (statusPollingInterval.current) {
         clearInterval(statusPollingInterval.current);
+      }
+      if (cacheClearPollingInterval.current) {
+        clearInterval(cacheClearPollingInterval.current);
+      }
+      if (signalRConnection.current) {
+        signalRConnection.current.stop();
       }
     };
   }, []);
@@ -43,7 +57,37 @@ const ManagementTab = () => {
   useEffect(() => {
     loadConfig();
     checkProcessingStatus();
+    setupSignalR();
   }, []);
+
+  const setupSignalR = async () => {
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`;
+      const connection = new signalR.HubConnectionBuilder()
+        .withUrl(`${apiUrl}/hubs/downloads`)
+        .withAutomaticReconnect()
+        .build();
+
+      connection.on('CacheClearProgress', (progress) => {
+        console.log('Cache clear progress:', progress);
+        if (cacheClearOperation && progress.operationId === cacheClearOperation) {
+          setCacheClearProgress(progress);
+          
+          // Check if operation is complete
+          if (progress.status === 'Completed' || progress.status === 'Failed' || progress.status === 'Cancelled') {
+            handleCacheClearComplete(progress);
+          }
+        }
+      });
+
+      await connection.start();
+      signalRConnection.current = connection;
+      console.log('SignalR connected for cache clearing updates');
+    } catch (err) {
+      console.error('SignalR connection failed:', err);
+      // Fall back to polling
+    }
+  };
 
   const loadConfig = async () => {
     try {
@@ -170,9 +214,121 @@ const ManagementTab = () => {
     }
   };
 
+  const handleClearAllCache = async () => {
+    if (!confirm('This will delete ALL cached game files (may be hundreds of GB). Are you sure?')) {
+      return;
+    }
+    
+    setActionLoading(true);
+    clearMessages();
+    
+    try {
+      // Start the cache clearing operation
+      const result = await ApiService.clearAllCache();
+      
+      if (result.operationId) {
+        setCacheClearOperation(result.operationId);
+        setCacheClearProgress({
+          operationId: result.operationId,
+          status: 'Preparing',
+          percentComplete: 0,
+          filesDeleted: 0,
+          bytesDeleted: 0,
+          directoriesProcessed: 0,
+          totalDirectories: 0
+        });
+        setShowCacheClearModal(true);
+        
+        // Start polling if SignalR is not connected
+        if (!signalRConnection.current || signalRConnection.current.state !== signalR.HubConnectionState.Connected) {
+          startCacheClearPolling(result.operationId);
+        }
+      }
+    } catch (err) {
+      console.error('Start cache clear failed:', err);
+      addError('Failed to start cache clearing: ' + err.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const startCacheClearPolling = (operationId) => {
+    if (cacheClearPollingInterval.current) {
+      clearInterval(cacheClearPollingInterval.current);
+    }
+    
+    cacheClearPollingInterval.current = setInterval(async () => {
+      try {
+        const status = await ApiService.getCacheClearStatus(operationId);
+        setCacheClearProgress(status);
+        
+        // Check if operation is complete
+        if (status.status === 'Completed' || status.status === 'Failed' || status.status === 'Cancelled') {
+          handleCacheClearComplete(status);
+        }
+      } catch (err) {
+        console.error('Error polling cache clear status:', err);
+      }
+    }, 2000);
+  };
+
+  const handleCacheClearComplete = (progress) => {
+    // Stop polling
+    if (cacheClearPollingInterval.current) {
+      clearInterval(cacheClearPollingInterval.current);
+      cacheClearPollingInterval.current = null;
+    }
+    
+    // Show completion message
+    if (progress.status === 'Completed') {
+      setSuccessMessage(`Cache cleared successfully! Deleted ${formatBytes(progress.bytesDeleted)} (${progress.filesDeleted} files)`);
+    } else if (progress.status === 'Failed') {
+      addError(`Cache clearing failed: ${progress.error || 'Unknown error'}`);
+    } else if (progress.status === 'Cancelled') {
+      setSuccessMessage('Cache clearing cancelled');
+    }
+    
+    // Close modal after 3 seconds for completed operations
+    if (progress.status === 'Completed') {
+      setTimeout(() => {
+        setShowCacheClearModal(false);
+        setCacheClearOperation(null);
+        setCacheClearProgress(null);
+      }, 3000);
+    }
+    
+    // Refresh data
+    fetchData();
+  };
+
+  const handleCancelCacheClear = async () => {
+    if (!cacheClearOperation) return;
+    
+    try {
+      await ApiService.cancelCacheClear(cacheClearOperation);
+      setCacheClearProgress(prev => ({ ...prev, status: 'Cancelling' }));
+    } catch (err) {
+      console.error('Failed to cancel cache clear:', err);
+      addError('Failed to cancel operation');
+    }
+  };
+
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   const handleAction = async (action, serviceName = null) => {
     if (mockMode && action !== 'mockMode') {
       addError('Actions are disabled in mock mode. Please disable mock mode first.');
+      return;
+    }
+
+    if (action === 'clearAllCache') {
+      handleClearAllCache();
       return;
     }
 
@@ -182,14 +338,6 @@ const ManagementTab = () => {
     try {
       let result;
       switch(action) {
-        case 'clearAllCache':
-          if (!confirm('This will delete ALL cached game files (may be hundreds of GB). Are you sure?')) {
-            setActionLoading(false);
-            return;
-          }
-          result = await ApiService.clearAllCache();
-          break;
-          
         case 'resetDatabase':
           if (!confirm('This will delete all download history and statistics. Are you sure?')) {
             setActionLoading(false);
@@ -303,6 +451,106 @@ const ManagementTab = () => {
 
   return (
     <div className="space-y-6">
+      {/* Cache Clear Modal */}
+      {showCacheClearModal && cacheClearProgress && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 border border-gray-700">
+            <h3 className="text-lg font-semibold text-white mb-4">Clearing Cache</h3>
+            
+            <div className="space-y-4">
+              {/* Status */}
+              <div className="flex items-center space-x-2">
+                {cacheClearProgress.status === 'Completed' ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : cacheClearProgress.status === 'Failed' ? (
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                ) : cacheClearProgress.status === 'Cancelled' ? (
+                  <X className="w-5 h-5 text-yellow-500" />
+                ) : (
+                  <Loader className="w-5 h-5 text-blue-500 animate-spin" />
+                )}
+                <span className="text-white">{cacheClearProgress.status}</span>
+              </div>
+              
+              {/* Progress Bar */}
+              {cacheClearProgress.status === 'Running' && (
+                <>
+                  <div className="w-full bg-gray-700 rounded-full h-3">
+                    <div 
+                      className="bg-blue-500 h-3 rounded-full transition-all duration-500"
+                      style={{ width: `${cacheClearProgress.percentComplete || 0}%` }}
+                    />
+                  </div>
+                  <p className="text-sm text-gray-400">
+                    {cacheClearProgress.percentComplete?.toFixed(1)}% complete
+                  </p>
+                </>
+              )}
+              
+              {/* Stats */}
+              <div className="space-y-2 text-sm">
+                {cacheClearProgress.directoriesProcessed > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Directories:</span>
+                    <span className="text-white">
+                      {cacheClearProgress.directoriesProcessed} / {cacheClearProgress.totalDirectories}
+                    </span>
+                  </div>
+                )}
+                {cacheClearProgress.filesDeleted > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Files Deleted:</span>
+                    <span className="text-white">{cacheClearProgress.filesDeleted.toLocaleString()}</span>
+                  </div>
+                )}
+                {cacheClearProgress.bytesDeleted > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Space Freed:</span>
+                    <span className="text-green-400">{formatBytes(cacheClearProgress.bytesDeleted)}</span>
+                  </div>
+                )}
+                {cacheClearProgress.errors > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Errors:</span>
+                    <span className="text-red-400">{cacheClearProgress.errors}</span>
+                  </div>
+                )}
+              </div>
+              
+              {/* Error message */}
+              {cacheClearProgress.error && (
+                <div className="p-3 bg-red-900 bg-opacity-30 rounded border border-red-700">
+                  <p className="text-sm text-red-400">{cacheClearProgress.error}</p>
+                </div>
+              )}
+              
+              {/* Actions */}
+              <div className="flex justify-end space-x-3 pt-4">
+                {cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing' ? (
+                  <button
+                    onClick={handleCancelCacheClear}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setShowCacheClearModal(false);
+                      setCacheClearOperation(null);
+                      setCacheClearProgress(null);
+                    }}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
+                  >
+                    Close
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Persistent Error Messages */}
       {persistentErrors.length > 0 && (
         <div className="space-y-2">
@@ -432,7 +680,7 @@ const ManagementTab = () => {
         </p>
         <button
           onClick={() => handleAction('clearAllCache')}
-          disabled={actionLoading || isProcessingLogs || mockMode}
+          disabled={actionLoading || isProcessingLogs || mockMode || showCacheClearModal}
           className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}

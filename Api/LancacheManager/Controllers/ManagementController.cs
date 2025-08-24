@@ -9,6 +9,7 @@ public class ManagementController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
     private readonly DatabaseService _dbService;
+    private readonly CacheClearingService _cacheClearingService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ManagementController> _logger;
     private static CancellationTokenSource? _processingCancellation;
@@ -24,11 +25,13 @@ public class ManagementController : ControllerBase
     public ManagementController(
         CacheManagementService cacheService,
         DatabaseService dbService,
+        CacheClearingService cacheClearingService,
         IConfiguration configuration,
         ILogger<ManagementController> logger)
     {
         _cacheService = cacheService;
         _dbService = dbService;
+        _cacheClearingService = cacheClearingService;
         _configuration = configuration;
         _logger = logger;
         
@@ -54,28 +57,86 @@ public class ManagementController : ControllerBase
         return Ok(info);
     }
 
-    // New endpoint for clearing all cache
+    // New async endpoint for clearing all cache
     [HttpPost("cache/clear-all")]
     public async Task<IActionResult> ClearAllCache()
     {
         try
         {
-            await _cacheService.ClearAllCache();
-            return Ok(new { message = "All cache cleared successfully" });
+            // Start the background operation
+            var operationId = await _cacheClearingService.StartCacheClearAsync();
+            
+            _logger.LogInformation($"Started cache clear operation: {operationId}");
+            
+            return Ok(new { 
+                message = "Cache clearing started in background",
+                operationId = operationId,
+                status = "running"
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error clearing all cache");
-            return StatusCode(500, new { error = "Failed to clear cache", details = ex.Message });
+            _logger.LogError(ex, "Error starting cache clear operation");
+            return StatusCode(500, new { error = "Failed to start cache clearing", details = ex.Message });
         }
+    }
+
+    // Get status of cache clearing operation
+    [HttpGet("cache/clear-status/{operationId}")]
+    public IActionResult GetClearStatus(string operationId)
+    {
+        var status = _cacheClearingService.GetOperationStatus(operationId);
+        
+        if (status == null)
+        {
+            return NotFound(new { error = "Operation not found" });
+        }
+        
+        return Ok(status);
+    }
+
+    // Cancel cache clearing operation
+    [HttpPost("cache/clear-cancel/{operationId}")]
+    public IActionResult CancelClearOperation(string operationId)
+    {
+        var cancelled = _cacheClearingService.CancelOperation(operationId);
+        
+        if (!cancelled)
+        {
+            return NotFound(new { error = "Operation not found or already completed" });
+        }
+        
+        return Ok(new { message = "Operation cancelled", operationId = operationId });
     }
 
     // Legacy endpoint for compatibility
     [HttpDelete("cache")]
     public async Task<IActionResult> ClearCache([FromQuery] string? service = null)
     {
-        await _cacheService.ClearCache(service);
-        return Ok(new { message = $"Cache cleared for {service ?? "all services"}" });
+        try
+        {
+            if (string.IsNullOrEmpty(service))
+            {
+                // Use the new async method for clearing all cache
+                var operationId = await _cacheClearingService.StartCacheClearAsync();
+                return Ok(new { 
+                    message = "Cache clearing started in background",
+                    operationId = operationId,
+                    status = "running"
+                });
+            }
+            else
+            {
+                // For specific service, remove from logs instead
+                await _cacheService.RemoveServiceFromLogs(service);
+                return Ok(new { message = $"Removed {service} entries from logs" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error in clear cache operation");
+            return StatusCode(500, new { error = "Failed to clear cache", details = ex.Message });
+        }
     }
 
     [HttpDelete("database")]
@@ -435,6 +496,63 @@ public class ManagementController : ControllerBase
                     results["cacheWritable"] = false;
                     results["cacheError"] = ex.Message;
                 }
+                
+                // Count cache directories and estimate size
+                try
+                {
+                    var dirs = Directory.GetDirectories(cachePath)
+                        .Where(d => {
+                            var name = Path.GetFileName(d);
+                            return name.Length == 2 && IsHex(name);
+                        })
+                        .ToList();
+                    
+                    results["cacheDirectoryCount"] = dirs.Count;
+                    
+                    // Sample a few directories to estimate total size
+                    if (dirs.Count > 0)
+                    {
+                        long totalFiles = 0;
+                        long totalSize = 0;
+                        int sampleCount = Math.Min(3, dirs.Count);
+                        
+                        for (int i = 0; i < sampleCount; i++)
+                        {
+                            var dir = dirs[i];
+                            var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+                            totalFiles += files.Length;
+                            
+                            foreach (var file in files.Take(100)) // Sample first 100 files
+                            {
+                                try
+                                {
+                                    var fi = new FileInfo(file);
+                                    totalSize += fi.Length;
+                                }
+                                catch { }
+                            }
+                        }
+                        
+                        // Extrapolate
+                        if (sampleCount > 0)
+                        {
+                            var avgFilesPerDir = totalFiles / sampleCount;
+                            var estimatedTotalFiles = avgFilesPerDir * dirs.Count;
+                            results["estimatedCacheFiles"] = estimatedTotalFiles;
+                            
+                            if (totalFiles > 0)
+                            {
+                                var avgFileSize = totalSize / Math.Min(totalFiles, 100 * sampleCount);
+                                var estimatedTotalSize = avgFileSize * estimatedTotalFiles;
+                                results["estimatedCacheSizeGB"] = estimatedTotalSize / (1024.0 * 1024.0 * 1024.0);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    results["cacheSizeError"] = ex.Message;
+                }
             }
         }
         catch (Exception ex)
@@ -494,6 +612,11 @@ public class ManagementController : ControllerBase
         results["workingDirectory"] = Environment.CurrentDirectory;
         
         return Ok(results);
+    }
+    
+    private bool IsHex(string value)
+    {
+        return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 }
 
