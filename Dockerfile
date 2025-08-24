@@ -1,6 +1,6 @@
 # Multi-stage build for Lancache Manager
 
-# Stage 1: Build Frontend (if you have it in Web/ folder)
+# Stage 1: Build Frontend
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
 
@@ -16,13 +16,12 @@ RUN npm run build
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-builder
 WORKDIR /src
 
-# Copy project file
-COPY *.csproj ./
-RUN dotnet restore
+# Copy the entire backend project directory
+COPY Api/LancacheManager/ ./
 
-# Copy everything else
-COPY . ./
-RUN dotnet publish -c Release -o /app/publish
+# Restore and publish
+RUN dotnet restore LancacheManager.csproj
+RUN dotnet publish LancacheManager.csproj -c Release -o /app/publish
 
 # Copy frontend build to wwwroot
 COPY --from=frontend-builder /app/dist /app/publish/wwwroot
@@ -55,9 +54,6 @@ VOLUME ["/data", "/logs", "/cache"]
 
 # Port
 EXPOSE 80
-
-# Run as non-root user (optional, remove if causing permission issues)
-# USER app
 
 # Run
 ENTRYPOINT ["dotnet", "LancacheManager.dll"]
