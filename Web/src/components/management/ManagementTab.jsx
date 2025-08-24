@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, XCircle, StopCircle } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
 import { SERVICES } from '../../utils/constants';
@@ -9,6 +9,7 @@ const ManagementTab = () => {
     mockMode, 
     setMockMode, 
     fetchData, 
+    isProcessingLogs,
     setIsProcessingLogs, 
     setProcessingStatus,
     connectionStatus 
@@ -16,19 +17,88 @@ const ManagementTab = () => {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
+  const [statusPollingInterval, setStatusPollingInterval] = useState(null);
 
   // Clean up polling on unmount
   useEffect(() => {
     return () => {
+      if (pollingInterval) clearInterval(pollingInterval);
+      if (statusPollingInterval) clearInterval(statusPollingInterval);
+    };
+  }, [pollingInterval, statusPollingInterval]);
+
+  // Check processing status on mount and periodically
+  useEffect(() => {
+    checkProcessingStatus();
+  }, []);
+
+  const checkProcessingStatus = async () => {
+    try {
+      const status = await ApiService.getProcessingStatus();
+      if (status.isProcessing) {
+        setIsProcessingLogs(true);
+        setProcessingStatus({
+          message: `Processing logs... ${status.mbProcessed.toFixed(1)}/${status.mbTotal.toFixed(1)} MB`,
+          progress: status.percentComplete,
+          estimatedTime: `${Math.ceil((status.mbTotal - status.mbProcessed) / 100)} minutes remaining`
+        });
+        
+        // Start polling for status updates
+        if (!statusPollingInterval) {
+          const interval = setInterval(checkProcessingStatus, 5000);
+          setStatusPollingInterval(interval);
+        }
+      } else {
+        setIsProcessingLogs(false);
+        if (statusPollingInterval) {
+          clearInterval(statusPollingInterval);
+          setStatusPollingInterval(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking processing status:', err);
+    }
+  };
+
+  const handleCancelProcessing = async () => {
+    setActionLoading(true);
+    setActionMessage(null);
+    
+    try {
+      const result = await ApiService.cancelProcessing();
+      
+      setIsProcessingLogs(false);
+      setProcessingStatus(null);
+      
       if (pollingInterval) {
         clearInterval(pollingInterval);
+        setPollingInterval(null);
       }
-    };
-  }, [pollingInterval]);
+      if (statusPollingInterval) {
+        clearInterval(statusPollingInterval);
+        setStatusPollingInterval(null);
+      }
+      
+      setActionMessage({ 
+        type: 'success', 
+        text: result.message || 'Processing cancelled successfully' 
+      });
+      
+      // Refresh data to show current state
+      setTimeout(fetchData, 1000);
+    } catch (err) {
+      console.error('Cancel processing failed:', err);
+      setActionMessage({ 
+        type: 'error', 
+        text: 'Failed to cancel processing' 
+      });
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const pollForData = async () => {
     try {
-      // Try to fetch latest downloads to see if processing is producing data
       const response = await fetch(`${import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`}/api/downloads/latest`, {
         signal: AbortSignal.timeout(5000)
       });
@@ -36,19 +106,21 @@ const ManagementTab = () => {
       if (response.ok) {
         const data = await response.json();
         if (data && data.length > 0) {
-          // We're getting data, processing might be complete or ongoing
-          setProcessingStatus(prev => ({
-            ...prev,
-            message: `Processing logs... Found ${data.length} downloads so far`,
-            progress: Math.min((prev?.progress || 0) + 5, 95)
-          }));
+          // Check actual processing status
+          const status = await ApiService.getProcessingStatus();
+          if (status.isProcessing) {
+            setProcessingStatus({
+              message: `Processing logs... ${status.mbProcessed.toFixed(1)}/${status.mbTotal.toFixed(1)} MB`,
+              progress: status.percentComplete,
+              estimatedTime: `${Math.ceil((status.mbTotal - status.mbProcessed) / 100)} minutes remaining`
+            });
+          }
           
           // Refresh the main data
           fetchData();
         }
       }
     } catch (err) {
-      // Ignore errors during polling
       console.log('Polling error (expected during processing):', err.message);
     }
   };
@@ -89,45 +161,20 @@ const ManagementTab = () => {
         case 'processAllLogs':
           result = await ApiService.processAllLogs();
           
-          // Update status with result
           if (result.logSizeMB) {
             setProcessingStatus({
               message: `Processing ${result.logSizeMB.toFixed(1)} MB of logs...`,
               estimatedTime: `${result.estimatedTimeMinutes} minutes`,
-              progress: 10
+              progress: 0
             });
             
-            // Start polling for actual data
-            const interval = setInterval(() => {
-              pollForData();
-            }, 10000); // Poll every 10 seconds
+            // Start polling for actual status
+            const statusInterval = setInterval(checkProcessingStatus, 5000);
+            setStatusPollingInterval(statusInterval);
             
-            setPollingInterval(interval);
-            
-            // Set a maximum timeout based on estimate
-            const maxTimeout = Math.max(result.estimatedTimeMinutes * 60000, 300000); // At least 5 minutes
-            
-            setTimeout(() => {
-              // Stop polling and mark as complete
-              if (interval) {
-                clearInterval(interval);
-              }
-              
-              setIsProcessingLogs(false);
-              setProcessingStatus({
-                type: 'success',
-                message: 'Log processing should be complete. Refreshing data...',
-                progress: 100
-              });
-              
-              // Final data refresh
-              fetchData();
-              
-              // Clear success message after 5 seconds
-              setTimeout(() => {
-                setProcessingStatus(null);
-              }, 5000);
-            }, maxTimeout);
+            // Start polling for data
+            const dataInterval = setInterval(pollForData, 10000);
+            setPollingInterval(dataInterval);
           }
           break;
         default:
@@ -149,21 +196,15 @@ const ManagementTab = () => {
       if (action === 'processAllLogs') {
         setIsProcessingLogs(false);
         setProcessingStatus(null);
-        if (pollingInterval) {
-          clearInterval(pollingInterval);
-        }
+        if (pollingInterval) clearInterval(pollingInterval);
+        if (statusPollingInterval) clearInterval(statusPollingInterval);
       }
       
-      // Provide more detailed error messages
       let errorMessage = 'Action failed: ';
       if (err.name === 'AbortError') {
         errorMessage = 'Request timeout - the operation is taking longer than expected';
       } else if (err.message.includes('Failed to fetch')) {
         errorMessage = 'Cannot connect to API. Please ensure the backend is running';
-      } else if (err.message.includes('HTTP 404')) {
-        errorMessage = 'API endpoint not found. Please check if the backend API is up to date.';
-      } else if (err.message.includes('HTTP 500')) {
-        errorMessage = 'Server error occurred. Check the backend logs for details.';
       } else {
         errorMessage += err.message;
       }
@@ -177,7 +218,6 @@ const ManagementTab = () => {
     }
   };
 
-  // Manual refresh button for when processing
   const manualRefresh = async () => {
     setActionMessage({ type: 'info', text: 'Refreshing data...' });
     await fetchData();
@@ -187,8 +227,62 @@ const ManagementTab = () => {
 
   return (
     <div className="space-y-6">
+      {/* Processing Status Banner with Cancel Button */}
+      {isProcessingLogs && (
+        <div className="bg-yellow-900 bg-opacity-30 rounded-lg p-4 border border-yellow-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3 flex-1">
+              <Loader className="w-5 h-5 text-yellow-500 animate-spin" />
+              <div className="flex-1">
+                <p className="text-yellow-400 font-medium">Log Processing in Progress</p>
+                {processingStatus && (
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-300">{processingStatus.message}</p>
+                    {processingStatus.progress !== undefined && (
+                      <div className="mt-2">
+                        <div className="w-full bg-gray-700 rounded-full h-2">
+                          <div 
+                            className="bg-yellow-500 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(processingStatus.progress, 100)}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {processingStatus.progress.toFixed(1)}% complete
+                          {processingStatus.estimatedTime && ` • ${processingStatus.estimatedTime}`}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex space-x-2 ml-4">
+              <button
+                onClick={manualRefresh}
+                disabled={actionLoading}
+                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Refresh Data
+              </button>
+              <button
+                onClick={handleCancelProcessing}
+                disabled={actionLoading}
+                className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {actionLoading ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <StopCircle className="w-4 h-4" />
+                )}
+                <span>Force Cancel</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Connection Status Banner */}
-      {connectionStatus !== 'connected' && (
+      {connectionStatus !== 'connected' && !isProcessingLogs && (
         <div className="bg-yellow-900 bg-opacity-30 rounded-lg p-4 border border-yellow-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-yellow-400">
@@ -200,24 +294,6 @@ const ManagementTab = () => {
               className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-white"
             >
               Retry
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Processing Notice */}
-      {setIsProcessingLogs && (
-        <div className="bg-blue-900 bg-opacity-30 rounded-lg p-4 border border-blue-700">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-blue-400">
-              <Loader className="w-5 h-5 animate-spin" />
-              <span>Log processing in progress. Data will appear as logs are processed.</span>
-            </div>
-            <button
-              onClick={manualRefresh}
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm text-white"
-            >
-              Refresh Data
             </button>
           </div>
         </div>
@@ -235,7 +311,8 @@ const ManagementTab = () => {
           </div>
           <button
             onClick={() => setMockMode(!mockMode)}
-            className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors"
+            disabled={isProcessingLogs}
+            className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
             <span>{mockMode ? 'Enabled' : 'Disabled'}</span>
@@ -257,7 +334,7 @@ const ManagementTab = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
             onClick={() => handleAction('clearCache')}
-            disabled={actionLoading}
+            disabled={actionLoading || isProcessingLogs}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
@@ -265,7 +342,7 @@ const ManagementTab = () => {
           </button>
           <button
             onClick={() => handleAction('resetDatabase')}
-            disabled={actionLoading}
+            disabled={actionLoading || isProcessingLogs}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
@@ -280,7 +357,7 @@ const ManagementTab = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
             onClick={() => handleAction('resetLogs')}
-            disabled={actionLoading}
+            disabled={actionLoading || isProcessingLogs}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -288,7 +365,7 @@ const ManagementTab = () => {
           </button>
           <button
             onClick={() => handleAction('processAllLogs')}
-            disabled={actionLoading}
+            disabled={actionLoading || isProcessingLogs}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
@@ -297,7 +374,7 @@ const ManagementTab = () => {
         </div>
         <div className="mt-4 p-3 bg-gray-700 rounded-lg">
           <p className="text-xs text-gray-400">
-            <strong>Note:</strong> Processing large logs can take significant time. The dashboard will update as data becomes available. You can manually refresh or wait for automatic updates.
+            <strong>Note:</strong> Processing large logs can take significant time. Use the Force Cancel button above to stop processing and save progress.
           </p>
         </div>
       </div>
@@ -310,7 +387,7 @@ const ManagementTab = () => {
             <button
               key={service}
               onClick={() => handleAction('clearCache', service)}
-              disabled={actionLoading}
+              disabled={actionLoading || isProcessingLogs}
               className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors capitalize"
             >
               Clear {service}

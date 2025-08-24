@@ -111,6 +111,32 @@ class ApiService {
     }
   }
 
+    static async cancelProcessing() {
+    try {
+      const res = await fetch(`${API_BASE}/management/cancel-processing`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('cancelProcessing error:', error);
+      throw error;
+    }
+  }
+
+  static async getProcessingStatus() {
+    try {
+      const res = await fetch(`${API_BASE}/management/processing-status`, { 
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getProcessingStatus error:', error);
+      throw error;
+    }
+  }
+
   static async resetLogPosition() {
     try {
       const res = await fetch(`${API_BASE}/management/reset-logs`, { 

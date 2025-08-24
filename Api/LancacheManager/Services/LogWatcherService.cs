@@ -15,8 +15,9 @@ public class LogWatcherService : BackgroundService
     private long _lastPosition = 0;
     private readonly string _positionFile = "/data/logposition.txt";
     private int _consecutiveEmptyReads = 0;
-    private bool _isPreloading = true;
+    private bool _isPreloading = false;
     private readonly List<LogEntry> _preloadBuffer = new();
+    private bool _isBulkProcessing = false;
 
     public LogWatcherService(
         IServiceProvider serviceProvider,
@@ -43,12 +44,52 @@ public class LogWatcherService : BackgroundService
             await Task.Delay(10000, stoppingToken);
         }
 
-        // ALWAYS start from the end of the file
         var fileInfo = new FileInfo(logPath);
-        _lastPosition = fileInfo.Length;
         
-        _logger.LogInformation($"Starting from END of log file at position {_lastPosition:N0}");
-        _logger.LogInformation($"Will only process NEW log entries from this point forward");
+        // Load saved position first
+        await LoadPosition();
+        
+        // Determine starting position
+        if (_lastPosition == 0 && File.Exists(_positionFile))
+        {
+            // Position file exists and is set to 0 - user wants to process from beginning
+            _logger.LogInformation("Position set to 0 - processing from beginning of log file");
+            _logger.LogInformation($"This will process {fileInfo.Length:N0} bytes ({fileInfo.Length / 1024.0 / 1024.0:F1} MB)");
+            _isBulkProcessing = true;
+            _isPreloading = true;
+        }
+        else if (_lastPosition > 0 && _lastPosition <= fileInfo.Length)
+        {
+            // Valid saved position exists - resume from there
+            _logger.LogInformation($"Resuming from saved position: {_lastPosition:N0}");
+            
+            // Check if we're far behind (more than 100MB to process)
+            if (fileInfo.Length - _lastPosition > 100_000_000)
+            {
+                _logger.LogInformation($"Large backlog detected: {(fileInfo.Length - _lastPosition) / 1024.0 / 1024.0:F1} MB to process");
+                _isBulkProcessing = true;
+                _isPreloading = true;
+            }
+        }
+        else
+        {
+            // No valid position saved or position is beyond file - start from end
+            var startFromEnd = _configuration.GetValue<bool>("LanCache:StartFromEndOfLog", true);
+            
+            if (startFromEnd)
+            {
+                _lastPosition = fileInfo.Length;
+                _logger.LogInformation($"Starting from END of log file at position {_lastPosition:N0}");
+                _logger.LogInformation($"Will only process NEW log entries from this point forward");
+            }
+            else
+            {
+                _lastPosition = 0;
+                _logger.LogInformation("Starting from beginning of log file");
+                _isBulkProcessing = true;
+                _isPreloading = true;
+            }
+        }
         
         await SavePosition();
         
@@ -72,7 +113,14 @@ public class LogWatcherService : BackgroundService
                 await reader.ReadLineAsync();
             }
             
-            _logger.LogInformation($"Monitoring for new entries from position {_lastPosition:N0}");
+            if (_isBulkProcessing)
+            {
+                _logger.LogInformation($"Starting bulk processing from position {_lastPosition:N0}");
+            }
+            else
+            {
+                _logger.LogInformation($"Monitoring for new entries from position {_lastPosition:N0}");
+            }
         }
         else if (_lastPosition > stream.Length)
         {
@@ -83,8 +131,10 @@ public class LogWatcherService : BackgroundService
 
         var batchEntries = new List<LogEntry>();
         var linesProcessed = 0;
+        var totalLinesProcessed = 0;
         var lastReportTime = DateTime.UtcNow;
         var preloadStartTime = DateTime.UtcNow;
+        var lastSaveTime = DateTime.UtcNow;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -96,11 +146,12 @@ public class LogWatcherService : BackgroundService
                 {
                     _consecutiveEmptyReads = 0;
                     linesProcessed++;
+                    totalLinesProcessed++;
 
                     var entry = _parser.ParseLine(line);
                     if (entry != null && entry.BytesServed > 1024) // Only process entries > 1KB
                     {
-                        if (_isPreloading)
+                        if (_isPreloading || _isBulkProcessing)
                         {
                             _preloadBuffer.Add(entry);
                         }
@@ -110,8 +161,12 @@ public class LogWatcherService : BackgroundService
                         }
                     }
 
-                    // Process batch every 100 lines or 50 entries
-                    if (!_isPreloading && (batchEntries.Count >= 50 || linesProcessed >= 100))
+                    // During bulk processing, use larger batches
+                    var batchSize = _isBulkProcessing ? 500 : 50;
+                    var linesBatchSize = _isBulkProcessing ? 1000 : 100;
+
+                    // Process batch when ready
+                    if (!_isPreloading && !_isBulkProcessing && (batchEntries.Count >= batchSize || linesProcessed >= linesBatchSize))
                     {
                         if (batchEntries.Count > 0)
                         {
@@ -124,10 +179,40 @@ public class LogWatcherService : BackgroundService
                         linesProcessed = 0;
                     }
 
-                    // Report progress every 30 seconds
+                    // During bulk processing, process in larger chunks
+                    if (_isBulkProcessing && _preloadBuffer.Count >= 1000)
+                    {
+                        _logger.LogInformation($"Processing batch of {_preloadBuffer.Count} entries (position: {stream.Position:N0})");
+                        await ProcessBatch(_preloadBuffer.ToList(), false); // No SignalR updates during bulk
+                        _preloadBuffer.Clear();
+                        
+                        _lastPosition = stream.Position;
+                        
+                        // Save position every 30 seconds during bulk processing
+                        if (DateTime.UtcNow - lastSaveTime > TimeSpan.FromSeconds(30))
+                        {
+                            await SavePosition();
+                            lastSaveTime = DateTime.UtcNow;
+                            
+                            var percentComplete = (stream.Position * 100.0) / stream.Length;
+                            _logger.LogInformation($"Bulk processing progress: {percentComplete:F1}% complete ({stream.Position:N0}/{stream.Length:N0} bytes)");
+                        }
+                    }
+
+                    // Report progress periodically
                     if (DateTime.UtcNow - lastReportTime > TimeSpan.FromSeconds(30))
                     {
-                        _logger.LogDebug($"Processed {linesProcessed} lines, position: {_lastPosition:N0}");
+                        if (_isBulkProcessing)
+                        {
+                            var mbProcessed = (stream.Position - _lastPosition) / 1024.0 / 1024.0;
+                            var mbTotal = stream.Length / 1024.0 / 1024.0;
+                            var percentComplete = (stream.Position * 100.0) / stream.Length;
+                            _logger.LogInformation($"Bulk processing: {totalLinesProcessed} lines, {mbProcessed:F1}/{mbTotal:F1} MB ({percentComplete:F1}%)");
+                        }
+                        else
+                        {
+                            _logger.LogDebug($"Processed {linesProcessed} lines, position: {_lastPosition:N0}");
+                        }
                         lastReportTime = DateTime.UtcNow;
                     }
                 }
@@ -135,8 +220,25 @@ public class LogWatcherService : BackgroundService
                 {
                     // No new data - end of current file content
                     
-                    // If preloading, process everything we've buffered
-                    if (_isPreloading)
+                    // Process any remaining buffered entries
+                    if (_isBulkProcessing && _preloadBuffer.Count > 0)
+                    {
+                        _logger.LogInformation($"Processing final batch of {_preloadBuffer.Count} entries");
+                        await ProcessBatch(_preloadBuffer.ToList(), false);
+                        _preloadBuffer.Clear();
+                        
+                        var bulkTime = DateTime.UtcNow - preloadStartTime;
+                        _logger.LogInformation($"Bulk processing completed in {bulkTime.TotalMinutes:F1} minutes. Processed {totalLinesProcessed} lines.");
+                        
+                        _isBulkProcessing = false;
+                        _isPreloading = false;
+                        
+                        // Notify clients that bulk processing is complete
+                        await _hubContext.Clients.All.SendAsync("BulkProcessingComplete");
+                    }
+                    
+                    // If preloading (but not bulk), process everything we've buffered
+                    if (_isPreloading && !_isBulkProcessing)
                     {
                         if (_preloadBuffer.Count > 0)
                         {
@@ -178,6 +280,14 @@ public class LogWatcherService : BackgroundService
                     if (_consecutiveEmptyReads % 60 == 1) // Every minute
                     {
                         _logger.LogDebug($"Waiting for new log entries... (position: {_lastPosition:N0})");
+                    }
+
+                    // Check if file has grown
+                    var currentFileInfo = new FileInfo(path);
+                    if (currentFileInfo.Length > stream.Length)
+                    {
+                        // File has grown, continue immediately
+                        continue;
                     }
 
                     await Task.Delay(1000, stoppingToken);
@@ -227,6 +337,7 @@ public class LogWatcherService : BackgroundService
                 Directory.CreateDirectory(dir);
             }
             await File.WriteAllTextAsync(_positionFile, _lastPosition.ToString());
+            _logger.LogTrace($"Saved position: {_lastPosition}");
         }
         catch (Exception ex)
         {
@@ -246,6 +357,10 @@ public class LogWatcherService : BackgroundService
                     _lastPosition = position;
                     _logger.LogInformation($"Loaded saved position: {_lastPosition:N0}");
                 }
+            }
+            else
+            {
+                _logger.LogInformation("No saved position file found");
             }
         }
         catch (Exception ex)

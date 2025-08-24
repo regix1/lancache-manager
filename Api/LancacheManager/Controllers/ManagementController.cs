@@ -12,6 +12,7 @@ public class ManagementController : ControllerBase
     private readonly DatabaseService _dbService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ManagementController> _logger;
+    private static CancellationTokenSource? _processingCancellation;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -80,9 +81,17 @@ public class ManagementController : ControllerBase
     {
         try
         {
+            // Cancel any existing processing
+            _processingCancellation?.Cancel();
+            _processingCancellation = new CancellationTokenSource();
+            
             // Set position to 0 to process from beginning
             var positionFile = "/data/logposition.txt";
             await System.IO.File.WriteAllTextAsync(positionFile, "0");
+            
+            // Create marker file to indicate bulk processing
+            var processingMarker = "/data/bulk_processing.marker";
+            await System.IO.File.WriteAllTextAsync(processingMarker, DateTime.UtcNow.ToString());
             
             // Get log file size for user info
             var logPath = _configuration["LanCache:LogPath"] ?? "/logs/access.log";
@@ -102,6 +111,81 @@ public class ManagementController : ControllerBase
         {
             _logger.LogError(ex, "Error setting up full log processing");
             return StatusCode(500, new { error = "Failed to setup full log processing" });
+        }
+    }
+
+    [HttpPost("cancel-processing")]
+    public async Task<IActionResult> CancelProcessing()
+    {
+        try
+        {
+            // Signal cancellation
+            _processingCancellation?.Cancel();
+            
+            // Remove processing marker
+            var processingMarker = "/data/bulk_processing.marker";
+            if (System.IO.File.Exists(processingMarker))
+            {
+                System.IO.File.Delete(processingMarker);
+            }
+            
+            // Don't delete position file - keep current progress
+            var positionFile = "/data/logposition.txt";
+            if (System.IO.File.Exists(positionFile))
+            {
+                var currentPosition = await System.IO.File.ReadAllTextAsync(positionFile);
+                _logger.LogInformation($"Processing cancelled at position {currentPosition}");
+            }
+            
+            return Ok(new { 
+                message = "Processing cancelled. Progress has been saved.",
+                requiresRestart = false 
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling processing");
+            return StatusCode(500, new { error = "Failed to cancel processing" });
+        }
+    }
+
+    [HttpGet("processing-status")]
+    public async Task<IActionResult> GetProcessingStatus()
+    {
+        try
+        {
+            var processingMarker = "/data/bulk_processing.marker";
+            var positionFile = "/data/logposition.txt";
+            var logPath = _configuration["LanCache:LogPath"] ?? "/logs/access.log";
+            
+            if (!System.IO.File.Exists(processingMarker))
+            {
+                return Ok(new { isProcessing = false });
+            }
+            
+            long currentPosition = 0;
+            if (System.IO.File.Exists(positionFile))
+            {
+                var posContent = await System.IO.File.ReadAllTextAsync(positionFile);
+                long.TryParse(posContent, out currentPosition);
+            }
+            
+            var fileInfo = new FileInfo(logPath);
+            var percentComplete = fileInfo.Length > 0 ? (currentPosition * 100.0) / fileInfo.Length : 0;
+            
+            return Ok(new { 
+                isProcessing = true,
+                currentPosition,
+                totalSize = fileInfo.Length,
+                percentComplete,
+                mbProcessed = currentPosition / (1024.0 * 1024.0),
+                mbTotal = fileInfo.Length / (1024.0 * 1024.0)
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting processing status");
+            return Ok(new { isProcessing = false });
         }
     }
 }
