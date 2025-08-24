@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, Info } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
@@ -18,14 +18,20 @@ const ManagementTab = () => {
   
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
-  const [statusPollingInterval, setStatusPollingInterval] = useState(null);
+  
+  // Use refs instead of state for interval management
+  const statusPollingInterval = useRef(null);
+  const processingErrorLogged = useRef(false);
+  const longIntervalSet = useRef(false);
 
   // Clean up polling on unmount
   useEffect(() => {
     return () => {
-      if (statusPollingInterval) clearInterval(statusPollingInterval);
+      if (statusPollingInterval.current) {
+        clearInterval(statusPollingInterval.current);
+      }
     };
-  }, [statusPollingInterval]);
+  }, []);
 
   // Check processing status on mount
   useEffect(() => {
@@ -63,11 +69,15 @@ const ManagementTab = () => {
           status: status.status
         });
         
-        // Continue polling if processing
-        if (!statusPollingInterval) {
-          const interval = setInterval(checkProcessingStatus, 3000); // Check every 3 seconds
-          setStatusPollingInterval(interval);
+        // Continue polling if processing - use ref to manage interval
+        if (!statusPollingInterval.current) {
+          statusPollingInterval.current = setInterval(checkProcessingStatus, 3000); // Check every 3 seconds
         }
+        
+        // Reset error logging flag on successful check
+        processingErrorLogged.current = false;
+        longIntervalSet.current = false;
+        
       } else {
         // Not processing
         setIsProcessingLogs(false);
@@ -93,13 +103,34 @@ const ManagementTab = () => {
         }
         
         // Stop polling
-        if (statusPollingInterval) {
-          clearInterval(statusPollingInterval);
-          setStatusPollingInterval(null);
+        if (statusPollingInterval.current) {
+          clearInterval(statusPollingInterval.current);
+          statusPollingInterval.current = null;
         }
       }
     } catch (err) {
-      console.error('Error checking processing status:', err);
+      // Only log error once, not repeatedly
+      if (!processingErrorLogged.current) {
+        console.error('Error checking processing status:', err);
+        processingErrorLogged.current = true;
+      }
+      
+      // If we get connection errors during processing, assume the service is restarting
+      if (isProcessingLogs && (err.message?.includes('Failed to fetch') || err.name === 'AbortError')) {
+        setProcessingStatus(prev => ({
+          ...prev,
+          message: 'Service is restarting...',
+          detailMessage: 'Connection temporarily lost. This is normal during restart.',
+          status: 'restarting'
+        }));
+        
+        // Use a longer interval to reduce spam when having connection issues
+        if (statusPollingInterval.current && !longIntervalSet.current) {
+          clearInterval(statusPollingInterval.current);
+          statusPollingInterval.current = setInterval(checkProcessingStatus, 5000); // Check every 5 seconds instead
+          longIntervalSet.current = true;
+        }
+      }
       // Don't clear processing status on error - might just be a network issue
     }
   };
@@ -122,9 +153,9 @@ const ManagementTab = () => {
         status: 'cancelling'
       });
       
-      if (statusPollingInterval) {
-        clearInterval(statusPollingInterval);
-        setStatusPollingInterval(null);
+      if (statusPollingInterval.current) {
+        clearInterval(statusPollingInterval.current);
+        statusPollingInterval.current = null;
       }
       
       setActionMessage({ 
@@ -194,10 +225,19 @@ const ManagementTab = () => {
               status: 'restarting'
             });
             
+            // Reset error flags
+            processingErrorLogged.current = false;
+            longIntervalSet.current = false;
+            
+            // Clear any existing interval
+            if (statusPollingInterval.current) {
+              clearInterval(statusPollingInterval.current);
+            }
+            
             // Start checking status after a delay (to allow restart)
             setTimeout(() => {
-              const interval = setInterval(checkProcessingStatus, 3000);
-              setStatusPollingInterval(interval);
+              checkProcessingStatus();
+              statusPollingInterval.current = setInterval(checkProcessingStatus, 3000);
             }, 5000); // Wait 5 seconds before starting to poll
           }
           break;
@@ -241,6 +281,14 @@ const ManagementTab = () => {
     await fetchData();
     await checkProcessingStatus();
   };
+
+  // Clear action messages after 5 seconds
+  useEffect(() => {
+    if (actionMessage) {
+      const timer = setTimeout(() => setActionMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [actionMessage]);
 
   return (
     <div className="space-y-6">

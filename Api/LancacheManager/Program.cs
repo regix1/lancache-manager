@@ -1,84 +1,153 @@
-using LancacheManager.Data;
-using LancacheManager.Hubs;
-using LancacheManager.Services;
 using Microsoft.EntityFrameworkCore;
+using LancacheManager.Data;
+using LancacheManager.Services;
+using LancacheManager.Hubs;
+using System.Runtime.InteropServices;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services
+// Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 
-// Add CORS - Allow any origin in production since we're serving from same container
+// Configure CORS
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    options.AddPolicy("AllowFrontend", policy =>
     {
-        if (builder.Environment.IsDevelopment())
-        {
-            policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
-                .AllowAnyHeader()
-                .AllowAnyMethod()
-                .AllowCredentials();
-        }
-        else
-        {
-            // In production, allow same origin since frontend and backend are served together
-            policy.AllowAnyOrigin()
-                .AllowAnyHeader()
-                .AllowAnyMethod();
-        }
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:5174"
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();
+    });
+    
+    // Also add a more permissive policy for development
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
-// Add Database
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Register PathHelperService as singleton first
+builder.Services.AddSingleton<PathHelperService>();
 
-// Add HttpClient
-builder.Services.AddHttpClient();
+// Configure database with cross-platform path
+builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+{
+    var pathHelper = serviceProvider.GetRequiredService<PathHelperService>();
+    var dbPath = pathHelper.GetDatabasePath();
+    
+    // Ensure the directory exists
+    var dbDir = Path.GetDirectoryName(dbPath);
+    if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
+    {
+        Directory.CreateDirectory(dbDir);
+    }
+    
+    options.UseSqlite($"Data Source={dbPath}");
+});
 
-// Register Services
+// Register other services
 builder.Services.AddSingleton<LogParserService>();
-builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddScoped<DatabaseService>();
-
-// Register Background Services
+builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddHostedService<LogWatcherService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
 
+// Configure logging
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
+// Log platform information during configuration (without building service provider)
+builder.Logging.AddConsole(options => options.IncludeScopes = true);
+Console.WriteLine($"Starting LancacheManager on {RuntimeInformation.OSDescription}");
+Console.WriteLine($"Platform: {(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : "Linux/Unix")}");
+
 var app = builder.Build();
 
-// Configure pipeline
+// Now we can safely use the logger after the app is built
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+logger.LogInformation($"LancacheManager started on {RuntimeInformation.OSDescription}");
+
+// Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    // Use the more permissive CORS in development
+    app.UseCors("AllowAll");
+}
+else
+{
+    app.UseCors("AllowFrontend");
 }
 
-app.UseCors();
-
-// Serve static files (built Vite app)
+// Serve static files (your React app)
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// API routes
+app.UseRouting();
+app.UseAuthorization();
+
+// Map endpoints in specific order - API routes first
 app.MapControllers();
-app.MapHub<DownloadHub>("/downloadHub");
+app.MapHub<DownloadHub>("/hubs/downloads");
 
-// SPA fallback - serve index.html for any non-API routes
-app.MapFallbackToFile("index.html");
+// Simple health check endpoint
+app.MapGet("/health", () => Results.Ok(new { 
+    status = "healthy", 
+    timestamp = DateTime.UtcNow,
+    service = "LancacheManager",
+    platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : "Linux"
+}));
 
-// Initialize database
+// Fallback to index.html for client-side routing - MUST BE LAST
+app.MapFallback(async context =>
+{
+    // Don't catch API routes or other endpoints
+    if (context.Request.Path.StartsWithSegments("/api") || 
+        context.Request.Path.StartsWithSegments("/health") ||
+        context.Request.Path.StartsWithSegments("/hubs") ||
+        context.Request.Path.StartsWithSegments("/swagger"))
+    {
+        context.Response.StatusCode = 404;
+        return;
+    }
+    
+    // Serve index.html for client-side routing
+    var indexPath = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
+    if (File.Exists(indexPath))
+    {
+        context.Response.ContentType = "text/html";
+        await context.Response.SendFileAsync(indexPath);
+    }
+    else
+    {
+        context.Response.StatusCode = 404;
+        await context.Response.WriteAsync("index.html not found");
+    }
+});
+
+// Ensure database is created
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.EnsureCreatedAsync();
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var pathHelper = scope.ServiceProvider.GetRequiredService<PathHelperService>();
+    
+    dbContext.Database.EnsureCreated();
+    logger.LogInformation($"Database initialized at: {pathHelper.GetDatabasePath()}");
 }
-
-// Health check
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
 
 app.Run();
