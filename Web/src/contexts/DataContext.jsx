@@ -161,22 +161,33 @@ export const DataProvider = ({ children }) => {
 
   // Initial load and setup interval
   useEffect(() => {
-    // Initial fetch
-    fetchData();
-    
-    // Setup interval based on processing state
-    const interval = setInterval(
-      fetchData, 
-      isProcessingLogs ? 15000 : REFRESH_INTERVAL
-    );
-    
-    return () => clearInterval(interval);
-  }, [isProcessingLogs]); // Only recreate interval when processing state changes
+    // Don't fetch real data if in mock mode
+    if (!mockMode) {
+      // Initial fetch
+      fetchData();
+      
+      // Setup interval based on processing state
+      const interval = setInterval(
+        fetchData, 
+        isProcessingLogs ? 15000 : REFRESH_INTERVAL
+      );
+      
+      return () => clearInterval(interval);
+    }
+  }, [isProcessingLogs, mockMode]); // Recreate interval when processing state or mock mode changes
 
   // Handle mock mode changes
   useEffect(() => {
     // When switching to mock mode, immediately clear and load mock data
     if (mockMode) {
+      // Clear any existing real data first
+      setCacheInfo(null);
+      setActiveDownloads([]);
+      setLatestDownloads([]);
+      setClientStats([]);
+      setServiceStats([]);
+      
+      // Then load mock data
       const mockData = MockDataService.generateMockData();
       setCacheInfo(mockData.cacheInfo);
       setActiveDownloads(mockData.activeDownloads);
@@ -201,7 +212,16 @@ export const DataProvider = ({ children }) => {
       
       return () => clearInterval(interval);
     } else {
-      // When leaving mock mode, fetch real data
+      // When leaving mock mode, clear mock data and fetch real data
+      setCacheInfo(null);
+      setActiveDownloads([]);
+      setLatestDownloads([]);
+      setClientStats([]);
+      setServiceStats([]);
+      setError(null);
+      hasData.current = false;
+      
+      // Fetch real data
       fetchData();
     }
   }, [mockMode]);
