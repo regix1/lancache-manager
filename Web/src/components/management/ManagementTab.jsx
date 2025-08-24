@@ -74,7 +74,11 @@ const ManagementTab = () => {
           setCacheClearProgress(progress);
           
           // Check if operation is complete
-          if (progress.status === 'Completed' || progress.status === 'Failed' || progress.status === 'Cancelled') {
+          if (progress.status === 'Completed' || progress.status === 'Failed' || progress.status === 'Cancelled' || progress.status === 'Cancelling') {
+            // Handle Cancelling as a terminal state
+            if (progress.status === 'Cancelling') {
+              progress.status = 'Cancelled';
+            }
             handleCacheClearComplete(progress);
           }
         }
@@ -281,20 +285,24 @@ const ManagementTab = () => {
     
     // Show completion message
     if (progress.status === 'Completed') {
-      setSuccessMessage(`Cache cleared successfully! Deleted ${formatBytes(progress.bytesDeleted)} (${progress.filesDeleted} files)`);
-    } else if (progress.status === 'Failed') {
-      addError(`Cache clearing failed: ${progress.error || 'Unknown error'}`);
-    } else if (progress.status === 'Cancelled') {
-      setSuccessMessage('Cache clearing cancelled');
-    }
-    
-    // Close modal after 3 seconds for completed operations
-    if (progress.status === 'Completed') {
+      setSuccessMessage(`Cache cleared successfully! Deleted ${formatBytes(progress.bytesDeleted)} (${progress.filesDeleted || 0} files)`);
+      // Auto-close modal after 3 seconds for successful completion
       setTimeout(() => {
         setShowCacheClearModal(false);
         setCacheClearOperation(null);
         setCacheClearProgress(null);
       }, 3000);
+    } else if (progress.status === 'Failed') {
+      addError(`Cache clearing failed: ${progress.error || 'Unknown error'}`);
+      // Keep modal open for failed operations so user can see the error
+    } else if (progress.status === 'Cancelled') {
+      setSuccessMessage('Cache clearing cancelled');
+      // Close modal immediately for cancelled operations
+      setTimeout(() => {
+        setShowCacheClearModal(false);
+        setCacheClearOperation(null);
+        setCacheClearProgress(null);
+      }, 500);
     }
     
     // Refresh data
@@ -305,11 +313,40 @@ const ManagementTab = () => {
     if (!cacheClearOperation) return;
     
     try {
+      // Immediately update UI to show cancelling
+      setCacheClearProgress(prev => ({ 
+        ...prev, 
+        status: 'Cancelling',
+        statusMessage: 'Cancelling operation...'
+      }));
+      
+      // Send cancel request
       await ApiService.cancelCacheClear(cacheClearOperation);
-      setCacheClearProgress(prev => ({ ...prev, status: 'Cancelling' }));
+      
+      // Wait a moment for any final updates
+      setTimeout(() => {
+        // Force close the modal after cancellation
+        setShowCacheClearModal(false);
+        setCacheClearOperation(null);
+        setCacheClearProgress(null);
+        
+        // Stop polling if active
+        if (cacheClearPollingInterval.current) {
+          clearInterval(cacheClearPollingInterval.current);
+          cacheClearPollingInterval.current = null;
+        }
+        
+        // Show success message
+        setSuccessMessage('Cache clearing operation cancelled');
+      }, 1500);
+      
     } catch (err) {
       console.error('Failed to cancel cache clear:', err);
-      addError('Failed to cancel operation');
+      // Even if cancel fails, close the modal
+      setShowCacheClearModal(false);
+      setCacheClearOperation(null);
+      setCacheClearProgress(null);
+      addError('Failed to cancel operation, but closed the dialog');
     }
   };
 
@@ -449,16 +486,38 @@ const ManagementTab = () => {
     }
   }, [successMessage]);
 
+  // Add a useEffect to handle stuck modals (safeguard)
+  useEffect(() => {
+    if (showCacheClearModal && cacheClearProgress) {
+      // If modal has been showing "Cancelling" for more than 5 seconds, force close
+      if (cacheClearProgress.status === 'Cancelling') {
+        const timeout = setTimeout(() => {
+          console.log('Force closing stuck cache clear modal');
+          setShowCacheClearModal(false);
+          setCacheClearOperation(null);
+          setCacheClearProgress(null);
+          
+          if (cacheClearPollingInterval.current) {
+            clearInterval(cacheClearPollingInterval.current);
+            cacheClearPollingInterval.current = null;
+          }
+        }, 5000);
+        
+        return () => clearTimeout(timeout);
+      }
+    }
+  }, [showCacheClearModal, cacheClearProgress?.status]);
+
   return (
     <div className="space-y-6">
       {/* Cache Clear Modal */}
       {showCacheClearModal && cacheClearProgress && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 border border-gray-700">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4 border border-gray-700">
             <h3 className="text-lg font-semibold text-white mb-4">Clearing Cache</h3>
             
             <div className="space-y-4">
-              {/* Status */}
+              {/* Status Message */}
               <div className="flex items-center space-x-2">
                 {cacheClearProgress.status === 'Completed' ? (
                   <CheckCircle className="w-5 h-5 text-green-500" />
@@ -469,50 +528,88 @@ const ManagementTab = () => {
                 ) : (
                   <Loader className="w-5 h-5 text-blue-500 animate-spin" />
                 )}
-                <span className="text-white">{cacheClearProgress.status}</span>
+                <div className="flex-1">
+                  <span className="text-white">{cacheClearProgress.status}</span>
+                  {cacheClearProgress.statusMessage && (
+                    <p className="text-sm text-gray-400">{cacheClearProgress.statusMessage}</p>
+                  )}
+                </div>
               </div>
               
               {/* Progress Bar */}
-              {cacheClearProgress.status === 'Running' && (
+              {(cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing') && (
                 <>
-                  <div className="w-full bg-gray-700 rounded-full h-3">
+                  <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden">
                     <div 
-                      className="bg-blue-500 h-3 rounded-full transition-all duration-500"
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-4 rounded-full transition-all duration-500 relative"
                       style={{ width: `${cacheClearProgress.percentComplete || 0}%` }}
-                    />
+                    >
+                      {/* Animated stripes for active progress */}
+                      <div className="absolute inset-0 bg-stripes animate-slide opacity-20"></div>
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xs text-white font-medium drop-shadow">
+                        {cacheClearProgress.percentComplete?.toFixed(1)}%
+                      </span>
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-400">
-                    {cacheClearProgress.percentComplete?.toFixed(1)}% complete
-                  </p>
+                  
+                  {/* Current directory being processed */}
+                  {cacheClearProgress.currentDirectory && (
+                    <p className="text-sm text-gray-400 text-center">
+                      Processing directory: <span className="text-blue-400 font-mono">{cacheClearProgress.currentDirectory}</span>
+                    </p>
+                  )}
+                  
+                  {/* ETA */}
+                  {cacheClearProgress.estimatedTimeRemaining && (
+                    <p className="text-sm text-gray-400 text-center">
+                      Estimated time remaining: <span className="text-white">{cacheClearProgress.estimatedTimeRemaining}</span>
+                    </p>
+                  )}
                 </>
               )}
               
-              {/* Stats */}
-              <div className="space-y-2 text-sm">
-                {cacheClearProgress.directoriesProcessed > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Directories:</span>
-                    <span className="text-white">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                {cacheClearProgress.directoriesProcessed >= 0 && (
+                  <div className="bg-gray-900 rounded p-3">
+                    <div className="text-gray-400 text-xs uppercase mb-1">Directories</div>
+                    <div className="text-white font-semibold">
                       {cacheClearProgress.directoriesProcessed} / {cacheClearProgress.totalDirectories}
-                    </span>
+                    </div>
+                    {cacheClearProgress.skippedDirectories > 0 && (
+                      <div className="text-xs text-yellow-400 mt-1">
+                        {cacheClearProgress.skippedDirectories} skipped
+                      </div>
+                    )}
                   </div>
                 )}
+                
+                {cacheClearProgress.bytesDeleted >= 0 && (
+                  <div className="bg-gray-900 rounded p-3">
+                    <div className="text-gray-400 text-xs uppercase mb-1">Space Freed</div>
+                    <div className="text-green-400 font-semibold">
+                      {formatBytes(cacheClearProgress.bytesDeleted)}
+                    </div>
+                  </div>
+                )}
+                
                 {cacheClearProgress.filesDeleted > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Files Deleted:</span>
-                    <span className="text-white">{cacheClearProgress.filesDeleted.toLocaleString()}</span>
+                  <div className="bg-gray-900 rounded p-3">
+                    <div className="text-gray-400 text-xs uppercase mb-1">Files Deleted</div>
+                    <div className="text-white font-semibold">
+                      {cacheClearProgress.filesDeleted.toLocaleString()}
+                    </div>
                   </div>
                 )}
-                {cacheClearProgress.bytesDeleted > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Space Freed:</span>
-                    <span className="text-green-400">{formatBytes(cacheClearProgress.bytesDeleted)}</span>
-                  </div>
-                )}
+                
                 {cacheClearProgress.errors > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Errors:</span>
-                    <span className="text-red-400">{cacheClearProgress.errors}</span>
+                  <div className="bg-gray-900 rounded p-3">
+                    <div className="text-gray-400 text-xs uppercase mb-1">Errors</div>
+                    <div className="text-red-400 font-semibold">
+                      {cacheClearProgress.errors}
+                    </div>
                   </div>
                 )}
               </div>
@@ -525,14 +622,23 @@ const ManagementTab = () => {
               )}
               
               {/* Actions */}
-              <div className="flex justify-end space-x-3 pt-4">
-                {cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing' ? (
-                  <button
-                    onClick={handleCancelCacheClear}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white"
-                  >
-                    Cancel
-                  </button>
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
+                {(cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing') ? (
+                  <>
+                    <button
+                      onClick={handleCancelCacheClear}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white flex items-center space-x-2"
+                    >
+                      <StopCircle className="w-4 h-4" />
+                      <span>Cancel</span>
+                    </button>
+                    <button
+                      onClick={() => setShowCacheClearModal(false)}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
+                    >
+                      Run in Background
+                    </button>
+                  </>
                 ) : (
                   <button
                     onClick={() => {
