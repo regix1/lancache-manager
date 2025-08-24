@@ -40,29 +40,9 @@ public class AppDbContext : DbContext
             .HasIndex(c => c.LastSeen)
             .HasDatabaseName("IX_ClientStats_LastSeen");
             
-        // ServiceStats indexes
+        // ServiceStats indexes  
         modelBuilder.Entity<ServiceStats>()
             .HasIndex(s => s.LastActivity)
             .HasDatabaseName("IX_ServiceStats_LastActivity");
-    }
-    
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        if (!optionsBuilder.IsConfigured)
-        {
-            optionsBuilder.UseSqlite($"Data Source=/data/lancache.db");
-        }
-        
-        // Enable query logging in development
-        #if DEBUG
-        optionsBuilder.EnableSensitiveDataLogging();
-        optionsBuilder.EnableDetailedErrors();
-        #endif
-        
-        // SQLite performance optimizations
-        optionsBuilder.UseSqlite(builder =>
-        {
-            builder.CommandTimeout(30);
-        });
     }
 }
