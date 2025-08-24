@@ -46,16 +46,16 @@ const ProcessingStatus = () => {
               {processingStatus && (
                 <div className="mt-2">
                   <p className="text-xs text-gray-400">{processingStatus.message}</p>
-                  {processingStatus.progress && (
+                  {processingStatus.progress !== undefined && processingStatus.progress > 0 && (
                     <div className="mt-2">
                       <div className="w-full bg-gray-700 rounded-full h-2">
                         <div 
                           className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${processingStatus.progress}%` }}
+                          style={{ width: `${Math.min(processingStatus.progress || 0, 100)}%` }}
                         />
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
-                        {processingStatus.progress}% complete
+                        {(processingStatus.progress || 0).toFixed(1)}% complete
                       </p>
                     </div>
                   )}
