@@ -30,7 +30,7 @@ COPY --from=frontend-builder /app/dist /app/publish/wwwroot
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 
-# Install runtime dependencies including bash and nano for debugging
+# Install runtime dependencies including tools for fast cache clearing
 RUN apt-get update && \
     apt-get install -y \
     curl \
@@ -38,6 +38,9 @@ RUN apt-get update && \
     nano \
     procps \
     net-tools \
+    rsync \
+    findutils \
+    coreutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy published application

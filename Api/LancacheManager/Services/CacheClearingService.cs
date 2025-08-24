@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
 
@@ -41,7 +42,6 @@ public class CacheClearingService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Cleanup old operations every 5 minutes
         _cleanupTimer = new Timer(CleanupOldOperations, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         return Task.CompletedTask;
     }
@@ -50,7 +50,6 @@ public class CacheClearingService : IHostedService
     {
         _cleanupTimer?.Dispose();
         
-        // Cancel all ongoing operations
         foreach (var operation in _operations.Values)
         {
             operation.CancellationTokenSource?.Cancel();
@@ -74,16 +73,16 @@ public class CacheClearingService : IHostedService
         _operations[operationId] = operation;
         
         // Start the clearing operation in the background
-        _ = Task.Run(async () => await ClearCacheAsync(operation), operation.CancellationTokenSource.Token);
+        _ = Task.Run(async () => await ClearCacheOptimizedAsync(operation), operation.CancellationTokenSource.Token);
         
         return operationId;
     }
 
-    private async Task ClearCacheAsync(CacheClearOperation operation)
+    private async Task ClearCacheOptimizedAsync(CacheClearOperation operation)
     {
         try
         {
-            _logger.LogInformation($"Starting cache clear operation {operation.Id} for service: {operation.Service ?? "all"}");
+            _logger.LogInformation($"Starting optimized cache clear operation {operation.Id}");
             
             if (!Directory.Exists(_cachePath))
             {
@@ -113,37 +112,46 @@ public class CacheClearingService : IHostedService
             
             operation.TotalDirectories = dirs.Count;
             operation.Status = ClearStatus.Running;
+            
+            // Get initial size estimate (quick sampling)
+            var initialSize = await EstimateCacheSizeAsync(_cachePath);
+            operation.BytesDeleted = 0;
+            operation.TotalBytesToDelete = initialSize;
+            
+            _logger.LogInformation($"Found {dirs.Count} cache directories to clear, estimated size: {initialSize / (1024.0 * 1024.0 * 1024.0):F2} GB");
             await NotifyProgress(operation);
-            
-            _logger.LogInformation($"Found {dirs.Count} cache directories to clear");
 
-            // Process directories in parallel but limit concurrency
-            var semaphore = new SemaphoreSlim(4); // Process 4 directories at a time
-            var tasks = new List<Task>();
-            
-            foreach (var dir in dirs)
+            // Choose deletion method based on what's available
+            var deletionMethod = await DetermineBestDeletionMethod();
+            _logger.LogInformation($"Using deletion method: {deletionMethod}");
+
+            switch (deletionMethod)
             {
-                if (operation.CancellationTokenSource.Token.IsCancellationRequested)
-                {
-                    operation.Status = ClearStatus.Cancelled;
+                case DeletionMethod.RsyncDelete:
+                    await ClearUsingRsyncAsync(operation, dirs);
                     break;
-                }
-                
-                tasks.Add(ProcessDirectoryAsync(dir, operation, semaphore));
+                case DeletionMethod.FindDelete:
+                    await ClearUsingFindAsync(operation, dirs);
+                    break;
+                case DeletionMethod.ParallelRm:
+                    await ClearUsingParallelRmAsync(operation, dirs);
+                    break;
+                default:
+                    await ClearUsingBasicRmAsync(operation, dirs);
+                    break;
             }
-            
-            await Task.WhenAll(tasks);
             
             if (operation.Status != ClearStatus.Cancelled)
             {
                 operation.Status = ClearStatus.Completed;
+                operation.BytesDeleted = initialSize; // Set to initial size on successful completion
             }
             
             operation.EndTime = DateTime.UtcNow;
             
             var duration = operation.EndTime.Value - operation.StartTime;
             _logger.LogInformation($"Cache clear operation {operation.Id} completed in {duration.TotalMinutes:F1} minutes. " +
-                                  $"Cleared {operation.FilesDeleted} files, {operation.BytesDeleted / (1024.0 * 1024.0 * 1024.0):F2} GB");
+                                  $"Cleared approximately {initialSize / (1024.0 * 1024.0 * 1024.0):F2} GB");
             
             await NotifyProgress(operation);
         }
@@ -157,133 +165,293 @@ public class CacheClearingService : IHostedService
         }
     }
 
-    private async Task ProcessDirectoryAsync(string dir, CacheClearOperation operation, SemaphoreSlim semaphore)
+    private async Task<DeletionMethod> DetermineBestDeletionMethod()
     {
-        await semaphore.WaitAsync();
+        // Check for available commands
+        var hasRsync = await CheckCommandExists("rsync");
+        var hasFind = await CheckCommandExists("find");
+        var hasParallel = await CheckCommandExists("parallel");
+        
+        if (hasRsync)
+            return DeletionMethod.RsyncDelete;
+        if (hasFind)
+            return DeletionMethod.FindDelete;
+        if (hasParallel)
+            return DeletionMethod.ParallelRm;
+        
+        return DeletionMethod.BasicRm;
+    }
+
+    private async Task<bool> CheckCommandExists(string command)
+    {
         try
         {
-            if (operation.CancellationTokenSource.Token.IsCancellationRequested)
-                return;
-            
-            var dirName = Path.GetFileName(dir);
-            _logger.LogDebug($"Processing directory: {dirName}");
-            
-            // Count and delete files
-            await DeleteFilesRecursivelyAsync(dir, operation);
-            
-            // Delete subdirectories but keep the main directory (00-ff)
-            try
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
             {
-                var subdirs = Directory.GetDirectories(dir);
-                foreach (var subdir in subdirs)
+                FileName = "which",
+                Arguments = command,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            process.Start();
+            await process.WaitForExitAsync();
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task ClearUsingRsyncAsync(CacheClearOperation operation, List<string> dirs)
+    {
+        // Rsync with empty directory is one of the fastest methods for mass deletion
+        var emptyDir = Path.Combine(Path.GetTempPath(), $"empty_{Guid.NewGuid()}");
+        Directory.CreateDirectory(emptyDir);
+        
+        try
+        {
+            foreach (var dir in dirs)
+            {
+                if (operation.CancellationTokenSource.Token.IsCancellationRequested)
                 {
-                    if (operation.CancellationTokenSource.Token.IsCancellationRequested)
-                        break;
-                    
-                    try
-                    {
-                        Directory.Delete(subdir, true);
-                        operation.SubdirectoriesDeleted++;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, $"Failed to delete subdirectory: {subdir}");
-                        operation.Errors++;
-                    }
+                    operation.Status = ClearStatus.Cancelled;
+                    break;
+                }
+                
+                var dirName = Path.GetFileName(dir);
+                _logger.LogDebug($"Clearing directory {dirName} using rsync");
+                
+                using var process = new Process();
+                process.StartInfo = new ProcessStartInfo
+                {
+                    FileName = "rsync",
+                    Arguments = $"-a --delete \"{emptyDir}/\" \"{dir}/\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+                
+                process.Start();
+                await process.WaitForExitAsync(operation.CancellationTokenSource.Token);
+                
+                if (process.ExitCode != 0)
+                {
+                    var error = await process.StandardError.ReadToEndAsync();
+                    _logger.LogWarning($"Rsync failed for {dirName}: {error}");
+                    operation.Errors++;
+                }
+                
+                operation.DirectoriesProcessed++;
+                
+                // Update progress
+                var percentComplete = (operation.DirectoriesProcessed * 100.0) / operation.TotalDirectories;
+                operation.BytesDeleted = (long)(operation.TotalBytesToDelete * (percentComplete / 100.0));
+                
+                if (operation.DirectoriesProcessed % 5 == 0)
+                {
+                    await NotifyProgress(operation);
                 }
             }
-            catch (Exception ex)
+        }
+        finally
+        {
+            Directory.Delete(emptyDir, true);
+        }
+    }
+
+    private async Task ClearUsingFindAsync(CacheClearOperation operation, List<string> dirs)
+    {
+        // Using find with -delete is much faster than rm for many files
+        foreach (var dir in dirs)
+        {
+            if (operation.CancellationTokenSource.Token.IsCancellationRequested)
             {
-                _logger.LogWarning(ex, $"Failed to enumerate subdirectories in: {dir}");
+                operation.Status = ClearStatus.Cancelled;
+                break;
             }
             
-            Interlocked.Increment(ref operation.DirectoriesProcessed);
+            var dirName = Path.GetFileName(dir);
+            _logger.LogDebug($"Clearing directory {dirName} using find -delete");
             
-            // Send progress update every 5 directories
+            // First delete all files, then remove empty directories
+            using (var process = new Process())
+            {
+                process.StartInfo = new ProcessStartInfo
+                {
+                    FileName = "find",
+                    Arguments = $"\"{dir}\" -type f -delete",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+                
+                process.Start();
+                await process.WaitForExitAsync(operation.CancellationTokenSource.Token);
+                
+                if (process.ExitCode != 0)
+                {
+                    var error = await process.StandardError.ReadToEndAsync();
+                    _logger.LogWarning($"Find -delete failed for files in {dirName}: {error}");
+                    operation.Errors++;
+                }
+            }
+            
+            // Remove empty directories (except the main cache directory)
+            using (var process = new Process())
+            {
+                process.StartInfo = new ProcessStartInfo
+                {
+                    FileName = "find",
+                    Arguments = $"\"{dir}\" -mindepth 1 -type d -empty -delete",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+                
+                process.Start();
+                await process.WaitForExitAsync(operation.CancellationTokenSource.Token);
+            }
+            
+            operation.DirectoriesProcessed++;
+            
+            // Update progress
+            var percentComplete = (operation.DirectoriesProcessed * 100.0) / operation.TotalDirectories;
+            operation.BytesDeleted = (long)(operation.TotalBytesToDelete * (percentComplete / 100.0));
+            
             if (operation.DirectoriesProcessed % 5 == 0)
             {
                 await NotifyProgress(operation);
             }
         }
-        catch (Exception ex)
+    }
+
+    private async Task ClearUsingParallelRmAsync(CacheClearOperation operation, List<string> dirs)
+    {
+        // Process multiple directories in parallel for faster deletion
+        var parallelOptions = new ParallelOptions
         {
-            _logger.LogWarning(ex, $"Failed to process directory: {dir}");
-            operation.Errors++;
-        }
-        finally
+            MaxDegreeOfParallelism = 4, // Limit to 4 parallel operations
+            CancellationToken = operation.CancellationTokenSource.Token
+        };
+        
+        await Parallel.ForEachAsync(dirs, parallelOptions, async (dir, ct) =>
         {
-            semaphore.Release();
+            if (ct.IsCancellationRequested)
+                return;
+            
+            var dirName = Path.GetFileName(dir);
+            _logger.LogDebug($"Clearing directory {dirName} using rm -rf");
+            
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "sh",
+                Arguments = $"-c \"rm -rf {dir}/* {dir}/.[!.]* {dir}/..?* 2>/dev/null\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            process.Start();
+            await process.WaitForExitAsync(ct);
+            
+            Interlocked.Increment(ref operation.DirectoriesProcessed);
+            
+            // Update progress
+            var percentComplete = (operation.DirectoriesProcessed * 100.0) / operation.TotalDirectories;
+            var estimatedBytesDeleted = (long)(operation.TotalBytesToDelete * (percentComplete / 100.0));
+            Interlocked.Exchange(ref operation.BytesDeleted, estimatedBytesDeleted);
+            
+            if (operation.DirectoriesProcessed % 5 == 0)
+            {
+                await NotifyProgress(operation);
+            }
+        });
+    }
+
+    private async Task ClearUsingBasicRmAsync(CacheClearOperation operation, List<string> dirs)
+    {
+        // Fallback to basic rm -rf
+        foreach (var dir in dirs)
+        {
+            if (operation.CancellationTokenSource.Token.IsCancellationRequested)
+            {
+                operation.Status = ClearStatus.Cancelled;
+                break;
+            }
+            
+            var dirName = Path.GetFileName(dir);
+            _logger.LogDebug($"Clearing directory {dirName} using rm -rf");
+            
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "sh",
+                Arguments = $"-c \"rm -rf {dir}/* {dir}/.[!.]* {dir}/..?* 2>/dev/null\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            process.Start();
+            await process.WaitForExitAsync(operation.CancellationTokenSource.Token);
+            
+            operation.DirectoriesProcessed++;
+            
+            // Update progress
+            var percentComplete = (operation.DirectoriesProcessed * 100.0) / operation.TotalDirectories;
+            operation.BytesDeleted = (long)(operation.TotalBytesToDelete * (percentComplete / 100.0));
+            
+            if (operation.DirectoriesProcessed % 5 == 0)
+            {
+                await NotifyProgress(operation);
+            }
         }
     }
 
-    private async Task DeleteFilesRecursivelyAsync(string directory, CacheClearOperation operation)
+    private async Task<long> EstimateCacheSizeAsync(string path)
     {
         try
         {
-            // Process files in batches to avoid memory issues
-            const int batchSize = 1000;
-            var files = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories);
-            var batch = new List<string>(batchSize);
-            
-            foreach (var file in files)
+            // Use du for a quick size estimate (with timeout)
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
             {
-                if (operation.CancellationTokenSource.Token.IsCancellationRequested)
-                    break;
-                
-                batch.Add(file);
-                
-                if (batch.Count >= batchSize)
+                FileName = "du",
+                Arguments = $"-sb \"{path}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            process.Start();
+            
+            // Wait max 10 seconds for size calculation
+            var completed = await Task.Run(() => process.WaitForExit(10000));
+            
+            if (completed && process.ExitCode == 0)
+            {
+                var output = await process.StandardOutput.ReadToEndAsync();
+                var parts = output.Split('\t');
+                if (parts.Length > 0 && long.TryParse(parts[0], out var size))
                 {
-                    await ProcessFileBatchAsync(batch, operation);
-                    batch.Clear();
+                    return size;
                 }
             }
-            
-            // Process remaining files
-            if (batch.Count > 0)
+            else
             {
-                await ProcessFileBatchAsync(batch, operation);
+                process.Kill(true);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, $"Error enumerating files in {directory}");
-            operation.Errors++;
+            _logger.LogWarning(ex, "Failed to estimate cache size, using default");
         }
-    }
-
-    private async Task ProcessFileBatchAsync(List<string> files, CacheClearOperation operation)
-    {
-        await Task.Run(() =>
-        {
-            foreach (var file in files)
-            {
-                if (operation.CancellationTokenSource.Token.IsCancellationRequested)
-                    break;
-                
-                try
-                {
-                    var fileInfo = new FileInfo(file);
-                    var size = fileInfo.Length;
-                    
-                    File.Delete(file);
-                    
-                    Interlocked.Add(ref operation.BytesDeleted, size);
-                    Interlocked.Increment(ref operation.FilesDeleted);
-                    
-                    // Update progress every 100 files
-                    if (operation.FilesDeleted % 100 == 0)
-                    {
-                        _ = NotifyProgress(operation);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogTrace($"Failed to delete file {file}: {ex.Message}");
-                    operation.Errors++;
-                }
-            }
-        });
+        
+        // Return a default estimate if we can't calculate
+        return 100L * 1024 * 1024 * 1024; // 100GB default estimate
     }
 
     private bool IsHex(string value)
@@ -317,7 +485,7 @@ public class CacheClearingService : IHostedService
             await _hubContext.Clients.All.SendAsync("CacheClearProgress", progress);
             
             _logger.LogDebug($"Cache clear progress: {progress.PercentComplete:F1}% - " +
-                           $"{progress.FilesDeleted} files, {progress.BytesDeleted / (1024.0 * 1024.0):F1} MB deleted");
+                           $"~{progress.BytesDeleted / (1024.0 * 1024.0 * 1024.0):F2} GB deleted");
         }
         catch (Exception ex)
         {
@@ -408,6 +576,7 @@ public class CacheClearOperation
     public int DirectoriesProcessed;
     public long FilesDeleted;
     public long BytesDeleted;
+    public long TotalBytesToDelete;
     public int SubdirectoriesDeleted;
     public int Errors;
     public CancellationTokenSource? CancellationTokenSource { get; set; }
@@ -420,6 +589,14 @@ public enum ClearStatus
     Completed,
     Failed,
     Cancelled
+}
+
+public enum DeletionMethod
+{
+    RsyncDelete,    // Fastest - uses rsync --delete with empty directory
+    FindDelete,     // Fast - uses find -delete
+    ParallelRm,     // Medium - parallel rm -rf
+    BasicRm         // Slowest - sequential rm -rf
 }
 
 public class CacheClearProgress
