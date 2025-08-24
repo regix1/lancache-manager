@@ -72,19 +72,19 @@ public class CacheClearingService : IHostedService
         
         _operations[operationId] = operation;
         
-        // Always use nuclear method - it's the only fast way for large caches
-        _ = Task.Run(async () => await NuclearClearCacheAsync(operation), operation.CancellationTokenSource.Token);
+        // Use the improved instant clear method that works with nginx running
+        _ = Task.Run(async () => await InstantClearCacheAsync(operation), operation.CancellationTokenSource.Token);
         
         return operationId;
     }
 
-    private async Task NuclearClearCacheAsync(CacheClearOperation operation)
+    private async Task InstantClearCacheAsync(CacheClearOperation operation)
     {
         try
         {
             _logger.LogInformation($"Starting instant cache clear operation {operation.Id}");
             operation.StatusMessage = "Preparing instant cache clear...";
-            operation.TotalDirectories = 4; // We'll show 4 stages of progress
+            operation.TotalDirectories = 256; // We have 256 hex directories (00-ff)
             operation.DirectoriesProcessed = 0;
             await NotifyProgress(operation);
             
@@ -101,142 +101,58 @@ public class CacheClearingService : IHostedService
             }
 
             // Get quick size estimate for display
-            long sizeEstimate = 0;
-            try
-            {
-                // Try to get actual size quickly (with 2 second timeout)
-                using var sizeProcess = new Process();
-                sizeProcess.StartInfo = new ProcessStartInfo
-                {
-                    FileName = "timeout",
-                    Arguments = $"2 du -sb \"{_cachePath}\"",
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                
-                sizeProcess.Start();
-                var sizeTask = sizeProcess.WaitForExitAsync();
-                if (await Task.WhenAny(sizeTask, Task.Delay(2000)) == sizeTask && sizeProcess.ExitCode == 0)
-                {
-                    var output = await sizeProcess.StandardOutput.ReadToEndAsync();
-                    var parts = output.Split('\t');
-                    if (parts.Length > 0 && long.TryParse(parts[0], out var actualSize))
-                    {
-                        sizeEstimate = actualSize;
-                        _logger.LogInformation($"Cache size: {sizeEstimate / (1024.0 * 1024.0 * 1024.0):F2} GB");
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore size estimation errors
-            }
-            
-            // Default to estimate if we couldn't get actual size
-            if (sizeEstimate == 0)
-            {
-                sizeEstimate = 1000L * 1024 * 1024 * 1024; // Assume 1TB average
-            }
-            
+            long sizeEstimate = await GetCacheSizeEstimate();
             operation.TotalBytesToDelete = sizeEstimate;
             operation.BytesDeleted = 0;
             
-            // Generate unique name for old cache
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-            var tempPath = $"{_cachePath}_old_{timestamp}";
-            
             operation.Status = ClearStatus.Running;
-            operation.StatusMessage = "Moving cache directory (instant operation)...";
-            operation.DirectoriesProcessed = 1;
+            operation.StatusMessage = "Clearing cache files (instant operation)...";
             await NotifyProgress(operation);
             
-            try
+            // Use the fastest method available
+            bool success = false;
+            
+            // Method 1: Try using find command to delete all files (fastest)
+            success = await ClearUsingFindCommand(operation);
+            
+            if (!success && operation.CancellationTokenSource?.Token.IsCancellationRequested != true)
             {
-                // Step 1: Rename the existing cache directory (INSTANT operation)
-                _logger.LogInformation($"Renaming {_cachePath} to {tempPath}");
-                Directory.Move(_cachePath, tempPath);
-                
-                operation.DirectoriesProcessed = 2;
-                operation.BytesDeleted = sizeEstimate / 2; // Show 50% progress
-                operation.StatusMessage = "Cache moved! Creating new cache structure...";
-                await NotifyProgress(operation);
-                
-                // Small delay for visual feedback
-                await Task.Delay(300);
-                
-                // Step 2: Create new empty cache directory structure
-                Directory.CreateDirectory(_cachePath);
-                
-                // Create all 256 directories (00-ff)
-                var createdCount = 0;
-                for (int i = 0; i < 256; i++)
-                {
-                    var dirName = i.ToString("x2");
-                    Directory.CreateDirectory(Path.Combine(_cachePath, dirName));
-                    createdCount++;
-                    
-                    // Update progress every 64 directories
-                    if (createdCount % 64 == 0)
-                    {
-                        var progress = 2.0 + (createdCount / 256.0); // Progress from 2 to 3
-                        operation.DirectoriesProcessed = (int)Math.Floor(progress);
-                        operation.BytesDeleted = (long)(sizeEstimate * (0.5 + (createdCount / 512.0))); // 50% to 100%
-                        operation.StatusMessage = $"Creating cache structure... ({createdCount}/256 directories)";
-                        await NotifyProgress(operation);
-                        await Task.Delay(50); // Small delay for visual feedback
-                    }
-                }
-                
-                // Cache is now effectively cleared from nginx's perspective
-                operation.DirectoriesProcessed = 4;
-                operation.BytesDeleted = sizeEstimate;
+                // Method 2: Try parallel deletion
+                success = await ClearUsingParallelDeletion(operation);
+            }
+            
+            if (!success && operation.CancellationTokenSource?.Token.IsCancellationRequested != true)
+            {
+                // Method 3: Fallback to truncation method
+                success = await ClearUsingTruncation(operation);
+            }
+            
+            if (success)
+            {
                 operation.Status = ClearStatus.Completed;
-                operation.StatusMessage = "Cache cleared successfully! Old cache will be deleted in background.";
+                operation.StatusMessage = "Cache cleared successfully!";
+                operation.BytesDeleted = sizeEstimate;
+                operation.DirectoriesProcessed = 256;
                 operation.EndTime = DateTime.UtcNow;
                 
                 var duration = operation.EndTime.Value - operation.StartTime;
                 _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds! Cleared {sizeEstimate / (1024.0 * 1024.0 * 1024.0):F2} GB");
-                
-                await NotifyProgress(operation);
-                
-                // Step 3: Delete the old directory in the background (fire and forget)
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        _logger.LogInformation($"Starting background deletion of {tempPath}");
-                        
-                        using var process = new Process();
-                        process.StartInfo = new ProcessStartInfo
-                        {
-                            FileName = "sh",
-                            Arguments = $"-c \"nohup rm -rf '{tempPath}' > /dev/null 2>&1 &\"",
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        };
-                        
-                        process.Start();
-                        await process.WaitForExitAsync();
-                        
-                        _logger.LogInformation($"Background deletion process started for {tempPath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, $"Failed to start background deletion of {tempPath}");
-                        // Not critical - admin can manually delete if needed
-                    }
-                });
             }
-            catch (Exception ex)
+            else if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
             {
-                _logger.LogError(ex, "Failed to clear cache using nuclear method");
+                operation.Status = ClearStatus.Cancelled;
+                operation.StatusMessage = "Operation cancelled";
+                operation.EndTime = DateTime.UtcNow;
+            }
+            else
+            {
                 operation.Status = ClearStatus.Failed;
-                operation.Error = $"Failed to move cache directory: {ex.Message}. Please check permissions.";
+                operation.Error = "All cache clear methods failed. Please check permissions and try again.";
                 operation.StatusMessage = "Failed to clear cache";
                 operation.EndTime = DateTime.UtcNow;
-                await NotifyProgress(operation);
             }
+            
+            await NotifyProgress(operation);
         }
         catch (Exception ex)
         {
@@ -247,6 +163,257 @@ public class CacheClearingService : IHostedService
             operation.EndTime = DateTime.UtcNow;
             await NotifyProgress(operation);
         }
+    }
+
+    private async Task<bool> ClearUsingFindCommand(CacheClearOperation operation)
+    {
+        try
+        {
+            _logger.LogInformation("Attempting instant clear using find command");
+            operation.StatusMessage = "Deleting cache files (optimized method)...";
+            await NotifyProgress(operation);
+            
+            // Use find to delete all files but preserve directory structure
+            // This is very fast and doesn't interfere with nginx
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "/bin/sh",
+                Arguments = $"-c \"find {_cachePath} -type f -delete\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            process.Start();
+            
+            // Update progress while waiting
+            var progressTask = Task.Run(async () =>
+            {
+                var elapsed = 0;
+                while (!process.HasExited && elapsed < 60)
+                {
+                    await Task.Delay(500);
+                    elapsed++;
+                    
+                    // Simulate progress based on time
+                    var progress = Math.Min(elapsed * 4, 250);
+                    operation.DirectoriesProcessed = progress;
+                    operation.BytesDeleted = (long)(operation.TotalBytesToDelete * (progress / 256.0));
+                    operation.StatusMessage = $"Clearing cache... ({progress}/256 directories)";
+                    await NotifyProgress(operation);
+                    
+                    if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
+                    {
+                        process.Kill();
+                        return;
+                    }
+                }
+            });
+            
+            var completed = await Task.Run(() => process.WaitForExit(60000)); // 60 second timeout
+            
+            if (completed && process.ExitCode == 0)
+            {
+                _logger.LogInformation("Successfully cleared cache using find command");
+                return true;
+            }
+            
+            if (!completed)
+            {
+                process.Kill();
+                _logger.LogWarning("Find command timed out");
+            }
+            else
+            {
+                var error = await process.StandardError.ReadToEndAsync();
+                _logger.LogWarning($"Find command failed with exit code {process.ExitCode}: {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to use find command");
+        }
+        
+        return false;
+    }
+
+    private async Task<bool> ClearUsingParallelDeletion(CacheClearOperation operation)
+    {
+        try
+        {
+            _logger.LogInformation("Attempting clear using parallel deletion");
+            operation.StatusMessage = "Clearing cache using parallel deletion...";
+            await NotifyProgress(operation);
+            
+            // Get all hex directories
+            var dirs = Directory.GetDirectories(_cachePath)
+                .Where(d => {
+                    var name = Path.GetFileName(d);
+                    return name.Length == 2 && IsHex(name);
+                })
+                .OrderBy(d => d)
+                .ToList();
+            
+            if (dirs.Count == 0)
+            {
+                _logger.LogWarning("No cache directories found");
+                return false;
+            }
+            
+            var processedCount = 0;
+            var semaphore = new SemaphoreSlim(8); // Limit parallel operations
+            
+            var tasks = dirs.Select(async dir =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
+                        return false;
+                    
+                    // Delete all files in this hex directory
+                    using var process = new Process();
+                    process.StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "/bin/sh",
+                        Arguments = $"-c \"find '{dir}' -type f -delete\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    
+                    process.Start();
+                    await process.WaitForExitAsync();
+                    
+                    Interlocked.Increment(ref processedCount);
+                    
+                    operation.DirectoriesProcessed = processedCount;
+                    operation.BytesDeleted = (long)(operation.TotalBytesToDelete * (processedCount / 256.0));
+                    operation.StatusMessage = $"Clearing cache... ({processedCount}/256 directories)";
+                    await NotifyProgress(operation);
+                    
+                    return process.ExitCode == 0;
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }).ToList();
+            
+            var results = await Task.WhenAll(tasks);
+            var successCount = results.Count(r => r);
+            
+            _logger.LogInformation($"Cleared {successCount}/{dirs.Count} directories using parallel deletion");
+            
+            return successCount == dirs.Count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to use parallel deletion");
+        }
+        
+        return false;
+    }
+
+    private async Task<bool> ClearUsingTruncation(CacheClearOperation operation)
+    {
+        try
+        {
+            _logger.LogInformation("Attempting clear using truncation method");
+            operation.StatusMessage = "Clearing cache using truncation...";
+            await NotifyProgress(operation);
+            
+            // Truncate all files to 0 bytes (makes them invalid to nginx)
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "/bin/sh",
+                Arguments = $"-c \"find {_cachePath} -type f -exec truncate -s 0 {{}} +\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            process.Start();
+            var completed = await Task.Run(() => process.WaitForExit(30000)); // 30 second timeout
+            
+            if (completed && process.ExitCode == 0)
+            {
+                _logger.LogInformation("Files truncated successfully");
+                
+                // Schedule background deletion of truncated files
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(5000);
+                    using var deleteProcess = new Process();
+                    deleteProcess.StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "/bin/sh",
+                        Arguments = $"-c \"find {_cachePath} -type f -size 0 -delete\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    deleteProcess.Start();
+                    await deleteProcess.WaitForExitAsync();
+                    _logger.LogInformation("Truncated files deleted in background");
+                });
+                
+                return true;
+            }
+            
+            if (!completed)
+            {
+                process.Kill();
+                _logger.LogWarning("Truncation command timed out");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to use truncation method");
+        }
+        
+        return false;
+    }
+
+    private async Task<long> GetCacheSizeEstimate()
+    {
+        try
+        {
+            // Try to get actual size quickly (with 2 second timeout)
+            using var sizeProcess = new Process();
+            sizeProcess.StartInfo = new ProcessStartInfo
+            {
+                FileName = "timeout",
+                Arguments = $"2 du -sb \"{_cachePath}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            
+            sizeProcess.Start();
+            var sizeTask = sizeProcess.WaitForExitAsync();
+            if (await Task.WhenAny(sizeTask, Task.Delay(2000)) == sizeTask && sizeProcess.ExitCode == 0)
+            {
+                var output = await sizeProcess.StandardOutput.ReadToEndAsync();
+                var parts = output.Split('\t');
+                if (parts.Length > 0 && long.TryParse(parts[0], out var actualSize))
+                {
+                    _logger.LogInformation($"Cache size: {actualSize / (1024.0 * 1024.0 * 1024.0):F2} GB");
+                    return actualSize;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore size estimation errors
+        }
+        
+        // Default estimate if we couldn't get actual size
+        return 500L * 1024 * 1024 * 1024; // Assume 500GB average
     }
 
     private bool IsHex(string value)
