@@ -6,33 +6,34 @@ public class CacheManagementService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<CacheManagementService> _logger;
+    private readonly string _cachePath;
 
     public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger)
     {
         _configuration = configuration;
         _logger = logger;
+        _cachePath = configuration["LanCache:CachePath"] ?? "/cache";
     }
 
     public CacheInfo GetCacheInfo()
     {
-        var cachePath = _configuration["LanCache:CachePath"] ?? "/cache";
         var info = new CacheInfo();
 
         try
         {
-            if (Directory.Exists(cachePath))
+            if (Directory.Exists(_cachePath))
             {
-                var driveInfo = new DriveInfo(Path.GetPathRoot(cachePath) ?? "/");
+                var driveInfo = new DriveInfo(Path.GetPathRoot(_cachePath) ?? "/");
                 info.TotalCacheSize = driveInfo.TotalSize;
                 info.FreeCacheSize = driveInfo.AvailableFreeSpace;
                 info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
 
-                // Get service sizes - look for directories that look like services
+                // Get service sizes - look for known service directories
                 var serviceDirs = new[] { "steam", "epic", "origin", "blizzard", "uplay", "riot", "wsus" };
                 
                 foreach (var service in serviceDirs)
                 {
-                    var servicePath = Path.Combine(cachePath, service);
+                    var servicePath = Path.Combine(_cachePath, service);
                     if (Directory.Exists(servicePath))
                     {
                         try
@@ -51,12 +52,12 @@ public class CacheManagementService
                     }
                 }
 
-                // Also check for any other directories that might be cache
-                foreach (var dir in Directory.GetDirectories(cachePath))
+                // Check for any other cache directories
+                foreach (var dir in Directory.GetDirectories(_cachePath))
                 {
                     var dirName = Path.GetFileName(dir);
                     // Skip if already processed or if it's a system directory
-                    if (!serviceDirs.Contains(dirName) && !dirName.StartsWith(".") && !dirName.All(char.IsDigit))
+                    if (!serviceDirs.Contains(dirName) && !dirName.StartsWith("."))
                     {
                         try
                         {
@@ -70,6 +71,10 @@ public class CacheManagementService
                         catch { }
                     }
                 }
+            }
+            else
+            {
+                _logger.LogWarning($"Cache path does not exist: {_cachePath}");
             }
         }
         catch (Exception ex)
@@ -87,7 +92,7 @@ public class CacheManagementService
             long size = 0;
             var dir = new DirectoryInfo(path);
             
-            // Use parallel processing for large directories
+            // Get all files recursively
             var files = dir.GetFiles("*", SearchOption.AllDirectories);
             size = files.Sum(f => f.Length);
             
@@ -106,28 +111,32 @@ public class CacheManagementService
         {
             return Directory.GetFiles(path, "*", SearchOption.AllDirectories).Length;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, $"Could not count files in {path}");
             return 0;
         }
     }
 
     public async Task ClearCache(string? service)
     {
-        var cachePath = _configuration["LanCache:CachePath"] ?? "/cache";
-        
         try
         {
             if (!string.IsNullOrEmpty(service))
             {
-                var servicePath = Path.Combine(cachePath, service);
+                var servicePath = Path.Combine(_cachePath, service);
                 if (Directory.Exists(servicePath))
                 {
-                    await Task.Run(() => {
+                    await Task.Run(() => 
+                    {
                         Directory.Delete(servicePath, true);
                         Directory.CreateDirectory(servicePath);
                     });
                     _logger.LogInformation($"Cleared cache for service: {service}");
+                }
+                else
+                {
+                    _logger.LogWarning($"Service cache directory not found: {servicePath}");
                 }
             }
             else
@@ -136,10 +145,11 @@ public class CacheManagementService
                 var services = new[] { "steam", "epic", "origin", "blizzard", "uplay", "riot", "wsus" };
                 foreach (var svc in services)
                 {
-                    var servicePath = Path.Combine(cachePath, svc);
+                    var servicePath = Path.Combine(_cachePath, svc);
                     if (Directory.Exists(servicePath))
                     {
-                        await Task.Run(() => {
+                        await Task.Run(() => 
+                        {
                             Directory.Delete(servicePath, true);
                             Directory.CreateDirectory(servicePath);
                         });
@@ -150,7 +160,7 @@ public class CacheManagementService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error clearing cache");
+            _logger.LogError(ex, $"Error clearing cache for {service ?? "all services"}");
             throw;
         }
     }

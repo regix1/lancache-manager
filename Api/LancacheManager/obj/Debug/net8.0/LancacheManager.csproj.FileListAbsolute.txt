@@ -21,7 +21,6 @@ C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.Extensions.DependencyModel.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.OpenApi.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Mono.TextTemplating.dll
-C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Newtonsoft.Json.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\SQLitePCLRaw.batteries_v2.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\SQLitePCLRaw.core.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\SQLitePCLRaw.provider.e_sqlite3.dll
@@ -34,7 +33,6 @@ C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\System.Composition.Hosting.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\System.Composition.Runtime.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\System.Composition.TypedParts.dll
-C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\System.Net.WebSockets.WebSocketProtocol.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\cs\Microsoft.CodeAnalysis.resources.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\de\Microsoft.CodeAnalysis.resources.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\es\Microsoft.CodeAnalysis.resources.dll
@@ -130,3 +128,4 @@ C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\obj\Debug\net8
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\obj\Debug\net8.0\LancacheManager.genruntimeconfig.cache
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\obj\Debug\net8.0\ref\LancacheManager.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\obj\Debug\net8.0\LancacheManager.sourcelink.json
+C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.AspNetCore.OpenApi.dll

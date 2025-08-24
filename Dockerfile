@@ -1,6 +1,6 @@
 # Multi-stage build for Lancache Manager
 
-# Stage 1: Build Frontend
+# Stage 1: Build Frontend (if you have it in Web/ folder)
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
 
@@ -16,14 +16,15 @@ RUN npm run build
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend-builder
 WORKDIR /src
 
-# Copy the backend project (it's in Api/LancacheManager/)
-COPY Api/LancacheManager/ ./
+# Copy project file
+COPY *.csproj ./
+RUN dotnet restore
 
-# Restore and publish
-RUN dotnet restore LancacheManager.csproj
-RUN dotnet publish LancacheManager.csproj -c Release -o /app/publish
+# Copy everything else
+COPY . ./
+RUN dotnet publish -c Release -o /app/publish
 
-# Copy frontend build to wwwroot in the publish folder
+# Copy frontend build to wwwroot
 COPY --from=frontend-builder /app/dist /app/publish/wwwroot
 
 # Stage 3: Runtime
@@ -36,17 +37,14 @@ RUN apk add --no-cache curl tzdata
 # Copy published application
 COPY --from=backend-builder /app/publish ./
 
-# Create data directories
-RUN mkdir -p /data /logs /cache
+# Create required directories with proper permissions
+RUN mkdir -p /data /logs /cache && \
+    chmod 755 /data /logs /cache
 
 # Configure environment
 ENV ASPNETCORE_URLS=http://+:80
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV ConnectionStrings__DefaultConnection="Data Source=/data/lancache.db"
-ENV LanCache__LogPath=/logs/access.log
-ENV LanCache__CachePath=/cache
-ENV LanCache__StartFromEndOfLog=true
-ENV LanCache__ProcessHistoricalLogs=false
+ENV TZ=UTC
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
@@ -57,6 +55,9 @@ VOLUME ["/data", "/logs", "/cache"]
 
 # Port
 EXPOSE 80
+
+# Run as non-root user (optional, remove if causing permission issues)
+# USER app
 
 # Run
 ENTRYPOINT ["dotnet", "LancacheManager.dll"]

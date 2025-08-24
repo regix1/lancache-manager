@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
-using System.IO;
-using System.Runtime.InteropServices;
 
 namespace LancacheManager.Controllers;
 
@@ -17,9 +15,12 @@ public class ManagementController : ControllerBase
     private static CancellationTokenSource? _processingCancellation;
     private static DateTime? _processingStartTime;
     
-    // Cross-platform data directory - not readonly so they can be set in InitializePaths
-    private string _dataDirectory = string.Empty;
-    private string _logPath = string.Empty;
+    // Fixed Linux paths
+    private const string DATA_DIRECTORY = "/data";
+    private const string LOG_PATH = "/logs/access.log";
+    private const string POSITION_FILE = "/data/logposition.txt";
+    private const string PROCESSING_MARKER = "/data/bulk_processing.marker";
+    private const string DATABASE_PATH = "/data/lancache.db";
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -34,48 +35,20 @@ public class ManagementController : ControllerBase
         _logger = logger;
         _applicationLifetime = applicationLifetime;
         
-        // Initialize cross-platform paths
-        InitializePaths();
-    }
-
-    private void InitializePaths()
-    {
-        // Determine data directory based on platform
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Windows: Use AppData or local directory
-            _dataDirectory = _configuration["DataDirectory"] ?? 
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "LancacheManager");
-            
-            // Windows log path - could be in current directory for development
-            _logPath = _configuration["LanCache:LogPath"] ?? 
-                Path.Combine(Directory.GetCurrentDirectory(), "logs", "access.log");
-        }
-        else
-        {
-            // Linux/Docker: Use standard paths
-            _dataDirectory = _configuration["DataDirectory"] ?? "/data";
-            _logPath = _configuration["LanCache:LogPath"] ?? "/logs/access.log";
-        }
-        
         // Ensure data directory exists
-        if (!Directory.Exists(_dataDirectory))
+        if (!Directory.Exists(DATA_DIRECTORY))
         {
             try
             {
-                Directory.CreateDirectory(_dataDirectory);
-                _logger.LogInformation($"Created data directory: {_dataDirectory}");
+                Directory.CreateDirectory(DATA_DIRECTORY);
+                _logger.LogInformation($"Created data directory: {DATA_DIRECTORY}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to create data directory: {_dataDirectory}");
+                _logger.LogError(ex, $"Failed to create data directory: {DATA_DIRECTORY}");
             }
         }
     }
-
-    private string GetPositionFilePath() => Path.Combine(_dataDirectory, "logposition.txt");
-    private string GetProcessingMarkerPath() => Path.Combine(_dataDirectory, "bulk_processing.marker");
-    private string GetDatabasePath() => Path.Combine(_dataDirectory, "lancache.db");
 
     [HttpGet("cache")]
     public IActionResult GetCacheInfo()
@@ -104,10 +77,9 @@ public class ManagementController : ControllerBase
         try
         {
             // Clear position file to start from end
-            var positionFile = GetPositionFilePath();
-            if (System.IO.File.Exists(positionFile))
+            if (System.IO.File.Exists(POSITION_FILE))
             {
-                System.IO.File.Delete(positionFile);
+                System.IO.File.Delete(POSITION_FILE);
             }
             
             // Also reset database
@@ -137,28 +109,26 @@ public class ManagementController : ControllerBase
             _processingCancellation = new CancellationTokenSource();
             
             // Set position to 0 to process from beginning
-            var positionFile = GetPositionFilePath();
-            await System.IO.File.WriteAllTextAsync(positionFile, "0");
+            await System.IO.File.WriteAllTextAsync(POSITION_FILE, "0");
             
             // Create marker file with metadata
-            var processingMarker = GetProcessingMarkerPath();
             var markerData = new
             {
                 startTime = DateTime.UtcNow,
                 startPosition = 0L,
                 triggerType = "manual"
             };
-            await System.IO.File.WriteAllTextAsync(processingMarker, 
+            await System.IO.File.WriteAllTextAsync(PROCESSING_MARKER, 
                 System.Text.Json.JsonSerializer.Serialize(markerData));
             
             _processingStartTime = DateTime.UtcNow;
             
             // Check if log file exists
-            if (!System.IO.File.Exists(_logPath))
+            if (!System.IO.File.Exists(LOG_PATH))
             {
-                _logger.LogWarning($"Log file not found at: {_logPath}");
+                _logger.LogWarning($"Log file not found at: {LOG_PATH}");
                 return Ok(new { 
-                    message = $"Log file not found at: {_logPath}. Waiting for logs...",
+                    message = $"Log file not found at: {LOG_PATH}. Waiting for logs...",
                     logSizeMB = 0,
                     estimatedTimeMinutes = 0,
                     requiresRestart = false,
@@ -167,7 +137,7 @@ public class ManagementController : ControllerBase
             }
             
             // Get log file size for user info
-            var fileInfo = new FileInfo(_logPath);
+            var fileInfo = new FileInfo(LOG_PATH);
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
             
             _logger.LogInformation($"Set to process entire log file ({sizeMB:F1} MB) from beginning");
@@ -205,28 +175,25 @@ public class ManagementController : ControllerBase
             _processingCancellation?.Cancel();
             
             // Remove processing marker
-            var processingMarker = GetProcessingMarkerPath();
-            if (System.IO.File.Exists(processingMarker))
+            if (System.IO.File.Exists(PROCESSING_MARKER))
             {
-                System.IO.File.Delete(processingMarker);
+                System.IO.File.Delete(PROCESSING_MARKER);
             }
             
             // Set position to end of file to stop processing
-            var positionFile = GetPositionFilePath();
-            
-            if (System.IO.File.Exists(_logPath))
+            if (System.IO.File.Exists(LOG_PATH))
             {
-                var fileInfo = new FileInfo(_logPath);
+                var fileInfo = new FileInfo(LOG_PATH);
                 // Save current position (end of file) to stop processing
-                await System.IO.File.WriteAllTextAsync(positionFile, fileInfo.Length.ToString());
+                await System.IO.File.WriteAllTextAsync(POSITION_FILE, fileInfo.Length.ToString());
                 _logger.LogInformation($"Processing cancelled, position set to end of file");
             }
             else
             {
                 // No log file, just clear the position
-                if (System.IO.File.Exists(positionFile))
+                if (System.IO.File.Exists(POSITION_FILE))
                 {
-                    System.IO.File.Delete(positionFile);
+                    System.IO.File.Delete(POSITION_FILE);
                 }
                 _logger.LogInformation("Processing cancelled, position cleared");
             }
@@ -255,11 +222,8 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            var processingMarker = GetProcessingMarkerPath();
-            var positionFile = GetPositionFilePath();
-            
             // Check if processing marker exists
-            if (!System.IO.File.Exists(processingMarker))
+            if (!System.IO.File.Exists(PROCESSING_MARKER))
             {
                 return Ok(new { 
                     isProcessing = false,
@@ -268,29 +232,29 @@ public class ManagementController : ControllerBase
             }
             
             // Check if log file exists
-            if (!System.IO.File.Exists(_logPath))
+            if (!System.IO.File.Exists(LOG_PATH))
             {
                 return Ok(new { 
                     isProcessing = false,
                     message = "Log file not found",
-                    error = $"Log file not found at: {_logPath}"
+                    error = $"Log file not found at: {LOG_PATH}"
                 });
             }
             
             // Read marker data
-            var markerContent = await System.IO.File.ReadAllTextAsync(processingMarker);
+            var markerContent = await System.IO.File.ReadAllTextAsync(PROCESSING_MARKER);
             
             long currentPosition = 0;
-            if (System.IO.File.Exists(positionFile))
+            if (System.IO.File.Exists(POSITION_FILE))
             {
-                var posContent = await System.IO.File.ReadAllTextAsync(positionFile);
+                var posContent = await System.IO.File.ReadAllTextAsync(POSITION_FILE);
                 long.TryParse(posContent, out currentPosition);
             }
             
-            var fileInfo = new FileInfo(_logPath);
+            var fileInfo = new FileInfo(LOG_PATH);
             
-            // Calculate actual progress - how much we've processed since starting
-            var bytesProcessed = currentPosition; // Since we started from 0
+            // Calculate actual progress
+            var bytesProcessed = currentPosition;
             var percentComplete = fileInfo.Length > 0 ? (bytesProcessed * 100.0) / fileInfo.Length : 0;
             
             // Check if we're actually making progress
@@ -311,9 +275,9 @@ public class ManagementController : ControllerBase
             else if (currentPosition >= fileInfo.Length - 1000) // Within 1KB of end
             {
                 // We're at the end, processing is complete
-                if (System.IO.File.Exists(processingMarker))
+                if (System.IO.File.Exists(PROCESSING_MARKER))
                 {
-                    System.IO.File.Delete(processingMarker);
+                    System.IO.File.Delete(PROCESSING_MARKER);
                 }
                 
                 return Ok(new { 
@@ -347,19 +311,6 @@ public class ManagementController : ControllerBase
                 }
             }
             
-            // Get current download count for feedback
-            var downloadCount = 0;
-            try
-            {
-                var dbPath = GetDatabasePath();
-                if (System.IO.File.Exists(dbPath))
-                {
-                    // You could query the database here for actual count
-                    downloadCount = -1; // Indicator that DB exists but count not available
-                }
-            }
-            catch { }
-            
             return Ok(new { 
                 isProcessing = true,
                 currentPosition,
@@ -370,8 +321,7 @@ public class ManagementController : ControllerBase
                 processingRate = processingRate / (1024.0 * 1024.0), // MB/s
                 estimatedTime,
                 message = $"Processing log file... {percentComplete:F1}% complete",
-                status = "processing",
-                downloadCount
+                status = "processing"
             });
         }
         catch (Exception ex)

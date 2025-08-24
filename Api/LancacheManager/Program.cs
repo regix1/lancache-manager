@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using LancacheManager.Data;
 using LancacheManager.Services;
 using LancacheManager.Hubs;
-using System.Runtime.InteropServices;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,50 +14,30 @@ builder.Services.AddSignalR();
 // Configure CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
+    options.AddPolicy("AllowAll", policy =>
     {
-        policy.WithOrigins(
-                "http://localhost:3000",
-                "http://localhost:5173",
-                "http://localhost:5174",
-                "http://127.0.0.1:3000",
-                "http://127.0.0.1:5173",
-                "http://127.0.0.1:5174"
-            )
+        policy.SetIsOriginAllowed(_ => true)
             .AllowAnyMethod()
             .AllowAnyHeader()
             .AllowCredentials();
     });
-    
-    // Also add a more permissive policy for development
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-            .AllowAnyMethod()
-            .AllowAnyHeader();
-    });
 });
 
-// Register PathHelperService as singleton first
-builder.Services.AddSingleton<PathHelperService>();
-
-// Configure database with cross-platform path
-builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+// Configure database - simplified for Linux only
+builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var pathHelper = serviceProvider.GetRequiredService<PathHelperService>();
-    var dbPath = pathHelper.GetDatabasePath();
+    var dbPath = "/data/lancache.db";
     
     // Ensure the directory exists
-    var dbDir = Path.GetDirectoryName(dbPath);
-    if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
+    if (!Directory.Exists("/data"))
     {
-        Directory.CreateDirectory(dbDir);
+        Directory.CreateDirectory("/data");
     }
     
     options.UseSqlite($"Data Source={dbPath}");
 });
 
-// Register other services
+// Register services
 builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
@@ -70,29 +49,16 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
-// Log platform information during configuration (without building service provider)
-builder.Logging.AddConsole(options => options.IncludeScopes = true);
-Console.WriteLine($"Starting LancacheManager on {RuntimeInformation.OSDescription}");
-Console.WriteLine($"Platform: {(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : "Linux/Unix")}");
-
 var app = builder.Build();
-
-// Now we can safely use the logger after the app is built
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
-logger.LogInformation($"LancacheManager started on {RuntimeInformation.OSDescription}");
 
 // Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-    // Use the more permissive CORS in development
-    app.UseCors("AllowAll");
 }
-else
-{
-    app.UseCors("AllowFrontend");
-}
+
+app.UseCors("AllowAll");
 
 // Serve static files (your React app)
 app.UseDefaultFiles();
@@ -101,22 +67,20 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
 
-// Map endpoints in specific order - API routes first
+// Map endpoints
 app.MapControllers();
 app.MapHub<DownloadHub>("/hubs/downloads");
 
-// Simple health check endpoint
+// Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { 
     status = "healthy", 
     timestamp = DateTime.UtcNow,
-    service = "LancacheManager",
-    platform = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "Windows" : "Linux"
+    service = "LancacheManager"
 }));
 
-// Fallback to index.html for client-side routing - MUST BE LAST
+// Fallback to index.html for client-side routing
 app.MapFallback(async context =>
 {
-    // Don't catch API routes or other endpoints
     if (context.Request.Path.StartsWithSegments("/api") || 
         context.Request.Path.StartsWithSegments("/health") ||
         context.Request.Path.StartsWithSegments("/hubs") ||
@@ -126,7 +90,6 @@ app.MapFallback(async context =>
         return;
     }
     
-    // Serve index.html for client-side routing
     var indexPath = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
     if (File.Exists(indexPath))
     {
@@ -144,10 +107,17 @@ app.MapFallback(async context =>
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var pathHelper = scope.ServiceProvider.GetRequiredService<PathHelperService>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     
-    dbContext.Database.EnsureCreated();
-    logger.LogInformation($"Database initialized at: {pathHelper.GetDatabasePath()}");
+    try
+    {
+        dbContext.Database.EnsureCreated();
+        logger.LogInformation($"Database initialized at: /data/lancache.db");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Failed to initialize database");
+    }
 }
 
 app.Run();
