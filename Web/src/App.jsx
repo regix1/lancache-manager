@@ -8,6 +8,7 @@ import ClientsTab from './components/clients/ClientsTab';
 import ServicesTab from './components/services/ServicesTab';
 import ManagementTab from './components/management/ManagementTab';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import ProcessingStatus from './components/common/ProcessingStatus';
 
 const App = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -27,6 +28,9 @@ const App = () => {
             {activeTab === 'management' && <ManagementTab />}
           </ErrorBoundary>
         </main>
+        
+        {/* Global Processing Status */}
+        <ProcessingStatus />
       </div>
     </DataProvider>
   );

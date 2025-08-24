@@ -20,6 +20,11 @@ export const DataProvider = ({ children }) => {
   const [serviceStats, setServiceStats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // New states for processing status
+  const [isProcessingLogs, setIsProcessingLogs] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('checking'); // 'checking', 'connected', 'disconnected', 'error'
 
   const clearAllData = () => {
     setCacheInfo(null);
@@ -29,9 +34,29 @@ export const DataProvider = ({ children }) => {
     setServiceStats([]);
   };
 
+  const checkConnectionStatus = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`}/health`, {
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+      if (response.ok) {
+        setConnectionStatus('connected');
+        return true;
+      }
+      setConnectionStatus('error');
+      return false;
+    } catch (err) {
+      setConnectionStatus('disconnected');
+      return false;
+    }
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
+      
+      // Check connection first
+      const isConnected = await checkConnectionStatus();
       
       if (mockMode) {
         // Use mock data
@@ -42,50 +67,31 @@ export const DataProvider = ({ children }) => {
         setClientStats(mockData.clientStats);
         setServiceStats(mockData.serviceStats);
         setError(null);
-      } else {
+      } else if (isConnected) {
         // Clear existing data first when switching to real mode
         clearAllData();
         
-        // Fetch real data
+        // Fetch real data with timeout
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          
           const [cache, active, latest, clients, services] = await Promise.allSettled([
-            ApiService.getCacheInfo(),
-            ApiService.getActiveDownloads(),
-            ApiService.getLatestDownloads(),
-            ApiService.getClientStats(),
-            ApiService.getServiceStats()
+            ApiService.getCacheInfo(controller.signal),
+            ApiService.getActiveDownloads(controller.signal),
+            ApiService.getLatestDownloads(controller.signal),
+            ApiService.getClientStats(controller.signal),
+            ApiService.getServiceStats(controller.signal)
           ]);
+          
+          clearTimeout(timeoutId);
 
           // Only update if we got successful responses
-          if (cache.status === 'fulfilled') {
-            setCacheInfo(cache.value);
-          } else {
-            setCacheInfo(null);
-          }
-
-          if (active.status === 'fulfilled') {
-            setActiveDownloads(active.value || []);
-          } else {
-            setActiveDownloads([]);
-          }
-
-          if (latest.status === 'fulfilled') {
-            setLatestDownloads(latest.value || []);
-          } else {
-            setLatestDownloads([]);
-          }
-
-          if (clients.status === 'fulfilled') {
-            setClientStats(clients.value || []);
-          } else {
-            setClientStats([]);
-          }
-
-          if (services.status === 'fulfilled') {
-            setServiceStats(services.value || []);
-          } else {
-            setServiceStats([]);
-          }
+          if (cache.status === 'fulfilled') setCacheInfo(cache.value);
+          if (active.status === 'fulfilled') setActiveDownloads(active.value || []);
+          if (latest.status === 'fulfilled') setLatestDownloads(latest.value || []);
+          if (clients.status === 'fulfilled') setClientStats(clients.value || []);
+          if (services.status === 'fulfilled') setServiceStats(services.value || []);
 
           // Check if all requests failed
           const allFailed = [cache, active, latest, clients, services].every(
@@ -93,15 +99,21 @@ export const DataProvider = ({ children }) => {
           );
 
           if (allFailed) {
-            setError('Unable to connect to API. Please ensure the backend is running on port 5000.');
+            setError('Unable to fetch data from API. The server may be processing logs.');
           } else {
             setError(null);
           }
         } catch (err) {
-          console.error('Error fetching real data:', err);
-          setError('Failed to fetch data from API');
+          if (err.name === 'AbortError') {
+            setError('Request timeout - the server may be busy processing logs');
+          } else {
+            setError('Failed to fetch data from API');
+          }
           clearAllData();
         }
+      } else {
+        setError('Cannot connect to API server');
+        clearAllData();
       }
     } catch (err) {
       console.error('Error in fetchData:', err);
@@ -113,18 +125,13 @@ export const DataProvider = ({ children }) => {
 
   // Handle mock mode changes
   useEffect(() => {
-    // Clear all data when switching modes
     clearAllData();
     setError(null);
-    
-    // Fetch new data
     fetchData();
     
-    // Set up refresh interval
     const interval = setInterval(fetchData, REFRESH_INTERVAL);
-    
     return () => clearInterval(interval);
-  }, [mockMode]); // Re-run when mockMode changes
+  }, [mockMode]);
 
   // Simulate real-time updates in mock mode
   useEffect(() => {
@@ -149,7 +156,12 @@ export const DataProvider = ({ children }) => {
     loading,
     error,
     fetchData,
-    clearAllData
+    clearAllData,
+    isProcessingLogs,
+    setIsProcessingLogs,
+    processingStatus,
+    setProcessingStatus,
+    connectionStatus
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
