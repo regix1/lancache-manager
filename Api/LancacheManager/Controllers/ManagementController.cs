@@ -31,7 +31,55 @@ public class ManagementController : ControllerBase
         _applicationLifetime = applicationLifetime;
     }
 
-    // ... other endpoints ...
+    [HttpGet("cache")]
+    public IActionResult GetCacheInfo()
+    {
+        var info = _cacheService.GetCacheInfo();
+        return Ok(info);
+    }
+
+    [HttpDelete("cache")]
+    public async Task<IActionResult> ClearCache([FromQuery] string? service = null)
+    {
+        await _cacheService.ClearCache(service);
+        return Ok(new { message = $"Cache cleared for {service ?? "all services"}" });
+    }
+
+    [HttpDelete("database")]
+    public async Task<IActionResult> ResetDatabase()
+    {
+        await _dbService.ResetDatabase();
+        return Ok(new { message = "Database reset successfully" });
+    }
+
+    [HttpPost("reset-logs")]
+    public async Task<IActionResult> ResetLogPosition()
+    {
+        try
+        {
+            // Clear position file to start from end
+            var positionFile = "/data/logposition.txt";
+            if (System.IO.File.Exists(positionFile))
+            {
+                System.IO.File.Delete(positionFile);
+            }
+            
+            // Also reset database
+            await _dbService.ResetDatabase();
+            
+            _logger.LogInformation("Log position and database reset - will start from end of log");
+            
+            return Ok(new { 
+                message = "Log position reset successfully. The application will restart monitoring from the current end of the log file.",
+                requiresRestart = true 
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting log position");
+            return StatusCode(500, new { error = "Failed to reset log position" });
+        }
+    }
 
     [HttpPost("process-all-logs")]
     public async Task<IActionResult> ProcessAllLogs()
@@ -175,7 +223,6 @@ public class ManagementController : ControllerBase
             var percentComplete = fileInfo.Length > 0 ? (bytesProcessed * 100.0) / fileInfo.Length : 0;
             
             // Check if we're actually making progress
-            var isStalled = false;
             if (currentPosition == 0)
             {
                 // Still at position 0, might be restarting
