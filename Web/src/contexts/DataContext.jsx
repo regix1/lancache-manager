@@ -24,7 +24,7 @@ export const DataProvider = ({ children }) => {
   // New states for processing status
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState('checking'); // 'checking', 'connected', 'disconnected', 'error'
+  const [connectionStatus, setConnectionStatus] = useState('checking');
 
   const clearAllData = () => {
     setCacheInfo(null);
@@ -37,7 +37,7 @@ export const DataProvider = ({ children }) => {
   const checkConnectionStatus = async () => {
     try {
       const response = await fetch(`${import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`}/health`, {
-        signal: AbortSignal.timeout(5000) // 5 second timeout
+        signal: AbortSignal.timeout(5000)
       });
       if (response.ok) {
         setConnectionStatus('connected');
@@ -53,7 +53,10 @@ export const DataProvider = ({ children }) => {
 
   const fetchData = async () => {
     try {
-      setLoading(true);
+      // Don't show loading spinner during processing to avoid confusion
+      if (!isProcessingLogs) {
+        setLoading(true);
+      }
       
       // Check connection first
       const isConnected = await checkConnectionStatus();
@@ -68,13 +71,16 @@ export const DataProvider = ({ children }) => {
         setServiceStats(mockData.serviceStats);
         setError(null);
       } else if (isConnected) {
-        // Clear existing data first when switching to real mode
-        clearAllData();
+        // Don't clear data during processing - let it accumulate
+        if (!isProcessingLogs) {
+          clearAllData();
+        }
         
-        // Fetch real data with timeout
         try {
+          // Use longer timeout during processing
+          const timeout = isProcessingLogs ? 30000 : 10000; // 30s during processing, 10s normally
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
           
           const [cache, active, latest, clients, services] = await Promise.allSettled([
             ApiService.getCacheInfo(controller.signal),
@@ -86,40 +92,74 @@ export const DataProvider = ({ children }) => {
           
           clearTimeout(timeoutId);
 
-          // Only update if we got successful responses
-          if (cache.status === 'fulfilled') setCacheInfo(cache.value);
-          if (active.status === 'fulfilled') setActiveDownloads(active.value || []);
-          if (latest.status === 'fulfilled') setLatestDownloads(latest.value || []);
-          if (clients.status === 'fulfilled') setClientStats(clients.value || []);
-          if (services.status === 'fulfilled') setServiceStats(services.value || []);
+          // Update data if we got successful responses
+          if (cache.status === 'fulfilled' && cache.value) {
+            setCacheInfo(cache.value);
+          }
+          if (active.status === 'fulfilled' && active.value) {
+            setActiveDownloads(active.value);
+          }
+          if (latest.status === 'fulfilled' && latest.value) {
+            setLatestDownloads(latest.value);
+            
+            // If we're processing and getting data, update the status
+            if (isProcessingLogs && latest.value.length > 0) {
+              setProcessingStatus(prev => ({
+                ...prev,
+                message: `Processing logs... Found ${latest.value.length} downloads`,
+                progress: Math.min((prev?.progress || 0) + 5, 90)
+              }));
+            }
+          }
+          if (clients.status === 'fulfilled' && clients.value) {
+            setClientStats(clients.value);
+          }
+          if (services.status === 'fulfilled' && services.value) {
+            setServiceStats(services.value);
+          }
 
-          // Check if all requests failed
-          const allFailed = [cache, active, latest, clients, services].every(
-            result => result.status === 'rejected'
-          );
-
-          if (allFailed) {
-            setError('Unable to fetch data from API. The server may be processing logs.');
+          // Only show error if not processing
+          if (!isProcessingLogs) {
+            const allFailed = [cache, active, latest, clients, services].every(
+              result => result.status === 'rejected'
+            );
+            
+            if (allFailed) {
+              setError('Unable to fetch data from API');
+            } else {
+              setError(null);
+            }
           } else {
+            // During processing, suppress timeout errors
             setError(null);
           }
         } catch (err) {
-          if (err.name === 'AbortError') {
-            setError('Request timeout - the server may be busy processing logs');
-          } else {
-            setError('Failed to fetch data from API');
+          // During processing, don't show errors for timeouts
+          if (!isProcessingLogs) {
+            if (err.name === 'AbortError') {
+              setError('Request timeout - the server may be busy');
+            } else {
+              setError('Failed to fetch data from API');
+            }
+            clearAllData();
           }
-          clearAllData();
         }
       } else {
-        setError('Cannot connect to API server');
-        clearAllData();
+        // Only show connection error if not processing
+        if (!isProcessingLogs) {
+          setError('Cannot connect to API server');
+          clearAllData();
+        }
       }
     } catch (err) {
       console.error('Error in fetchData:', err);
-      setError('An unexpected error occurred');
+      if (!isProcessingLogs) {
+        setError('An unexpected error occurred');
+      }
     } finally {
-      setLoading(false);
+      if (!isProcessingLogs) {
+        setLoading(false);
+      }
     }
   };
 
@@ -129,9 +169,14 @@ export const DataProvider = ({ children }) => {
     setError(null);
     fetchData();
     
-    const interval = setInterval(fetchData, REFRESH_INTERVAL);
+    // Use longer interval during processing
+    const interval = setInterval(
+      fetchData, 
+      isProcessingLogs ? 15000 : REFRESH_INTERVAL // 15s during processing, 5s normally
+    );
+    
     return () => clearInterval(interval);
-  }, [mockMode]);
+  }, [mockMode, isProcessingLogs]);
 
   // Simulate real-time updates in mock mode
   useEffect(() => {

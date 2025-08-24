@@ -14,7 +14,11 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/cache`, { signal });
       return await this.handleResponse(res);
     } catch (error) {
-      console.error('getCacheInfo error:', error);
+      if (error.name === 'AbortError') {
+        console.log('getCacheInfo request aborted (timeout)');
+      } else {
+        console.error('getCacheInfo error:', error);
+      }
       throw error;
     }
   }
@@ -24,7 +28,11 @@ class ApiService {
       const res = await fetch(`${API_BASE}/downloads/active`, { signal });
       return await this.handleResponse(res);
     } catch (error) {
-      console.error('getActiveDownloads error:', error);
+      if (error.name === 'AbortError') {
+        console.log('getActiveDownloads request aborted (timeout)');
+      } else {
+        console.error('getActiveDownloads error:', error);
+      }
       throw error;
     }
   }
@@ -34,7 +42,11 @@ class ApiService {
       const res = await fetch(`${API_BASE}/downloads/latest`, { signal });
       return await this.handleResponse(res);
     } catch (error) {
-      console.error('getLatestDownloads error:', error);
+      if (error.name === 'AbortError') {
+        console.log('getLatestDownloads request aborted (timeout)');
+      } else {
+        console.error('getLatestDownloads error:', error);
+      }
       throw error;
     }
   }
@@ -44,7 +56,11 @@ class ApiService {
       const res = await fetch(`${API_BASE}/stats/clients`, { signal });
       return await this.handleResponse(res);
     } catch (error) {
-      console.error('getClientStats error:', error);
+      if (error.name === 'AbortError') {
+        console.log('getClientStats request aborted (timeout)');
+      } else {
+        console.error('getClientStats error:', error);
+      }
       throw error;
     }
   }
@@ -54,11 +70,16 @@ class ApiService {
       const res = await fetch(`${API_BASE}/stats/services`, { signal });
       return await this.handleResponse(res);
     } catch (error) {
-      console.error('getServiceStats error:', error);
+      if (error.name === 'AbortError') {
+        console.log('getServiceStats request aborted (timeout)');
+      } else {
+        console.error('getServiceStats error:', error);
+      }
       throw error;
     }
   }
 
+  // Management endpoints with longer timeouts
   static async clearCache(service = null) {
     try {
       const url = service 
@@ -67,7 +88,7 @@ class ApiService {
       const res = await fetch(url, { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(30000) // 30 second timeout
+        signal: AbortSignal.timeout(60000) // 60 second timeout
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -81,7 +102,7 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/database`, { 
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(30000)
+        signal: AbortSignal.timeout(60000)
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -95,7 +116,7 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/reset-logs`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(30000)
+        signal: AbortSignal.timeout(60000)
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -109,7 +130,7 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/process-all-logs`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(60000) // 60 second timeout for this longer operation
+        signal: AbortSignal.timeout(120000) // 2 minute timeout for this operation
       });
       return await this.handleResponse(res);
     } catch (error) {
