@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, XCircle, StopCircle } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
 import { SERVICES } from '../../utils/constants';
@@ -11,9 +11,11 @@ const ManagementTab = () => {
     fetchData, 
     isProcessingLogs,
     setIsProcessingLogs, 
+    processingStatus,  // Add this line - it was missing!
     setProcessingStatus,
     connectionStatus 
   } = useData();
+  
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState(null);
   const [pollingInterval, setPollingInterval] = useState(null);
@@ -27,7 +29,7 @@ const ManagementTab = () => {
     };
   }, [pollingInterval, statusPollingInterval]);
 
-  // Check processing status on mount and periodically
+  // Check processing status on mount
   useEffect(() => {
     checkProcessingStatus();
   }, []);
@@ -35,15 +37,17 @@ const ManagementTab = () => {
   const checkProcessingStatus = async () => {
     try {
       const status = await ApiService.getProcessingStatus();
-      if (status.isProcessing) {
+      if (status && status.isProcessing) {
         setIsProcessingLogs(true);
         setProcessingStatus({
-          message: `Processing logs... ${status.mbProcessed.toFixed(1)}/${status.mbTotal.toFixed(1)} MB`,
-          progress: status.percentComplete,
-          estimatedTime: `${Math.ceil((status.mbTotal - status.mbProcessed) / 100)} minutes remaining`
+          message: `Processing logs... ${status.mbProcessed?.toFixed(1) || 0}/${status.mbTotal?.toFixed(1) || 0} MB`,
+          progress: status.percentComplete || 0,
+          estimatedTime: status.mbTotal && status.mbProcessed 
+            ? `${Math.ceil((status.mbTotal - status.mbProcessed) / 100)} minutes remaining`
+            : null
         });
         
-        // Start polling for status updates
+        // Start polling for status updates if not already polling
         if (!statusPollingInterval) {
           const interval = setInterval(checkProcessingStatus, 5000);
           setStatusPollingInterval(interval);
@@ -107,13 +111,19 @@ const ManagementTab = () => {
         const data = await response.json();
         if (data && data.length > 0) {
           // Check actual processing status
-          const status = await ApiService.getProcessingStatus();
-          if (status.isProcessing) {
-            setProcessingStatus({
-              message: `Processing logs... ${status.mbProcessed.toFixed(1)}/${status.mbTotal.toFixed(1)} MB`,
-              progress: status.percentComplete,
-              estimatedTime: `${Math.ceil((status.mbTotal - status.mbProcessed) / 100)} minutes remaining`
-            });
+          try {
+            const status = await ApiService.getProcessingStatus();
+            if (status && status.isProcessing) {
+              setProcessingStatus({
+                message: `Processing logs... ${status.mbProcessed?.toFixed(1) || 0}/${status.mbTotal?.toFixed(1) || 0} MB`,
+                progress: status.percentComplete || 0,
+                estimatedTime: status.mbTotal && status.mbProcessed 
+                  ? `${Math.ceil((status.mbTotal - status.mbProcessed) / 100)} minutes remaining`
+                  : null
+              });
+            }
+          } catch (err) {
+            console.log('Error getting processing status during poll:', err);
           }
           
           // Refresh the main data
@@ -126,7 +136,7 @@ const ManagementTab = () => {
   };
 
   const handleAction = async (action, serviceName = null) => {
-    if (mockMode) {
+    if (mockMode && action !== 'mockMode') {
       setActionMessage({ 
         type: 'warning', 
         text: 'Actions are disabled in mock mode. Please disable mock mode first.' 
@@ -161,7 +171,7 @@ const ManagementTab = () => {
         case 'processAllLogs':
           result = await ApiService.processAllLogs();
           
-          if (result.logSizeMB) {
+          if (result && result.logSizeMB) {
             setProcessingStatus({
               message: `Processing ${result.logSizeMB.toFixed(1)} MB of logs...`,
               estimatedTime: `${result.estimatedTimeMinutes} minutes`,
@@ -181,10 +191,12 @@ const ManagementTab = () => {
           throw new Error('Unknown action');
       }
       
-      setActionMessage({ 
-        type: 'success', 
-        text: result.message || `Action '${action}' completed successfully` 
-      });
+      if (result) {
+        setActionMessage({ 
+          type: 'success', 
+          text: result.message || `Action '${action}' completed successfully` 
+        });
+      }
       
       // Refresh data after action (except for processAllLogs which handles its own)
       if (action !== 'processAllLogs') {
@@ -206,7 +218,7 @@ const ManagementTab = () => {
       } else if (err.message.includes('Failed to fetch')) {
         errorMessage = 'Cannot connect to API. Please ensure the backend is running';
       } else {
-        errorMessage += err.message;
+        errorMessage += err.message || 'Unknown error';
       }
       
       setActionMessage({ 
@@ -238,16 +250,16 @@ const ManagementTab = () => {
                 {processingStatus && (
                   <div className="mt-2">
                     <p className="text-sm text-gray-300">{processingStatus.message}</p>
-                    {processingStatus.progress !== undefined && (
+                    {processingStatus.progress !== undefined && processingStatus.progress !== null && (
                       <div className="mt-2">
                         <div className="w-full bg-gray-700 rounded-full h-2">
                           <div 
                             className="bg-yellow-500 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(processingStatus.progress, 100)}%` }}
+                            style={{ width: `${Math.min(processingStatus.progress || 0, 100)}%` }}
                           />
                         </div>
                         <p className="text-xs text-gray-400 mt-1">
-                          {processingStatus.progress.toFixed(1)}% complete
+                          {(processingStatus.progress || 0).toFixed(1)}% complete
                           {processingStatus.estimatedTime && ` • ${processingStatus.estimatedTime}`}
                         </p>
                       </div>
@@ -334,7 +346,7 @@ const ManagementTab = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
             onClick={() => handleAction('clearCache')}
-            disabled={actionLoading || isProcessingLogs}
+            disabled={actionLoading || isProcessingLogs || mockMode}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
@@ -342,7 +354,7 @@ const ManagementTab = () => {
           </button>
           <button
             onClick={() => handleAction('resetDatabase')}
-            disabled={actionLoading || isProcessingLogs}
+            disabled={actionLoading || isProcessingLogs || mockMode}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
@@ -357,7 +369,7 @@ const ManagementTab = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
             onClick={() => handleAction('resetLogs')}
-            disabled={actionLoading || isProcessingLogs}
+            disabled={actionLoading || isProcessingLogs || mockMode}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -365,7 +377,7 @@ const ManagementTab = () => {
           </button>
           <button
             onClick={() => handleAction('processAllLogs')}
-            disabled={actionLoading || isProcessingLogs}
+            disabled={actionLoading || isProcessingLogs || mockMode}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
@@ -387,7 +399,7 @@ const ManagementTab = () => {
             <button
               key={service}
               onClick={() => handleAction('clearCache', service)}
-              disabled={actionLoading || isProcessingLogs}
+              disabled={actionLoading || isProcessingLogs || mockMode}
               className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors capitalize"
             >
               Clear {service}
