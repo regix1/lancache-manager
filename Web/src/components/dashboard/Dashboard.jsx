@@ -23,7 +23,7 @@ const Dashboard = () => {
         <StatCard
           title="Total Cache"
           value={cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B'}
-          subtitle={cacheInfo?.totalFiles > 0 ? `${cacheInfo.totalFiles} files` : 'Drive capacity'}
+          subtitle="Drive capacity"
           icon={Database}
           color="blue"
         />

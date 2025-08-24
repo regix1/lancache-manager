@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import ApiService from '../services/api.service';
 import MockDataService from '../services/mockData.service';
 import { REFRESH_INTERVAL, MOCK_UPDATE_INTERVAL } from '../utils/constants';
@@ -25,14 +25,10 @@ export const DataProvider = ({ children }) => {
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
-
-  const clearAllData = () => {
-    setCacheInfo(null);
-    setActiveDownloads([]);
-    setLatestDownloads([]);
-    setClientStats([]);
-    setServiceStats([]);
-  };
+  
+  // Use ref to track if this is the initial load
+  const isInitialLoad = useRef(true);
+  const hasData = useRef(false);
 
   const checkConnectionStatus = async () => {
     try {
@@ -53,8 +49,8 @@ export const DataProvider = ({ children }) => {
 
   const fetchData = async () => {
     try {
-      // Don't show loading spinner during processing or if we already have data
-      if (!isProcessingLogs && latestDownloads.length === 0) {
+      // Only show loading on initial load
+      if (isInitialLoad.current) {
         setLoading(true);
       }
       
@@ -70,10 +66,11 @@ export const DataProvider = ({ children }) => {
         setClientStats(mockData.clientStats);
         setServiceStats(mockData.serviceStats);
         setError(null);
+        hasData.current = true;
       } else if (isConnected) {
         try {
           // Use longer timeout during processing
-          const timeout = isProcessingLogs ? 30000 : 10000; // 30s during processing, 10s normally
+          const timeout = isProcessingLogs ? 30000 : 10000;
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), timeout);
           
@@ -89,20 +86,17 @@ export const DataProvider = ({ children }) => {
           clearTimeout(timeoutId);
 
           // Update only successful responses - keep existing data for failed ones
-          if (cache.status === 'fulfilled' && cache.value) {
+          if (cache.status === 'fulfilled' && cache.value !== undefined) {
             setCacheInfo(cache.value);
           }
-          // Don't clear cacheInfo if it fails - keep the old value
           
-          if (active.status === 'fulfilled' && active.value) {
+          if (active.status === 'fulfilled' && active.value !== undefined) {
             setActiveDownloads(active.value);
-          } else if (active.status === 'fulfilled' && active.value === null) {
-            // Only clear if we got an explicit null/empty response
-            setActiveDownloads([]);
           }
           
-          if (latest.status === 'fulfilled' && latest.value) {
+          if (latest.status === 'fulfilled' && latest.value !== undefined) {
             setLatestDownloads(latest.value);
+            hasData.current = true;
             
             // If we're processing and getting data, update the status
             if (isProcessingLogs && latest.value.length > 0) {
@@ -112,77 +106,88 @@ export const DataProvider = ({ children }) => {
                 downloadCount: latest.value.length
               }));
             }
-          } else if (latest.status === 'fulfilled' && latest.value === null) {
-            setLatestDownloads([]);
           }
           
-          if (clients.status === 'fulfilled' && clients.value) {
+          if (clients.status === 'fulfilled' && clients.value !== undefined) {
             setClientStats(clients.value);
-          } else if (clients.status === 'fulfilled' && clients.value === null) {
-            setClientStats([]);
           }
           
-          if (services.status === 'fulfilled' && services.value) {
+          if (services.status === 'fulfilled' && services.value !== undefined) {
             setServiceStats(services.value);
-          } else if (services.status === 'fulfilled' && services.value === null) {
-            setServiceStats([]);
           }
 
-          // Only show error if ALL requests failed AND we have no data
-          const allFailed = [cache, active, latest, clients, services].every(
-            result => result.status === 'rejected'
+          // Clear error if we got any successful response
+          const anySuccess = [cache, active, latest, clients, services].some(
+            result => result.status === 'fulfilled'
           );
           
-          if (allFailed && latestDownloads.length === 0) {
-            setError('Unable to fetch data from API');
-          } else {
+          if (anySuccess) {
             setError(null);
+          } else if (!hasData.current) {
+            // Only show error if we have no data at all
+            setError('Unable to fetch data from API');
           }
         } catch (err) {
-          // Only show error and clear data if we have no existing data
-          if (latestDownloads.length === 0) {
+          // Only show error if we have no data
+          if (!hasData.current) {
             if (err.name === 'AbortError') {
               setError('Request timeout - the server may be busy');
             } else {
               setError('Failed to fetch data from API');
             }
-            clearAllData();
           }
         }
       } else {
         // Only show connection error if we have no data
-        if (latestDownloads.length === 0) {
+        if (!hasData.current) {
           setError('Cannot connect to API server');
-          clearAllData();
         }
       }
     } catch (err) {
       console.error('Error in fetchData:', err);
-      if (latestDownloads.length === 0) {
+      if (!hasData.current) {
         setError('An unexpected error occurred');
       }
     } finally {
-      setLoading(false);
+      if (isInitialLoad.current) {
+        setLoading(false);
+        isInitialLoad.current = false;
+      }
     }
   };
 
-  // Handle mock mode changes
+  // Initial load and setup interval
   useEffect(() => {
-    // Only clear data when switching modes
-    if (mockMode) {
-      clearAllData();
-    }
-    setError(null);
+    // Initial fetch
     fetchData();
     
-    // Use longer interval during processing
+    // Setup interval based on processing state
     const interval = setInterval(
       fetchData, 
-      isProcessingLogs ? 15000 : REFRESH_INTERVAL // 15s during processing, 5s normally
+      isProcessingLogs ? 15000 : REFRESH_INTERVAL
     );
     
     return () => clearInterval(interval);
-  }, [mockMode, isProcessingLogs]);
+  }, [isProcessingLogs]); // Only recreate interval when processing state changes
+
+  // Handle mock mode changes separately
+  useEffect(() => {
+    if (mockMode) {
+      // Clear data when entering mock mode
+      setCacheInfo(null);
+      setActiveDownloads([]);
+      setLatestDownloads([]);
+      setClientStats([]);
+      setServiceStats([]);
+      hasData.current = false;
+      
+      // Fetch mock data
+      fetchData();
+    } else {
+      // When leaving mock mode, just fetch real data
+      fetchData();
+    }
+  }, [mockMode]);
 
   // Simulate real-time updates in mock mode
   useEffect(() => {
@@ -207,7 +212,14 @@ export const DataProvider = ({ children }) => {
     loading,
     error,
     fetchData,
-    clearAllData,
+    clearAllData: () => {
+      setCacheInfo(null);
+      setActiveDownloads([]);
+      setLatestDownloads([]);
+      setClientStats([]);
+      setServiceStats([]);
+      hasData.current = false;
+    },
     isProcessingLogs,
     setIsProcessingLogs,
     processingStatus,
