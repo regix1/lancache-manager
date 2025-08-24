@@ -129,3 +129,7 @@ C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\obj\Debug\net8
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\obj\Debug\net8.0\ref\LancacheManager.dll
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\obj\Debug\net8.0\LancacheManager.sourcelink.json
 C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.AspNetCore.OpenApi.dll
+C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.Extensions.Caching.Memory.dll
+C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.Extensions.DependencyInjection.Abstractions.dll
+C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.Extensions.Logging.Abstractions.dll
+C:\Users\datea\OneDrive\_git\lancache-manager\Api\LancacheManager\bin\Debug\net8.0\Microsoft.Extensions.Options.dll

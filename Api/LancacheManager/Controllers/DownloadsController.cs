@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using LancacheManager.Services;
+using LancacheManager.Data;
 
 namespace LancacheManager.Controllers;
 
@@ -8,23 +10,60 @@ namespace LancacheManager.Controllers;
 public class DownloadsController : ControllerBase
 {
     private readonly DatabaseService _dbService;
+    private readonly AppDbContext _context;
+    private readonly ILogger<DownloadsController> _logger;
 
-    public DownloadsController(DatabaseService dbService)
+    public DownloadsController(DatabaseService dbService, AppDbContext context, ILogger<DownloadsController> logger)
     {
         _dbService = dbService;
+        _context = context;
+        _logger = logger;
     }
 
     [HttpGet("latest")]
+    [ResponseCache(Duration = 5)] // Cache for 5 seconds
     public async Task<IActionResult> GetLatest([FromQuery] int count = 50)
     {
-        var downloads = await _dbService.GetLatestDownloads(count);
-        return Ok(downloads);
+        try
+        {
+            // Use AsNoTracking for read-only query
+            var downloads = await _context.Downloads
+                .AsNoTracking()
+                .OrderByDescending(d => d.StartTime)
+                .Take(count)
+                .ToListAsync();
+                
+            return Ok(downloads);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting latest downloads");
+            return Ok(new List<object>());
+        }
     }
 
     [HttpGet("active")]
+    [ResponseCache(Duration = 2)] // Cache for 2 seconds
     public async Task<IActionResult> GetActive()
     {
-        var downloads = await _dbService.GetActiveDownloads();
-        return Ok(downloads);
+        try
+        {
+            var cutoff = DateTime.UtcNow.AddMinutes(-5);
+            
+            // Use AsNoTracking and optimize query
+            var downloads = await _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.IsActive && d.EndTime > cutoff)
+                .OrderByDescending(d => d.StartTime)
+                .Take(100) // Limit results
+                .ToListAsync();
+                
+            return Ok(downloads);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting active downloads");
+            return Ok(new List<object>());
+        }
     }
 }

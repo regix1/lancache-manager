@@ -11,6 +11,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR();
 
+// Add response caching
+builder.Services.AddResponseCaching();
+
 // Configure CORS
 builder.Services.AddCors(options =>
 {
@@ -23,8 +26,8 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure database - simplified for Linux only
-builder.Services.AddDbContext<AppDbContext>(options =>
+// Configure database with connection pooling (use ONLY AddDbContextPool, not both)
+builder.Services.AddDbContextPool<AppDbContext>(options =>
 {
     var dbPath = "/data/lancache.db";
     
@@ -34,8 +37,14 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         Directory.CreateDirectory("/data");
     }
     
-    options.UseSqlite($"Data Source={dbPath}");
-});
+    // Use connection string with performance pragmas
+    var connectionString = $"Data Source={dbPath};" +
+        "Cache=Shared;" +
+        "Mode=ReadWriteCreate;" +
+        "Journal Mode=WAL;";  // Write-Ahead Logging for better concurrency
+    
+    options.UseSqlite(connectionString);
+}, poolSize: 128);
 
 // Register services
 builder.Services.AddSingleton<LogParserService>();
@@ -43,6 +52,9 @@ builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddHostedService<LogWatcherService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
+
+// Add memory cache for API responses
+builder.Services.AddMemoryCache();
 
 // Configure logging
 builder.Logging.ClearProviders();
@@ -60,7 +72,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowAll");
 
-// Serve static files (your React app)
+// Use response caching
+app.UseResponseCaching();
+
+// Serve static files
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -103,7 +118,7 @@ app.MapFallback(async context =>
     }
 });
 
-// Ensure database is created
+// Ensure database is created with optimizations
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -111,8 +126,17 @@ using (var scope = app.Services.CreateScope())
     
     try
     {
-        dbContext.Database.EnsureCreated();
-        logger.LogInformation($"Database initialized at: /data/lancache.db");
+        // Create database if it doesn't exist
+        await dbContext.Database.EnsureCreatedAsync();
+        
+        // Apply SQLite performance optimizations
+        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL");
+        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA synchronous=NORMAL");
+        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA cache_size=10000");
+        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA temp_store=MEMORY");
+        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA mmap_size=30000000000");
+        
+        logger.LogInformation($"Database initialized with performance optimizations at: /data/lancache.db");
     }
     catch (Exception ex)
     {

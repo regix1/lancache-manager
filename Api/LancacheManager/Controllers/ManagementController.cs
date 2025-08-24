@@ -11,7 +11,6 @@ public class ManagementController : ControllerBase
     private readonly DatabaseService _dbService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ManagementController> _logger;
-    private readonly IHostApplicationLifetime _applicationLifetime;
     private static CancellationTokenSource? _processingCancellation;
     private static DateTime? _processingStartTime;
     
@@ -26,14 +25,12 @@ public class ManagementController : ControllerBase
         CacheManagementService cacheService,
         DatabaseService dbService,
         IConfiguration configuration,
-        ILogger<ManagementController> logger,
-        IHostApplicationLifetime applicationLifetime)
+        ILogger<ManagementController> logger)
     {
         _cacheService = cacheService;
         _dbService = dbService;
         _configuration = configuration;
         _logger = logger;
-        _applicationLifetime = applicationLifetime;
         
         // Ensure data directory exists
         if (!Directory.Exists(DATA_DIRECTORY))
@@ -88,8 +85,8 @@ public class ManagementController : ControllerBase
             _logger.LogInformation("Log position and database reset - will start from end of log");
             
             return Ok(new { 
-                message = "Log position reset successfully. The application will restart monitoring from the current end of the log file.",
-                requiresRestart = true 
+                message = "Log position reset successfully. Will start monitoring from the current end of the log file.",
+                requiresRestart = false 
             });
         }
         catch (Exception ex)
@@ -142,21 +139,13 @@ public class ManagementController : ControllerBase
             
             _logger.LogInformation($"Set to process entire log file ({sizeMB:F1} MB) from beginning");
             
-            // The service needs to restart to pick up the new position
-            // Schedule a restart in 2 seconds to allow this response to complete
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(2000);
-                _logger.LogInformation("Restarting application to begin log processing...");
-                _applicationLifetime.StopApplication();
-            });
-            
+            // NO RESTART - The LogWatcherService will pick up the new position automatically
             return Ok(new { 
-                message = $"Will process entire log file ({sizeMB:F1} MB) from the beginning. Service is restarting to begin processing...",
+                message = $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",
                 logSizeMB = sizeMB,
                 estimatedTimeMinutes = Math.Ceiling(sizeMB / 100), // Rough estimate: 100MB per minute
-                requiresRestart = true,
-                status = "restarting"
+                requiresRestart = false,
+                status = "processing"
             });
         }
         catch (Exception ex)
@@ -198,16 +187,9 @@ public class ManagementController : ControllerBase
                 _logger.LogInformation("Processing cancelled, position cleared");
             }
             
-            // Restart to apply the change
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(2000);
-                _applicationLifetime.StopApplication();
-            });
-            
             return Ok(new { 
-                message = "Processing cancelled. Service will restart and resume normal monitoring.",
-                requiresRestart = true 
+                message = "Processing cancelled. Resuming normal monitoring.",
+                requiresRestart = false 
             });
         }
         catch (Exception ex)
@@ -257,22 +239,8 @@ public class ManagementController : ControllerBase
             var bytesProcessed = currentPosition;
             var percentComplete = fileInfo.Length > 0 ? (bytesProcessed * 100.0) / fileInfo.Length : 0;
             
-            // Check if we're actually making progress
-            if (currentPosition == 0)
-            {
-                // Still at position 0, might be restarting
-                return Ok(new { 
-                    isProcessing = true,
-                    currentPosition = 0,
-                    totalSize = fileInfo.Length,
-                    percentComplete = 0,
-                    mbProcessed = 0,
-                    mbTotal = fileInfo.Length / (1024.0 * 1024.0),
-                    message = "Service is restarting to begin processing...",
-                    status = "restarting"
-                });
-            }
-            else if (currentPosition >= fileInfo.Length - 1000) // Within 1KB of end
+            // Check if we're at the end
+            if (currentPosition >= fileInfo.Length - 1000) // Within 1KB of end
             {
                 // We're at the end, processing is complete
                 if (System.IO.File.Exists(PROCESSING_MARKER))
