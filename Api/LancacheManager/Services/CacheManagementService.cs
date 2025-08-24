@@ -26,16 +26,22 @@ public class CacheManagementService
 
         try
         {
-            // Get the parent directory for drive info
-            var driveRoot = Path.GetPathRoot(_cachePath) ?? "/";
-            if (Directory.Exists(driveRoot))
+            // Find the actual mount point for the cache directory
+            var mountPoint = GetMountPoint(_cachePath);
+            _logger.LogInformation($"Cache path: {_cachePath}, Mount point: {mountPoint}");
+            
+            if (Directory.Exists(mountPoint))
             {
-                var driveInfo = new DriveInfo(driveRoot);
+                var driveInfo = new DriveInfo(mountPoint);
                 info.TotalCacheSize = driveInfo.TotalSize;
                 info.FreeCacheSize = driveInfo.AvailableFreeSpace;
                 info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
                 
-                _logger.LogDebug($"Cache info: Total={info.TotalCacheSize}, Used={info.UsedCacheSize}, Free={info.FreeCacheSize}");
+                _logger.LogDebug($"Drive info for {mountPoint}: Total={info.TotalCacheSize}, Used={info.UsedCacheSize}, Free={info.FreeCacheSize}");
+            }
+            else
+            {
+                _logger.LogWarning($"Mount point does not exist: {mountPoint}");
             }
         }
         catch (Exception ex)
@@ -44,6 +50,61 @@ public class CacheManagementService
         }
 
         return info;
+    }
+
+    private string GetMountPoint(string path)
+    {
+        try
+        {
+            // Read /proc/mounts to find the correct mount point
+            if (File.Exists("/proc/mounts"))
+            {
+                var mounts = File.ReadAllLines("/proc/mounts");
+                var bestMatch = "/";
+                var bestMatchLength = 0;
+
+                foreach (var mount in mounts)
+                {
+                    var parts = mount.Split(' ');
+                    if (parts.Length >= 2)
+                    {
+                        var mountPoint = parts[1];
+                        // Check if this mount point is a parent of our path
+                        if (path.StartsWith(mountPoint) && mountPoint.Length > bestMatchLength)
+                        {
+                            bestMatch = mountPoint;
+                            bestMatchLength = mountPoint.Length;
+                        }
+                    }
+                }
+
+                _logger.LogDebug($"Best mount point for {path}: {bestMatch}");
+                return bestMatch;
+            }
+            
+            // Fallback: check common mount points
+            if (path.StartsWith("/mnt/cache"))
+            {
+                // Try specific mount points in order of specificity
+                if (Directory.Exists("/mnt/cache/cache") && new DriveInfo("/mnt/cache/cache").TotalSize > 0)
+                    return "/mnt/cache/cache";
+                if (Directory.Exists("/mnt/cache") && new DriveInfo("/mnt/cache").TotalSize > 0)
+                    return "/mnt/cache";
+            }
+            
+            // Last resort: use the parent directory
+            var parent = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
+            {
+                return parent;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Error detecting mount point for {path}, using root");
+        }
+
+        return "/";
     }
 
     public string GetCachePath()
