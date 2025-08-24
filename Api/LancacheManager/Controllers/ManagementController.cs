@@ -353,6 +353,32 @@ public class ManagementController : ControllerBase
             return StatusCode(500, new { error = "Failed to get service log counts" });
         }
     }
+
+    // Get configuration info
+    [HttpGet("config")]
+    public async Task<IActionResult> GetConfig()
+    {
+        try
+        {
+            var services = await _cacheService.GetServicesFromLogs();
+            var cachePath = _cacheService.GetCachePath();
+            
+            return Ok(new { 
+                cachePath,
+                logPath = LOG_PATH,
+                services
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting configuration");
+            return Ok(new { 
+                cachePath = "/mnt/cache/cache",
+                logPath = "/logs/access.log",
+                services = new[] { "steam", "epic", "origin", "blizzard", "wsus", "riot" }
+            });
+        }
+    }
 }
 
 // Request model for removing service

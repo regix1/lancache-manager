@@ -13,9 +13,11 @@ public class CacheManagementService
     {
         _configuration = configuration;
         _logger = logger;
-        // The actual nginx cache path
+        // Read from configuration
         _cachePath = configuration["LanCache:CachePath"] ?? "/mnt/cache/cache";
         _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
+        
+        _logger.LogInformation($"CacheManagementService initialized - Cache: {_cachePath}, Logs: {_logPath}");
     }
 
     public CacheInfo GetCacheInfo()
@@ -44,6 +46,11 @@ public class CacheManagementService
         return info;
     }
 
+    public string GetCachePath()
+    {
+        return _cachePath;
+    }
+
     public async Task ClearAllCache()
     {
         try
@@ -53,7 +60,7 @@ public class CacheManagementService
             if (!Directory.Exists(_cachePath))
             {
                 _logger.LogWarning($"Cache path does not exist: {_cachePath}");
-                return;
+                throw new DirectoryNotFoundException($"Cache path does not exist: {_cachePath}");
             }
 
             // Delete all subdirectories (00-ff) in the nginx cache
@@ -101,19 +108,41 @@ public class CacheManagementService
         {
             if (!File.Exists(_logPath))
             {
-                _logger.LogWarning($"Log file not found: {_logPath}");
-                return;
+                throw new FileNotFoundException($"Log file not found: {_logPath}");
             }
 
-            var tempFile = $"{_logPath}.tmp";
+            // Check if the log file is writable
+            var fileInfo = new FileInfo(_logPath);
+            if (fileInfo.IsReadOnly)
+            {
+                throw new UnauthorizedAccessException($"Log file is read-only. Mount logs directory with write permissions to modify.");
+            }
+
+            // Try to create a backup in /tmp if the logs directory is read-only
             var backupFile = $"{_logPath}.bak";
+            var tempFile = $"/tmp/access.log.tmp.{Guid.NewGuid()}";
+            var tempBackup = $"/tmp/access.log.bak.{DateTime.Now:yyyyMMddHHmmss}";
             
             _logger.LogInformation($"Removing {service} entries from log file");
             
             await Task.Run(async () =>
             {
-                // Create backup
-                File.Copy(_logPath, backupFile, true);
+                try
+                {
+                    // Try to create backup in same directory first
+                    File.Copy(_logPath, backupFile, true);
+                    _logger.LogInformation($"Backup created at {backupFile}");
+                }
+                catch
+                {
+                    // If that fails, create backup in /tmp
+                    File.Copy(_logPath, tempBackup, true);
+                    _logger.LogInformation($"Backup created at {tempBackup} (logs directory is read-only)");
+                    throw new UnauthorizedAccessException(
+                        $"Cannot write to logs directory. The log file is read-only. " +
+                        $"To modify logs, mount the logs directory with write permissions (remove ':ro' from docker volume mount)."
+                    );
+                }
                 
                 using (var reader = new StreamReader(_logPath))
                 using (var writer = new StreamWriter(tempFile))
@@ -134,7 +163,7 @@ public class CacheManagementService
                         else
                         {
                             removedCount++;
-                            if (removedCount % 1000 == 0)
+                            if (removedCount % 10000 == 0)
                             {
                                 _logger.LogDebug($"Removed {removedCount} {service} entries");
                             }
@@ -148,13 +177,18 @@ public class CacheManagementService
                 File.Delete(_logPath);
                 File.Move(tempFile, _logPath);
                 
-                _logger.LogInformation($"Log file updated. Backup saved as {backupFile}");
+                _logger.LogInformation($"Log file updated successfully");
             });
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Re-throw with clear message
+            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error removing {service} from logs");
-            throw;
+            throw new Exception($"Failed to remove {service} from logs: {ex.Message}", ex);
         }
     }
 
@@ -166,6 +200,7 @@ public class CacheManagementService
         {
             if (!File.Exists(_logPath))
             {
+                _logger.LogWarning($"Log file not found: {_logPath}");
                 return counts;
             }
 
@@ -174,6 +209,8 @@ public class CacheManagementService
                 using (var reader = new StreamReader(_logPath))
                 {
                     string? line;
+                    var serviceSet = new HashSet<string>();
+                    
                     while ((line = await reader.ReadLineAsync()) != null)
                     {
                         // Extract service name from line
@@ -182,12 +219,21 @@ public class CacheManagementService
                             var endIndex = line.IndexOf(']');
                             var service = line.Substring(1, endIndex - 1).ToLower();
                             
+                            // Skip localhost entries
+                            if (service == "127.0.0.1")
+                                continue;
+                            
                             if (!counts.ContainsKey(service))
+                            {
                                 counts[service] = 0;
+                                serviceSet.Add(service);
+                            }
                             
                             counts[service]++;
                         }
                     }
+                    
+                    _logger.LogInformation($"Found {serviceSet.Count} services in logs: {string.Join(", ", serviceSet)}");
                 }
             });
             
@@ -199,6 +245,59 @@ public class CacheManagementService
         }
         
         return counts;
+    }
+
+    // Get list of unique services from logs
+    public async Task<List<string>> GetServicesFromLogs()
+    {
+        var services = new HashSet<string>();
+        
+        try
+        {
+            if (!File.Exists(_logPath))
+            {
+                _logger.LogWarning($"Log file not found: {_logPath}");
+                // Return common services as fallback
+                return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
+            }
+
+            await Task.Run(async () =>
+            {
+                using (var reader = new StreamReader(_logPath))
+                {
+                    string? line;
+                    int linesChecked = 0;
+                    
+                    // Check first 10000 lines to get service list quickly
+                    while ((line = await reader.ReadLineAsync()) != null && linesChecked < 10000)
+                    {
+                        linesChecked++;
+                        
+                        if (line.StartsWith("[") && line.IndexOf(']') > 0)
+                        {
+                            var endIndex = line.IndexOf(']');
+                            var service = line.Substring(1, endIndex - 1).ToLower();
+                            
+                            // Skip IP addresses and localhost
+                            if (!service.Contains(".") && service != "127")
+                            {
+                                services.Add(service);
+                            }
+                        }
+                    }
+                    
+                    _logger.LogInformation($"Found services: {string.Join(", ", services)}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error scanning for services");
+            // Return common services as fallback
+            return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
+        }
+        
+        return services.OrderBy(s => s).ToList();
     }
 
     // Compatibility method for old interface

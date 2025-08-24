@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, Info, HardDrive, FileText } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, Info, HardDrive, FileText, X } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
-import { SERVICES } from '../../utils/constants';
 
 const ManagementTab = () => {
   const { 
@@ -17,8 +16,14 @@ const ManagementTab = () => {
   } = useData();
   
   const [actionLoading, setActionLoading] = useState(false);
-  const [actionMessage, setActionMessage] = useState(null);
+  const [persistentErrors, setPersistentErrors] = useState([]);
+  const [successMessage, setSuccessMessage] = useState(null);
   const [serviceCounts, setServiceCounts] = useState({});
+  const [config, setConfig] = useState({
+    cachePath: '/mnt/cache/cache',
+    logPath: '/logs/access.log',
+    services: []
+  });
   
   // Use refs instead of state for interval management
   const statusPollingInterval = useRef(null);
@@ -34,18 +39,28 @@ const ManagementTab = () => {
     };
   }, []);
 
-  // Check processing status on mount
+  // Load config and check processing status on mount
   useEffect(() => {
+    loadConfig();
     checkProcessingStatus();
-    loadServiceCounts();
   }, []);
 
-  const loadServiceCounts = async () => {
+  const loadConfig = async () => {
     try {
+      const configData = await ApiService.getConfig();
+      setConfig(configData);
+      
+      // Load service counts for the discovered services
       const counts = await ApiService.getServiceLogCounts();
       setServiceCounts(counts);
     } catch (err) {
-      console.error('Failed to load service counts:', err);
+      console.error('Failed to load config:', err);
+      // Use defaults if loading fails
+      setConfig({
+        cachePath: '/mnt/cache/cache',
+        logPath: '/logs/access.log',
+        services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
+      });
     }
   };
 
@@ -124,7 +139,7 @@ const ManagementTab = () => {
     }
     
     setActionLoading(true);
-    setActionMessage(null);
+    clearMessages();
     
     try {
       const result = await ApiService.cancelProcessing();
@@ -141,10 +156,7 @@ const ManagementTab = () => {
         statusPollingInterval.current = null;
       }
       
-      setActionMessage({ 
-        type: 'success', 
-        text: result.message || 'Processing cancelled' 
-      });
+      setSuccessMessage(result.message || 'Processing cancelled');
       
       setTimeout(() => {
         setProcessingStatus(null);
@@ -152,10 +164,7 @@ const ManagementTab = () => {
       }, 5000);
     } catch (err) {
       console.error('Cancel processing failed:', err);
-      setActionMessage({ 
-        type: 'error', 
-        text: 'Failed to cancel processing' 
-      });
+      addError('Failed to cancel processing');
     } finally {
       setActionLoading(false);
     }
@@ -163,15 +172,12 @@ const ManagementTab = () => {
 
   const handleAction = async (action, serviceName = null) => {
     if (mockMode && action !== 'mockMode') {
-      setActionMessage({ 
-        type: 'warning', 
-        text: 'Actions are disabled in mock mode. Please disable mock mode first.' 
-      });
+      addError('Actions are disabled in mock mode. Please disable mock mode first.');
       return;
     }
 
     setActionLoading(true);
-    setActionMessage(null);
+    clearMessages();
     
     try {
       let result;
@@ -234,7 +240,7 @@ const ManagementTab = () => {
             return;
           }
           result = await ApiService.removeServiceFromLogs(serviceName);
-          await loadServiceCounts(); // Reload counts after removal
+          await loadConfig(); // Reload counts after removal
           break;
           
         default:
@@ -242,10 +248,7 @@ const ManagementTab = () => {
       }
       
       if (result) {
-        setActionMessage({ 
-          type: 'success', 
-          text: result.message || `Action completed successfully` 
-        });
+        setSuccessMessage(result.message || `Action completed successfully`);
       }
       
       // Refresh data after action (except for processAllLogs)
@@ -255,34 +258,83 @@ const ManagementTab = () => {
     } catch (err) {
       console.error(`Action ${action} failed:`, err);
       
-      let errorMessage = 'Action failed: ';
-      if (err.name === 'AbortError') {
-        errorMessage = 'Request timeout';
-      } else if (err.message.includes('Failed to fetch')) {
-        errorMessage = 'Cannot connect to API';
-      } else {
-        errorMessage += err.message || 'Unknown error';
+      // Parse error message
+      let errorMessage = 'Action failed';
+      if (err.message) {
+        if (err.message.includes('read-only') || err.message.includes('Read-only')) {
+          errorMessage = `Cannot modify log file: The logs directory is mounted as read-only. To modify logs, update your docker-compose.yml to mount logs with write permissions (remove ':ro' from the volume mount).`;
+        } else if (err.message.includes('not found')) {
+          errorMessage = err.message;
+        } else if (err.name === 'AbortError') {
+          errorMessage = 'Request timeout - operation may still be running';
+        } else if (err.message.includes('Failed to fetch')) {
+          errorMessage = 'Cannot connect to API server';
+        } else {
+          errorMessage = err.message;
+        }
       }
       
-      setActionMessage({ 
-        type: 'error', 
-        text: errorMessage 
-      });
+      addError(errorMessage);
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Clear action messages after 5 seconds
+  const addError = (message) => {
+    setPersistentErrors(prev => [...prev, { id: Date.now(), message }]);
+  };
+
+  const clearMessages = () => {
+    setPersistentErrors([]);
+    setSuccessMessage(null);
+  };
+
+  const removeError = (id) => {
+    setPersistentErrors(prev => prev.filter(err => err.id !== id));
+  };
+
+  // Clear success message after 10 seconds
   useEffect(() => {
-    if (actionMessage) {
-      const timer = setTimeout(() => setActionMessage(null), 5000);
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 10000);
       return () => clearTimeout(timer);
     }
-  }, [actionMessage]);
+  }, [successMessage]);
 
   return (
     <div className="space-y-6">
+      {/* Persistent Error Messages */}
+      {persistentErrors.length > 0 && (
+        <div className="space-y-2">
+          {persistentErrors.map(error => (
+            <div key={error.id} className="bg-red-900 bg-opacity-30 rounded-lg p-4 border border-red-700">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start space-x-2 flex-1">
+                  <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+                  <span className="text-red-400">{error.message}</span>
+                </div>
+                <button
+                  onClick={() => removeError(error.id)}
+                  className="ml-4 text-red-400 hover:text-red-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Success Message */}
+      {successMessage && (
+        <div className="bg-green-900 bg-opacity-30 rounded-lg p-4 border border-green-700">
+          <div className="flex items-center space-x-2">
+            <CheckCircle className="w-5 h-5 text-green-400" />
+            <span className="text-green-400">{successMessage}</span>
+          </div>
+        </div>
+      )}
+
       {/* Processing Status Banner */}
       {isProcessingLogs && processingStatus && (
         <div className={`rounded-lg p-4 border ${
@@ -376,7 +428,7 @@ const ManagementTab = () => {
           <h3 className="text-lg font-semibold text-white">Disk Cache Management</h3>
         </div>
         <p className="text-gray-400 text-sm mb-4">
-          Manage cached game files stored on disk in /mnt/cache/cache/
+          Manage cached game files stored on disk in <code className="bg-gray-700 px-2 py-1 rounded">{config.cachePath}</code>
         </p>
         <button
           onClick={() => handleAction('clearAllCache')}
@@ -448,55 +500,37 @@ const ManagementTab = () => {
         </div>
       </div>
 
-      {/* Log File Management */}
-      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-        <div className="flex items-center space-x-2 mb-4">
-          <FileText className="w-5 h-5 text-orange-400" />
-          <h3 className="text-lg font-semibold text-white">Log File Management</h3>
-        </div>
-        <p className="text-gray-400 text-sm mb-4">
-          Remove specific service entries from the access.log file
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {SERVICES.map(service => (
-            <button
-              key={service}
-              onClick={() => handleAction('removeServiceLogs', service)}
-              disabled={actionLoading || isProcessingLogs || mockMode}
-              className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors capitalize flex flex-col items-center"
-            >
-              <span>Clear {service}</span>
-              {serviceCounts[service] && (
-                <span className="text-xs text-gray-400 mt-1">
-                  ({serviceCounts[service]} entries)
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        <div className="mt-4 p-3 bg-yellow-900 bg-opacity-30 rounded-lg border border-yellow-700">
-          <p className="text-xs text-yellow-400">
-            <strong>Warning:</strong> This permanently removes entries from access.log (backup created as .bak)
+      {/* Log File Management - Only show if we have services */}
+      {config.services.length > 0 && (
+        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+          <div className="flex items-center space-x-2 mb-4">
+            <FileText className="w-5 h-5 text-orange-400" />
+            <h3 className="text-lg font-semibold text-white">Log File Management</h3>
+          </div>
+          <p className="text-gray-400 text-sm mb-4">
+            Remove specific service entries from <code className="bg-gray-700 px-2 py-1 rounded">{config.logPath}</code>
           </p>
-        </div>
-      </div>
-
-      {/* Action Messages */}
-      {actionMessage && (
-        <div className={`p-4 rounded-lg border ${
-          actionMessage.type === 'success' 
-            ? 'bg-green-900 bg-opacity-30 border-green-700 text-green-400' 
-            : actionMessage.type === 'warning'
-            ? 'bg-yellow-900 bg-opacity-30 border-yellow-700 text-yellow-400'
-            : 'bg-red-900 bg-opacity-30 border-red-700 text-red-400'
-        }`}>
-          <div className="flex items-center space-x-2">
-            {actionMessage.type === 'success' ? (
-              <CheckCircle className="w-4 h-4" />
-            ) : (
-              <AlertCircle className="w-4 h-4" />
-            )}
-            <span>{actionMessage.text}</span>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {config.services.map(service => (
+              <button
+                key={service}
+                onClick={() => handleAction('removeServiceLogs', service)}
+                disabled={actionLoading || isProcessingLogs || mockMode}
+                className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors capitalize flex flex-col items-center"
+              >
+                <span>Clear {service}</span>
+                {serviceCounts[service] && (
+                  <span className="text-xs text-gray-400 mt-1">
+                    ({serviceCounts[service].toLocaleString()} entries)
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 p-3 bg-yellow-900 bg-opacity-30 rounded-lg border border-yellow-700">
+            <p className="text-xs text-yellow-400">
+              <strong>Warning:</strong> Requires write permissions to logs directory. If you get a read-only error, update your docker-compose.yml to mount logs without ':ro'
+            </p>
           </div>
         </div>
       )}
