@@ -38,6 +38,16 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}");
 });
 
+// Register HttpClient for SteamService
+builder.Services.AddHttpClient<SteamService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+    client.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
+});
+
+// Register SteamService as singleton
+builder.Services.AddSingleton<SteamService>();
+
 // Register services
 builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddScoped<DatabaseService>();

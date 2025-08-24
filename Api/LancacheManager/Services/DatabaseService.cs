@@ -11,17 +11,23 @@ public class DatabaseService
     private readonly AppDbContext _context;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ILogger<DatabaseService> _logger;
+    private readonly SteamService _steamService;
     
     // Track ongoing sessions to group downloads properly
     private static readonly Dictionary<string, DateTime> _sessionTracker = new();
     private static readonly object _sessionLock = new object();
     private const string POSITION_FILE = "/data/logposition.txt";
 
-    public DatabaseService(AppDbContext context, IHubContext<DownloadHub> hubContext, ILogger<DatabaseService> logger)
+    public DatabaseService(
+        AppDbContext context, 
+        IHubContext<DownloadHub> hubContext, 
+        ILogger<DatabaseService> logger,
+        SteamService steamService)
     {
         _context = context;
         _hubContext = hubContext;
         _logger = logger;
+        _steamService = steamService;
     }
 
     public async Task ProcessLogEntryBatch(List<LogEntry> entries, bool sendRealtimeUpdates)
@@ -96,6 +102,40 @@ public class DatabaseService
 
             download.CacheHitBytes += totalHitBytes;
             download.CacheMissBytes += totalMissBytes;
+
+            // Store the last URL for game identification
+            if (!string.IsNullOrEmpty(entries.LastOrDefault()?.Url))
+            {
+                download.LastUrl = entries.Last().Url;
+                
+                // For Steam downloads, try to extract game info
+                if (download.Service.ToLower() == "steam" && download.GameAppId == null)
+                {
+                    var appId = _steamService.ExtractAppIdFromUrl(download.LastUrl);
+                    if (appId.HasValue)
+                    {
+                        download.GameAppId = appId;
+                        
+                        // Try to fetch game name immediately (but don't fail if it doesn't work)
+                        try
+                        {
+                            var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
+                            if (gameInfo != null)
+                            {
+                                download.GameName = gameInfo.Name;
+                                download.GameImageUrl = gameInfo.HeaderImage;
+                                _logger.LogDebug($"Identified Steam game: {gameInfo.Name} (App ID: {appId})");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"Failed to fetch game info for app {appId}");
+                            // Don't fail the whole process, just log and continue
+                            download.GameName = $"Steam App {appId}";
+                        }
+                    }
+                }
+            }
 
             // Update client stats
             var clientStats = await _context.ClientStats.FindAsync(firstEntry.ClientIp);

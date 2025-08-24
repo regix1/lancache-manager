@@ -78,7 +78,7 @@ public class StatsCache
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .Take(100)
                 .ToListAsync();
-        });
+        }) ?? new List<ClientStats>();
     }
 
     public async Task<List<ServiceStats>> GetServiceStatsAsync(AppDbContext context)
@@ -91,7 +91,7 @@ public class StatsCache
                 .AsNoTracking()
                 .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
                 .ToListAsync();
-        });
+        }) ?? new List<ServiceStats>();
     }
 
     public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = 50)
@@ -107,7 +107,7 @@ public class StatsCache
                 .OrderByDescending(d => d.StartTime)
                 .Take(count)
                 .ToListAsync();
-        });
+        }) ?? new List<Download>();
     }
 
     public async Task<List<Download>> GetActiveDownloadsAsync(AppDbContext context)
@@ -123,7 +123,7 @@ public class StatsCache
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
-        });
+        }) ?? new List<Download>();
     }
 
     public void InvalidateCache()
