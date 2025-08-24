@@ -310,8 +310,142 @@ const ManagementTab = () => {
         </div>
       )}
 
-      {/* Rest of the component remains the same... */}
-      {/* Include all the other sections here */}
+      {/* Connection Status Banner */}
+      {connectionStatus !== 'connected' && !isProcessingLogs && (
+        <div className="bg-yellow-900 bg-opacity-30 rounded-lg p-4 border border-yellow-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-yellow-400">
+              <AlertCircle className="w-5 h-5" />
+              <span>API connection issues detected. Some features may not work.</span>
+            </div>
+            <button
+              onClick={manualRefresh}
+              className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm text-white"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mock Mode Toggle */}
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4">Mock Mode</h3>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-gray-300">Enable mock data for demonstration</p>
+            <p className="text-sm text-gray-500 mt-1">
+              Simulates realistic cache data and download activity
+            </p>
+          </div>
+          <button
+            onClick={() => setMockMode(!mockMode)}
+            disabled={isProcessingLogs}
+            className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+            <span>{mockMode ? 'Enabled' : 'Disabled'}</span>
+          </button>
+        </div>
+        {mockMode && (
+          <div className="mt-4 p-3 bg-blue-900 bg-opacity-30 rounded-lg border border-blue-700">
+            <div className="flex items-center space-x-2 text-blue-400">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-sm">Mock mode is active - API actions are disabled</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Cache Management */}
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4">Cache Management</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={() => handleAction('clearCache')}
+            disabled={actionLoading || isProcessingLogs || mockMode}
+            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            <span>Clear All Cache</span>
+          </button>
+          <button
+            onClick={() => handleAction('resetDatabase')}
+            disabled={actionLoading || isProcessingLogs || mockMode}
+            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+            <span>Reset Database</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Log Processing */}
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4">Log Processing</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button
+            onClick={() => handleAction('resetLogs')}
+            disabled={actionLoading || isProcessingLogs || mockMode}
+            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            <span>Reset Log Position</span>
+          </button>
+          <button
+            onClick={() => handleAction('processAllLogs')}
+            disabled={actionLoading || isProcessingLogs || mockMode}
+            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            <span>Process All Logs</span>
+          </button>
+        </div>
+        <div className="mt-4 p-3 bg-gray-700 rounded-lg">
+          <p className="text-xs text-gray-400">
+            <strong>Note:</strong> Processing large logs can take significant time. Use the Force Cancel button above to stop processing and save progress.
+          </p>
+        </div>
+      </div>
+
+      {/* Service-specific cache clear */}
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <h3 className="text-lg font-semibold text-white mb-4">Clear Service Cache</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {SERVICES.map(service => (
+            <button
+              key={service}
+              onClick={() => handleAction('clearCache', service)}
+              disabled={actionLoading || isProcessingLogs || mockMode}
+              className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors capitalize"
+            >
+              Clear {service}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Action Messages */}
+      {actionMessage && (
+        <div className={`p-4 rounded-lg border ${
+          actionMessage.type === 'success' 
+            ? 'bg-green-900 bg-opacity-30 border-green-700 text-green-400' 
+            : actionMessage.type === 'warning'
+            ? 'bg-yellow-900 bg-opacity-30 border-yellow-700 text-yellow-400'
+            : actionMessage.type === 'info'
+            ? 'bg-blue-900 bg-opacity-30 border-blue-700 text-blue-400'
+            : 'bg-red-900 bg-opacity-30 border-red-700 text-red-400'
+        }`}>
+          <div className="flex items-center space-x-2">
+            {actionMessage.type === 'success' ? (
+              <CheckCircle className="w-4 h-4" />
+            ) : (
+              <AlertCircle className="w-4 h-4" />
+            )}
+            <span>{actionMessage.text}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
