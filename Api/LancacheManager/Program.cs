@@ -26,7 +26,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Configure database with connection pooling (use ONLY AddDbContextPool, not both)
+// Configure database with connection pooling
 builder.Services.AddDbContextPool<AppDbContext>(options =>
 {
     var dbPath = "/data/lancache.db";
@@ -37,11 +37,10 @@ builder.Services.AddDbContextPool<AppDbContext>(options =>
         Directory.CreateDirectory("/data");
     }
     
-    // Use connection string with performance pragmas
+    // Use connection string WITHOUT Journal Mode (will be set as PRAGMA)
     var connectionString = $"Data Source={dbPath};" +
         "Cache=Shared;" +
-        "Mode=ReadWriteCreate;" +
-        "Journal Mode=WAL;";  // Write-Ahead Logging for better concurrency
+        "Mode=ReadWriteCreate;";
     
     options.UseSqlite(connectionString);
 }, poolSize: 128);
@@ -129,12 +128,30 @@ using (var scope = app.Services.CreateScope())
         // Create database if it doesn't exist
         await dbContext.Database.EnsureCreatedAsync();
         
-        // Apply SQLite performance optimizations
-        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL");
-        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA synchronous=NORMAL");
-        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA cache_size=10000");
-        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA temp_store=MEMORY");
-        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA mmap_size=30000000000");
+        // Apply SQLite performance optimizations via PRAGMA commands
+        using (var connection = dbContext.Database.GetDbConnection())
+        {
+            await connection.OpenAsync();
+            using (var command = connection.CreateCommand())
+            {
+                // Set WAL mode for better concurrency
+                command.CommandText = "PRAGMA journal_mode=WAL";
+                await command.ExecuteNonQueryAsync();
+                
+                // Other performance optimizations
+                command.CommandText = "PRAGMA synchronous=NORMAL";
+                await command.ExecuteNonQueryAsync();
+                
+                command.CommandText = "PRAGMA cache_size=10000";
+                await command.ExecuteNonQueryAsync();
+                
+                command.CommandText = "PRAGMA temp_store=MEMORY";
+                await command.ExecuteNonQueryAsync();
+                
+                command.CommandText = "PRAGMA mmap_size=30000000000";
+                await command.ExecuteNonQueryAsync();
+            }
+        }
         
         logger.LogInformation($"Database initialized with performance optimizations at: /data/lancache.db");
     }
