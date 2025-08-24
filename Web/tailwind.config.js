@@ -1,15 +1,26 @@
-// This file is optional in Tailwind v4 but can help maintain consistency
-// Most configuration is now done via CSS @theme directive
-
+/** @type {import('tailwindcss').Config} */
 export default {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
-  darkMode: 'class', // This is now handled by @custom-variant in CSS
   theme: {
-    // Most theme customization should be done in CSS with @theme
-    // This is here for backwards compatibility and IDE support
+    extend: {
+      colors: {
+        gray: {
+          900: '#111827',
+          800: '#1f2937',
+          700: '#374151',
+          600: '#4b5563',
+          500: '#6b7280',
+          400: '#9ca3af',
+          300: '#d1d5db',
+        }
+      },
+      animation: {
+        'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      }
+    },
   },
   plugins: [],
 }
