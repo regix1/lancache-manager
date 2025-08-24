@@ -13,8 +13,26 @@ public class CacheManagementService
     {
         _configuration = configuration;
         _logger = logger;
-        // Read from configuration
-        _cachePath = configuration["LanCache:CachePath"] ?? "/mnt/cache/cache";
+        
+        // Check if we're in Docker (container environment)
+        // In container: cache is at /cache
+        // In development: might be at /mnt/cache/cache
+        if (Directory.Exists("/cache") && Directory.GetDirectories("/cache").Any(d => Path.GetFileName(d).Length == 2))
+        {
+            _cachePath = "/cache";
+            _logger.LogInformation("Detected containerized environment, using cache path: /cache");
+        }
+        else if (Directory.Exists("/mnt/cache/cache"))
+        {
+            _cachePath = "/mnt/cache/cache";
+            _logger.LogInformation("Using host cache path: /mnt/cache/cache");
+        }
+        else
+        {
+            _cachePath = configuration["LanCache:CachePath"] ?? "/cache";
+            _logger.LogWarning($"Using configured cache path: {_cachePath}");
+        }
+        
         _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
         
         _logger.LogInformation($"CacheManagementService initialized - Cache: {_cachePath}, Logs: {_logPath}");
@@ -83,6 +101,12 @@ public class CacheManagementService
             }
             
             // Fallback: check common mount points
+            if (path.StartsWith("/cache"))
+            {
+                if (Directory.Exists("/cache") && new DriveInfo("/cache").TotalSize > 0)
+                    return "/cache";
+            }
+            
             if (path.StartsWith("/mnt/cache"))
             {
                 // Try specific mount points in order of specificity
@@ -124,22 +148,64 @@ public class CacheManagementService
                 throw new DirectoryNotFoundException($"Cache path does not exist: {_cachePath}");
             }
 
+            // Get all cache directories (00-ff)
+            var dirs = Directory.GetDirectories(_cachePath)
+                .Where(d => {
+                    var name = Path.GetFileName(d);
+                    return name.Length == 2 && IsHex(name);
+                })
+                .ToList();
+            
+            if (dirs.Count == 0)
+            {
+                _logger.LogWarning($"No cache directories found in {_cachePath}");
+                throw new InvalidOperationException($"No cache directories (00-ff) found in {_cachePath}. Is this the correct cache path?");
+            }
+            
+            _logger.LogInformation($"Found {dirs.Count} cache directories to clear");
+
             // Delete all subdirectories (00-ff) in the nginx cache
             await Task.Run(() =>
             {
-                var dirs = Directory.GetDirectories(_cachePath);
-                var totalDirs = dirs.Length;
+                var totalDirs = dirs.Count;
                 var processed = 0;
+                var filesDeleted = 0;
                 
                 foreach (var dir in dirs)
                 {
                     try
                     {
-                        // Delete the directory and all its contents
-                        Directory.Delete(dir, true);
+                        // Count files before deletion
+                        var fileCount = Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length;
+                        filesDeleted += fileCount;
                         
-                        // Recreate the empty directory (nginx expects these to exist)
-                        Directory.CreateDirectory(dir);
+                        // Delete all files in the directory but keep the directory structure
+                        var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+                        foreach (var file in files)
+                        {
+                            try
+                            {
+                                File.Delete(file);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, $"Failed to delete file: {file}");
+                            }
+                        }
+                        
+                        // Delete subdirectories but keep the main directory (00-ff)
+                        var subdirs = Directory.GetDirectories(dir);
+                        foreach (var subdir in subdirs)
+                        {
+                            try
+                            {
+                                Directory.Delete(subdir, true);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, $"Failed to delete subdirectory: {subdir}");
+                            }
+                        }
                         
                         processed++;
                         if (processed % 10 == 0)
@@ -153,7 +219,7 @@ public class CacheManagementService
                     }
                 }
                 
-                _logger.LogInformation($"Cache cleared: {processed} directories");
+                _logger.LogInformation($"Cache cleared: {processed} directories processed, {filesDeleted} files deleted");
             });
         }
         catch (Exception ex)
@@ -161,6 +227,11 @@ public class CacheManagementService
             _logger.LogError(ex, "Error clearing cache");
             throw;
         }
+    }
+    
+    private bool IsHex(string value)
+    {
+        return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 
     public async Task RemoveServiceFromLogs(string service)
