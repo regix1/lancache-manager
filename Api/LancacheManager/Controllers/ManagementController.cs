@@ -54,6 +54,23 @@ public class ManagementController : ControllerBase
         return Ok(info);
     }
 
+    // New endpoint for clearing all cache
+    [HttpPost("cache/clear-all")]
+    public async Task<IActionResult> ClearAllCache()
+    {
+        try
+        {
+            await _cacheService.ClearAllCache();
+            return Ok(new { message = "All cache cleared successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error clearing all cache");
+            return StatusCode(500, new { error = "Failed to clear cache", details = ex.Message });
+        }
+    }
+
+    // Legacy endpoint for compatibility
     [HttpDelete("cache")]
     public async Task<IActionResult> ClearCache([FromQuery] string? service = null)
     {
@@ -139,7 +156,6 @@ public class ManagementController : ControllerBase
             
             _logger.LogInformation($"Set to process entire log file ({sizeMB:F1} MB) from beginning");
             
-            // NO RESTART - The LogWatcherService will pick up the new position automatically
             return Ok(new { 
                 message = $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",
                 logSizeMB = sizeMB,
@@ -173,13 +189,11 @@ public class ManagementController : ControllerBase
             if (System.IO.File.Exists(LOG_PATH))
             {
                 var fileInfo = new FileInfo(LOG_PATH);
-                // Save current position (end of file) to stop processing
                 await System.IO.File.WriteAllTextAsync(POSITION_FILE, fileInfo.Length.ToString());
                 _logger.LogInformation($"Processing cancelled, position set to end of file");
             }
             else
             {
-                // No log file, just clear the position
                 if (System.IO.File.Exists(POSITION_FILE))
                 {
                     System.IO.File.Delete(POSITION_FILE);
@@ -298,4 +312,51 @@ public class ManagementController : ControllerBase
             return Ok(new { isProcessing = false, error = ex.Message });
         }
     }
+
+    // New endpoint to remove service entries from log file
+    [HttpPost("logs/remove-service")]
+    public async Task<IActionResult> RemoveServiceFromLogs([FromBody] RemoveServiceRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(request.Service))
+            {
+                return BadRequest(new { error = "Service name is required" });
+            }
+
+            await _cacheService.RemoveServiceFromLogs(request.Service);
+            
+            return Ok(new { 
+                message = $"Successfully removed {request.Service} entries from log file",
+                backupFile = $"{LOG_PATH}.bak"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error removing {request.Service} from logs");
+            return StatusCode(500, new { error = $"Failed to remove {request.Service} from logs", details = ex.Message });
+        }
+    }
+
+    // New endpoint to get service log counts
+    [HttpGet("logs/service-counts")]
+    public async Task<IActionResult> GetServiceLogCounts()
+    {
+        try
+        {
+            var counts = await _cacheService.GetServiceLogCounts();
+            return Ok(counts);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting service log counts");
+            return StatusCode(500, new { error = "Failed to get service log counts" });
+        }
+    }
+}
+
+// Request model for removing service
+public class RemoveServiceRequest
+{
+    public string Service { get; set; } = string.Empty;
 }
