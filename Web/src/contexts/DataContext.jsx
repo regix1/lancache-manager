@@ -53,8 +53,8 @@ export const DataProvider = ({ children }) => {
 
   const fetchData = async () => {
     try {
-      // Don't show loading spinner during processing to avoid confusion
-      if (!isProcessingLogs) {
+      // Don't show loading spinner during processing or if we already have data
+      if (!isProcessingLogs && latestDownloads.length === 0) {
         setLoading(true);
       }
       
@@ -71,17 +71,13 @@ export const DataProvider = ({ children }) => {
         setServiceStats(mockData.serviceStats);
         setError(null);
       } else if (isConnected) {
-        // Don't clear data during processing - let it accumulate
-        if (!isProcessingLogs) {
-          clearAllData();
-        }
-        
         try {
           // Use longer timeout during processing
           const timeout = isProcessingLogs ? 30000 : 10000; // 30s during processing, 10s normally
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), timeout);
           
+          // Fetch all data in parallel
           const [cache, active, latest, clients, services] = await Promise.allSettled([
             ApiService.getCacheInfo(controller.signal),
             ApiService.getActiveDownloads(controller.signal),
@@ -92,13 +88,19 @@ export const DataProvider = ({ children }) => {
           
           clearTimeout(timeoutId);
 
-          // Update data if we got successful responses
+          // Update only successful responses - keep existing data for failed ones
           if (cache.status === 'fulfilled' && cache.value) {
             setCacheInfo(cache.value);
           }
+          // Don't clear cacheInfo if it fails - keep the old value
+          
           if (active.status === 'fulfilled' && active.value) {
             setActiveDownloads(active.value);
+          } else if (active.status === 'fulfilled' && active.value === null) {
+            // Only clear if we got an explicit null/empty response
+            setActiveDownloads([]);
           }
+          
           if (latest.status === 'fulfilled' && latest.value) {
             setLatestDownloads(latest.value);
             
@@ -107,35 +109,38 @@ export const DataProvider = ({ children }) => {
               setProcessingStatus(prev => ({
                 ...prev,
                 message: `Processing logs... Found ${latest.value.length} downloads`,
-                progress: Math.min((prev?.progress || 0) + 5, 90)
+                downloadCount: latest.value.length
               }));
             }
+          } else if (latest.status === 'fulfilled' && latest.value === null) {
+            setLatestDownloads([]);
           }
+          
           if (clients.status === 'fulfilled' && clients.value) {
             setClientStats(clients.value);
+          } else if (clients.status === 'fulfilled' && clients.value === null) {
+            setClientStats([]);
           }
+          
           if (services.status === 'fulfilled' && services.value) {
             setServiceStats(services.value);
+          } else if (services.status === 'fulfilled' && services.value === null) {
+            setServiceStats([]);
           }
 
-          // Only show error if not processing
-          if (!isProcessingLogs) {
-            const allFailed = [cache, active, latest, clients, services].every(
-              result => result.status === 'rejected'
-            );
-            
-            if (allFailed) {
-              setError('Unable to fetch data from API');
-            } else {
-              setError(null);
-            }
+          // Only show error if ALL requests failed AND we have no data
+          const allFailed = [cache, active, latest, clients, services].every(
+            result => result.status === 'rejected'
+          );
+          
+          if (allFailed && latestDownloads.length === 0) {
+            setError('Unable to fetch data from API');
           } else {
-            // During processing, suppress timeout errors
             setError(null);
           }
         } catch (err) {
-          // During processing, don't show errors for timeouts
-          if (!isProcessingLogs) {
+          // Only show error and clear data if we have no existing data
+          if (latestDownloads.length === 0) {
             if (err.name === 'AbortError') {
               setError('Request timeout - the server may be busy');
             } else {
@@ -145,27 +150,28 @@ export const DataProvider = ({ children }) => {
           }
         }
       } else {
-        // Only show connection error if not processing
-        if (!isProcessingLogs) {
+        // Only show connection error if we have no data
+        if (latestDownloads.length === 0) {
           setError('Cannot connect to API server');
           clearAllData();
         }
       }
     } catch (err) {
       console.error('Error in fetchData:', err);
-      if (!isProcessingLogs) {
+      if (latestDownloads.length === 0) {
         setError('An unexpected error occurred');
       }
     } finally {
-      if (!isProcessingLogs) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
 
   // Handle mock mode changes
   useEffect(() => {
-    clearAllData();
+    // Only clear data when switching modes
+    if (mockMode) {
+      clearAllData();
+    }
     setError(null);
     fetchData();
     

@@ -8,10 +8,13 @@ import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
 
 const Dashboard = () => {
-  const { cacheInfo, activeDownloads, latestDownloads, clientStats } = useData();
+  const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats } = useData();
   
   const activeClients = [...new Set(activeDownloads.map(d => d.clientIp))].length;
   const totalActiveDownloads = activeDownloads.length;
+  
+  // Calculate total downloads from service stats
+  const totalDownloads = serviceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -20,28 +23,28 @@ const Dashboard = () => {
         <StatCard
           title="Total Cache"
           value={cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B'}
-          subtitle={`${cacheInfo?.totalFiles || 0} files`}
+          subtitle={cacheInfo?.totalFiles > 0 ? `${cacheInfo.totalFiles} files` : 'Drive capacity'}
           icon={Database}
           color="blue"
         />
         <StatCard
           title="Used Space"
           value={cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B'}
-          subtitle={`${cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%'} utilized`}
+          subtitle={cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%'}
           icon={HardDrive}
           color="green"
         />
         <StatCard
           title="Active Downloads"
           value={totalActiveDownloads}
-          subtitle={`${latestDownloads.length} total`}
+          subtitle={`${latestDownloads.length} recent`}
           icon={Download}
           color="purple"
         />
         <StatCard
           title="Active Clients"
           value={activeClients}
-          subtitle={`${clientStats.length} services`}
+          subtitle={`${totalDownloads} total downloads`}
           icon={Users}
           color="yellow"
         />

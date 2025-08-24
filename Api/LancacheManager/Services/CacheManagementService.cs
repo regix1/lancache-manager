@@ -23,12 +23,13 @@ public class CacheManagementService
         {
             if (Directory.Exists(_cachePath))
             {
+                // Just get drive info - this is instant
                 var driveInfo = new DriveInfo(Path.GetPathRoot(_cachePath) ?? "/");
                 info.TotalCacheSize = driveInfo.TotalSize;
                 info.FreeCacheSize = driveInfo.AvailableFreeSpace;
                 info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
 
-                // Get service sizes - look for known service directories
+                // Don't scan directories - just check which services exist
                 var serviceDirs = new[] { "steam", "epic", "origin", "blizzard", "uplay", "riot", "wsus" };
                 
                 foreach (var service in serviceDirs)
@@ -36,41 +37,15 @@ public class CacheManagementService
                     var servicePath = Path.Combine(_cachePath, service);
                     if (Directory.Exists(servicePath))
                     {
-                        try
-                        {
-                            var size = GetDirectorySize(servicePath);
-                            if (size > 0)
-                            {
-                                info.ServiceSizes[service] = size;
-                                info.TotalFiles += CountFiles(servicePath);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, $"Could not get size for {service}");
-                        }
+                        // Just mark that the service exists, don't calculate size
+                        info.ServiceSizes[service] = -1; // -1 indicates "exists but size unknown"
                     }
                 }
-
-                // Check for any other cache directories
-                foreach (var dir in Directory.GetDirectories(_cachePath))
-                {
-                    var dirName = Path.GetFileName(dir);
-                    // Skip if already processed or if it's a system directory
-                    if (!serviceDirs.Contains(dirName) && !dirName.StartsWith("."))
-                    {
-                        try
-                        {
-                            var size = GetDirectorySize(dir);
-                            if (size > 0)
-                            {
-                                info.ServiceSizes[dirName] = size;
-                                info.TotalFiles += CountFiles(dir);
-                            }
-                        }
-                        catch { }
-                    }
-                }
+                
+                // Set a placeholder for total files
+                info.TotalFiles = -1; // -1 indicates "unknown"
+                
+                _logger.LogDebug($"Cache info: Total={info.TotalCacheSize}, Used={info.UsedCacheSize}, Free={info.FreeCacheSize}");
             }
             else
             {
@@ -83,39 +58,6 @@ public class CacheManagementService
         }
 
         return info;
-    }
-
-    private long GetDirectorySize(string path)
-    {
-        try
-        {
-            long size = 0;
-            var dir = new DirectoryInfo(path);
-            
-            // Get all files recursively
-            var files = dir.GetFiles("*", SearchOption.AllDirectories);
-            size = files.Sum(f => f.Length);
-            
-            return size;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, $"Could not calculate size for {path}");
-            return 0;
-        }
-    }
-
-    private int CountFiles(string path)
-    {
-        try
-        {
-            return Directory.GetFiles(path, "*", SearchOption.AllDirectories).Length;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, $"Could not count files in {path}");
-            return 0;
-        }
     }
 
     public async Task ClearCache(string? service)
