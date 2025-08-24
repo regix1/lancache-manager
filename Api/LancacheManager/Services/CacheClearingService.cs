@@ -117,15 +117,16 @@ public class CacheClearingService : IHostedService
             operation.TotalDirectories = dirs.Count;
             operation.Status = ClearStatus.Running;
             
-            // Quick size estimate with timeout
-            operation.StatusMessage = "Estimating cache size...";
+            // Skip size estimation if it takes too long - just use a rough estimate
+            operation.StatusMessage = "Starting cache clear...";
             await NotifyProgress(operation);
             
-            var initialSize = await EstimateCacheSizeQuickAsync(_cachePath);
+            // Use a rough estimate based on typical cache sizes (10GB per directory average)
+            var initialSize = (long)dirs.Count * 10L * 1024 * 1024 * 1024; // Rough estimate
             operation.BytesDeleted = 0;
             operation.TotalBytesToDelete = initialSize;
             
-            _logger.LogInformation($"Found {dirs.Count} cache directories to clear, estimated size: {initialSize / (1024.0 * 1024.0 * 1024.0):F2} GB");
+            _logger.LogInformation($"Found {dirs.Count} cache directories to clear");
             
             // Choose deletion method
             var deletionMethod = await DetermineBestDeletionMethod();
@@ -145,9 +146,6 @@ public class CacheClearingService : IHostedService
                 var dirName = Path.GetFileName(dir);
                 operation.CurrentDirectory = dirName;
                 operation.StatusMessage = $"Clearing directory {dirName} ({operation.DirectoriesProcessed + 1}/{operation.TotalDirectories})...";
-                
-                // Estimate directory size for progress
-                var dirSizeEstimate = initialSize / dirs.Count; // Simple average
                 
                 try
                 {
@@ -190,7 +188,6 @@ public class CacheClearingService : IHostedService
             if (operation.Status != ClearStatus.Cancelled)
             {
                 operation.Status = ClearStatus.Completed;
-                operation.BytesDeleted = initialSize; // Set to initial size on successful completion
                 operation.StatusMessage = "Cache clearing completed!";
             }
             else
@@ -202,8 +199,7 @@ public class CacheClearingService : IHostedService
             
             var duration = operation.EndTime.Value - operation.StartTime;
             _logger.LogInformation($"Cache clear operation {operation.Id} completed in {duration.TotalMinutes:F1} minutes. " +
-                                  $"Cleared {operation.DirectoriesProcessed} directories, skipped {operation.SkippedDirectories}, " +
-                                  $"approximately {initialSize / (1024.0 * 1024.0 * 1024.0):F2} GB");
+                                  $"Cleared {operation.DirectoriesProcessed} directories, skipped {operation.SkippedDirectories}");
             
             await NotifyProgress(operation);
         }
@@ -250,11 +246,14 @@ public class CacheClearingService : IHostedService
 
     private async Task<bool> ClearUsingRsyncAsync(string dir, CancellationToken cancellationToken)
     {
+        var dirName = Path.GetFileName(dir);
         var emptyDir = Path.Combine(Path.GetTempPath(), $"empty_{Guid.NewGuid()}");
         Directory.CreateDirectory(emptyDir);
         
         try
         {
+            _logger.LogDebug($"Clearing {dirName} with rsync");
+            
             using var process = new Process();
             process.StartInfo = new ProcessStartInfo
             {
@@ -262,23 +261,31 @@ public class CacheClearingService : IHostedService
                 Arguments = $"60 rsync -a --delete \"{emptyDir}/\" \"{dir}/\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
+                RedirectStandardOutput = true
             };
             
             process.Start();
             
             // Wait for process with cancellation
-            while (!process.HasExited)
+            var completed = await WaitForProcessAsync(process, 60000, cancellationToken);
+            
+            if (!completed)
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    process.Kill(true);
-                    return false;
-                }
-                await Task.Delay(100, cancellationToken);
+                _logger.LogWarning($"Rsync timeout for {dirName}");
+                try { process.Kill(true); } catch { }
+                return false;
             }
             
-            return process.ExitCode == 0;
+            if (process.ExitCode != 0 && process.ExitCode != 124) // 124 is timeout exit code
+            {
+                var error = await process.StandardError.ReadToEndAsync();
+                _logger.LogWarning($"Rsync failed for {dirName}: {error}");
+                return false;
+            }
+            
+            _logger.LogDebug($"Successfully cleared {dirName} with rsync");
+            return true;
         }
         finally
         {
@@ -288,6 +295,9 @@ public class CacheClearingService : IHostedService
 
     private async Task<bool> ClearUsingFindAsync(string dir, CancellationToken cancellationToken)
     {
+        var dirName = Path.GetFileName(dir);
+        _logger.LogDebug($"Clearing {dirName} with find -delete");
+        
         // First delete all files
         using (var process = new Process())
         {
@@ -302,42 +312,40 @@ public class CacheClearingService : IHostedService
             
             process.Start();
             
-            while (!process.HasExited)
+            var completed = await WaitForProcessAsync(process, 60000, cancellationToken);
+            
+            if (!completed)
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    process.Kill(true);
-                    return false;
-                }
-                await Task.Delay(100, cancellationToken);
+                _logger.LogWarning($"Find timeout for {dirName}");
+                try { process.Kill(true); } catch { }
+                return false;
             }
         }
         
-        // Then remove empty directories
+        // Then remove empty directories (quick operation)
         using (var process = new Process())
         {
             process.StartInfo = new ProcessStartInfo
             {
                 FileName = "timeout",
-                Arguments = $"30 find \"{dir}\" -mindepth 1 -type d -empty -delete",
+                Arguments = $"10 find \"{dir}\" -mindepth 1 -type d -empty -delete",
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
             
             process.Start();
-            await Task.Delay(100); // Brief wait
-            
-            if (!process.HasExited)
-            {
-                process.Kill(true);
-            }
+            await WaitForProcessAsync(process, 10000, cancellationToken);
         }
         
+        _logger.LogDebug($"Successfully cleared {dirName} with find");
         return true;
     }
 
     private async Task<bool> ClearUsingRmAsync(string dir, CancellationToken cancellationToken)
     {
+        var dirName = Path.GetFileName(dir);
+        _logger.LogDebug($"Clearing {dirName} with rm -rf");
+        
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
@@ -349,17 +357,33 @@ public class CacheClearingService : IHostedService
         
         process.Start();
         
-        while (!process.HasExited)
+        var completed = await WaitForProcessAsync(process, 60000, cancellationToken);
+        
+        if (!completed)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                process.Kill(true);
-                return false;
-            }
-            await Task.Delay(100, cancellationToken);
+            _logger.LogWarning($"Rm timeout for {dirName}");
+            try { process.Kill(true); } catch { }
+            return false;
         }
         
+        _logger.LogDebug($"Successfully cleared {dirName} with rm");
         return process.ExitCode == 0 || process.ExitCode == 124; // 124 is timeout exit code
+    }
+
+    private async Task<bool> WaitForProcessAsync(Process process, int timeoutMs, CancellationToken cancellationToken)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+        
+        process.EnableRaisingEvents = true;
+        process.Exited += (sender, args) => tcs.TrySetResult(true);
+        
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeoutMs);
+        
+        using (cts.Token.Register(() => tcs.TrySetResult(false)))
+        {
+            return await tcs.Task;
+        }
     }
 
     private async Task KillHangingProcessesAsync(string dir)
@@ -424,40 +448,29 @@ public class CacheClearingService : IHostedService
 
     private async Task<DeletionMethod> DetermineBestDeletionMethod()
     {
-        // Check for available commands
-        var hasRsync = await CheckCommandExists("rsync");
-        var hasFind = await CheckCommandExists("find");
-        
-        if (hasRsync)
-            return DeletionMethod.RsyncDelete;
-        if (hasFind)
-            return DeletionMethod.FindDelete;
-        
-        return DeletionMethod.ParallelRm;
-    }
-
-    private async Task<bool> CheckCommandExists(string command)
-    {
         try
         {
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
+            // Quick check for rsync only - it's the fastest
+            if (File.Exists("/usr/bin/rsync") || File.Exists("/bin/rsync"))
             {
-                FileName = "which",
-                Arguments = command,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                _logger.LogInformation("Found rsync, using fastest deletion method");
+                return DeletionMethod.RsyncDelete;
+            }
             
-            process.Start();
-            await process.WaitForExitAsync();
-            return process.ExitCode == 0;
+            // Default to find if available
+            if (File.Exists("/usr/bin/find") || File.Exists("/bin/find"))
+            {
+                _logger.LogInformation("Found find, using fast deletion method");
+                return DeletionMethod.FindDelete;
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            return false;
+            _logger.LogWarning(ex, "Error checking for commands, using basic rm");
         }
+        
+        _logger.LogInformation("Using basic rm deletion method");
+        return DeletionMethod.BasicRm;
     }
 
     private bool IsHex(string value)
