@@ -199,6 +199,24 @@ class ApiService {
       throw error;
     }
   }
+
+  // Get configuration info (cache path, services list, etc.)
+  static async getConfig() {
+    try {
+      const res = await fetch(`${API_BASE}/management/config`, { 
+        signal: AbortSignal.timeout(5000)
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getConfig error:', error);
+      // Return defaults if API fails
+      return {
+        cachePath: '/mnt/cache/cache',
+        logPath: '/logs/access.log',
+        services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
+      };
+    }
+  }
 }
 
 export default ApiService;

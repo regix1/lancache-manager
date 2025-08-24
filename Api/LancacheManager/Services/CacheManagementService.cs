@@ -111,38 +111,82 @@ public class CacheManagementService
                 throw new FileNotFoundException($"Log file not found: {_logPath}");
             }
 
-            // Check if the log file is writable
-            var fileInfo = new FileInfo(_logPath);
-            if (fileInfo.IsReadOnly)
-            {
-                throw new UnauthorizedAccessException($"Log file is read-only. Mount logs directory with write permissions to modify.");
-            }
-
-            // Try to create a backup in /tmp if the logs directory is read-only
+            var logDir = Path.GetDirectoryName(_logPath) ?? "/logs";
             var backupFile = $"{_logPath}.bak";
-            var tempFile = $"/tmp/access.log.tmp.{Guid.NewGuid()}";
-            var tempBackup = $"/tmp/access.log.bak.{DateTime.Now:yyyyMMddHHmmss}";
+            var tempFile = Path.Combine(logDir, $"access.log.tmp.{Guid.NewGuid()}");
+            
+            // Test write permissions by trying to create a temp file
+            try
+            {
+                await File.WriteAllTextAsync(Path.Combine(logDir, ".write_test"), "test");
+                File.Delete(Path.Combine(logDir, ".write_test"));
+            }
+            catch (Exception)
+            {
+                // Try /tmp as fallback
+                tempFile = $"/tmp/access.log.tmp.{Guid.NewGuid()}";
+                var tempBackup = $"/tmp/access.log.bak.{DateTime.Now:yyyyMMddHHmmss}";
+                
+                _logger.LogWarning($"Cannot write to {logDir}, using /tmp for processing");
+                
+                // Process in /tmp then try to copy back
+                await Task.Run(async () =>
+                {
+                    // Create backup in /tmp
+                    File.Copy(_logPath, tempBackup, true);
+                    _logger.LogInformation($"Backup created at {tempBackup}");
+                    
+                    using (var reader = new StreamReader(_logPath))
+                    using (var writer = new StreamWriter(tempFile))
+                    {
+                        string? line;
+                        int removedCount = 0;
+                        int totalLines = 0;
+                        
+                        while ((line = await reader.ReadLineAsync()) != null)
+                        {
+                            totalLines++;
+                            
+                            if (!line.StartsWith($"[{service}]", StringComparison.OrdinalIgnoreCase))
+                            {
+                                await writer.WriteLineAsync(line);
+                            }
+                            else
+                            {
+                                removedCount++;
+                            }
+                        }
+                        
+                        _logger.LogInformation($"Removed {removedCount} {service} entries from {totalLines} total lines");
+                    }
+                });
+                
+                // Try to replace the original file
+                try
+                {
+                    File.Delete(_logPath);
+                    File.Move(tempFile, _logPath);
+                    _logger.LogInformation("Successfully updated log file");
+                }
+                catch
+                {
+                    throw new UnauthorizedAccessException(
+                        $"Cannot modify {_logPath}. The logs directory may be mounted read-only or have permission issues. " +
+                        $"Processed file saved to {tempFile}. To fix: 1) Check docker logs, 2) Ensure logs mount has write permissions, " +
+                        $"3) Try running: docker exec lancache-manager chmod 777 /logs"
+                    );
+                }
+                
+                return;
+            }
             
             _logger.LogInformation($"Removing {service} entries from log file");
             
             await Task.Run(async () =>
             {
-                try
-                {
-                    // Try to create backup in same directory first
-                    File.Copy(_logPath, backupFile, true);
-                    _logger.LogInformation($"Backup created at {backupFile}");
-                }
-                catch
-                {
-                    // If that fails, create backup in /tmp
-                    File.Copy(_logPath, tempBackup, true);
-                    _logger.LogInformation($"Backup created at {tempBackup} (logs directory is read-only)");
-                    throw new UnauthorizedAccessException(
-                        $"Cannot write to logs directory. The log file is read-only. " +
-                        $"To modify logs, mount the logs directory with write permissions (remove ':ro' from docker volume mount)."
-                    );
-                }
+                // Create backup
+                File.Copy(_logPath, backupFile, true);
+                _logger.LogInformation($"Backup created at {backupFile}");
                 
                 using (var reader = new StreamReader(_logPath))
                 using (var writer = new StreamWriter(tempFile))
@@ -155,7 +199,6 @@ public class CacheManagementService
                     {
                         totalLines++;
                         
-                        // Skip lines that start with [service]
                         if (!line.StartsWith($"[{service}]", StringComparison.OrdinalIgnoreCase))
                         {
                             await writer.WriteLineAsync(line);

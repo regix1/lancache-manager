@@ -379,6 +379,122 @@ public class ManagementController : ControllerBase
             });
         }
     }
+
+    // Debug endpoint to check permissions
+    [HttpGet("debug/permissions")]
+    public IActionResult CheckPermissions()
+    {
+        var results = new Dictionary<string, object>();
+        
+        // Check /logs directory
+        try
+        {
+            var logsDir = Path.GetDirectoryName(LOG_PATH) ?? "/logs";
+            results["logsDirectory"] = logsDir;
+            results["logsExists"] = Directory.Exists(logsDir);
+            
+            if (Directory.Exists(logsDir))
+            {
+                var testFile = Path.Combine(logsDir, ".write_test");
+                try
+                {
+                    System.IO.File.WriteAllText(testFile, "test");
+                    System.IO.File.Delete(testFile);
+                    results["logsWritable"] = true;
+                }
+                catch (Exception ex)
+                {
+                    results["logsWritable"] = false;
+                    results["logsError"] = ex.Message;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            results["logsCheckError"] = ex.Message;
+        }
+        
+        // Check /cache directory
+        try
+        {
+            var cachePath = _cacheService.GetCachePath();
+            results["cacheDirectory"] = cachePath;
+            results["cacheExists"] = Directory.Exists(cachePath);
+            
+            if (Directory.Exists(cachePath))
+            {
+                var testFile = Path.Combine(cachePath, ".write_test");
+                try
+                {
+                    System.IO.File.WriteAllText(testFile, "test");
+                    System.IO.File.Delete(testFile);
+                    results["cacheWritable"] = true;
+                }
+                catch (Exception ex)
+                {
+                    results["cacheWritable"] = false;
+                    results["cacheError"] = ex.Message;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            results["cacheCheckError"] = ex.Message;
+        }
+        
+        // Check /data directory
+        try
+        {
+            results["dataDirectory"] = DATA_DIRECTORY;
+            results["dataExists"] = Directory.Exists(DATA_DIRECTORY);
+            
+            if (Directory.Exists(DATA_DIRECTORY))
+            {
+                var testFile = Path.Combine(DATA_DIRECTORY, ".write_test");
+                try
+                {
+                    System.IO.File.WriteAllText(testFile, "test");
+                    System.IO.File.Delete(testFile);
+                    results["dataWritable"] = true;
+                }
+                catch (Exception ex)
+                {
+                    results["dataWritable"] = false;
+                    results["dataError"] = ex.Message;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            results["dataCheckError"] = ex.Message;
+        }
+        
+        // Check log file
+        try
+        {
+            results["logFile"] = LOG_PATH;
+            results["logFileExists"] = System.IO.File.Exists(LOG_PATH);
+            
+            if (System.IO.File.Exists(LOG_PATH))
+            {
+                var fileInfo = new FileInfo(LOG_PATH);
+                results["logFileSize"] = fileInfo.Length;
+                results["logFileReadOnly"] = fileInfo.IsReadOnly;
+                results["logFileLastModified"] = fileInfo.LastWriteTimeUtc;
+            }
+        }
+        catch (Exception ex)
+        {
+            results["logFileError"] = ex.Message;
+        }
+        
+        // Environment info
+        results["user"] = Environment.UserName;
+        results["userId"] = Environment.GetEnvironmentVariable("USER") ?? "unknown";
+        results["workingDirectory"] = Environment.CurrentDirectory;
+        
+        return Ok(results);
+    }
 }
 
 // Request model for removing service

@@ -500,40 +500,40 @@ const ManagementTab = () => {
         </div>
       </div>
 
-      {/* Log File Management - Only show if we have services */}
-      {config.services.length > 0 && (
-        <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-          <div className="flex items-center space-x-2 mb-4">
-            <FileText className="w-5 h-5 text-orange-400" />
-            <h3 className="text-lg font-semibold text-white">Log File Management</h3>
-          </div>
-          <p className="text-gray-400 text-sm mb-4">
-            Remove specific service entries from <code className="bg-gray-700 px-2 py-1 rounded">{config.logPath}</code>
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {config.services.map(service => (
+      {/* Log File Management */}
+      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+        <div className="flex items-center space-x-2 mb-4">
+          <FileText className="w-5 h-5 text-orange-400" />
+          <h3 className="text-lg font-semibold text-white">Log File Management</h3>
+        </div>
+        <p className="text-gray-400 text-sm mb-4">
+          Remove specific service entries from <code className="bg-gray-700 px-2 py-1 rounded">{config.logPath}</code>
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {/* Show discovered services or defaults */}
+          {(config.services.length > 0 ? config.services : ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']).map(service => {
+            const count = serviceCounts[service];
+            return (
               <button
                 key={service}
                 onClick={() => handleAction('removeServiceLogs', service)}
                 disabled={actionLoading || isProcessingLogs || mockMode}
-                className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors capitalize flex flex-col items-center"
+                className="px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex flex-col items-center"
               >
-                <span>Clear {service}</span>
-                {serviceCounts[service] && (
-                  <span className="text-xs text-gray-400 mt-1">
-                    ({serviceCounts[service].toLocaleString()} entries)
-                  </span>
-                )}
+                <span className="capitalize font-medium">Clear {service}</span>
+                <span className="text-xs text-gray-400 mt-1">
+                  {count !== undefined ? `(${count.toLocaleString()} entries)` : ''}
+                </span>
               </button>
-            ))}
-          </div>
-          <div className="mt-4 p-3 bg-yellow-900 bg-opacity-30 rounded-lg border border-yellow-700">
-            <p className="text-xs text-yellow-400">
-              <strong>Warning:</strong> Requires write permissions to logs directory. If you get a read-only error, update your docker-compose.yml to mount logs without ':ro'
-            </p>
-          </div>
+            );
+          })}
         </div>
-      )}
+        <div className="mt-4 p-3 bg-yellow-900 bg-opacity-30 rounded-lg border border-yellow-700">
+          <p className="text-xs text-yellow-400">
+            <strong>Warning:</strong> Requires write permissions to logs directory. Check container logs if you get permission errors.
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

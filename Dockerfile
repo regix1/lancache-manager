@@ -27,23 +27,32 @@ RUN dotnet publish LancacheManager.csproj -c Release -o /app/publish
 COPY --from=frontend-builder /app/dist /app/publish/wwwroot
 
 # Stage 3: Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apk add --no-cache curl tzdata
+# Install runtime dependencies including bash and nano for debugging
+RUN apt-get update && \
+    apt-get install -y \
+    curl \
+    bash \
+    nano \
+    procps \
+    net-tools \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy published application
 COPY --from=backend-builder /app/publish ./
 
 # Create required directories with proper permissions
-RUN mkdir -p /data /logs /cache && \
-    chmod 755 /data /logs /cache
+RUN mkdir -p /data /logs /cache /tmp && \
+    chmod -R 777 /data /logs /cache /tmp
 
 # Configure environment
 ENV ASPNETCORE_URLS=http://+:80
 ENV ASPNETCORE_ENVIRONMENT=Production
 ENV TZ=UTC
+ENV DOTNET_RUNNING_IN_CONTAINER=true
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
@@ -55,5 +64,5 @@ VOLUME ["/data", "/logs", "/cache"]
 # Port
 EXPOSE 80
 
-# Run
+# Run the application directly
 ENTRYPOINT ["dotnet", "LancacheManager.dll"]
