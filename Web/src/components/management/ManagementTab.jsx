@@ -70,17 +70,13 @@ const ManagementTab = () => {
 
       connection.on('CacheClearProgress', (progress) => {
         console.log('Cache clear progress:', progress);
-        if (cacheClearOperation && progress.operationId === cacheClearOperation) {
-          setCacheClearProgress(progress);
-          
-          // Check if operation is complete
-          if (progress.status === 'Completed' || progress.status === 'Failed' || progress.status === 'Cancelled' || progress.status === 'Cancelling') {
-            // Handle Cancelling as a terminal state
-            if (progress.status === 'Cancelling') {
-              progress.status = 'Cancelled';
-            }
-            handleCacheClearComplete(progress);
-          }
+        
+        // Update progress state directly
+        setCacheClearProgress(progress);
+        
+        // Check if operation is complete
+        if (progress.status === 'Completed' || progress.status === 'Failed' || progress.status === 'Cancelled') {
+          handleCacheClearComplete(progress);
         }
       });
 
@@ -219,7 +215,7 @@ const ManagementTab = () => {
   };
 
   const handleClearAllCache = async () => {
-    if (!confirm('This will delete ALL cached game files (may be hundreds of GB). Are you sure?')) {
+    if (!confirm('This will instantly clear ALL cached game files. The old cache will be deleted in the background. Continue?')) {
       return;
     }
     
@@ -231,22 +227,22 @@ const ManagementTab = () => {
       const result = await ApiService.clearAllCache();
       
       if (result.operationId) {
-        setCacheClearOperation(result.operationId);
+        const opId = result.operationId;
+        setCacheClearOperation(opId);
         setCacheClearProgress({
-          operationId: result.operationId,
+          operationId: opId,
           status: 'Preparing',
+          statusMessage: 'Starting cache clear...',
           percentComplete: 0,
-          filesDeleted: 0,
           bytesDeleted: 0,
+          totalBytesToDelete: 0,
           directoriesProcessed: 0,
-          totalDirectories: 0
+          totalDirectories: 4
         });
         setShowCacheClearModal(true);
         
-        // Start polling if SignalR is not connected
-        if (!signalRConnection.current || signalRConnection.current.state !== signalR.HubConnectionState.Connected) {
-          startCacheClearPolling(result.operationId);
-        }
+        // Start polling immediately (SignalR might not be ready yet)
+        startCacheClearPolling(opId);
       }
     } catch (err) {
       console.error('Start cache clear failed:', err);
@@ -261,19 +257,29 @@ const ManagementTab = () => {
       clearInterval(cacheClearPollingInterval.current);
     }
     
-    cacheClearPollingInterval.current = setInterval(async () => {
+    // Poll immediately, then every 1 second for instant operations
+    const pollStatus = async () => {
       try {
         const status = await ApiService.getCacheClearStatus(operationId);
+        console.log('Polled cache clear status:', status);
         setCacheClearProgress(status);
         
         // Check if operation is complete
         if (status.status === 'Completed' || status.status === 'Failed' || status.status === 'Cancelled') {
           handleCacheClearComplete(status);
+          clearInterval(cacheClearPollingInterval.current);
+          cacheClearPollingInterval.current = null;
         }
       } catch (err) {
         console.error('Error polling cache clear status:', err);
       }
-    }, 2000);
+    };
+    
+    // Poll immediately
+    pollStatus();
+    
+    // Then poll every second
+    cacheClearPollingInterval.current = setInterval(pollStatus, 1000);
   };
 
   const handleCacheClearComplete = (progress) => {
@@ -285,16 +291,22 @@ const ManagementTab = () => {
     
     // Show completion message
     if (progress.status === 'Completed') {
-      setSuccessMessage(`Cache cleared successfully! Deleted ${formatBytes(progress.bytesDeleted)} (${progress.filesDeleted || 0} files)`);
-      // Auto-close modal after 3 seconds for successful completion
+      const sizeCleared = formatBytes(progress.bytesDeleted || 0);
+      setSuccessMessage(`Cache cleared successfully! ${sizeCleared} freed instantly. Old cache is being deleted in background.`);
+      // Auto-close modal after 2 seconds for successful completion
       setTimeout(() => {
         setShowCacheClearModal(false);
         setCacheClearOperation(null);
         setCacheClearProgress(null);
-      }, 3000);
+      }, 2000);
     } else if (progress.status === 'Failed') {
       addError(`Cache clearing failed: ${progress.error || 'Unknown error'}`);
       // Keep modal open for failed operations so user can see the error
+      setTimeout(() => {
+        setShowCacheClearModal(false);
+        setCacheClearOperation(null);
+        setCacheClearProgress(null);
+      }, 5000);
     } else if (progress.status === 'Cancelled') {
       setSuccessMessage('Cache clearing cancelled');
       // Close modal immediately for cancelled operations
@@ -542,77 +554,54 @@ const ManagementTab = () => {
                   <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden">
                     <div 
                       className="bg-gradient-to-r from-blue-500 to-blue-600 h-4 rounded-full transition-all duration-500 relative"
-                      style={{ width: `${cacheClearProgress.percentComplete || 0}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, cacheClearProgress.percentComplete || 0))}%` }}
                     >
                       {/* Animated stripes for active progress */}
                       <div className="absolute inset-0 bg-stripes animate-slide opacity-20"></div>
                     </div>
                     <div className="absolute inset-0 flex items-center justify-center">
                       <span className="text-xs text-white font-medium drop-shadow">
-                        {cacheClearProgress.percentComplete?.toFixed(1)}%
+                        {(cacheClearProgress.percentComplete || 0).toFixed(0)}%
                       </span>
                     </div>
                   </div>
                   
-                  {/* Current directory being processed */}
-                  {cacheClearProgress.currentDirectory && (
-                    <p className="text-sm text-gray-400 text-center">
-                      Processing directory: <span className="text-blue-400 font-mono">{cacheClearProgress.currentDirectory}</span>
-                    </p>
-                  )}
-                  
-                  {/* ETA */}
-                  {cacheClearProgress.estimatedTimeRemaining && (
-                    <p className="text-sm text-gray-400 text-center">
-                      Estimated time remaining: <span className="text-white">{cacheClearProgress.estimatedTimeRemaining}</span>
-                    </p>
+                  {/* Bytes deleted progress */}
+                  {cacheClearProgress.totalBytesToDelete > 0 && (
+                    <div className="text-sm text-gray-400 text-center">
+                      <span className="text-green-400 font-semibold">
+                        {formatBytes(cacheClearProgress.bytesDeleted || 0)}
+                      </span>
+                      {' / '}
+                      <span className="text-white">
+                        {formatBytes(cacheClearProgress.totalBytesToDelete)}
+                      </span>
+                      {' cleared'}
+                    </div>
                   )}
                 </>
               )}
               
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                {cacheClearProgress.directoriesProcessed >= 0 && (
-                  <div className="bg-gray-900 rounded p-3">
-                    <div className="text-gray-400 text-xs uppercase mb-1">Directories</div>
-                    <div className="text-white font-semibold">
-                      {cacheClearProgress.directoriesProcessed} / {cacheClearProgress.totalDirectories}
-                    </div>
-                    {cacheClearProgress.skippedDirectories > 0 && (
-                      <div className="text-xs text-yellow-400 mt-1">
-                        {cacheClearProgress.skippedDirectories} skipped
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {cacheClearProgress.bytesDeleted >= 0 && (
+              {/* Stats Grid - Simplified for nuclear method */}
+              {cacheClearProgress.status === 'Completed' && (
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div className="bg-gray-900 rounded p-3">
                     <div className="text-gray-400 text-xs uppercase mb-1">Space Freed</div>
                     <div className="text-green-400 font-semibold">
-                      {formatBytes(cacheClearProgress.bytesDeleted)}
+                      {formatBytes(cacheClearProgress.bytesDeleted || 0)}
                     </div>
                   </div>
-                )}
-                
-                {cacheClearProgress.filesDeleted > 0 && (
+                  
                   <div className="bg-gray-900 rounded p-3">
-                    <div className="text-gray-400 text-xs uppercase mb-1">Files Deleted</div>
+                    <div className="text-gray-400 text-xs uppercase mb-1">Time Taken</div>
                     <div className="text-white font-semibold">
-                      {cacheClearProgress.filesDeleted.toLocaleString()}
+                      {cacheClearProgress.endTime && cacheClearProgress.startTime
+                        ? `${((new Date(cacheClearProgress.endTime) - new Date(cacheClearProgress.startTime)) / 1000).toFixed(1)}s`
+                        : 'N/A'}
                     </div>
                   </div>
-                )}
-                
-                {cacheClearProgress.errors > 0 && (
-                  <div className="bg-gray-900 rounded p-3">
-                    <div className="text-gray-400 text-xs uppercase mb-1">Errors</div>
-                    <div className="text-red-400 font-semibold">
-                      {cacheClearProgress.errors}
-                    </div>
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
               
               {/* Error message */}
               {cacheClearProgress.error && (
