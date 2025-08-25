@@ -57,6 +57,10 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<CacheClearingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());
 
+// Register OperationStateService for persistent operation tracking
+builder.Services.AddSingleton<OperationStateService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<OperationStateService>());
+
 // Register background services
 builder.Services.AddHostedService<LogWatcherService>();
 builder.Services.AddHostedService<DownloadCleanupService>();

@@ -1,69 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, HardDrive, FileText, X, Eye } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
+import operationStateService from '../../services/operationState.service';
+import { useBackendOperation } from '../../hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
-
-// Custom hook for persistent operations
-const usePersistentOperation = (key, expirationMinutes = 30) => {
-  const [operation, setOperation] = useState(null);
-  
-  const save = useCallback((data) => {
-    try {
-      localStorage.setItem(key, JSON.stringify({
-        ...data,
-        timestamp: new Date().toISOString()
-      }));
-      setOperation(data);
-    } catch (err) {
-      console.warn(`Failed to save ${key}:`, err);
-    }
-  }, [key]);
-
-  const load = useCallback(() => {
-    try {
-      const stored = localStorage.getItem(key);
-      if (!stored) return null;
-      
-      const data = JSON.parse(stored);
-      const expirationMs = expirationMinutes * 60 * 1000;
-      const isExpired = Date.now() - new Date(data.timestamp).getTime() > expirationMs;
-      
-      if (isExpired) {
-        localStorage.removeItem(key);
-        return null;
-      }
-      
-      setOperation(data);
-      return data;
-    } catch (err) {
-      console.warn(`Failed to load ${key}:`, err);
-      return null;
-    }
-  }, [key, expirationMinutes]);
-
-  const clear = useCallback(() => {
-    try {
-      localStorage.removeItem(key);
-      setOperation(null);
-    } catch (err) {
-      console.warn(`Failed to clear ${key}:`, err);
-    }
-  }, [key]);
-
-  const update = useCallback((updates) => {
-    const current = operation || load();
-    if (current) {
-      save({ ...current, ...updates });
-    }
-  }, [operation, load, save]);
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  return { operation, save, load, clear, update };
-};
 
 // Helper function to format bytes
 const formatBytes = (bytes) => {
@@ -95,15 +36,16 @@ const ManagementTab = () => {
     logPath: '/logs/access.log',
     services: []
   });
+  const [hasMigrated, setHasMigrated] = useState(false);
   
   // Cache clearing state
   const [cacheClearProgress, setCacheClearProgress] = useState(null);
   const [showCacheClearModal, setShowCacheClearModal] = useState(false);
   
-  // Persistent operations using custom hook
-  const cacheOp = usePersistentOperation('activeCacheClearOperation', 30);
-  const logProcessingOp = usePersistentOperation('activeLogProcessing', 120);
-  const serviceRemovalOp = usePersistentOperation('activeServiceRemoval', 30);
+  // Backend operations using new hook
+  const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
+  const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
+  const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
   
   // Refs for intervals and connections
   const intervals = useRef({});
@@ -147,13 +89,26 @@ const ManagementTab = () => {
         signalRConnection.current.stop();
       }
     };
-  }, []);
+  }, [clearInterval]);
 
-  // Initialize on mount
+  // Initialize on mount with migration
   useEffect(() => {
-    loadConfig();
-    restoreOperations();
-    setupSignalR();
+    const initialize = async () => {
+      // One-time migration from localStorage
+      if (!hasMigrated) {
+        const migrated = await operationStateService.migrateFromLocalStorage();
+        if (migrated > 0) {
+          setSuccess(`Migrated ${migrated} operations from local storage to server`);
+        }
+        setHasMigrated(true);
+      }
+      
+      await loadConfig();
+      await restoreOperations();
+      setupSignalR();
+    };
+    
+    initialize();
   }, []);
 
   const loadConfig = async () => {
@@ -176,8 +131,8 @@ const ManagementTab = () => {
 
   const restoreOperations = async () => {
     // Restore log processing
-    const logOp = logProcessingOp.load();
-    if (logOp) {
+    const logOp = await logProcessingOp.load();
+    if (logOp?.data) {
       const status = await ApiService.getProcessingStatus().catch(() => null);
       if (status?.isProcessing) {
         setIsProcessingLogs(true);
@@ -190,32 +145,32 @@ const ManagementTab = () => {
         });
         startProcessingPolling();
       } else {
-        logProcessingOp.clear();
+        await logProcessingOp.clear();
       }
     }
 
     // Restore cache clearing
-    const cacheClear = cacheOp.load();
-    if (cacheClear?.operationId) {
+    const cacheClear = await cacheOp.load();
+    if (cacheClear?.data?.operationId) {
       try {
-        const status = await ApiService.getCacheClearStatus(cacheClear.operationId);
+        const status = await ApiService.getCacheClearStatus(cacheClear.data.operationId);
         if (status && ['Running', 'Preparing'].includes(status.status)) {
           setCacheClearProgress(status);
-          startCacheClearPolling(cacheClear.operationId);
+          startCacheClearPolling(cacheClear.data.operationId);
         } else {
-          cacheOp.clear();
+          await cacheOp.clear();
         }
       } catch (err) {
-        cacheOp.clear();
+        await cacheOp.clear();
       }
     }
 
     // Restore service removal
-    const serviceOp = serviceRemovalOp.load();
-    if (serviceOp?.service) {
-      setSuccess(`Removing ${serviceOp.service} entries from logs (operation resumed)...`);
-      setTimeout(() => {
-        serviceRemovalOp.clear();
+    const serviceOp = await serviceRemovalOp.load();
+    if (serviceOp?.data?.service) {
+      setSuccess(`Removing ${serviceOp.data.service} entries from logs (operation resumed)...`);
+      setTimeout(async () => {
+        await serviceRemovalOp.clear();
         loadConfig();
         fetchData();
       }, 10000);
@@ -230,10 +185,10 @@ const ManagementTab = () => {
         .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
         .build();
 
-      connection.on('CacheClearProgress', (progress) => {
+      connection.on('CacheClearProgress', async (progress) => {
         setCacheClearProgress(progress);
         if (progress.operationId) {
-          cacheOp.update({ lastProgress: progress.percentComplete || 0 });
+          await cacheOp.update({ lastProgress: progress.percentComplete || 0 });
         }
         if (['Completed', 'Failed', 'Cancelled'].includes(progress.status)) {
           handleCacheClearComplete(progress);
@@ -262,14 +217,14 @@ const ManagementTab = () => {
             estimatedTime: status.estimatedTime,
             status: status.status
           });
-          logProcessingOp.update({ 
+          await logProcessingOp.update({ 
             lastProgress: status.percentComplete || 0,
             mbProcessed: status.mbProcessed,
             mbTotal: status.mbTotal
           });
         } else {
           setIsProcessingLogs(false);
-          logProcessingOp.clear();
+          await logProcessingOp.clear();
           clearInterval('processing');
           
           if (status?.percentComplete >= 100) {
@@ -299,7 +254,7 @@ const ManagementTab = () => {
         setCacheClearProgress(status);
         
         if (['Running', 'Preparing'].includes(status.status)) {
-          cacheOp.update({ lastProgress: status.percentComplete || 0 });
+          await cacheOp.update({ lastProgress: status.percentComplete || 0 });
         } else {
           handleCacheClearComplete(status);
           clearInterval('cacheClearing');
@@ -313,9 +268,9 @@ const ManagementTab = () => {
     setInterval('cacheClearing', pollStatus, 1000);
   }, [cacheOp, clearInterval, setInterval]);
 
-  const handleCacheClearComplete = useCallback((progress) => {
+  const handleCacheClearComplete = useCallback(async (progress) => {
     clearInterval('cacheClearing');
-    cacheOp.clear();
+    await cacheOp.clear();
     
     if (progress.status === 'Completed') {
       setSuccess(`Cache cleared successfully! ${formatBytes(progress.bytesDeleted || 0)} freed.`);
@@ -348,7 +303,7 @@ const ManagementTab = () => {
     try {
       const result = await ApiService.clearAllCache();
       if (result.operationId) {
-        cacheOp.save({ operationId: result.operationId });
+        await cacheOp.save({ operationId: result.operationId });
         setCacheClearProgress({
           operationId: result.operationId,
           status: 'Preparing',
@@ -368,7 +323,7 @@ const ManagementTab = () => {
   };
 
   const handleCancelCacheClear = async () => {
-    if (!cacheOp.operation?.operationId) return;
+    if (!cacheOp.operation?.data?.operationId) return;
     
     try {
       setCacheClearProgress(prev => ({ 
@@ -377,8 +332,8 @@ const ManagementTab = () => {
         statusMessage: 'Cancelling operation...'
       }));
       
-      await ApiService.cancelCacheClear(cacheOp.operation.operationId);
-      cacheOp.clear();
+      await ApiService.cancelCacheClear(cacheOp.operation.data.operationId);
+      await cacheOp.clear();
       
       setTimeout(() => {
         setShowCacheClearModal(false);
@@ -390,7 +345,7 @@ const ManagementTab = () => {
       console.error('Failed to cancel cache clear:', err);
       setShowCacheClearModal(false);
       setCacheClearProgress(null);
-      cacheOp.clear();
+      await cacheOp.clear();
     }
   };
 
@@ -401,7 +356,7 @@ const ManagementTab = () => {
     try {
       await ApiService.cancelProcessing();
       setIsProcessingLogs(false);
-      logProcessingOp.clear();
+      await logProcessingOp.clear();
       clearInterval('processing');
       setSuccess('Processing cancelled');
       setTimeout(() => {
@@ -445,7 +400,7 @@ const ManagementTab = () => {
             return;
           }
           
-          logProcessingOp.save({ type: 'processAll' });
+          await logProcessingOp.save({ type: 'processAll' });
           result = await ApiService.processAllLogs();
           
           if (result) {
@@ -459,7 +414,7 @@ const ManagementTab = () => {
             });
             setTimeout(() => startProcessingPolling(), 5000);
           } else {
-            logProcessingOp.clear();
+            await logProcessingOp.clear();
           }
           break;
           
@@ -469,9 +424,9 @@ const ManagementTab = () => {
             return;
           }
           
-          serviceRemovalOp.save({ service: serviceName });
+          await serviceRemovalOp.save({ service: serviceName });
           result = await ApiService.removeServiceFromLogs(serviceName);
-          serviceRemovalOp.clear();
+          await serviceRemovalOp.clear();
           await loadConfig();
           break;
           
@@ -489,9 +444,9 @@ const ManagementTab = () => {
     } catch (err) {
       console.error(`Action ${action} failed:`, err);
       
-      // Clear persistent operations on error
-      if (action === 'processAllLogs') logProcessingOp.clear();
-      if (action === 'removeServiceLogs') serviceRemovalOp.clear();
+      // Clear operations on error
+      if (action === 'processAllLogs') await logProcessingOp.clear();
+      if (action === 'removeServiceLogs') await serviceRemovalOp.clear();
       
       const errorMessage = err.message?.includes('read-only') 
         ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
@@ -504,12 +459,12 @@ const ManagementTab = () => {
   };
 
   // UI state helpers
-  const isCacheClearingInBackground = cacheOp.operation && 
+  const isCacheClearingInBackground = cacheOp.operation?.data && 
     !showCacheClearModal && 
     cacheClearProgress && 
     ['Running', 'Preparing'].includes(cacheClearProgress.status);
 
-  const activeServiceRemoval = serviceRemovalOp.operation?.service;
+  const activeServiceRemoval = serviceRemovalOp.operation?.data?.service;
 
   // Render status bar component
   const StatusBar = ({ color, icon: Icon, title, subtitle, progress, onViewDetails }) => (
@@ -750,7 +705,7 @@ const ManagementTab = () => {
           </div>
           <button
             onClick={() => setMockMode(!mockMode)}
-            disabled={isProcessingLogs}
+            disabled={isProcessingLogs || cacheOp.loading || logProcessingOp.loading}
             className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
             {mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
@@ -777,10 +732,10 @@ const ManagementTab = () => {
         </p>
         <button
           onClick={handleClearAllCache}
-          disabled={actionLoading || isProcessingLogs || mockMode || isCacheClearingInBackground}
+          disabled={actionLoading || isProcessingLogs || mockMode || isCacheClearingInBackground || cacheOp.loading}
           className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
-          {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+          {actionLoading || cacheOp.loading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
           <span>{isCacheClearingInBackground ? 'Cache Clearing in Progress...' : 'Clear All Cached Files'}</span>
         </button>
         <p className="text-xs text-gray-500 mt-2">
@@ -820,7 +775,7 @@ const ManagementTab = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
             onClick={() => handleAction('resetLogs')}
-            disabled={actionLoading || isProcessingLogs || mockMode}
+            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
@@ -828,10 +783,10 @@ const ManagementTab = () => {
           </button>
           <button
             onClick={() => handleAction('processAllLogs')}
-            disabled={actionLoading || isProcessingLogs || mockMode}
+            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 transition-colors"
           >
-            <PlayCircle className="w-4 h-4" />
+            {logProcessingOp.loading ? <Loader className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
             <span>Process All Logs</span>
           </button>
         </div>
@@ -858,14 +813,14 @@ const ManagementTab = () => {
               <button
                 key={service}
                 onClick={() => handleAction('removeServiceLogs', service)}
-                disabled={actionLoading || isProcessingLogs || mockMode || activeServiceRemoval}
+                disabled={actionLoading || isProcessingLogs || mockMode || activeServiceRemoval || serviceRemovalOp.loading}
                 className={`px-4 py-3 rounded-lg transition-colors flex flex-col items-center ${
                   isRemoving 
                     ? 'bg-orange-700 cursor-not-allowed opacity-75' 
                     : 'bg-gray-700 hover:bg-gray-600 disabled:opacity-50'
                 }`}
               >
-                {isRemoving ? (
+                {isRemoving || serviceRemovalOp.loading ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin mb-1" />
                     <span className="capitalize font-medium">Removing...</span>
@@ -890,6 +845,15 @@ const ManagementTab = () => {
           </p>
         </div>
       </div>
+
+      {/* Backend Operation Status (for debugging) */}
+      {(cacheOp.error || logProcessingOp.error || serviceRemovalOp.error) && (
+        <div className="bg-orange-900 bg-opacity-30 rounded-lg p-4 border border-orange-700">
+          <p className="text-sm text-orange-400">
+            Backend storage error: {cacheOp.error || logProcessingOp.error || serviceRemovalOp.error}
+          </p>
+        </div>
+      )}
     </div>
   );
 };
