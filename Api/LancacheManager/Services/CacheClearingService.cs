@@ -14,9 +14,11 @@ public class CacheClearingService : IHostedService
     private readonly IConfiguration _configuration;
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
     private readonly string _cachePath;
-    private readonly string _statusFilePath = "/tmp/cache_clear_status.json"; // Persistent status file
+    private readonly string _statusFilePath = "/tmp/cache_clear_status.json";
     private Timer? _cleanupTimer;
-    private Timer? _progressTimer;
+    
+    // For better performance tracking
+    private readonly SemaphoreSlim _clearingSemaphore = new(1, 1); // Only one clear operation at a time
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
@@ -46,23 +48,15 @@ public class CacheClearingService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Load any persisted operations on startup
         LoadPersistedOperations();
-        
         _cleanupTimer = new Timer(CleanupOldOperations, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
-        
-        // Check for any active operations that need monitoring
         CheckForActiveOperations();
-        
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _cleanupTimer?.Dispose();
-        _progressTimer?.Dispose();
-        
-        // Save current operations before shutdown
         SavePersistedOperations();
         
         foreach (var operation in _operations.Values)
@@ -71,6 +65,394 @@ public class CacheClearingService : IHostedService
         }
         
         return Task.CompletedTask;
+    }
+
+    public async Task<string> StartCacheClearAsync(string? service = null)
+    {
+        var operationId = Guid.NewGuid().ToString();
+        var operation = new CacheClearOperation
+        {
+            Id = operationId,
+            Service = service,
+            StartTime = DateTime.UtcNow,
+            Status = ClearStatus.Preparing,
+            CancellationTokenSource = new CancellationTokenSource()
+        };
+        
+        _operations[operationId] = operation;
+        SavePersistedOperations();
+        
+        // Start the improved clear method
+        _ = Task.Run(async () => await ClearCacheImproved(operation), operation.CancellationTokenSource.Token);
+        
+        return operationId;
+    }
+
+    private async Task ClearCacheImproved(CacheClearOperation operation)
+    {
+        await _clearingSemaphore.WaitAsync();
+        try
+        {
+            _logger.LogInformation($"Starting cache clear operation {operation.Id}");
+            operation.StatusMessage = "Calculating cache size...";
+            operation.Status = ClearStatus.Preparing;
+            await NotifyProgress(operation);
+            SavePersistedOperations();
+            
+            if (!Directory.Exists(_cachePath))
+            {
+                operation.Status = ClearStatus.Failed;
+                operation.Error = $"Cache path does not exist: {_cachePath}";
+                operation.EndTime = DateTime.UtcNow;
+                await NotifyProgress(operation);
+                SavePersistedOperations();
+                return;
+            }
+
+            // Get all hex directories (00-ff)
+            var hexDirs = Directory.GetDirectories(_cachePath)
+                .Where(d => {
+                    var name = Path.GetFileName(d);
+                    return name.Length == 2 && IsHex(name);
+                })
+                .OrderBy(d => d)
+                .ToList();
+
+            if (hexDirs.Count == 0)
+            {
+                operation.Status = ClearStatus.Failed;
+                operation.Error = "No cache directories found";
+                operation.EndTime = DateTime.UtcNow;
+                await NotifyProgress(operation);
+                SavePersistedOperations();
+                return;
+            }
+
+            operation.TotalDirectories = hexDirs.Count;
+            
+            // Calculate actual cache size (with progress updates)
+            _logger.LogInformation("Calculating actual cache size...");
+            operation.StatusMessage = "Calculating cache size...";
+            
+            long totalSize = 0;
+            var sizeCalculationTasks = new List<Task<long>>();
+            var dirIndex = 0;
+            
+            foreach (var dir in hexDirs)
+            {
+                var currentIndex = dirIndex++;
+                sizeCalculationTasks.Add(Task.Run(() => CalculateDirectorySize(dir, operation, currentIndex, hexDirs.Count)));
+            }
+            
+            var sizes = await Task.WhenAll(sizeCalculationTasks);
+            totalSize = sizes.Sum();
+            
+            operation.TotalBytesToDelete = totalSize;
+            _logger.LogInformation($"Total cache size: {FormatBytes(totalSize)}");
+            
+            operation.Status = ClearStatus.Running;
+            operation.StatusMessage = "Clearing cache files...";
+            await NotifyProgress(operation);
+            SavePersistedOperations();
+            
+            // Clear cache with actual byte tracking
+            var success = await ClearWithByteTracking(operation, hexDirs);
+            
+            if (success)
+            {
+                operation.Status = ClearStatus.Completed;
+                operation.StatusMessage = $"Successfully cleared {FormatBytes(operation.BytesDeleted)}";
+                operation.EndTime = DateTime.UtcNow;
+                
+                var duration = operation.EndTime.Value - operation.StartTime;
+                _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds - Cleared {FormatBytes(operation.BytesDeleted)}");
+            }
+            else if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
+            {
+                operation.Status = ClearStatus.Cancelled;
+                operation.StatusMessage = $"Operation cancelled - Cleared {FormatBytes(operation.BytesDeleted)} before cancellation";
+                operation.EndTime = DateTime.UtcNow;
+            }
+            else
+            {
+                operation.Status = ClearStatus.Failed;
+                operation.Error = "Failed to clear cache";
+                operation.StatusMessage = $"Cache clear failed - Partially cleared {FormatBytes(operation.BytesDeleted)}";
+                operation.EndTime = DateTime.UtcNow;
+            }
+            
+            await NotifyProgress(operation);
+            SavePersistedOperations();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error in cache clear operation {operation.Id}");
+            operation.Status = ClearStatus.Failed;
+            operation.Error = ex.Message;
+            operation.StatusMessage = $"Failed: {ex.Message}";
+            operation.EndTime = DateTime.UtcNow;
+            await NotifyProgress(operation);
+            SavePersistedOperations();
+        }
+        finally
+        {
+            _clearingSemaphore.Release();
+        }
+    }
+
+    private async Task<long> CalculateDirectorySize(string directory, CacheClearOperation operation, int index, int total)
+    {
+        try
+        {
+            long size = 0;
+            
+            // Use parallel processing for subdirectories
+            var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
+            
+            // Process files in batches for better performance
+            const int batchSize = 100;
+            for (int i = 0; i < files.Length; i += batchSize)
+            {
+                var batch = files.Skip(i).Take(batchSize);
+                var batchSizes = await Task.Run(() =>
+                {
+                    return batch.Select(file =>
+                    {
+                        try
+                        {
+                            var fileInfo = new FileInfo(file);
+                            return fileInfo.Length;
+                        }
+                        catch
+                        {
+                            return 0L;
+                        }
+                    }).ToArray();
+                });
+                
+                size += batchSizes.Sum();
+                
+                // Update progress during calculation
+                if (i % 1000 == 0)
+                {
+                    operation.StatusMessage = $"Calculating size... ({index + 1}/{total} directories)";
+                    await NotifyProgress(operation);
+                }
+            }
+            
+            return size;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Error calculating size for directory {directory}");
+            return 0;
+        }
+    }
+
+    private async Task<bool> ClearWithByteTracking(CacheClearOperation operation, List<string> hexDirs)
+    {
+        try
+        {
+            _logger.LogInformation("Starting cache clear with byte tracking");
+            
+            // Process directories in parallel batches for better performance
+            const int parallelism = 4; // Process 4 directories at once
+            var semaphore = new SemaphoreSlim(parallelism);
+            var tasks = new List<Task<(bool Success, long BytesDeleted)>>();
+            
+            for (int i = 0; i < hexDirs.Count; i++)
+            {
+                if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
+                    break;
+                    
+                var dir = hexDirs[i];
+                var dirIndex = i;
+                
+                await semaphore.WaitAsync();
+                
+                var task = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var bytesDeleted = await ClearDirectory(dir, operation);
+                        
+                        // Update progress
+                        lock (operation)
+                        {
+                            operation.BytesDeleted += bytesDeleted;
+                            operation.DirectoriesProcessed++;
+                        }
+                        
+                        // Send progress update
+                        operation.StatusMessage = $"Clearing cache... ({operation.DirectoriesProcessed}/{hexDirs.Count} directories) - {FormatBytes(operation.BytesDeleted)} cleared";
+                        await NotifyProgress(operation);
+                        
+                        // Save progress periodically
+                        if (operation.DirectoriesProcessed % 10 == 0)
+                        {
+                            SavePersistedOperations();
+                        }
+                        
+                        return (true, bytesDeleted);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                });
+                
+                tasks.Add(task);
+            }
+            
+            var results = await Task.WhenAll(tasks);
+            
+            var totalBytesDeleted = results.Sum(r => r.BytesDeleted);
+            var successCount = results.Count(r => r.Success);
+            
+            _logger.LogInformation($"Cleared {successCount}/{hexDirs.Count} directories, {FormatBytes(totalBytesDeleted)} total");
+            
+            return successCount > 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear cache with byte tracking");
+            return false;
+        }
+    }
+
+    private async Task<long> ClearDirectory(string directory, CacheClearOperation operation)
+    {
+        long bytesDeleted = 0;
+        
+        try
+        {
+            // Get all files in the directory
+            var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
+            
+            // Process files in batches
+            const int batchSize = 100;
+            for (int i = 0; i < files.Length; i += batchSize)
+            {
+                if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
+                    break;
+                    
+                var batch = files.Skip(i).Take(batchSize).ToArray();
+                
+                // Delete files and track bytes
+                var batchBytes = await Task.Run(() =>
+                {
+                    long bytes = 0;
+                    foreach (var file in batch)
+                    {
+                        try
+                        {
+                            var fileInfo = new FileInfo(file);
+                            var fileSize = fileInfo.Length;
+                            
+                            File.Delete(file);
+                            bytes += fileSize;
+                        }
+                        catch (Exception ex)
+                        {
+                            // Log but continue with other files
+                            _logger.LogTrace($"Failed to delete file {file}: {ex.Message}");
+                        }
+                    }
+                    return bytes;
+                });
+                
+                bytesDeleted += batchBytes;
+                
+                // Update progress more frequently for large directories
+                if (i % 500 == 0 && i > 0)
+                {
+                    lock (operation)
+                    {
+                        operation.BytesDeleted += batchBytes;
+                    }
+                    
+                    operation.StatusMessage = $"Processing {Path.GetFileName(directory)}... {FormatBytes(operation.BytesDeleted)} cleared";
+                    await NotifyProgress(operation);
+                }
+            }
+            
+            // Clean up empty subdirectories
+            try
+            {
+                var subDirs = Directory.GetDirectories(directory);
+                foreach (var subDir in subDirs)
+                {
+                    try
+                    {
+                        Directory.Delete(subDir, true);
+                    }
+                    catch
+                    {
+                        // Ignore errors when deleting directories
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore directory cleanup errors
+            }
+            
+            _logger.LogDebug($"Cleared {directory}: {FormatBytes(bytesDeleted)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Error clearing directory {directory}");
+        }
+        
+        return bytesDeleted;
+    }
+
+    private bool IsHex(string value)
+    {
+        return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes == 0) return "0 B";
+        var sizes = new[] { "B", "KB", "MB", "GB", "TB" };
+        var i = (int)Math.Floor(Math.Log(bytes) / Math.Log(1024));
+        return $"{bytes / Math.Pow(1024, i):F2} {sizes[i]}";
+    }
+
+    private async Task NotifyProgress(CacheClearOperation operation)
+    {
+        try
+        {
+            var progress = new CacheClearProgress
+            {
+                OperationId = operation.Id,
+                Status = operation.Status.ToString(),
+                StatusMessage = operation.StatusMessage,
+                Service = operation.Service,
+                StartTime = operation.StartTime,
+                EndTime = operation.EndTime,
+                DirectoriesProcessed = operation.DirectoriesProcessed,
+                TotalDirectories = operation.TotalDirectories,
+                BytesDeleted = operation.BytesDeleted,
+                TotalBytesToDelete = operation.TotalBytesToDelete,
+                Errors = operation.Errors,
+                Error = operation.Error,
+                PercentComplete = operation.TotalBytesToDelete > 0 
+                    ? (operation.BytesDeleted * 100.0 / operation.TotalBytesToDelete) 
+                    : (operation.TotalDirectories > 0 
+                        ? (operation.DirectoriesProcessed * 100.0 / operation.TotalDirectories) 
+                        : 0)
+            };
+            
+            await _hubContext.Clients.All.SendAsync("CacheClearProgress", progress);
+            
+            _logger.LogDebug($"Cache clear progress: {progress.PercentComplete:F1}% - {FormatBytes(operation.BytesDeleted)} / {FormatBytes(operation.TotalBytesToDelete)}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error sending cache clear progress notification");
+        }
     }
 
     private void LoadPersistedOperations()
@@ -86,18 +468,12 @@ public class CacheClearingService : IHostedService
                 {
                     foreach (var op in operations)
                     {
-                        // Only load operations that are still relevant (less than 1 hour old or still running)
+                        // Only load recent or active operations
                         if (op.Status == ClearStatus.Running || 
                             op.Status == ClearStatus.Preparing ||
                             (op.StartTime > DateTime.UtcNow.AddHours(-1)))
                         {
                             _operations[op.Id] = op;
-                            
-                            // If operation was running, check if the background process is still active
-                            if (op.Status == ClearStatus.Running && !string.IsNullOrEmpty(op.BackgroundProcessId))
-                            {
-                                _ = Task.Run(() => MonitorBackgroundProcess(op));
-                            }
                         }
                     }
                     
@@ -134,429 +510,15 @@ public class CacheClearingService : IHostedService
         {
             _logger.LogInformation($"Found {activeOps.Count} active operations on startup");
             
-            // Start monitoring active operations
+            // Mark them as failed since we can't resume them
             foreach (var op in activeOps)
             {
-                _ = Task.Run(() => MonitorBackgroundProcess(op));
+                op.Status = ClearStatus.Failed;
+                op.Error = "Operation interrupted by service restart";
+                op.EndTime = DateTime.UtcNow;
             }
-        }
-    }
-
-    public async Task<string> StartCacheClearAsync(string? service = null)
-    {
-        var operationId = Guid.NewGuid().ToString();
-        var operation = new CacheClearOperation
-        {
-            Id = operationId,
-            Service = service,
-            StartTime = DateTime.UtcNow,
-            Status = ClearStatus.Preparing,
-            CancellationTokenSource = new CancellationTokenSource()
-        };
-        
-        _operations[operationId] = operation;
-        SavePersistedOperations(); // Persist immediately
-        
-        // Use the improved clear method that actually works
-        _ = Task.Run(async () => await ClearCacheWithProgress(operation), operation.CancellationTokenSource.Token);
-        
-        return operationId;
-    }
-
-    private async Task ClearCacheWithProgress(CacheClearOperation operation)
-    {
-        try
-        {
-            _logger.LogInformation($"Starting cache clear operation {operation.Id}");
-            operation.StatusMessage = "Analyzing cache directory...";
-            operation.Status = ClearStatus.Preparing;
-            await NotifyProgress(operation);
+            
             SavePersistedOperations();
-            
-            if (!Directory.Exists(_cachePath))
-            {
-                operation.Status = ClearStatus.Failed;
-                operation.Error = $"Cache path does not exist: {_cachePath}";
-                operation.EndTime = DateTime.UtcNow;
-                await NotifyProgress(operation);
-                SavePersistedOperations();
-                return;
-            }
-
-            // Get all hex directories (00-ff)
-            var hexDirs = Directory.GetDirectories(_cachePath)
-                .Where(d => {
-                    var name = Path.GetFileName(d);
-                    return name.Length == 2 && IsHex(name);
-                })
-                .OrderBy(d => d)
-                .ToList();
-
-            if (hexDirs.Count == 0)
-            {
-                operation.Status = ClearStatus.Failed;
-                operation.Error = "No cache directories found";
-                operation.EndTime = DateTime.UtcNow;
-                await NotifyProgress(operation);
-                SavePersistedOperations();
-                return;
-            }
-
-            operation.TotalDirectories = hexDirs.Count;
-            operation.DirectoriesProcessed = 0;
-            
-            // Quick size estimate (with timeout)
-            long totalSize = await EstimateCacheSize();
-            operation.TotalBytesToDelete = totalSize;
-            
-            operation.Status = ClearStatus.Running;
-            operation.StatusMessage = "Clearing cache files...";
-            await NotifyProgress(operation);
-            SavePersistedOperations();
-            
-            // Method 1: Try fast parallel find command first
-            bool success = await ClearUsingFindCommand(operation, hexDirs);
-            
-            if (!success && operation.CancellationTokenSource?.Token.IsCancellationRequested != true)
-            {
-                // Method 2: Try directory-by-directory clearing
-                success = await ClearDirectoryByDirectory(operation, hexDirs);
-            }
-            
-            if (success)
-            {
-                operation.Status = ClearStatus.Completed;
-                operation.StatusMessage = $"Successfully cleared {FormatBytes(operation.BytesDeleted)}";
-                operation.EndTime = DateTime.UtcNow;
-                
-                var duration = operation.EndTime.Value - operation.StartTime;
-                _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds");
-            }
-            else if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
-            {
-                operation.Status = ClearStatus.Cancelled;
-                operation.StatusMessage = "Operation cancelled by user";
-                operation.EndTime = DateTime.UtcNow;
-            }
-            else
-            {
-                operation.Status = ClearStatus.Failed;
-                operation.Error = "Failed to clear cache - check permissions";
-                operation.StatusMessage = "Cache clear failed";
-                operation.EndTime = DateTime.UtcNow;
-            }
-            
-            await NotifyProgress(operation);
-            SavePersistedOperations();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error in cache clear operation {operation.Id}");
-            operation.Status = ClearStatus.Failed;
-            operation.Error = ex.Message;
-            operation.StatusMessage = $"Failed: {ex.Message}";
-            operation.EndTime = DateTime.UtcNow;
-            await NotifyProgress(operation);
-            SavePersistedOperations();
-        }
-    }
-
-    private async Task<bool> ClearUsingFindCommand(CacheClearOperation operation, List<string> hexDirs)
-    {
-        try
-        {
-            _logger.LogInformation("Using find command to clear cache");
-            
-            // Start the find command in background
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "/bin/sh",
-                Arguments = $"-c \"find {_cachePath} -type f -delete 2>&1 | tee /tmp/cache_clear_{operation.Id}.log\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            process.Start();
-            operation.BackgroundProcessId = process.Id.ToString();
-            SavePersistedOperations();
-            
-            // Monitor progress by checking remaining files periodically
-            var startTime = DateTime.UtcNow;
-            var lastFileCount = -1;
-            var stableCountChecks = 0;
-            
-            while (!process.HasExited)
-            {
-                if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
-                {
-                    process.Kill();
-                    return false;
-                }
-                
-                await Task.Delay(2000); // Check every 2 seconds
-                
-                // Count remaining files in a few sample directories for progress
-                var sampleDirs = hexDirs.Take(4).ToList(); // Sample first 4 dirs
-                var currentFileCount = 0;
-                
-                foreach (var dir in sampleDirs)
-                {
-                    try
-                    {
-                        currentFileCount += Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length;
-                    }
-                    catch { }
-                }
-                
-                // Estimate progress based on sample
-                if (lastFileCount == -1)
-                {
-                    lastFileCount = currentFileCount * (hexDirs.Count / 4); // Extrapolate
-                }
-                
-                if (currentFileCount < lastFileCount)
-                {
-                    var filesDeleted = lastFileCount - currentFileCount;
-                    var estimatedTotalDeleted = filesDeleted * (hexDirs.Count / 4);
-                    
-                    operation.DirectoriesProcessed = Math.Min(hexDirs.Count - 1, 
-                        (int)(hexDirs.Count * (1 - (double)currentFileCount / lastFileCount)));
-                    
-                    // Estimate bytes deleted (rough estimate: 10MB per file average)
-                    operation.BytesDeleted = estimatedTotalDeleted * 10 * 1024 * 1024;
-                    
-                    operation.StatusMessage = $"Clearing cache... ({operation.DirectoriesProcessed}/{hexDirs.Count} directories)";
-                    await NotifyProgress(operation);
-                    
-                    stableCountChecks = 0;
-                }
-                else
-                {
-                    stableCountChecks++;
-                    if (stableCountChecks > 30) // No progress for 60 seconds
-                    {
-                        _logger.LogWarning("Cache clear appears stuck, killing process");
-                        process.Kill();
-                        break;
-                    }
-                }
-                
-                // Timeout after 5 minutes
-                if ((DateTime.UtcNow - startTime).TotalMinutes > 5)
-                {
-                    _logger.LogWarning("Cache clear timeout, killing process");
-                    process.Kill();
-                    break;
-                }
-            }
-            
-            if (process.ExitCode == 0)
-            {
-                operation.DirectoriesProcessed = hexDirs.Count;
-                operation.BytesDeleted = operation.TotalBytesToDelete;
-                _logger.LogInformation("Cache cleared successfully using find command");
-                
-                // Clean up log file
-                try { File.Delete($"/tmp/cache_clear_{operation.Id}.log"); } catch { }
-                
-                return true;
-            }
-            
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to use find command");
-            return false;
-        }
-    }
-
-    private async Task<bool> ClearDirectoryByDirectory(CacheClearOperation operation, List<string> hexDirs)
-    {
-        try
-        {
-            _logger.LogInformation("Clearing cache directory by directory");
-            var successCount = 0;
-            
-            for (int i = 0; i < hexDirs.Count; i++)
-            {
-                if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
-                    return false;
-                
-                var dir = hexDirs[i];
-                
-                try
-                {
-                    // Delete all files in this directory
-                    var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
-                    var dirBytes = 0L;
-                    
-                    foreach (var file in files)
-                    {
-                        try
-                        {
-                            var fileInfo = new FileInfo(file);
-                            dirBytes += fileInfo.Length;
-                            File.Delete(file);
-                        }
-                        catch { }
-                    }
-                    
-                    // Delete empty subdirectories
-                    var subDirs = Directory.GetDirectories(dir);
-                    foreach (var subDir in subDirs)
-                    {
-                        try { Directory.Delete(subDir, true); } catch { }
-                    }
-                    
-                    operation.BytesDeleted += dirBytes;
-                    successCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, $"Failed to clear directory {dir}");
-                }
-                
-                operation.DirectoriesProcessed = i + 1;
-                operation.StatusMessage = $"Clearing cache... ({operation.DirectoriesProcessed}/{hexDirs.Count} directories)";
-                await NotifyProgress(operation);
-                
-                // Save progress periodically
-                if (i % 10 == 0)
-                {
-                    SavePersistedOperations();
-                }
-            }
-            
-            return successCount > 0;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to clear directories");
-            return false;
-        }
-    }
-
-    private async Task<long> EstimateCacheSize()
-    {
-        try
-        {
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "timeout",
-                Arguments = $"3 du -sb {_cachePath}",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            process.Start();
-            if (await Task.Run(() => process.WaitForExit(3000)))
-            {
-                var output = await process.StandardOutput.ReadToEndAsync();
-                if (long.TryParse(output.Split('\t')[0], out var size))
-                {
-                    return size;
-                }
-            }
-        }
-        catch { }
-        
-        // Default estimate if actual size check fails
-        return 500L * 1024 * 1024 * 1024; // 500GB default
-    }
-
-    private async Task MonitorBackgroundProcess(CacheClearOperation operation)
-    {
-        try
-        {
-            if (string.IsNullOrEmpty(operation.BackgroundProcessId))
-                return;
-                
-            // Check if process is still running
-            while (operation.Status == ClearStatus.Running)
-            {
-                try
-                {
-                    var process = Process.GetProcessById(int.Parse(operation.BackgroundProcessId));
-                    if (process.HasExited)
-                    {
-                        // Process finished
-                        operation.Status = ClearStatus.Completed;
-                        operation.StatusMessage = "Background cache clear completed";
-                        operation.EndTime = DateTime.UtcNow;
-                        await NotifyProgress(operation);
-                        SavePersistedOperations();
-                        break;
-                    }
-                }
-                catch
-                {
-                    // Process not found - assume completed
-                    operation.Status = ClearStatus.Completed;
-                    operation.StatusMessage = "Background cache clear completed";
-                    operation.EndTime = DateTime.UtcNow;
-                    await NotifyProgress(operation);
-                    SavePersistedOperations();
-                    break;
-                }
-                
-                await Task.Delay(5000); // Check every 5 seconds
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error monitoring background process for operation {operation.Id}");
-        }
-    }
-
-    private bool IsHex(string value)
-    {
-        return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
-    }
-
-    private string FormatBytes(long bytes)
-    {
-        if (bytes == 0) return "0 B";
-        var sizes = new[] { "B", "KB", "MB", "GB", "TB" };
-        var i = (int)Math.Floor(Math.Log(bytes) / Math.Log(1024));
-        return $"{bytes / Math.Pow(1024, i):F2} {sizes[i]}";
-    }
-
-    private async Task NotifyProgress(CacheClearOperation operation)
-    {
-        try
-        {
-            var progress = new CacheClearProgress
-            {
-                OperationId = operation.Id,
-                Status = operation.Status.ToString(),
-                StatusMessage = operation.StatusMessage,
-                Service = operation.Service,
-                StartTime = operation.StartTime,
-                EndTime = operation.EndTime,
-                DirectoriesProcessed = operation.DirectoriesProcessed,
-                TotalDirectories = operation.TotalDirectories,
-                BytesDeleted = operation.BytesDeleted,
-                TotalBytesToDelete = operation.TotalBytesToDelete,
-                Errors = operation.Errors,
-                Error = operation.Error,
-                PercentComplete = operation.TotalDirectories > 0 
-                    ? (operation.DirectoriesProcessed * 100.0 / operation.TotalDirectories) 
-                    : 0
-            };
-            
-            await _hubContext.Clients.All.SendAsync("CacheClearProgress", progress);
-            
-            _logger.LogDebug($"Cache clear progress: {progress.PercentComplete:F1}% - {progress.StatusMessage}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending cache clear progress notification");
         }
     }
 
@@ -578,9 +540,11 @@ public class CacheClearingService : IHostedService
                 TotalBytesToDelete = operation.TotalBytesToDelete,
                 Errors = operation.Errors,
                 Error = operation.Error,
-                PercentComplete = operation.TotalDirectories > 0 
-                    ? (operation.DirectoriesProcessed * 100.0 / operation.TotalDirectories) 
-                    : 0
+                PercentComplete = operation.TotalBytesToDelete > 0 
+                    ? (operation.BytesDeleted * 100.0 / operation.TotalBytesToDelete) 
+                    : (operation.TotalDirectories > 0 
+                        ? (operation.DirectoriesProcessed * 100.0 / operation.TotalDirectories) 
+                        : 0)
             };
         }
         
@@ -603,9 +567,11 @@ public class CacheClearingService : IHostedService
             TotalBytesToDelete = op.TotalBytesToDelete,
             Errors = op.Errors,
             Error = op.Error,
-            PercentComplete = op.TotalDirectories > 0 
-                ? (op.DirectoriesProcessed * 100.0 / op.TotalDirectories) 
-                : 0
+            PercentComplete = op.TotalBytesToDelete > 0 
+                ? (op.BytesDeleted * 100.0 / op.TotalBytesToDelete) 
+                : (op.TotalDirectories > 0 
+                    ? (op.DirectoriesProcessed * 100.0 / op.TotalDirectories) 
+                    : 0)
         }).ToList();
     }
 
@@ -616,20 +582,9 @@ public class CacheClearingService : IHostedService
             _logger.LogInformation($"Cancelling cache clear operation {operationId}");
             
             operation.Status = ClearStatus.Cancelled;
-            operation.StatusMessage = "Operation cancelled";
+            operation.StatusMessage = $"Operation cancelled - Cleared {FormatBytes(operation.BytesDeleted)}";
             operation.EndTime = DateTime.UtcNow;
             operation.CancellationTokenSource?.Cancel();
-            
-            // Kill background process if running
-            if (!string.IsNullOrEmpty(operation.BackgroundProcessId))
-            {
-                try
-                {
-                    var process = Process.GetProcessById(int.Parse(operation.BackgroundProcessId));
-                    process.Kill();
-                }
-                catch { }
-            }
             
             _ = NotifyProgress(operation);
             SavePersistedOperations();
@@ -644,7 +599,7 @@ public class CacheClearingService : IHostedService
     {
         try
         {
-            var cutoff = DateTime.UtcNow.AddHours(-24); // Keep for 24 hours
+            var cutoff = DateTime.UtcNow.AddHours(-24);
             var toRemove = _operations
                 .Where(kvp => kvp.Value.EndTime.HasValue && kvp.Value.EndTime.Value < cutoff)
                 .Select(kvp => kvp.Key)
@@ -671,6 +626,7 @@ public class CacheClearingService : IHostedService
     }
 }
 
+// Keep the existing model classes unchanged
 public class CacheClearOperation
 {
     public string Id { get; set; } = string.Empty;
@@ -716,6 +672,7 @@ public class CacheClearProgress
     public string? Error { get; set; }
     public double PercentComplete { get; set; }
     public string BytesDeletedFormatted => FormatBytes(BytesDeleted);
+    public string TotalBytesFormatted => FormatBytes(TotalBytesToDelete);
     
     private string FormatBytes(long bytes)
     {
