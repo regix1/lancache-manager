@@ -4,16 +4,8 @@ import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
 import operationStateService from '../../services/operationState.service';
 import { useBackendOperation } from '../../hooks/useBackendOperation';
+import { formatBytes } from '../../utils/formatters'; // Use existing utility
 import * as signalR from '@microsoft/signalr';
-
-// Helper function to format bytes
-const formatBytes = (bytes) => {
-  if (!bytes || bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
 
 const ManagementTab = () => {
   const { 
@@ -48,7 +40,7 @@ const ManagementTab = () => {
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
   
   // Refs for intervals and connections
-  const intervals = useRef({});
+  const intervalRefs = useRef({});
   const signalRConnection = useRef(null);
 
   // Alert management helpers
@@ -68,28 +60,28 @@ const ManagementTab = () => {
     setAlerts({ errors: [], success: null });
   }, []);
 
-  // Cleanup function for intervals
-  const clearInterval = useCallback((name) => {
-    if (intervals.current[name]) {
-      window.clearInterval(intervals.current[name]);
-      intervals.current[name] = null;
+  // Interval management with clearer naming
+  const clearIntervalRef = useCallback((name) => {
+    if (intervalRefs.current[name]) {
+      window.clearInterval(intervalRefs.current[name]);
+      intervalRefs.current[name] = null;
     }
   }, []);
 
-  const setInterval = useCallback((name, callback, delay) => {
-    clearInterval(name);
-    intervals.current[name] = window.setInterval(callback, delay);
-  }, [clearInterval]);
+  const setIntervalRef = useCallback((name, callback, delay) => {
+    clearIntervalRef(name);
+    intervalRefs.current[name] = window.setInterval(callback, delay);
+  }, [clearIntervalRef]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      Object.keys(intervals.current).forEach(clearInterval);
+      Object.keys(intervalRefs.current).forEach(clearIntervalRef);
       if (signalRConnection.current) {
         signalRConnection.current.stop();
       }
     };
-  }, [clearInterval]);
+  }, [clearIntervalRef]);
 
   // Initialize on mount with migration
   useEffect(() => {
@@ -225,7 +217,7 @@ const ManagementTab = () => {
         } else {
           setIsProcessingLogs(false);
           await logProcessingOp.clear();
-          clearInterval('processing');
+          clearIntervalRef('processing');
           
           if (status?.percentComplete >= 100) {
             setProcessingStatus({
@@ -244,8 +236,8 @@ const ManagementTab = () => {
     };
     
     checkStatus();
-    setInterval('processing', checkStatus, 3000);
-  }, [setIsProcessingLogs, setProcessingStatus, logProcessingOp, clearInterval, setInterval, fetchData]);
+    setIntervalRef('processing', checkStatus, 3000);
+  }, [setIsProcessingLogs, setProcessingStatus, logProcessingOp, clearIntervalRef, setIntervalRef, fetchData]);
 
   const startCacheClearPolling = useCallback((operationId) => {
     const pollStatus = async () => {
@@ -257,7 +249,7 @@ const ManagementTab = () => {
           await cacheOp.update({ lastProgress: status.percentComplete || 0 });
         } else {
           handleCacheClearComplete(status);
-          clearInterval('cacheClearing');
+          clearIntervalRef('cacheClearing');
         }
       } catch (err) {
         console.error('Error polling cache clear status:', err);
@@ -265,11 +257,11 @@ const ManagementTab = () => {
     };
     
     pollStatus();
-    setInterval('cacheClearing', pollStatus, 1000);
-  }, [cacheOp, clearInterval, setInterval]);
+    setIntervalRef('cacheClearing', pollStatus, 1000);
+  }, [cacheOp, clearIntervalRef, setIntervalRef]);
 
   const handleCacheClearComplete = useCallback(async (progress) => {
-    clearInterval('cacheClearing');
+    clearIntervalRef('cacheClearing');
     await cacheOp.clear();
     
     if (progress.status === 'Completed') {
@@ -291,7 +283,7 @@ const ManagementTab = () => {
     }
     
     fetchData();
-  }, [clearInterval, cacheOp, setSuccess, addError, fetchData]);
+  }, [clearIntervalRef, cacheOp, setSuccess, addError, fetchData]);
 
   // Action handlers
   const handleClearAllCache = async () => {
@@ -338,7 +330,7 @@ const ManagementTab = () => {
       setTimeout(() => {
         setShowCacheClearModal(false);
         setCacheClearProgress(null);
-        clearInterval('cacheClearing');
+        clearIntervalRef('cacheClearing');
         setSuccess('Cache clearing operation cancelled');
       }, 1500);
     } catch (err) {
@@ -357,7 +349,7 @@ const ManagementTab = () => {
       await ApiService.cancelProcessing();
       setIsProcessingLogs(false);
       await logProcessingOp.clear();
-      clearInterval('processing');
+      clearIntervalRef('processing');
       setSuccess('Processing cancelled');
       setTimeout(() => {
         setProcessingStatus(null);
