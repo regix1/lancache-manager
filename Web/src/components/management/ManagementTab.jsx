@@ -1,8 +1,78 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, Info, HardDrive, FileText, X, Eye } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, HardDrive, FileText, X, Eye } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
 import * as signalR from '@microsoft/signalr';
+
+// Custom hook for persistent operations
+const usePersistentOperation = (key, expirationMinutes = 30) => {
+  const [operation, setOperation] = useState(null);
+  
+  const save = useCallback((data) => {
+    try {
+      localStorage.setItem(key, JSON.stringify({
+        ...data,
+        timestamp: new Date().toISOString()
+      }));
+      setOperation(data);
+    } catch (err) {
+      console.warn(`Failed to save ${key}:`, err);
+    }
+  }, [key]);
+
+  const load = useCallback(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      if (!stored) return null;
+      
+      const data = JSON.parse(stored);
+      const expirationMs = expirationMinutes * 60 * 1000;
+      const isExpired = Date.now() - new Date(data.timestamp).getTime() > expirationMs;
+      
+      if (isExpired) {
+        localStorage.removeItem(key);
+        return null;
+      }
+      
+      setOperation(data);
+      return data;
+    } catch (err) {
+      console.warn(`Failed to load ${key}:`, err);
+      return null;
+    }
+  }, [key, expirationMinutes]);
+
+  const clear = useCallback(() => {
+    try {
+      localStorage.removeItem(key);
+      setOperation(null);
+    } catch (err) {
+      console.warn(`Failed to clear ${key}:`, err);
+    }
+  }, [key]);
+
+  const update = useCallback((updates) => {
+    const current = operation || load();
+    if (current) {
+      save({ ...current, ...updates });
+    }
+  }, [operation, load, save]);
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  return { operation, save, load, clear, update };
+};
+
+// Helper function to format bytes
+const formatBytes = (bytes) => {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
 const ManagementTab = () => {
   const { 
@@ -16,9 +86,9 @@ const ManagementTab = () => {
     connectionStatus 
   } = useData();
   
+  // State management
   const [actionLoading, setActionLoading] = useState(false);
-  const [persistentErrors, setPersistentErrors] = useState([]);
-  const [successMessage, setSuccessMessage] = useState(null);
+  const [alerts, setAlerts] = useState({ errors: [], success: null });
   const [serviceCounts, setServiceCounts] = useState({});
   const [config, setConfig] = useState({
     cachePath: '/mnt/cache/cache',
@@ -27,98 +97,75 @@ const ManagementTab = () => {
   });
   
   // Cache clearing state
-  const [cacheClearOperation, setCacheClearOperation] = useState(null);
   const [cacheClearProgress, setCacheClearProgress] = useState(null);
   const [showCacheClearModal, setShowCacheClearModal] = useState(false);
   
-  // Use refs instead of state for interval management
-  const statusPollingInterval = useRef(null);
-  const processingErrorLogged = useRef(false);
-  const longIntervalSet = useRef(false);
-  const cacheClearPollingInterval = useRef(null);
+  // Persistent operations using custom hook
+  const cacheOp = usePersistentOperation('activeCacheClearOperation', 30);
+  const logProcessingOp = usePersistentOperation('activeLogProcessing', 120);
+  const serviceRemovalOp = usePersistentOperation('activeServiceRemoval', 30);
+  
+  // Refs for intervals and connections
+  const intervals = useRef({});
   const signalRConnection = useRef(null);
 
-  // Clean up polling on unmount
+  // Alert management helpers
+  const addError = useCallback((message) => {
+    setAlerts(prev => ({
+      ...prev,
+      errors: [...prev.errors, { id: Date.now(), message }]
+    }));
+  }, []);
+
+  const setSuccess = useCallback((message) => {
+    setAlerts(prev => ({ ...prev, success: message }));
+    setTimeout(() => setAlerts(prev => ({ ...prev, success: null })), 10000);
+  }, []);
+
+  const clearAlerts = useCallback(() => {
+    setAlerts({ errors: [], success: null });
+  }, []);
+
+  // Cleanup function for intervals
+  const clearInterval = useCallback((name) => {
+    if (intervals.current[name]) {
+      window.clearInterval(intervals.current[name]);
+      intervals.current[name] = null;
+    }
+  }, []);
+
+  const setInterval = useCallback((name, callback, delay) => {
+    clearInterval(name);
+    intervals.current[name] = window.setInterval(callback, delay);
+  }, [clearInterval]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (statusPollingInterval.current) {
-        clearInterval(statusPollingInterval.current);
-      }
-      if (cacheClearPollingInterval.current) {
-        clearInterval(cacheClearPollingInterval.current);
-      }
+      Object.keys(intervals.current).forEach(clearInterval);
       if (signalRConnection.current) {
         signalRConnection.current.stop();
       }
     };
   }, []);
 
-  // Load config and check processing status on mount
+  // Initialize on mount
   useEffect(() => {
     loadConfig();
-    checkProcessingStatus();
+    restoreOperations();
     setupSignalR();
-    checkForActiveCacheOperations();
   }, []);
-
-  const checkForActiveCacheOperations = async () => {
-    try {
-      const operations = await ApiService.getActiveCacheOperations();
-      if (operations && operations.length > 0) {
-        const activeOp = operations.find(op => 
-          op.status === 'Running' || op.status === 'Preparing'
-        );
-        if (activeOp) {
-          setCacheClearOperation(activeOp.operationId);
-          setCacheClearProgress(activeOp);
-          startCacheClearPolling(activeOp.operationId);
-        }
-      }
-    } catch (err) {
-      console.log('No active cache operations or unable to check');
-    }
-  };
-
-  const setupSignalR = async () => {
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`;
-      const connection = new signalR.HubConnectionBuilder()
-        .withUrl(`${apiUrl}/hubs/downloads`)
-        .withAutomaticReconnect()
-        .build();
-
-      connection.on('CacheClearProgress', (progress) => {
-        console.log('Cache clear progress:', progress);
-        
-        // Update progress state directly
-        setCacheClearProgress(progress);
-        
-        // Check if operation is complete
-        if (progress.status === 'Completed' || progress.status === 'Failed' || progress.status === 'Cancelled') {
-          handleCacheClearComplete(progress);
-        }
-      });
-
-      await connection.start();
-      signalRConnection.current = connection;
-      console.log('SignalR connected for cache clearing updates');
-    } catch (err) {
-      console.error('SignalR connection failed:', err);
-      // Fall back to polling
-    }
-  };
 
   const loadConfig = async () => {
     try {
-      const configData = await ApiService.getConfig();
+      const [configData, counts] = await Promise.all([
+        ApiService.getConfig(),
+        ApiService.getServiceLogCounts()
+      ]);
       setConfig(configData);
-      
-      // Load service counts for the discovered services
-      const counts = await ApiService.getServiceLogCounts();
       setServiceCounts(counts);
     } catch (err) {
       console.error('Failed to load config:', err);
-      // Use defaults if loading fails
       setConfig({
         cachePath: '/mnt/cache/cache',
         logPath: '/logs/access.log',
@@ -127,287 +174,261 @@ const ManagementTab = () => {
     }
   };
 
-  const checkProcessingStatus = async () => {
-    try {
-      const status = await ApiService.getProcessingStatus();
-      
-      if (status && status.isProcessing) {
+  const restoreOperations = async () => {
+    // Restore log processing
+    const logOp = logProcessingOp.load();
+    if (logOp) {
+      const status = await ApiService.getProcessingStatus().catch(() => null);
+      if (status?.isProcessing) {
         setIsProcessingLogs(true);
-        
-        let message = 'Processing logs...';
-        let detailMessage = '';
-        
-        if (status.status === 'processing') {
-          message = `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`;
-          if (status.processingRate && status.processingRate > 0) {
-            detailMessage = `Speed: ${status.processingRate.toFixed(1)} MB/s`;
-          }
-        }
-        
         setProcessingStatus({
-          message,
-          detailMessage,
+          message: `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`,
+          detailMessage: status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : '',
           progress: status.percentComplete || 0,
           estimatedTime: status.estimatedTime,
           status: status.status
         });
-        
-        // Continue polling if processing
-        if (!statusPollingInterval.current) {
-          statusPollingInterval.current = setInterval(checkProcessingStatus, 3000);
-        }
-        
-        processingErrorLogged.current = false;
-        longIntervalSet.current = false;
-        
+        startProcessingPolling();
       } else {
-        // Not processing
-        setIsProcessingLogs(false);
-        
-        // Check if we just completed
-        if (status && status.percentComplete >= 100) {
-          setProcessingStatus({
-            message: 'Processing complete!',
-            detailMessage: `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
-            progress: 100,
-            status: 'complete'
-          });
-          
-          setTimeout(() => {
-            setProcessingStatus(null);
-          }, 5000);
-          
-          fetchData();
+        logProcessingOp.clear();
+      }
+    }
+
+    // Restore cache clearing
+    const cacheClear = cacheOp.load();
+    if (cacheClear?.operationId) {
+      try {
+        const status = await ApiService.getCacheClearStatus(cacheClear.operationId);
+        if (status && ['Running', 'Preparing'].includes(status.status)) {
+          setCacheClearProgress(status);
+          startCacheClearPolling(cacheClear.operationId);
         } else {
-          setProcessingStatus(null);
+          cacheOp.clear();
         }
-        
-        // Stop polling
-        if (statusPollingInterval.current) {
-          clearInterval(statusPollingInterval.current);
-          statusPollingInterval.current = null;
-        }
-      }
-    } catch (err) {
-      if (!processingErrorLogged.current) {
-        console.error('Error checking processing status:', err);
-        processingErrorLogged.current = true;
+      } catch (err) {
+        cacheOp.clear();
       }
     }
-  };
 
-  const handleCancelProcessing = async () => {
-    if (!confirm('Are you sure you want to cancel processing?')) {
-      return;
-    }
-    
-    setActionLoading(true);
-    clearMessages();
-    
-    try {
-      const result = await ApiService.cancelProcessing();
-      
-      setIsProcessingLogs(false);
-      setProcessingStatus({
-        message: 'Cancelling processing...',
-        detailMessage: 'Stopping log processing',
-        status: 'cancelling'
-      });
-      
-      if (statusPollingInterval.current) {
-        clearInterval(statusPollingInterval.current);
-        statusPollingInterval.current = null;
-      }
-      
-      setSuccessMessage(result.message || 'Processing cancelled');
-      
+    // Restore service removal
+    const serviceOp = serviceRemovalOp.load();
+    if (serviceOp?.service) {
+      setSuccess(`Removing ${serviceOp.service} entries from logs (operation resumed)...`);
       setTimeout(() => {
-        setProcessingStatus(null);
+        serviceRemovalOp.clear();
+        loadConfig();
         fetchData();
-      }, 5000);
-    } catch (err) {
-      console.error('Cancel processing failed:', err);
-      addError('Failed to cancel processing');
-    } finally {
-      setActionLoading(false);
+      }, 10000);
     }
   };
 
-  const handleClearAllCache = async () => {
-    if (!confirm('This will instantly clear ALL cached game files. The old cache will be deleted in the background. Continue?')) {
-      return;
-    }
-    
-    setActionLoading(true);
-    clearMessages();
-    
+  const setupSignalR = async () => {
     try {
-      // Start the cache clearing operation
-      const result = await ApiService.clearAllCache();
-      
-      if (result.operationId) {
-        const opId = result.operationId;
-        setCacheClearOperation(opId);
-        setCacheClearProgress({
-          operationId: opId,
-          status: 'Preparing',
-          statusMessage: 'Starting cache clear...',
-          percentComplete: 0,
-          bytesDeleted: 0,
-          totalBytesToDelete: 0,
-          directoriesProcessed: 0,
-          totalDirectories: 4
-        });
-        setShowCacheClearModal(true);
-        
-        // Start polling immediately (SignalR might not be ready yet)
-        startCacheClearPolling(opId);
-      }
+      const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`;
+      const connection = new signalR.HubConnectionBuilder()
+        .withUrl(`${apiUrl}/hubs/downloads`)
+        .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+        .build();
+
+      connection.on('CacheClearProgress', (progress) => {
+        setCacheClearProgress(progress);
+        if (progress.operationId) {
+          cacheOp.update({ lastProgress: progress.percentComplete || 0 });
+        }
+        if (['Completed', 'Failed', 'Cancelled'].includes(progress.status)) {
+          handleCacheClearComplete(progress);
+        }
+      });
+
+      await connection.start();
+      signalRConnection.current = connection;
+      console.log('SignalR connected');
     } catch (err) {
-      console.error('Start cache clear failed:', err);
-      addError('Failed to start cache clearing: ' + err.message);
-    } finally {
-      setActionLoading(false);
+      console.error('SignalR connection failed, falling back to polling:', err);
     }
   };
 
-  const startCacheClearPolling = (operationId) => {
-    if (cacheClearPollingInterval.current) {
-      clearInterval(cacheClearPollingInterval.current);
-    }
+  // Polling functions
+  const startProcessingPolling = useCallback(() => {
+    const checkStatus = async () => {
+      try {
+        const status = await ApiService.getProcessingStatus();
+        if (status?.isProcessing) {
+          setIsProcessingLogs(true);
+          setProcessingStatus({
+            message: `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`,
+            detailMessage: status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : '',
+            progress: status.percentComplete || 0,
+            estimatedTime: status.estimatedTime,
+            status: status.status
+          });
+          logProcessingOp.update({ 
+            lastProgress: status.percentComplete || 0,
+            mbProcessed: status.mbProcessed,
+            mbTotal: status.mbTotal
+          });
+        } else {
+          setIsProcessingLogs(false);
+          logProcessingOp.clear();
+          clearInterval('processing');
+          
+          if (status?.percentComplete >= 100) {
+            setProcessingStatus({
+              message: 'Processing complete!',
+              detailMessage: `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
+              progress: 100,
+              status: 'complete'
+            });
+            setTimeout(() => setProcessingStatus(null), 5000);
+            fetchData();
+          }
+        }
+      } catch (err) {
+        console.error('Error checking processing status:', err);
+      }
+    };
     
-    // Poll immediately, then every 1 second for instant operations
+    checkStatus();
+    setInterval('processing', checkStatus, 3000);
+  }, [setIsProcessingLogs, setProcessingStatus, logProcessingOp, clearInterval, setInterval, fetchData]);
+
+  const startCacheClearPolling = useCallback((operationId) => {
     const pollStatus = async () => {
       try {
         const status = await ApiService.getCacheClearStatus(operationId);
-        console.log('Polled cache clear status:', status);
         setCacheClearProgress(status);
         
-        // Check if operation is complete
-        if (status.status === 'Completed' || status.status === 'Failed' || status.status === 'Cancelled') {
+        if (['Running', 'Preparing'].includes(status.status)) {
+          cacheOp.update({ lastProgress: status.percentComplete || 0 });
+        } else {
           handleCacheClearComplete(status);
-          clearInterval(cacheClearPollingInterval.current);
-          cacheClearPollingInterval.current = null;
+          clearInterval('cacheClearing');
         }
       } catch (err) {
         console.error('Error polling cache clear status:', err);
       }
     };
     
-    // Poll immediately
     pollStatus();
-    
-    // Then poll every second
-    cacheClearPollingInterval.current = setInterval(pollStatus, 1000);
-  };
+    setInterval('cacheClearing', pollStatus, 1000);
+  }, [cacheOp, clearInterval, setInterval]);
 
-  const handleCacheClearComplete = (progress) => {
-    // Stop polling
-    if (cacheClearPollingInterval.current) {
-      clearInterval(cacheClearPollingInterval.current);
-      cacheClearPollingInterval.current = null;
-    }
+  const handleCacheClearComplete = useCallback((progress) => {
+    clearInterval('cacheClearing');
+    cacheOp.clear();
     
-    // Show completion message
     if (progress.status === 'Completed') {
-      const sizeCleared = formatBytes(progress.bytesDeleted || 0);
-      setSuccessMessage(`Cache cleared successfully! ${sizeCleared} freed instantly. Old cache is being deleted in background.`);
-      // Auto-close modal after 2 seconds for successful completion
+      setSuccess(`Cache cleared successfully! ${formatBytes(progress.bytesDeleted || 0)} freed.`);
       setTimeout(() => {
         setShowCacheClearModal(false);
-        setCacheClearOperation(null);
         setCacheClearProgress(null);
       }, 2000);
     } else if (progress.status === 'Failed') {
       addError(`Cache clearing failed: ${progress.error || 'Unknown error'}`);
-      // Keep modal open for failed operations so user can see the error
       setTimeout(() => {
         setShowCacheClearModal(false);
-        setCacheClearOperation(null);
         setCacheClearProgress(null);
       }, 5000);
     } else if (progress.status === 'Cancelled') {
-      setSuccessMessage('Cache clearing cancelled');
-      // Close modal immediately for cancelled operations
-      setTimeout(() => {
-        setShowCacheClearModal(false);
-        setCacheClearOperation(null);
-        setCacheClearProgress(null);
-      }, 500);
+      setSuccess('Cache clearing cancelled');
+      setShowCacheClearModal(false);
+      setCacheClearProgress(null);
     }
     
-    // Refresh data
     fetchData();
+  }, [clearInterval, cacheOp, setSuccess, addError, fetchData]);
+
+  // Action handlers
+  const handleClearAllCache = async () => {
+    if (!confirm('This will clear ALL cached game files. Continue?')) return;
+    
+    setActionLoading(true);
+    clearAlerts();
+    
+    try {
+      const result = await ApiService.clearAllCache();
+      if (result.operationId) {
+        cacheOp.save({ operationId: result.operationId });
+        setCacheClearProgress({
+          operationId: result.operationId,
+          status: 'Preparing',
+          statusMessage: 'Starting cache clear...',
+          percentComplete: 0,
+          bytesDeleted: 0,
+          totalBytesToDelete: 0
+        });
+        setShowCacheClearModal(true);
+        startCacheClearPolling(result.operationId);
+      }
+    } catch (err) {
+      addError('Failed to start cache clearing: ' + err.message);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleCancelCacheClear = async () => {
-    if (!cacheClearOperation) return;
+    if (!cacheOp.operation?.operationId) return;
     
     try {
-      // Immediately update UI to show cancelling
       setCacheClearProgress(prev => ({ 
         ...prev, 
         status: 'Cancelling',
         statusMessage: 'Cancelling operation...'
       }));
       
-      // Send cancel request
-      await ApiService.cancelCacheClear(cacheClearOperation);
+      await ApiService.cancelCacheClear(cacheOp.operation.operationId);
+      cacheOp.clear();
       
-      // Wait a moment for any final updates
       setTimeout(() => {
-        // Force close the modal after cancellation
         setShowCacheClearModal(false);
-        setCacheClearOperation(null);
         setCacheClearProgress(null);
-        
-        // Stop polling if active
-        if (cacheClearPollingInterval.current) {
-          clearInterval(cacheClearPollingInterval.current);
-          cacheClearPollingInterval.current = null;
-        }
-        
-        // Show success message
-        setSuccessMessage('Cache clearing operation cancelled');
+        clearInterval('cacheClearing');
+        setSuccess('Cache clearing operation cancelled');
       }, 1500);
-      
     } catch (err) {
       console.error('Failed to cancel cache clear:', err);
-      // Even if cancel fails, close the modal
       setShowCacheClearModal(false);
-      setCacheClearOperation(null);
       setCacheClearProgress(null);
-      addError('Failed to cancel operation, but closed the dialog');
+      cacheOp.clear();
     }
   };
 
-  const formatBytes = (bytes) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const handleCancelProcessing = async () => {
+    if (!confirm('Cancel log processing?')) return;
+    
+    setActionLoading(true);
+    try {
+      await ApiService.cancelProcessing();
+      setIsProcessingLogs(false);
+      logProcessingOp.clear();
+      clearInterval('processing');
+      setSuccess('Processing cancelled');
+      setTimeout(() => {
+        setProcessingStatus(null);
+        fetchData();
+      }, 5000);
+    } catch (err) {
+      addError('Failed to cancel processing');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleAction = async (action, serviceName = null) => {
     if (mockMode && action !== 'mockMode') {
-      addError('Actions are disabled in mock mode. Please disable mock mode first.');
-      return;
-    }
-
-    if (action === 'clearAllCache') {
-      handleClearAllCache();
+      addError('Actions disabled in mock mode');
       return;
     }
 
     setActionLoading(true);
-    clearMessages();
+    clearAlerts();
     
     try {
       let result;
       switch(action) {
         case 'resetDatabase':
-          if (!confirm('This will delete all download history and statistics. Are you sure?')) {
+          if (!confirm('Delete all download history?')) {
             setActionLoading(false);
             return;
           }
@@ -419,11 +440,12 @@ const ManagementTab = () => {
           break;
           
         case 'processAllLogs':
-          if (!confirm(`This will process the entire log file. Continue?`)) {
+          if (!confirm('Process entire log file?')) {
             setActionLoading(false);
             return;
           }
           
+          logProcessingOp.save({ type: 'processAll' });
           result = await ApiService.processAllLogs();
           
           if (result) {
@@ -435,28 +457,22 @@ const ManagementTab = () => {
               estimatedTime: `Estimated: ${result.estimatedTimeMinutes} minutes`,
               status: 'starting'
             });
-            
-            processingErrorLogged.current = false;
-            longIntervalSet.current = false;
-            
-            if (statusPollingInterval.current) {
-              clearInterval(statusPollingInterval.current);
-            }
-            
-            setTimeout(() => {
-              checkProcessingStatus();
-              statusPollingInterval.current = setInterval(checkProcessingStatus, 3000);
-            }, 5000);
+            setTimeout(() => startProcessingPolling(), 5000);
+          } else {
+            logProcessingOp.clear();
           }
           break;
           
         case 'removeServiceLogs':
-          if (!confirm(`This will permanently remove all ${serviceName} entries from the log file. A backup will be created. Continue?`)) {
+          if (!confirm(`Remove all ${serviceName} entries?`)) {
             setActionLoading(false);
             return;
           }
+          
+          serviceRemovalOp.save({ service: serviceName });
           result = await ApiService.removeServiceFromLogs(serviceName);
-          await loadConfig(); // Reload counts after removal
+          serviceRemovalOp.clear();
+          await loadConfig();
           break;
           
         default:
@@ -464,31 +480,22 @@ const ManagementTab = () => {
       }
       
       if (result) {
-        setSuccessMessage(result.message || `Action completed successfully`);
+        setSuccess(result.message || 'Action completed successfully');
       }
       
-      // Refresh data after action (except for processAllLogs)
       if (action !== 'processAllLogs') {
         setTimeout(fetchData, 2000);
       }
     } catch (err) {
       console.error(`Action ${action} failed:`, err);
       
-      // Parse error message
-      let errorMessage = 'Action failed';
-      if (err.message) {
-        if (err.message.includes('read-only') || err.message.includes('Read-only')) {
-          errorMessage = `Cannot modify log file: The logs directory is mounted as read-only. To modify logs, update your docker-compose.yml to mount logs with write permissions (remove ':ro' from the volume mount).`;
-        } else if (err.message.includes('not found')) {
-          errorMessage = err.message;
-        } else if (err.name === 'AbortError') {
-          errorMessage = 'Request timeout - operation may still be running';
-        } else if (err.message.includes('Failed to fetch')) {
-          errorMessage = 'Cannot connect to API server';
-        } else {
-          errorMessage = err.message;
-        }
-      }
+      // Clear persistent operations on error
+      if (action === 'processAllLogs') logProcessingOp.clear();
+      if (action === 'removeServiceLogs') serviceRemovalOp.clear();
+      
+      const errorMessage = err.message?.includes('read-only') 
+        ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
+        : err.message || 'Action failed';
       
       addError(errorMessage);
     } finally {
@@ -496,247 +503,67 @@ const ManagementTab = () => {
     }
   };
 
-  const addError = (message) => {
-    setPersistentErrors(prev => [...prev, { id: Date.now(), message }]);
-  };
-
-  const clearMessages = () => {
-    setPersistentErrors([]);
-    setSuccessMessage(null);
-  };
-
-  const removeError = (id) => {
-    setPersistentErrors(prev => prev.filter(err => err.id !== id));
-  };
-
-  // Clear success message after 10 seconds
-  useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(null), 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMessage]);
-
-  // Add a useEffect to handle stuck modals (safeguard)
-  useEffect(() => {
-    if (showCacheClearModal && cacheClearProgress) {
-      // If modal has been showing "Cancelling" for more than 5 seconds, force close
-      if (cacheClearProgress.status === 'Cancelling') {
-        const timeout = setTimeout(() => {
-          console.log('Force closing stuck cache clear modal');
-          setShowCacheClearModal(false);
-          setCacheClearOperation(null);
-          setCacheClearProgress(null);
-          
-          if (cacheClearPollingInterval.current) {
-            clearInterval(cacheClearPollingInterval.current);
-            cacheClearPollingInterval.current = null;
-          }
-        }, 5000);
-        
-        return () => clearTimeout(timeout);
-      }
-    }
-  }, [showCacheClearModal, cacheClearProgress?.status]);
-
-  // Check if cache clearing is running in background
-  const isCacheClearingInBackground = cacheClearOperation && 
+  // UI state helpers
+  const isCacheClearingInBackground = cacheOp.operation && 
     !showCacheClearModal && 
     cacheClearProgress && 
-    (cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing');
+    ['Running', 'Preparing'].includes(cacheClearProgress.status);
+
+  const activeServiceRemoval = serviceRemovalOp.operation?.service;
+
+  // Render status bar component
+  const StatusBar = ({ color, icon: Icon, title, subtitle, progress, onViewDetails }) => (
+    <div className={`bg-${color}-900 bg-opacity-30 rounded-lg p-4 border border-${color}-700`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3 flex-1">
+          <Icon className={`w-5 h-5 text-${color}-500 animate-spin`} />
+          <div className="flex-1">
+            <p className={`font-medium text-${color}-400`}>{title}</p>
+            {subtitle && <p className="text-sm text-gray-300 mt-1">{subtitle}</p>}
+            {progress !== undefined && (
+              <div className="flex items-center space-x-4 mt-1">
+                <span className="text-sm text-gray-300">{progress}% complete</span>
+              </div>
+            )}
+          </div>
+        </div>
+        {onViewDetails && (
+          <button
+            onClick={onViewDetails}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-medium ml-4"
+          >
+            <Eye className="w-4 h-4" />
+            <span>View Details</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
-      {/* Background Cache Clear Status Bar */}
+      {/* Status Bars */}
       {isCacheClearingInBackground && (
-        <div className="bg-blue-900 bg-opacity-30 rounded-lg p-4 border border-blue-700">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3 flex-1">
-              <Loader className="w-5 h-5 text-blue-500 animate-spin" />
-              <div className="flex-1">
-                <p className="font-medium text-blue-400">
-                  Cache clearing in progress...
-                </p>
-                <div className="flex items-center space-x-4 mt-1">
-                  <span className="text-sm text-gray-300">
-                    {(cacheClearProgress.percentComplete || 0).toFixed(0)}% complete
-                  </span>
-                  {cacheClearProgress.bytesDeleted > 0 && (
-                    <span className="text-sm text-green-400">
-                      {formatBytes(cacheClearProgress.bytesDeleted)} cleared
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowCacheClearModal(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-medium ml-4"
-            >
-              <Eye className="w-4 h-4" />
-              <span>View Details</span>
-            </button>
-          </div>
-        </div>
+        <StatusBar
+          color="blue"
+          icon={Loader}
+          title="Cache clearing in progress..."
+          subtitle={cacheClearProgress.bytesDeleted > 0 ? `${formatBytes(cacheClearProgress.bytesDeleted)} cleared` : null}
+          progress={cacheClearProgress.percentComplete?.toFixed(0)}
+          onViewDetails={() => setShowCacheClearModal(true)}
+        />
       )}
 
-      {/* Cache Clear Modal */}
-      {showCacheClearModal && cacheClearProgress && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4 border border-gray-700">
-            <h3 className="text-lg font-semibold text-white mb-4">Clearing Cache</h3>
-            
-            <div className="space-y-4">
-              {/* Status Message */}
-              <div className="flex items-center space-x-2">
-                {cacheClearProgress.status === 'Completed' ? (
-                  <CheckCircle className="w-5 h-5 text-green-500" />
-                ) : cacheClearProgress.status === 'Failed' ? (
-                  <AlertCircle className="w-5 h-5 text-red-500" />
-                ) : cacheClearProgress.status === 'Cancelled' ? (
-                  <X className="w-5 h-5 text-yellow-500" />
-                ) : (
-                  <Loader className="w-5 h-5 text-blue-500 animate-spin" />
-                )}
-                <div className="flex-1">
-                  <span className="text-white">{cacheClearProgress.status}</span>
-                  {cacheClearProgress.statusMessage && (
-                    <p className="text-sm text-gray-400">{cacheClearProgress.statusMessage}</p>
-                  )}
-                </div>
-              </div>
-              
-              {/* Progress Bar */}
-              {(cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing') && (
-                <>
-                  <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden">
-                    <div 
-                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-4 rounded-full transition-all duration-500 relative"
-                      style={{ width: `${Math.max(0, Math.min(100, cacheClearProgress.percentComplete || 0))}%` }}
-                    >
-                      {/* Animated stripes for active progress */}
-                      <div className="absolute inset-0 bg-stripes animate-slide opacity-20"></div>
-                    </div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-xs text-white font-medium drop-shadow">
-                        {(cacheClearProgress.percentComplete || 0).toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-                  
-                  {/* Bytes deleted progress */}
-                  {cacheClearProgress.totalBytesToDelete > 0 && (
-                    <div className="text-sm text-gray-400 text-center">
-                      <span className="text-green-400 font-semibold">
-                        {formatBytes(cacheClearProgress.bytesDeleted || 0)}
-                      </span>
-                      {' / '}
-                      <span className="text-white">
-                        {formatBytes(cacheClearProgress.totalBytesToDelete)}
-                      </span>
-                      {' cleared'}
-                    </div>
-                  )}
-                </>
-              )}
-              
-              {/* Stats Grid - Simplified for nuclear method */}
-              {cacheClearProgress.status === 'Completed' && (
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div className="bg-gray-900 rounded p-3">
-                    <div className="text-gray-400 text-xs uppercase mb-1">Space Freed</div>
-                    <div className="text-green-400 font-semibold">
-                      {formatBytes(cacheClearProgress.bytesDeleted || 0)}
-                    </div>
-                  </div>
-                  
-                  <div className="bg-gray-900 rounded p-3">
-                    <div className="text-gray-400 text-xs uppercase mb-1">Time Taken</div>
-                    <div className="text-white font-semibold">
-                      {cacheClearProgress.endTime && cacheClearProgress.startTime
-                        ? `${((new Date(cacheClearProgress.endTime) - new Date(cacheClearProgress.startTime)) / 1000).toFixed(1)}s`
-                        : 'N/A'}
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Error message */}
-              {cacheClearProgress.error && (
-                <div className="p-3 bg-red-900 bg-opacity-30 rounded border border-red-700">
-                  <p className="text-sm text-red-400">{cacheClearProgress.error}</p>
-                </div>
-              )}
-              
-              {/* Actions */}
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
-                {(cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing') ? (
-                  <>
-                    <button
-                      onClick={handleCancelCacheClear}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white flex items-center space-x-2"
-                    >
-                      <StopCircle className="w-4 h-4" />
-                      <span>Cancel</span>
-                    </button>
-                    <button
-                      onClick={() => setShowCacheClearModal(false)}
-                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
-                    >
-                      Run in Background
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => {
-                      setShowCacheClearModal(false);
-                      setCacheClearOperation(null);
-                      setCacheClearProgress(null);
-                    }}
-                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
-                  >
-                    Close
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+      {activeServiceRemoval && (
+        <StatusBar
+          color="orange"
+          icon={Loader}
+          title={`Removing ${activeServiceRemoval} entries from logs...`}
+          subtitle="This may take several minutes for large log files"
+        />
       )}
 
-      {/* Persistent Error Messages */}
-      {persistentErrors.length > 0 && (
-        <div className="space-y-2">
-          {persistentErrors.map(error => (
-            <div key={error.id} className="bg-red-900 bg-opacity-30 rounded-lg p-4 border border-red-700">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start space-x-2 flex-1">
-                  <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                  <span className="text-red-400">{error.message}</span>
-                </div>
-                <button
-                  onClick={() => removeError(error.id)}
-                  className="ml-4 text-red-400 hover:text-red-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Success Message */}
-      {successMessage && (
-        <div className="bg-green-900 bg-opacity-30 rounded-lg p-4 border border-green-700">
-          <div className="flex items-center space-x-2">
-            <CheckCircle className="w-5 h-5 text-green-400" />
-            <span className="text-green-400">{successMessage}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Processing Status Banner */}
+      {/* Processing Status */}
       {isProcessingLogs && processingStatus && (
         <div className={`rounded-lg p-4 border ${
           processingStatus.status === 'complete' 
@@ -759,16 +586,16 @@ const ManagementTab = () => {
                 {processingStatus.detailMessage && (
                   <p className="text-sm text-gray-300 mt-1">{processingStatus.detailMessage}</p>
                 )}
-                {processingStatus.progress !== undefined && processingStatus.progress > 0 && processingStatus.status === 'processing' && (
+                {processingStatus.progress > 0 && processingStatus.status !== 'complete' && (
                   <div className="mt-2">
                     <div className="w-full bg-gray-700 rounded-full h-2">
                       <div 
                         className="bg-yellow-500 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(processingStatus.progress || 0, 100)}%` }}
+                        style={{ width: `${Math.min(processingStatus.progress, 100)}%` }}
                       />
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
-                      {(processingStatus.progress || 0).toFixed(1)}% complete
+                      {processingStatus.progress.toFixed(1)}% complete
                       {processingStatus.estimatedTime && ` • ${processingStatus.estimatedTime} remaining`}
                     </p>
                   </div>
@@ -781,11 +608,7 @@ const ManagementTab = () => {
                 disabled={actionLoading}
                 className="flex items-center space-x-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white font-medium disabled:opacity-50 ml-4"
               >
-                {actionLoading ? (
-                  <Loader className="w-4 h-4 animate-spin" />
-                ) : (
-                  <StopCircle className="w-4 h-4" />
-                )}
+                <StopCircle className="w-4 h-4" />
                 <span>Cancel</span>
               </button>
             )}
@@ -793,7 +616,129 @@ const ManagementTab = () => {
         </div>
       )}
 
-      {/* Mock Mode Toggle */}
+      {/* Alerts */}
+      {alerts.errors.map(error => (
+        <div key={error.id} className="bg-red-900 bg-opacity-30 rounded-lg p-4 border border-red-700">
+          <div className="flex items-start justify-between">
+            <div className="flex items-start space-x-2 flex-1">
+              <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
+              <span className="text-red-400">{error.message}</span>
+            </div>
+            <button
+              onClick={() => setAlerts(prev => ({
+                ...prev,
+                errors: prev.errors.filter(e => e.id !== error.id)
+              }))}
+              className="ml-4 text-red-400 hover:text-red-300"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {alerts.success && (
+        <div className="bg-green-900 bg-opacity-30 rounded-lg p-4 border border-green-700">
+          <div className="flex items-center space-x-2">
+            <CheckCircle className="w-5 h-5 text-green-400" />
+            <span className="text-green-400">{alerts.success}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Cache Clear Modal */}
+      {showCacheClearModal && cacheClearProgress && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4 border border-gray-700">
+            <h3 className="text-lg font-semibold text-white mb-4">Clearing Cache</h3>
+            
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                {cacheClearProgress.status === 'Completed' ? (
+                  <CheckCircle className="w-5 h-5 text-green-500" />
+                ) : cacheClearProgress.status === 'Failed' ? (
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                ) : (
+                  <Loader className="w-5 h-5 text-blue-500 animate-spin" />
+                )}
+                <div className="flex-1">
+                  <span className="text-white">{cacheClearProgress.status}</span>
+                  {cacheClearProgress.statusMessage && (
+                    <p className="text-sm text-gray-400">{cacheClearProgress.statusMessage}</p>
+                  )}
+                </div>
+              </div>
+              
+              {['Running', 'Preparing'].includes(cacheClearProgress.status) && (
+                <>
+                  <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden">
+                    <div 
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-4 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.min(100, cacheClearProgress.percentComplete || 0)}%` }}
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-xs text-white font-medium">
+                        {(cacheClearProgress.percentComplete || 0).toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {cacheClearProgress.totalBytesToDelete > 0 && (
+                    <div className="text-sm text-gray-400 text-center">
+                      <span className="text-green-400 font-semibold">
+                        {formatBytes(cacheClearProgress.bytesDeleted || 0)}
+                      </span>
+                      {' / '}
+                      <span className="text-white">
+                        {formatBytes(cacheClearProgress.totalBytesToDelete)}
+                      </span>
+                      {' cleared'}
+                    </div>
+                  )}
+                </>
+              )}
+              
+              {cacheClearProgress.error && (
+                <div className="p-3 bg-red-900 bg-opacity-30 rounded border border-red-700">
+                  <p className="text-sm text-red-400">{cacheClearProgress.error}</p>
+                </div>
+              )}
+              
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
+                {['Running', 'Preparing'].includes(cacheClearProgress.status) ? (
+                  <>
+                    <button
+                      onClick={handleCancelCacheClear}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white flex items-center space-x-2"
+                    >
+                      <StopCircle className="w-4 h-4" />
+                      <span>Cancel</span>
+                    </button>
+                    <button
+                      onClick={() => setShowCacheClearModal(false)}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
+                    >
+                      Run in Background
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setShowCacheClearModal(false);
+                      setCacheClearProgress(null);
+                    }}
+                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white"
+                  >
+                    Close
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Management Sections */}
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <h3 className="text-lg font-semibold text-white mb-4">Mock Mode</h3>
         <div className="flex items-center justify-between">
@@ -806,7 +751,7 @@ const ManagementTab = () => {
           <button
             onClick={() => setMockMode(!mockMode)}
             disabled={isProcessingLogs}
-            className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
             {mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
             <span>{mockMode ? 'Enabled' : 'Disabled'}</span>
@@ -816,122 +761,132 @@ const ManagementTab = () => {
           <div className="mt-4 p-3 bg-blue-900 bg-opacity-30 rounded-lg border border-blue-700">
             <div className="flex items-center space-x-2 text-blue-400">
               <AlertCircle className="w-4 h-4" />
-              <span className="text-sm">Mock mode is active - API actions are disabled</span>
+              <span className="text-sm">Mock mode active - API actions disabled</span>
             </div>
           </div>
         )}
       </div>
 
-      {/* Disk Cache Management */}
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <div className="flex items-center space-x-2 mb-4">
           <HardDrive className="w-5 h-5 text-blue-400" />
           <h3 className="text-lg font-semibold text-white">Disk Cache Management</h3>
         </div>
         <p className="text-gray-400 text-sm mb-4">
-          Manage cached game files stored on disk in <code className="bg-gray-700 px-2 py-1 rounded">{config.cachePath}</code>
+          Manage cached game files in <code className="bg-gray-700 px-2 py-1 rounded">{config.cachePath}</code>
         </p>
         <button
-          onClick={() => handleAction('clearAllCache')}
-          disabled={actionLoading || isProcessingLogs || mockMode || showCacheClearModal || isCacheClearingInBackground}
-          className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          onClick={handleClearAllCache}
+          disabled={actionLoading || isProcessingLogs || mockMode || isCacheClearingInBackground}
+          className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
           {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
           <span>{isCacheClearingInBackground ? 'Cache Clearing in Progress...' : 'Clear All Cached Files'}</span>
         </button>
         <p className="text-xs text-gray-500 mt-2">
-          ⚠️ This deletes ALL cached game files from disk to free up space
+          ⚠️ This deletes ALL cached game files from disk
         </p>
       </div>
 
-      {/* Database Management */}
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <div className="flex items-center space-x-2 mb-4">
           <Database className="w-5 h-5 text-purple-400" />
           <h3 className="text-lg font-semibold text-white">Database Management</h3>
         </div>
         <p className="text-gray-400 text-sm mb-4">
-          Manage download history and statistics stored in the database
+          Manage download history and statistics
         </p>
         <button
           onClick={() => handleAction('resetDatabase')}
           disabled={actionLoading || isProcessingLogs || mockMode}
-          className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
           {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
           <span>Reset Database</span>
         </button>
         <p className="text-xs text-gray-500 mt-2">
-          Clears all download history and statistics (does not affect cached files)
+          Clears all download history (does not affect cached files)
         </p>
       </div>
 
-      {/* Log Processing */}
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <div className="flex items-center space-x-2 mb-4">
           <FileText className="w-5 h-5 text-green-400" />
           <h3 className="text-lg font-semibold text-white">Log Processing</h3>
         </div>
         <p className="text-gray-400 text-sm mb-4">
-          Control how the access.log file is processed for statistics
+          Control how access.log is processed for statistics
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
             onClick={() => handleAction('resetLogs')}
             disabled={actionLoading || isProcessingLogs || mockMode}
-            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 transition-colors"
           >
-            {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            <RefreshCw className="w-4 h-4" />
             <span>Reset Log Position</span>
           </button>
           <button
             onClick={() => handleAction('processAllLogs')}
             disabled={actionLoading || isProcessingLogs || mockMode}
-            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 transition-colors"
           >
-            {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+            <PlayCircle className="w-4 h-4" />
             <span>Process All Logs</span>
           </button>
         </div>
         <div className="mt-4 p-3 bg-gray-700 rounded-lg">
           <p className="text-xs text-gray-400">
-            <strong>Reset:</strong> Start monitoring from current end of log file<br/>
-            <strong>Process All:</strong> Import entire log history into database
+            <strong>Reset:</strong> Start from current end of log<br/>
+            <strong>Process All:</strong> Import entire log history
           </p>
         </div>
       </div>
 
-      {/* Log File Management */}
       <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
         <div className="flex items-center space-x-2 mb-4">
           <FileText className="w-5 h-5 text-orange-400" />
           <h3 className="text-lg font-semibold text-white">Log File Management</h3>
         </div>
         <p className="text-gray-400 text-sm mb-4">
-          Remove specific service entries from <code className="bg-gray-700 px-2 py-1 rounded">{config.logPath}</code>
+          Remove service entries from <code className="bg-gray-700 px-2 py-1 rounded">{config.logPath}</code>
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {/* Show discovered services or defaults */}
           {(config.services.length > 0 ? config.services : ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']).map(service => {
-            const count = serviceCounts[service];
+            const isRemoving = activeServiceRemoval === service;
             return (
               <button
                 key={service}
                 onClick={() => handleAction('removeServiceLogs', service)}
-                disabled={actionLoading || isProcessingLogs || mockMode}
-                className="px-4 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex flex-col items-center"
+                disabled={actionLoading || isProcessingLogs || mockMode || activeServiceRemoval}
+                className={`px-4 py-3 rounded-lg transition-colors flex flex-col items-center ${
+                  isRemoving 
+                    ? 'bg-orange-700 cursor-not-allowed opacity-75' 
+                    : 'bg-gray-700 hover:bg-gray-600 disabled:opacity-50'
+                }`}
               >
-                <span className="capitalize font-medium">Clear {service}</span>
-                <span className="text-xs text-gray-400 mt-1">
-                  {count !== undefined ? `(${count.toLocaleString()} entries)` : ''}
-                </span>
+                {isRemoving ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin mb-1" />
+                    <span className="capitalize font-medium">Removing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="capitalize font-medium">Clear {service}</span>
+                    {serviceCounts[service] !== undefined && (
+                      <span className="text-xs text-gray-400 mt-1">
+                        ({serviceCounts[service].toLocaleString()} entries)
+                      </span>
+                    )}
+                  </>
+                )}
               </button>
             );
           })}
         </div>
         <div className="mt-4 p-3 bg-yellow-900 bg-opacity-30 rounded-lg border border-yellow-700">
           <p className="text-xs text-yellow-400">
-            <strong>Warning:</strong> Requires write permissions to logs directory. Check container logs if you get permission errors.
+            <strong>Warning:</strong> Requires write permissions to logs directory
           </p>
         </div>
       </div>
