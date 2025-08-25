@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, Info, HardDrive, FileText, X } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, Info, HardDrive, FileText, X, Eye } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
 import * as signalR from '@microsoft/signalr';
@@ -58,7 +58,26 @@ const ManagementTab = () => {
     loadConfig();
     checkProcessingStatus();
     setupSignalR();
+    checkForActiveCacheOperations();
   }, []);
+
+  const checkForActiveCacheOperations = async () => {
+    try {
+      const operations = await ApiService.getActiveCacheOperations();
+      if (operations && operations.length > 0) {
+        const activeOp = operations.find(op => 
+          op.status === 'Running' || op.status === 'Preparing'
+        );
+        if (activeOp) {
+          setCacheClearOperation(activeOp.operationId);
+          setCacheClearProgress(activeOp);
+          startCacheClearPolling(activeOp.operationId);
+        }
+      }
+    } catch (err) {
+      console.log('No active cache operations or unable to check');
+    }
+  };
 
   const setupSignalR = async () => {
     try {
@@ -520,8 +539,47 @@ const ManagementTab = () => {
     }
   }, [showCacheClearModal, cacheClearProgress?.status]);
 
+  // Check if cache clearing is running in background
+  const isCacheClearingInBackground = cacheClearOperation && 
+    !showCacheClearModal && 
+    cacheClearProgress && 
+    (cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing');
+
   return (
     <div className="space-y-6">
+      {/* Background Cache Clear Status Bar */}
+      {isCacheClearingInBackground && (
+        <div className="bg-blue-900 bg-opacity-30 rounded-lg p-4 border border-blue-700">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3 flex-1">
+              <Loader className="w-5 h-5 text-blue-500 animate-spin" />
+              <div className="flex-1">
+                <p className="font-medium text-blue-400">
+                  Cache clearing in progress...
+                </p>
+                <div className="flex items-center space-x-4 mt-1">
+                  <span className="text-sm text-gray-300">
+                    {(cacheClearProgress.percentComplete || 0).toFixed(0)}% complete
+                  </span>
+                  {cacheClearProgress.bytesDeleted > 0 && (
+                    <span className="text-sm text-green-400">
+                      {formatBytes(cacheClearProgress.bytesDeleted)} cleared
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowCacheClearModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white font-medium ml-4"
+            >
+              <Eye className="w-4 h-4" />
+              <span>View Details</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Cache Clear Modal */}
       {showCacheClearModal && cacheClearProgress && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -775,11 +833,11 @@ const ManagementTab = () => {
         </p>
         <button
           onClick={() => handleAction('clearAllCache')}
-          disabled={actionLoading || isProcessingLogs || mockMode || showCacheClearModal}
+          disabled={actionLoading || isProcessingLogs || mockMode || showCacheClearModal || isCacheClearingInBackground}
           className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-          <span>Clear All Cached Files</span>
+          <span>{isCacheClearingInBackground ? 'Cache Clearing in Progress...' : 'Clear All Cached Files'}</span>
         </button>
         <p className="text-xs text-gray-500 mt-2">
           ⚠️ This deletes ALL cached game files from disk to free up space
