@@ -122,6 +122,19 @@ class ApiService {
     }
   }
 
+  // Get all active cache clear operations
+  static async getActiveCacheOperations() {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/active-operations`, { 
+        signal: AbortSignal.timeout(5000)
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getActiveCacheOperations error:', error);
+      throw error;
+    }
+  }
+
   // Legacy method for compatibility
   static async clearCache(service = null) {
     if (service) {

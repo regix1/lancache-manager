@@ -415,6 +415,45 @@ public class ManagementController : ControllerBase
         }
     }
 
+    // Add these methods to your existing ManagementController class:
+
+    [HttpGet("cache/clear-operations")]
+    public IActionResult GetAllClearOperations()
+    {
+        try
+        {
+            var operations = _cacheClearingService.GetAllOperations();
+            return Ok(operations);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting cache clear operations");
+            return StatusCode(500, new { error = "Failed to get operations", message = ex.Message });
+        }
+    }
+
+    [HttpGet("cache/active-operations")]
+    public IActionResult GetActiveClearOperations()
+    {
+        try
+        {
+            var operations = _cacheClearingService.GetAllOperations()
+                .Where(op => op.Status == "Running" || op.Status == "Preparing")
+                .ToList();
+            
+            return Ok(new 
+            { 
+                hasActive = operations.Any(),
+                operations = operations
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting active cache clear operations");
+            return StatusCode(500, new { error = "Failed to get active operations", message = ex.Message });
+        }
+    }
+
     // Get configuration info
     [HttpGet("config")]
     public async Task<IActionResult> GetConfig()
