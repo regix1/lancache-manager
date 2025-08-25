@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace LancacheManager.Services;
 
