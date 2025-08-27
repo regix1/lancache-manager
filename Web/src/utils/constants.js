@@ -4,9 +4,10 @@ const getApiUrl = () => {
     return import.meta.env.VITE_API_URL;
   }
   
-  // Otherwise, assume the API is on the same host but port 8080
-  // This works when deployed or accessing from any machine
-  return `http://${window.location.hostname}:8080`;
+  // Since the frontend is served by the same container as the API,
+  // use the same origin (empty string means same host/port/protocol)
+  // This automatically works with whatever port is mapped in docker-compose
+  return '';
 };
 
 export const API_BASE = `${getApiUrl()}/api`;

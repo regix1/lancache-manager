@@ -171,7 +171,7 @@ const ManagementTab = () => {
 
   const setupSignalR = async () => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`;
+      const apiUrl = import.meta.env.VITE_API_URL || '';
       const connection = new signalR.HubConnectionBuilder()
         .withUrl(`${apiUrl}/hubs/downloads`)
         .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])

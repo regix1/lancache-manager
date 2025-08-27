@@ -66,10 +66,10 @@ const DownloadsTab = () => {
       return;
     }
 
-    // Fetch game info from API
+    // Fetch game info from API - use relative URL
     try {
       setLoadingGame(download.id);
-      const apiUrl = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`;
+      const apiUrl = import.meta.env.VITE_API_URL || '';
       const response = await fetch(`${apiUrl}/api/gameinfo/download/${download.id}`);
       
       if (response.ok) {

@@ -2,7 +2,16 @@
 
 import { fetchStateOrNull } from '../utils/silentFetch';
 
-const API_URL = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`;
+// Use the same logic as constants.js for consistency
+const getApiUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // Use same origin - works with any port from docker-compose
+  return '';
+};
+
+const API_URL = getApiUrl();
 
 class OperationStateService {
   async getState(key) {

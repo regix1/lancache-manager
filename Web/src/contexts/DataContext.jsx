@@ -32,7 +32,9 @@ export const DataProvider = ({ children }) => {
 
   const checkConnectionStatus = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8080`}/health`, {
+      // Use relative URL - works with any port from docker-compose
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const response = await fetch(`${apiUrl}/health`, {
         signal: AbortSignal.timeout(5000)
       });
       if (response.ok) {
