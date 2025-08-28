@@ -38,6 +38,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}");
 });
 
+// Register HttpClientFactory for better HTTP client management
+builder.Services.AddHttpClient();
+
 // Register HttpClient for SteamService
 builder.Services.AddHttpClient<SteamService>(client =>
 {
@@ -45,7 +48,11 @@ builder.Services.AddHttpClient<SteamService>(client =>
     client.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
 });
 
-// Register SteamService as singleton
+// Register the Steam depot mapping service as singleton and hosted service
+builder.Services.AddSingleton<SteamDepotMappingService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamDepotMappingService>());
+
+// Register SteamService as singleton (updated to use depot mapping service)
 builder.Services.AddSingleton<SteamService>();
 
 // Register services

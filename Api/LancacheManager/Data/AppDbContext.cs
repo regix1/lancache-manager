@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     public DbSet<Download> Downloads { get; set; }
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
+    public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -44,5 +45,15 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ServiceStats>()
             .HasIndex(s => s.LastActivity)
             .HasDatabaseName("IX_ServiceStats_LastActivity");
+            
+        // SteamDepotMapping indexes
+        modelBuilder.Entity<SteamDepotMapping>()
+            .HasIndex(m => m.DepotId)
+            .HasDatabaseName("IX_SteamDepotMappings_DepotId")
+            .IsUnique();
+            
+        modelBuilder.Entity<SteamDepotMapping>()
+            .HasIndex(m => m.AppId)
+            .HasDatabaseName("IX_SteamDepotMappings_AppId");
     }
 }

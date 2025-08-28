@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
-import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff } from 'lucide-react';
+import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Info } from 'lucide-react';
 
 const DownloadsTab = () => {
   const { latestDownloads, mockMode } = useData();
@@ -117,6 +117,19 @@ const DownloadsTab = () => {
     return { type: 'content', label: 'Steam Content', icon: CloudOff };
   };
 
+  // Tooltip component for cache hit/miss explanation
+  const CacheTooltip = () => (
+    <span className="relative inline-flex items-center ml-1 group">
+      <Info className="w-3 h-3 text-gray-500 cursor-help" />
+      <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 text-xs text-white bg-gray-900 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none w-64 z-10 border border-gray-700 shadow-lg">
+        <strong className="text-green-400">HIT</strong> = Data served from local cache<br/>
+        <span className="text-gray-400">(Fast, saves bandwidth)</span><br/>
+        <strong className="text-yellow-400">MISS</strong> = Data downloaded from internet<br/>
+        <span className="text-gray-400">(Slower, uses bandwidth)</span>
+      </span>
+    </span>
+  );
+
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
       <div className="flex items-center justify-between mb-4">
@@ -205,15 +218,19 @@ const DownloadsTab = () => {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Cache Hit Rate</p>
+                      <p className="text-xs text-gray-400 flex items-center">
+                        Cache Hit Rate
+                        <CacheTooltip />
+                      </p>
                       {hasData ? (
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-gray-700 rounded-full h-2">
                             <div 
                               className={`h-2 rounded-full ${
                                 download.cacheHitPercent > 75 ? 'bg-green-500' :
-                                download.cacheHitPercent > 50 ? 'bg-yellow-500' :
-                                'bg-red-500'
+                                download.cacheHitPercent > 50 ? 'bg-blue-500' :
+                                download.cacheHitPercent > 25 ? 'bg-yellow-500' :
+                                'bg-orange-500'
                               }`}
                               style={{ width: `${download.cacheHitPercent || 0}%` }}
                             />
@@ -285,7 +302,7 @@ const DownloadsTab = () => {
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-400">Downloaded:</span>
-                            <span className="text-red-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
+                            <span className="text-yellow-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-gray-400">Total:</span>

@@ -22,9 +22,13 @@ const RecentDownloadsPanel = () => {
               <div className="flex justify-between items-center mt-2">
                 <span className="text-sm text-white">{formatBytes(download.totalBytes)}</span>
                 <span className={`text-xs px-2 py-1 rounded ${
-                  download.cacheHitPercent > 50 
+                  download.cacheHitPercent > 75 
                     ? 'bg-green-900 text-green-300' 
-                    : 'bg-red-900 text-red-300'
+                    : download.cacheHitPercent > 50
+                    ? 'bg-blue-900 text-blue-300'
+                    : download.cacheHitPercent > 25
+                    ? 'bg-yellow-900 text-yellow-300'
+                    : 'bg-orange-900 text-orange-300'
                 }`}>
                   {formatPercent(download.cacheHitPercent)} Hit
                 </span>
