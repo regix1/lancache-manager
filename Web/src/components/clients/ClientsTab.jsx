@@ -1,13 +1,19 @@
 import React from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
+import { CacheInfoTooltip } from '../common/Tooltip';
 
 const ClientsTab = () => {
   const { clientStats } = useData();
 
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <h2 className="text-xl font-semibold mb-4">Client Statistics</h2>
+      <h2 className="text-xl font-semibold mb-4">
+        Client Statistics
+        <span className="ml-2">
+          <CacheInfoTooltip />
+        </span>
+      </h2>
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -28,7 +34,7 @@ const ClientsTab = () => {
                 <td className="py-3">{client.totalDownloads}</td>
                 <td className="py-3">{formatBytes(client.totalBytes)}</td>
                 <td className="py-3 text-green-400">{formatBytes(client.totalCacheHitBytes)}</td>
-                <td className="py-3 text-red-400">{formatBytes(client.totalCacheMissBytes)}</td>
+                <td className="py-3 text-yellow-400">{formatBytes(client.totalCacheMissBytes)}</td>
                 <td className="py-3">
                   <div className="flex items-center space-x-2">
                     <div className="w-24 bg-gray-700 rounded-full h-2">
