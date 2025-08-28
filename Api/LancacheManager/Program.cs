@@ -228,6 +228,34 @@ using (var scope = app.Services.CreateScope())
             logger.LogInformation("Database is up to date");
         }
         
+        // Ensure SteamDepotMappings table exists (fallback for migration issues)
+        try
+        {
+            await dbContext.Database.ExecuteSqlRawAsync("SELECT 1 FROM SteamDepotMappings LIMIT 1");
+        }
+        catch
+        {
+            logger.LogWarning("SteamDepotMappings table missing despite migrations - creating it manually...");
+            await dbContext.Database.ExecuteSqlRawAsync(@"
+                CREATE TABLE IF NOT EXISTS SteamDepotMappings (
+                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    DepotId INTEGER NOT NULL,
+                    AppId INTEGER NOT NULL,
+                    AppName TEXT,
+                    Source TEXT,
+                    Confidence INTEGER NOT NULL,
+                    DiscoveredAt TEXT NOT NULL
+                );
+                
+                CREATE UNIQUE INDEX IF NOT EXISTS IX_SteamDepotMappings_DepotId 
+                ON SteamDepotMappings (DepotId);
+                
+                CREATE INDEX IF NOT EXISTS IX_SteamDepotMappings_AppId 
+                ON SteamDepotMappings (AppId);
+            ");
+            logger.LogInformation("SteamDepotMappings table created manually");
+        }
+        
         // Verify connection
         var canConnect = await dbContext.Database.CanConnectAsync();
         if (!canConnect)
