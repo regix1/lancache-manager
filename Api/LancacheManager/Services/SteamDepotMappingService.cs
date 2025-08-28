@@ -61,7 +61,7 @@ public class SteamDepotMappingService : IHostedService
         public int Version { get; set; } = 1;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting Steam Depot Mapping Service");
         
@@ -321,18 +321,21 @@ public class SteamDepotMappingService : IHostedService
             int newMappings = 0;
             foreach (var download in recentIdentified)
             {
-                var depotMatch = System.Text.RegularExpressions.Regex.Match(
-                    download.LastUrl, @"/depot/(\d+)/");
-                
-                if (depotMatch.Success && 
-                    uint.TryParse(depotMatch.Groups[1].Value, out var depotId) &&
-                    download.GameAppId.HasValue)
+                if (!string.IsNullOrEmpty(download.LastUrl))
                 {
-                    if (!_depotToAppMap.ContainsKey(depotId))
+                    var depotMatch = System.Text.RegularExpressions.Regex.Match(
+                        download.LastUrl, @"/depot/(\d+)/");
+                    
+                    if (depotMatch.Success && 
+                        uint.TryParse(depotMatch.Groups[1].Value, out var depotId) &&
+                        download.GameAppId.HasValue)
                     {
-                        _depotToAppMap[depotId] = download.GameAppId.Value;
-                        await SaveDepotMapping(depotId, download.GameAppId.Value, "analyzed", 80);
-                        newMappings++;
+                        if (!_depotToAppMap.ContainsKey(depotId))
+                        {
+                            _depotToAppMap[depotId] = download.GameAppId.Value;
+                            await SaveDepotMapping(depotId, download.GameAppId.Value, "analyzed", 80);
+                            newMappings++;
+                        }
                     }
                 }
             }
@@ -405,7 +408,7 @@ public class SteamDepotMappingService : IHostedService
         }
     }
 
-    private async Task BuildCommonMappings()
+    private Task BuildCommonMappings()
     {
         foreach (var app in _appInfoCache.Values.Take(1000))
         {
@@ -422,6 +425,7 @@ public class SteamDepotMappingService : IHostedService
         }
         
         _logger.LogInformation($"Built {_depotToAppMap.Count} depot mappings from patterns");
+        return Task.CompletedTask;
     }
 
     private async Task UpdateMappingsAsync()

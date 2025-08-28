@@ -22,51 +22,47 @@ bld/
 project.lock.json
 project.fragment.lock.json
 artifacts/
+*.AssemblyInfo.cs
+*.AssemblyInfoInputs.cache
+*.assets.cache
+*.GeneratedMSBuildEditorConfig.editorconfig
+*.genruntimeconfig.cache
+*.GlobalUsings.g.cs
+*.MvcApplicationPartsAssemblyInfo.cache
+*.MvcApplicationPartsAssemblyInfo.cs
+*.sourcelink.json
+*.csproj.CoreCompileInputs.cache
+*.csproj.FileListAbsolute.txt
+*.csproj.nuget.*
+*.csproj.AssemblyReference.cache
 
-# Files built by Visual Studio
+# Build outputs
+*.dll
+*.exe
+*.pdb
+!**/Migrations/*.dll
+
+# Cache files
+*.cache
+*.cache.json
+*.Up2Date
+
+# SQLite database files (development)
+*.db
+*.db-shm
+*.db-wal
+lancache-manager-dev.db*
+
+# User-specific files
 *.user
 *.userosscache
 *.sln.docstates
 
-# NuGet Packages
-*.nupkg
-*.snupkg
-**/packages/*
-!**/packages/build/
-
-# SQLite database files
-*.db
-*.db-shm
-*.db-wal
-
-# Log files
-*.log
-logposition.txt
-
-# Test log files
-/logs/
-C:/temp/lancache/
-
-# User-specific files
-*.rsuser
-*.suo
-*.sln.docstates
-
-# Rider
-.idea/
-*.sln.iml
-
-# Mac
-.DS_Store
-
-# Windows
-Thumbs.db
-ehthumbs.db
-
-# Backup files
-*.bak
-*.backup
-
 # Temporary files
 *.tmp
 *.temp
+bulk_processing.marker
+logposition.txt
+
+# Static web assets
+staticwebassets/

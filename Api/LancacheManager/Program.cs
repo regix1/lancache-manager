@@ -23,7 +23,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Simple database configuration - NO POOLING, NO OPTIMIZATIONS
+// Database configuration for Linux/Docker
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     var dbPath = "/data/lancache.db";
@@ -34,7 +34,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         Directory.CreateDirectory("/data");
     }
     
-    // Simple connection string
     options.UseSqlite($"Data Source={dbPath}");
 });
 
@@ -135,7 +134,7 @@ app.MapFallback(async context =>
     }
 });
 
-// Ensure database is created
+// Apply migrations automatically - no user interaction required
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -143,16 +142,111 @@ using (var scope = app.Services.CreateScope())
     
     try
     {
-        await dbContext.Database.EnsureCreatedAsync();
-        logger.LogInformation($"Database initialized at: /data/lancache.db");
+        var dbPath = "/data/lancache.db";
+        bool hasExistingDatabase = File.Exists(dbPath);
+        
+        if (hasExistingDatabase)
+        {
+            logger.LogInformation($"Found existing database at: {dbPath}");
+            
+            // Check if this is a pre-migration database
+            bool hasMigrationsTable = false;
+            try
+            {
+                await dbContext.Database.ExecuteSqlRawAsync(
+                    "SELECT COUNT(*) FROM __EFMigrationsHistory LIMIT 1");
+                hasMigrationsTable = true;
+            }
+            catch
+            {
+                hasMigrationsTable = false;
+            }
+            
+            if (!hasMigrationsTable)
+            {
+                logger.LogWarning("Existing database without migrations detected. Auto-marking InitialCreate as applied...");
+                
+                // Create migrations history table
+                await dbContext.Database.ExecuteSqlRawAsync(@"
+                    CREATE TABLE IF NOT EXISTS __EFMigrationsHistory (
+                        MigrationId TEXT NOT NULL PRIMARY KEY,
+                        ProductVersion TEXT NOT NULL
+                    );");
+                
+                // Get all migrations
+                var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
+                
+                if (pendingMigrations.Any())
+                {
+                    // Mark the first migration (InitialCreate) as already applied
+                    // This prevents EF from trying to recreate existing tables
+                    var initialMigration = pendingMigrations.First();
+                    
+                    await dbContext.Database.ExecuteSqlRawAsync(
+                        "INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ({0}, {1})",
+                        initialMigration, "8.0.0");
+                    
+                    logger.LogInformation($"Marked '{initialMigration}' as applied to preserve existing data");
+                    
+                    // Re-check for any remaining migrations (like AddSteamDepotMappings if you create it)
+                    pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
+                }
+            }
+            else
+            {
+                // Has migrations table, check for pending migrations normally
+                var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
+                
+                if (pendingMigrations.Any())
+                {
+                    logger.LogInformation($"Found {pendingMigrations.Count()} pending migrations:");
+                    foreach (var migration in pendingMigrations)
+                    {
+                        logger.LogInformation($"  - {migration}");
+                    }
+                }
+            }
+        }
+        
+        // Apply any pending migrations
+        var finalPendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
+        if (finalPendingMigrations.Any())
+        {
+            logger.LogInformation("Applying pending migrations...");
+            await dbContext.Database.MigrateAsync();
+            logger.LogInformation("Migrations completed successfully");
+        }
+        else if (!hasExistingDatabase)
+        {
+            // No existing database, create fresh with all migrations
+            logger.LogInformation("Creating new database with all migrations...");
+            await dbContext.Database.MigrateAsync();
+            logger.LogInformation("Database created successfully");
+        }
+        else
+        {
+            logger.LogInformation("Database is up to date");
+        }
+        
+        // Verify connection
+        var canConnect = await dbContext.Database.CanConnectAsync();
+        if (!canConnect)
+        {
+            throw new Exception("Cannot connect to database after migration");
+        }
         
         // Load initial stats into cache
         var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
         await statsCache.RefreshFromDatabase(dbContext);
+        
+        logger.LogInformation("Database initialization complete");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed to initialize database");
+        logger.LogError(ex, "Database initialization failed");
+        
+        // In Docker, we want to fail fast if database init fails
+        throw;
     }
 }
 
