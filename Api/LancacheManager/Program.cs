@@ -23,15 +23,25 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Database configuration for Linux/Docker
+// Database configuration
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    var dbPath = "/data/lancache.db";
-    
-    // Ensure the directory exists
-    if (!Directory.Exists("/data"))
+    string dbPath;
+    if (builder.Environment.IsDevelopment())
     {
-        Directory.CreateDirectory("/data");
+        // Local Windows development - use current directory
+        dbPath = Path.Combine(Directory.GetCurrentDirectory(), "lancache.db");
+    }
+    else
+    {
+        // Docker/Linux production
+        dbPath = "/data/lancache.db";
+        
+        // Ensure the directory exists
+        if (!Directory.Exists("/data"))
+        {
+            Directory.CreateDirectory("/data");
+        }
     }
     
     options.UseSqlite($"Data Source={dbPath}");
@@ -51,7 +61,7 @@ builder.Services.AddHttpClient<SteamService>(client =>
 builder.Services.AddSingleton<SteamDepotMappingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamDepotMappingService>());
 
-// Register SteamService as singleton (updated to use depot mapping service)
+// Register SteamService as singleton
 builder.Services.AddSingleton<SteamService>();
 
 // Register services
@@ -59,11 +69,11 @@ builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
 
-// Register the new CacheClearingService for async cache operations
+// Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());
 
-// Register OperationStateService for persistent operation tracking
+// Register OperationStateService
 builder.Services.AddSingleton<OperationStateService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<OperationStateService>());
 
@@ -82,12 +92,13 @@ builder.Logging.AddDebug();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "LancacheManager API V1");
+    c.RoutePrefix = "swagger"; // Access at /swagger
+});
 
 app.UseCors("AllowAll");
 
@@ -134,7 +145,7 @@ app.MapFallback(async context =>
     }
 });
 
-// Apply migrations automatically - no user interaction required
+// Apply EF Core migrations
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -142,119 +153,12 @@ using (var scope = app.Services.CreateScope())
     
     try
     {
-        var dbPath = "/data/lancache.db";
-        bool hasExistingDatabase = File.Exists(dbPath);
+        logger.LogInformation("Checking database migrations...");
         
-        if (hasExistingDatabase)
-        {
-            logger.LogInformation($"Found existing database at: {dbPath}");
-            
-            // Check if this is a pre-migration database
-            bool hasMigrationsTable = false;
-            try
-            {
-                await dbContext.Database.ExecuteSqlRawAsync(
-                    "SELECT COUNT(*) FROM __EFMigrationsHistory LIMIT 1");
-                hasMigrationsTable = true;
-            }
-            catch
-            {
-                hasMigrationsTable = false;
-            }
-            
-            if (!hasMigrationsTable)
-            {
-                logger.LogWarning("Existing database without migrations detected. Auto-marking InitialCreate as applied...");
-                
-                // Create migrations history table
-                await dbContext.Database.ExecuteSqlRawAsync(@"
-                    CREATE TABLE IF NOT EXISTS __EFMigrationsHistory (
-                        MigrationId TEXT NOT NULL PRIMARY KEY,
-                        ProductVersion TEXT NOT NULL
-                    );");
-                
-                // Get all migrations
-                var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
-                
-                if (pendingMigrations.Any())
-                {
-                    // Mark the first migration (InitialCreate) as already applied
-                    // This prevents EF from trying to recreate existing tables
-                    var initialMigration = pendingMigrations.First();
-                    
-                    await dbContext.Database.ExecuteSqlRawAsync(
-                        "INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES ({0}, {1})",
-                        initialMigration, "8.0.0");
-                    
-                    logger.LogInformation($"Marked '{initialMigration}' as applied to preserve existing data");
-                    
-                    // Re-check for any remaining migrations (like AddSteamDepotMappings if you create it)
-                    pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
-                }
-            }
-            else
-            {
-                // Has migrations table, check for pending migrations normally
-                var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
-                
-                if (pendingMigrations.Any())
-                {
-                    logger.LogInformation($"Found {pendingMigrations.Count()} pending migrations:");
-                    foreach (var migration in pendingMigrations)
-                    {
-                        logger.LogInformation($"  - {migration}");
-                    }
-                }
-            }
-        }
+        // This will create the database if it doesn't exist and apply all pending migrations
+        await dbContext.Database.MigrateAsync();
         
-        // Apply any pending migrations
-        var finalPendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
-        if (finalPendingMigrations.Any())
-        {
-            logger.LogInformation("Applying pending migrations...");
-            await dbContext.Database.MigrateAsync();
-            logger.LogInformation("Migrations completed successfully");
-        }
-        else if (!hasExistingDatabase)
-        {
-            // No existing database, create fresh with all migrations
-            logger.LogInformation("Creating new database with all migrations...");
-            await dbContext.Database.MigrateAsync();
-            logger.LogInformation("Database created successfully");
-        }
-        else
-        {
-            logger.LogInformation("Database is up to date");
-        }
-        
-        // Ensure SteamDepotMappings table exists (fallback for migration issues)
-        try
-        {
-            await dbContext.Database.ExecuteSqlRawAsync("SELECT 1 FROM SteamDepotMappings LIMIT 1");
-        }
-        catch
-        {
-            logger.LogWarning("SteamDepotMappings table missing despite migrations - creating it manually...");
-            await dbContext.Database.ExecuteSqlRawAsync(@"
-                CREATE TABLE IF NOT EXISTS SteamDepotMappings (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    DepotId INTEGER NOT NULL,
-                    AppId INTEGER NOT NULL,
-                    AppName TEXT,
-                    Source TEXT,
-                    Confidence INTEGER NOT NULL,
-                    DiscoveredAt TEXT NOT NULL
-                );
-                
-                CREATE UNIQUE INDEX IF NOT EXISTS IX_SteamDepotMappings_DepotId 
-                ON SteamDepotMappings (DepotId);
-                
-                CREATE INDEX IF NOT EXISTS IX_SteamDepotMappings_AppId 
-                ON SteamDepotMappings (AppId);
-            ");
-            logger.LogInformation("SteamDepotMappings table created manually");
-        }
+        logger.LogInformation("Database migrations applied successfully");
         
         // Verify connection
         var canConnect = await dbContext.Database.CanConnectAsync();
@@ -272,9 +176,7 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         logger.LogError(ex, "Database initialization failed");
-        
-        // In Docker, we want to fail fast if database init fails
-        throw;
+        throw; // Fail fast if database init fails
     }
 }
 

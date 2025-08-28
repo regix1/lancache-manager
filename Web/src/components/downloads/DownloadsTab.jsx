@@ -250,7 +250,6 @@ const DownloadsTab = () => {
                     </div>
                   </div>
                 </div>
-                
                 {/* Expandable Game Info Section - Only for actual downloads */}
                 {isExpanded && isSteam && hasData && (
                   <div className="border-t border-gray-700 bg-gray-850">
@@ -278,31 +277,22 @@ const DownloadsTab = () => {
                           )}
                         </div>
 
-                        {/* Game Banner Image - Proper aspect ratio */}
-                        {game.headerImage && (
-                          <div className="mb-4">
-                            <img 
-                              src={game.headerImage} 
-                              alt={game.gameName}
-                              className="w-full max-w-md mx-auto rounded-lg shadow-lg object-contain"
-                              style={{ maxHeight: '215px' }}
-                            />
-                          </div>
-                        )}
-
-                        {/* Details Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {/* Left side - Description */}
-                          <div>
-                            {game.description && (
-                              <p className="text-sm text-gray-300">
-                                {game.description}
-                              </p>
-                            )}
-                          </div>
+                        {/* Image and Stats Side by Side */}
+                        <div className="flex gap-6">
+                          {/* Left side - Banner Image */}
+                          {game.headerImage && (
+                            <div className="flex-shrink-0">
+                              <img 
+                                src={game.headerImage} 
+                                alt={game.gameName}
+                                className="rounded-lg shadow-lg"
+                                style={{ width: '460px', height: '215px', objectFit: 'cover' }}
+                              />
+                            </div>
+                          )}
                           
-                          {/* Right side - Stats */}
-                          <div className="space-y-2">
+                          {/* Right side - Stats and Description */}
+                          <div className="flex-grow space-y-3">
                             <div className="flex justify-between text-sm">
                               <span className="text-gray-400">Cache Saved:</span>
                               <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
@@ -325,6 +315,15 @@ const DownloadsTab = () => {
                               >
                                 View on Steam <ExternalLink className="w-3 h-3" />
                               </a>
+                            )}
+                            
+                            {/* Description below stats if present */}
+                            {game.description && (
+                              <div className="mt-4 pt-4 border-t border-gray-700">
+                                <p className="text-sm text-gray-300">
+                                  {game.description}
+                                </p>
+                              </div>
                             )}
                           </div>
                         </div>

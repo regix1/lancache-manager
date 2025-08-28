@@ -88,20 +88,7 @@ public class SteamService
         }
 
         var appInfo = _depotMappingService.GetAppInfo(appId);
-        if (appInfo != null && !string.IsNullOrEmpty(appInfo.Name) && appInfo.Name != "Unknown")
-        {
-            var gameInfo = new GameInfo
-            {
-                AppId = appId,
-                Name = appInfo.Name,
-                Type = "game",
-                // Add fallback header image URL
-                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg"
-            };
-            _gameCache[appId] = gameInfo;
-            return gameInfo;
-        }
-
+        
         await _apiSemaphore.WaitAsync();
         try
         {
@@ -111,34 +98,50 @@ public class SteamService
             if (response.IsSuccessStatusCode)
             {
                 var json = await response.Content.ReadAsStringAsync();
+                _logger.LogDebug($"Steam API response for {appId}: {json.Substring(0, Math.Min(200, json.Length))}...");
+                
                 var gameInfo = ParseStoreApiResponse(json, appId);
                 
                 if (gameInfo != null)
                 {
-                    // Add fallback header image if Steam API didn't provide one
+                    // Ensure we have header image even if Steam didn't provide one
                     if (string.IsNullOrEmpty(gameInfo.HeaderImage))
                     {
                         gameInfo.HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
                     }
                     
+                    // Add fallback description if missing
+                    if (string.IsNullOrEmpty(gameInfo.Description))
+                    {
+                        gameInfo.Description = GetKnownGameDescription(appId);
+                    }
+                    
                     _gameCache[appId] = gameInfo;
                     _logger.LogInformation($"Fetched game info for {appId}: {gameInfo.Name}");
-                    
                     return gameInfo;
                 }
+                else
+                {
+                    _logger.LogWarning($"Steam API returned success:false or invalid data for {appId}");
+                }
+            }
+            else
+            {
+                _logger.LogWarning($"Steam API returned {response.StatusCode} for app {appId}");
             }
 
-            var basicInfo = new GameInfo
+            // Fallback with constructed values
+            var fallbackInfo = new GameInfo
             {
                 AppId = appId,
-                Name = appInfo?.Name ?? $"Steam App {appId}",
-                Type = "unknown",
-                // Add fallback header image URL even for unknown games
-                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg"
+                Name = appInfo?.Name ?? GetKnownGameName(appId) ?? $"Steam App {appId}",
+                Type = "game",
+                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg",
+                Description = GetKnownGameDescription(appId)
             };
             
-            _gameCache[appId] = basicInfo;
-            return basicInfo;
+            _gameCache[appId] = fallbackInfo;
+            return fallbackInfo;
         }
         catch (Exception ex)
         {
@@ -147,10 +150,10 @@ public class SteamService
             return new GameInfo
             {
                 AppId = appId,
-                Name = appInfo?.Name ?? $"Steam App {appId}",
-                Type = "unknown",
-                // Add fallback header image URL on error
-                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg"
+                Name = appInfo?.Name ?? GetKnownGameName(appId) ?? $"Steam App {appId}",
+                Type = "game",
+                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg",
+                Description = GetKnownGameDescription(appId)
             };
         }
         finally
@@ -206,5 +209,35 @@ public class SteamService
             _logger.LogError(ex, $"Error parsing Store API response for {appId}");
             return null;
         }
+    }
+
+    private string? GetKnownGameName(uint appId)
+    {
+        return appId switch
+        {
+            381210 => "Dead by Daylight",
+            730 => "Counter-Strike 2",
+            2767030 => "Marvel Rivals",
+            570 => "Dota 2",
+            440 => "Team Fortress 2",
+            271590 => "Grand Theft Auto V",
+            1172470 => "Apex Legends",
+            _ => null
+        };
+    }
+
+    private string? GetKnownGameDescription(uint appId)
+    {
+        return appId switch
+        {
+            381210 => "Death is not an escape. Dead by Daylight is a multiplayer action survival horror game where one player takes on the role of a brutal Killer and the other four play as Survivors.",
+            730 => "For over two decades, Counter-Strike has offered an elite competitive experience. CS2 features state-of-the-art gameplay, all-new CS Ratings, and upgraded maps.",
+            2767030 => "Marvel Rivals is a Super Hero team-based PVP shooter! Assemble an all-star squad, devise countless strategies, and fight in epic battles.",
+            570 => "Every day, millions of players worldwide enter battle as one of over a hundred Dota heroes.",
+            440 => "Nine distinct classes provide a broad range of tactical abilities and personalities in Team Fortress 2.",
+            271590 => "Grand Theft Auto V for PC offers players the option to explore the award-winning world of Los Santos and Blaine County.",
+            1172470 => "Apex Legends is the award-winning, free-to-play Hero Shooter from Respawn Entertainment.",
+            _ => null
+        };
     }
 }
