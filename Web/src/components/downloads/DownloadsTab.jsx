@@ -260,7 +260,7 @@ const DownloadsTab = () => {
                         <span className="ml-2 text-gray-400">Loading game information...</span>
                       </div>
                     ) : game?.error ? (
-                      <div className="text-center py-4 text-gray-500 p-4">
+                      <div className="text-center py-4 text-gray-500">
                         <p>Unable to identify specific game</p>
                         <p className="text-xs mt-1">This may be a Steam client update or workshop content</p>
                       </div>
@@ -330,7 +330,7 @@ const DownloadsTab = () => {
                                 <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
                               </div>
                               {game.appId && game.gameName !== 'Unknown Steam Game' && !mockMode && (
-                                
+                                <a
                                   href={`https://store.steampowered.com/app/${game.appId}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -345,7 +345,7 @@ const DownloadsTab = () => {
                         </div>
                       </>
                     ) : (
-                      <div className="text-center py-4 text-gray-500 p-4">
+                      <div className="text-center py-4 text-gray-500">
                         No additional information available
                       </div>
                     )}
