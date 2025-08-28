@@ -94,7 +94,9 @@ public class SteamService
             {
                 AppId = appId,
                 Name = appInfo.Name,
-                Type = "game"
+                Type = "game",
+                // Add fallback header image URL
+                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg"
             };
             _gameCache[appId] = gameInfo;
             return gameInfo;
@@ -113,11 +115,14 @@ public class SteamService
                 
                 if (gameInfo != null)
                 {
+                    // Add fallback header image if Steam API didn't provide one
+                    if (string.IsNullOrEmpty(gameInfo.HeaderImage))
+                    {
+                        gameInfo.HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                    }
+                    
                     _gameCache[appId] = gameInfo;
                     _logger.LogInformation($"Fetched game info for {appId}: {gameInfo.Name}");
-                    
-                    // If we successfully identified a game from a depot URL, save this mapping
-                    // This will be picked up by the mapping service's analyze process
                     
                     return gameInfo;
                 }
@@ -127,7 +132,9 @@ public class SteamService
             {
                 AppId = appId,
                 Name = appInfo?.Name ?? $"Steam App {appId}",
-                Type = "unknown"
+                Type = "unknown",
+                // Add fallback header image URL even for unknown games
+                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg"
             };
             
             _gameCache[appId] = basicInfo;
@@ -141,7 +148,9 @@ public class SteamService
             {
                 AppId = appId,
                 Name = appInfo?.Name ?? $"Steam App {appId}",
-                Type = "unknown"
+                Type = "unknown",
+                // Add fallback header image URL on error
+                HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg"
             };
         }
         finally
@@ -177,6 +186,12 @@ public class SteamService
             if (data.TryGetProperty("header_image", out var headerImage))
             {
                 gameInfo.HeaderImage = headerImage.GetString();
+            }
+
+            // Fallback to constructed URL if Steam API didn't provide header image
+            if (string.IsNullOrEmpty(gameInfo.HeaderImage))
+            {
+                gameInfo.HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
             }
 
             if (data.TryGetProperty("short_description", out var desc))
