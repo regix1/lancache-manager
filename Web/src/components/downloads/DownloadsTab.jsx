@@ -255,97 +255,82 @@ const DownloadsTab = () => {
                 {isExpanded && isSteam && hasData && (
                   <div className="border-t border-gray-700 bg-gray-850">
                     {loadingGame === download.id ? (
-                      <div className="flex items-center justify-center py-4">
+                      <div className="flex items-center justify-center py-8">
                         <Loader className="w-5 h-5 animate-spin text-blue-500" />
                         <span className="ml-2 text-gray-400">Loading game information...</span>
                       </div>
                     ) : game?.error ? (
-                      <div className="text-center py-4 text-gray-500">
+                      <div className="text-center py-8 text-gray-500">
                         <p>Unable to identify specific game</p>
                         <p className="text-xs mt-1">This may be a Steam client update or workshop content</p>
                       </div>
                     ) : game ? (
-                      <>
-                        {/* Game Banner - Full width */}
+                      <div className="p-4">
+                        {/* Game Title and App ID */}
+                        <div className="mb-4">
+                          <h3 className="text-lg font-semibold text-white">
+                            {game.gameName === 'Unknown Steam Game' ? 'Steam Content' : game.gameName}
+                          </h3>
+                          {game.appId && (
+                            <p className="text-xs text-gray-400">
+                              App ID: {game.appId}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Game Banner Image - Proper aspect ratio */}
                         {game.headerImage && (
-                          <div className="relative w-full h-32 md:h-40 lg:h-48">
+                          <div className="mb-4">
                             <img 
                               src={game.headerImage} 
                               alt={game.gameName}
-                              className="w-full h-full object-cover"
+                              className="w-full max-w-md mx-auto rounded-lg shadow-lg object-contain"
+                              style={{ maxHeight: '215px' }}
                             />
-                            {/* Gradient overlay for better text readability */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent" />
-                            
-                            {/* Game title overlay */}
-                            <div className="absolute bottom-0 left-0 right-0 p-4">
-                              <h3 className="text-lg md:text-xl font-bold text-white drop-shadow-lg">
-                                {game.gameName === 'Unknown Steam Game' ? 'Steam Content' : game.gameName}
-                              </h3>
-                              {game.appId && (
-                                <p className="text-xs text-gray-300 drop-shadow">
-                                  App ID: {game.appId}
-                                </p>
-                              )}
-                            </div>
                           </div>
                         )}
-                        
-                        {/* Game Details Section */}
-                        <div className="p-4">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Left side - Description */}
-                            <div>
-                              {!game.headerImage && (
-                                <>
-                                  <h3 className="text-lg font-semibold text-white mb-2">
-                                    {game.gameName === 'Unknown Steam Game' ? 'Steam Content' : game.gameName}
-                                  </h3>
-                                  {game.appId && (
-                                    <p className="text-xs text-gray-400 mb-2">
-                                      App ID: {game.appId}
-                                    </p>
-                                  )}
-                                </>
-                              )}
-                              {game.description && (
-                                <p className="text-sm text-gray-300 line-clamp-3">
-                                  {game.description}
-                                </p>
-                              )}
+
+                        {/* Details Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Left side - Description */}
+                          <div>
+                            {game.description && (
+                              <p className="text-sm text-gray-300">
+                                {game.description}
+                              </p>
+                            )}
+                          </div>
+                          
+                          {/* Right side - Stats */}
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-400">Cache Saved:</span>
+                              <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
                             </div>
-                            
-                            {/* Right side - Stats */}
-                            <div className="space-y-2">
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">Cache Saved:</span>
-                                <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">Downloaded:</span>
-                                <span className="text-yellow-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
-                              </div>
-                              <div className="flex justify-between text-sm">
-                                <span className="text-gray-400">Total:</span>
-                                <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
-                              </div>
-                              {game.appId && game.gameName !== 'Unknown Steam Game' && !mockMode && (
-                                <a
-                                  href={`https://store.steampowered.com/app/${game.appId}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 mt-2"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  View on Steam <ExternalLink className="w-3 h-3" />
-                                </a>
-                              )}
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-400">Downloaded:</span>
+                              <span className="text-yellow-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
                             </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-400">Total:</span>
+                              <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
+                            </div>
+                            {game.appId && game.gameName !== 'Unknown Steam Game' && !mockMode && (
+                              <a
+                                href={`https://store.steampowered.com/app/${game.appId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 mt-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                View on Steam <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
                           </div>
                         </div>
-                      </>
+                      </div>
                     ) : (
-                      <div className="text-center py-4 text-gray-500">
+                      <div className="text-center py-8 text-gray-500">
                         No additional information available
                       </div>
                     )}
