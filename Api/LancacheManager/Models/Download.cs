@@ -19,9 +19,8 @@ public class Download
     public string? GameImageUrl { get; set; }
     public string? LastUrl { get; set; } // Store the last URL to extract game info
     
-    [JsonIgnore]
+    // Remove [JsonIgnore] - we WANT these serialized to JSON for the frontend
     public long TotalBytes => CacheHitBytes + CacheMissBytes;
     
-    [JsonIgnore]
     public double CacheHitPercent => TotalBytes > 0 ? (CacheHitBytes * 100.0) / TotalBytes : 0;
 }
