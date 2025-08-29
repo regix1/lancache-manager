@@ -182,7 +182,7 @@ public class ManagementController : ControllerBase
 
     [HttpPost("process-all-logs")]
     [RequireAuth]
-    public async Task<IActionResult> ProcessAllLogs()
+    public async Task<IActionResult> ProcessAllLogs([FromServices] OperationStateService stateService)
     {
         try
         {
@@ -204,6 +204,22 @@ public class ManagementController : ControllerBase
                 System.Text.Json.JsonSerializer.Serialize(markerData));
             
             _processingStartTime = DateTime.UtcNow;
+        
+        // Create operation state for frontend
+        var operationState = new OperationState
+        {
+            Key = "activeLogProcessing",
+            Type = "log_processing",
+            Status = "processing",
+            Message = "Processing entire log file from beginning",
+            Data = new Dictionary<string, object>
+            {
+                { "startTime", DateTime.UtcNow },
+                { "startPosition", 0L }
+            },
+            ExpiresAt = DateTime.UtcNow.AddHours(24)
+        };
+        stateService.SaveState("activeLogProcessing", operationState);
             
             // Check if log file exists
             if (!System.IO.File.Exists(LOG_PATH))
@@ -331,6 +347,10 @@ public class ManagementController : ControllerBase
                     System.IO.File.Delete(PROCESSING_MARKER);
                 }
                 
+                // Remove operation state
+                var stateService = HttpContext.RequestServices.GetRequiredService<OperationStateService>();
+                stateService.RemoveState("activeLogProcessing");
+                
                 return Ok(new { 
                     isProcessing = false,
                     message = "Processing complete",
@@ -339,7 +359,7 @@ public class ManagementController : ControllerBase
                     mbTotal = fileInfo.Length / (1024.0 * 1024.0)
                 });
             }
-            
+                        
             // Calculate processing rate
             double processingRate = 0;
             string estimatedTime = "calculating...";

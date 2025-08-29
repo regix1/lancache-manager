@@ -251,7 +251,7 @@ public class LogWatcherService : BackgroundService
                         }
                     }
 
-                    if (entry != null && entry.BytesServed > 1024) // Only process entries > 1KB
+                    if (entry != null && entry.BytesServed > 0)
                     {
                         entriesProcessed++;
                         _batchBuffer.Add(entry);
