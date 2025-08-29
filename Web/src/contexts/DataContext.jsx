@@ -13,6 +13,7 @@ export const useData = () => {
 
 export const DataProvider = ({ children }) => {
   const [mockMode, setMockMode] = useState(false);
+  const [mockDownloadCount, setMockDownloadCount] = useState(50);
   const [cacheInfo, setCacheInfo] = useState(null);
   const [activeDownloads, setActiveDownloads] = useState([]);
   const [latestDownloads, setLatestDownloads] = useState([]);
@@ -58,7 +59,8 @@ export const DataProvider = ({ children }) => {
       
       if (mockMode) {
         // In mock mode, always use mock data and ignore API
-        const mockData = MockDataService.generateMockData();
+        const actualCount = mockDownloadCount === 'unlimited' ? 500 : mockDownloadCount;
+        const mockData = MockDataService.generateMockData(actualCount);
         setCacheInfo(mockData.cacheInfo);
         setActiveDownloads(mockData.activeDownloads);
         setLatestDownloads(mockData.latestDownloads);
@@ -161,6 +163,20 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  // Method to update mock data count
+  const updateMockDataCount = (count) => {
+    if (mockMode) {
+      setMockDownloadCount(count);
+    }
+  };
+
+  // Get current refresh interval based on mode and count
+  const getCurrentRefreshInterval = () => {
+    if (isProcessingLogs) return 15000; // 15 seconds during processing
+    if (mockDownloadCount === 'unlimited') return 30000; // 30 seconds for unlimited
+    return REFRESH_INTERVAL; // Default (5 seconds)
+  };
+
   // Initial load and setup interval
   useEffect(() => {
     // Don't fetch real data if in mock mode
@@ -168,29 +184,30 @@ export const DataProvider = ({ children }) => {
       // Initial fetch
       fetchData();
       
-      // Setup interval based on processing state
+      // Setup interval based on processing state and download count
       const interval = setInterval(
         fetchData, 
-        isProcessingLogs ? 15000 : REFRESH_INTERVAL
+        getCurrentRefreshInterval()
       );
       
       return () => clearInterval(interval);
     }
-  }, [isProcessingLogs, mockMode]); // Recreate interval when processing state or mock mode changes
+  }, [isProcessingLogs, mockMode, mockDownloadCount]); // Recreate interval when these change
 
-  // Handle mock mode changes
+  // Handle mock mode changes and mock data count changes
   useEffect(() => {
-    // When switching to mock mode, immediately clear and load mock data
+    // When switching to mock mode or changing count, immediately clear and load mock data
     if (mockMode) {
-      // Clear any existing real data first
+      // Clear any existing data first
       setCacheInfo(null);
       setActiveDownloads([]);
       setLatestDownloads([]);
       setClientStats([]);
       setServiceStats([]);
       
-      // Then load mock data
-      const mockData = MockDataService.generateMockData();
+      // Then load mock data with the specified count
+      const actualCount = mockDownloadCount === 'unlimited' ? 500 : mockDownloadCount;
+      const mockData = MockDataService.generateMockData(actualCount);
       setCacheInfo(mockData.cacheInfo);
       setActiveDownloads(mockData.activeDownloads);
       setLatestDownloads(mockData.latestDownloads);
@@ -200,17 +217,21 @@ export const DataProvider = ({ children }) => {
       setConnectionStatus('connected');
       hasData.current = true;
       
-      // Setup mock update interval
+      // Setup mock update interval - slower for unlimited mode
+      const updateInterval = mockDownloadCount === 'unlimited' ? 30000 : MOCK_UPDATE_INTERVAL;
       const interval = setInterval(() => {
         const newDownload = MockDataService.generateRealtimeUpdate();
-        setLatestDownloads(prev => [newDownload, ...prev.slice(0, 49)]);
+        setLatestDownloads(prev => {
+          const maxCount = mockDownloadCount === 'unlimited' ? 500 : mockDownloadCount;
+          return [newDownload, ...prev.slice(0, maxCount - 1)];
+        });
         
         // Update active downloads
         setActiveDownloads(prev => {
           const updated = [newDownload, ...prev.filter(d => d.id !== newDownload.id)];
           return updated.slice(0, 5);
         });
-      }, MOCK_UPDATE_INTERVAL);
+      }, updateInterval);
       
       return () => clearInterval(interval);
     } else {
@@ -226,11 +247,13 @@ export const DataProvider = ({ children }) => {
       // Fetch real data
       fetchData();
     }
-  }, [mockMode]);
+  }, [mockMode, mockDownloadCount]); // Also trigger when mockDownloadCount changes
 
   const value = {
     mockMode,
     setMockMode,
+    mockDownloadCount,
+    updateMockDataCount,
     cacheInfo,
     activeDownloads,
     latestDownloads,
@@ -251,7 +274,8 @@ export const DataProvider = ({ children }) => {
     setIsProcessingLogs,
     processingStatus,
     setProcessingStatus,
-    connectionStatus
+    connectionStatus,
+    getCurrentRefreshInterval // Export this so components can see the interval
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

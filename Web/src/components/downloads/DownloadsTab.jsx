@@ -1,26 +1,35 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
-import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Filter, CheckCircle, Info } from 'lucide-react';
+import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Filter, CheckCircle, Info, AlertTriangle } from 'lucide-react';
 import { CachePerformanceTooltip, TimestampTooltip } from '../common/Tooltip';
 
 const DownloadsTab = () => {
-  const { latestDownloads, mockMode } = useData();
+  const { latestDownloads, mockMode, updateMockDataCount } = useData();
   const [expandedDownload, setExpandedDownload] = useState(null);
   const [gameInfo, setGameInfo] = useState({});
   const [loadingGame, setLoadingGame] = useState(null);
   const [showZeroBytes, setShowZeroBytes] = useState(false);
   const [selectedService, setSelectedService] = useState('all');
   const [itemsPerPage, setItemsPerPage] = useState(50);
-
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [renderedItems, setRenderedItems] = useState([]);
+  
+  // Update mock data count when itemsPerPage changes
+  useEffect(() => {
+    if (mockMode && updateMockDataCount) {
+      updateMockDataCount(itemsPerPage);
+    }
+  }, [itemsPerPage, mockMode, updateMockDataCount]);
+  
   // Get unique services for filter dropdown
   const availableServices = useMemo(() => {
     const services = new Set(latestDownloads.map(d => d.service.toLowerCase()));
     return Array.from(services).sort();
   }, [latestDownloads]);
-
-  // Filter downloads based on selected criteria
-  const filteredDownloads = useMemo(() => {
+  
+  // Filter downloads based on selected criteria (but don't slice yet)
+  const filteredDownloadsBase = useMemo(() => {
     let filtered = latestDownloads;
     
     // Filter by zero bytes
@@ -33,13 +42,41 @@ const DownloadsTab = () => {
       filtered = filtered.filter(d => d.service.toLowerCase() === selectedService);
     }
     
-    // Limit items if not unlimited
-    if (itemsPerPage !== 'unlimited') {
-      filtered = filtered.slice(0, itemsPerPage);
+    return filtered;
+  }, [latestDownloads, showZeroBytes, selectedService]);
+
+  // Progressive rendering for large datasets
+  const loadItemsProgressively = useCallback(async (items, limit) => {
+    setIsLoadingItems(true);
+    setRenderedItems([]);
+    
+    // If unlimited and large dataset, render in chunks
+    if (limit === 'unlimited' && items.length > 100) {
+      const chunkSize = 50;
+      const chunks = [];
+      
+      for (let i = 0; i < items.length; i += chunkSize) {
+        chunks.push(items.slice(i, i + chunkSize));
+      }
+      
+      // Render chunks progressively
+      for (let i = 0; i < chunks.length; i++) {
+        await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI to update
+        setRenderedItems(prev => [...prev, ...chunks[i]]);
+      }
+    } else {
+      // For smaller datasets or limited items, render immediately
+      const limitedItems = limit === 'unlimited' ? items : items.slice(0, limit);
+      setRenderedItems(limitedItems);
     }
     
-    return filtered;
-  }, [latestDownloads, showZeroBytes, selectedService, itemsPerPage]);
+    setIsLoadingItems(false);
+  }, []);
+
+  // Load items when filters or pagination changes
+  useEffect(() => {
+    loadItemsProgressively(filteredDownloadsBase, itemsPerPage);
+  }, [filteredDownloadsBase, itemsPerPage, loadItemsProgressively]);
 
   // Calculate download duration
   const getDownloadDuration = (startTime, endTime) => {
@@ -69,15 +106,15 @@ const DownloadsTab = () => {
     if (download.service.toLowerCase() !== 'steam' || (download.totalBytes || 0) === 0) {
       return;
     }
-
+    
     // Toggle expansion
     if (expandedDownload === download.id) {
       setExpandedDownload(null);
       return;
     }
-
+    
     setExpandedDownload(download.id);
-
+    
     // Don't fetch game info in mock mode
     if (mockMode) {
       setGameInfo(prev => ({ 
@@ -102,16 +139,16 @@ const DownloadsTab = () => {
       }));
       return;
     }
-
+    
     if (gameInfo[download.id]) {
       return;
     }
-
+    
     if (!download.id || download.id > 2147483647) {
       console.warn('Invalid download ID for API call:', download.id);
       return;
     }
-
+    
     try {
       setLoadingGame(download.id);
       const apiUrl = import.meta.env.VITE_API_URL || '';
@@ -168,6 +205,19 @@ const DownloadsTab = () => {
            game.gameName !== 'Unknown';
   };
 
+  const handleItemsPerPageChange = (value) => {
+    const newValue = value === 'unlimited' ? 'unlimited' : parseInt(value);
+    
+    // Show warning for large datasets
+    if (newValue === 'unlimited' && filteredDownloadsBase.length > 200) {
+      if (!window.confirm(`Loading ${filteredDownloadsBase.length} items may take a while and could affect performance. Continue?`)) {
+        return;
+      }
+    }
+    
+    setItemsPerPage(newValue);
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
       <div className="flex items-center justify-between mb-4">
@@ -185,6 +235,7 @@ const DownloadsTab = () => {
               value={selectedService}
               onChange={(e) => setSelectedService(e.target.value)}
               className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+              disabled={isLoadingItems}
             >
               <option value="all">All Services</option>
               {availableServices.map(service => (
@@ -194,19 +245,20 @@ const DownloadsTab = () => {
               ))}
             </select>
           </div>
-
+          
           {/* Items per page */}
           <select
             value={itemsPerPage}
-            onChange={(e) => setItemsPerPage(e.target.value === 'unlimited' ? 'unlimited' : parseInt(e.target.value))}
+            onChange={(e) => handleItemsPerPageChange(e.target.value)}
             className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            disabled={isLoadingItems}
           >
             <option value={50}>50 items</option>
             <option value={100}>100 items</option>
             <option value={150}>150 items</option>
             <option value="unlimited">Unlimited</option>
           </select>
-
+          
           {/* Show metadata checkbox */}
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
             <input
@@ -214,23 +266,71 @@ const DownloadsTab = () => {
               checked={showZeroBytes}
               onChange={(e) => setShowZeroBytes(e.target.checked)}
               className="rounded border-gray-600 text-blue-500 focus:ring-blue-500"
+              disabled={isLoadingItems}
             />
             Show metadata
           </label>
-
+          
           {/* Status indicators */}
           <div className="text-sm text-gray-400">
             {mockMode ? (
-              <span className="text-yellow-400">Mock Mode</span>
+              <div className="flex items-center gap-3">
+                <span className="text-yellow-400">Mock Mode</span>
+                {itemsPerPage === 'unlimited' && (
+                  <span className="text-xs text-gray-500">
+                    (30s refresh rate)
+                  </span>
+                )}
+              </div>
+            ) : isLoadingItems ? (
+              <span className="text-blue-400 flex items-center gap-1">
+                <Loader className="w-3 h-3 animate-spin" />
+                Loading...
+              </span>
             ) : (
-              <span>{filteredDownloads.length} of {latestDownloads.length} shown</span>
+              <div className="flex items-center gap-3">
+                <span>{renderedItems.length} of {filteredDownloadsBase.length} shown</span>
+                {itemsPerPage === 'unlimited' && (
+                  <span className="text-xs text-gray-500">
+                    (30s refresh rate)
+                  </span>
+                )}
+              </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Performance warning for large datasets */}
+      {itemsPerPage === 'unlimited' && filteredDownloadsBase.length > 200 && !isLoadingItems && (
+        <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-600/50 rounded-lg flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />
+          <div className="text-sm text-yellow-400">
+            <p className="font-medium">Large dataset ({filteredDownloadsBase.length} items)</p>
+            <p className="text-yellow-400/80 text-xs mt-1">
+              Rendering this many items may affect scrolling performance. Consider using pagination for better performance.
+            </p>
+          </div>
+        </div>
+      )}
+      
+      {/* Loading overlay for large datasets */}
+      {isLoadingItems && filteredDownloadsBase.length > 100 && (
+        <div className="mb-4 p-4 bg-blue-900/20 border border-blue-600/30 rounded-lg">
+          <div className="flex items-center gap-3">
+            <Loader className="w-5 h-5 animate-spin text-blue-500" />
+            <div>
+              <p className="text-sm text-blue-400">Loading {filteredDownloadsBase.length} items...</p>
+              <p className="text-xs text-blue-400/70 mt-1">
+                Progress: {renderedItems.length} / {filteredDownloadsBase.length}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
-        {filteredDownloads.length === 0 ? (
+        {renderedItems.length === 0 && !isLoadingItems ? (
           <div className="text-center py-8 text-gray-500">
             <CloudOff className="w-12 h-12 mx-auto mb-3 text-gray-600" />
             <p>No downloads found</p>
@@ -243,7 +343,7 @@ const DownloadsTab = () => {
             </p>
           </div>
         ) : (
-          filteredDownloads.map((download, idx) => {
+          renderedItems.map((download, idx) => {
             const isExpanded = expandedDownload === download.id;
             const isSteam = download.service.toLowerCase() === 'steam';
             const downloadType = getDownloadType(download);
@@ -282,6 +382,7 @@ const DownloadsTab = () => {
                         </p>
                       )}
                     </div>
+                    
                     <div>
                       <p className="text-xs text-gray-400">Client</p>
                       <p className="text-sm">{download.clientIp}</p>
@@ -289,12 +390,14 @@ const DownloadsTab = () => {
                         <p className="text-xs text-gray-500">Local</p>
                       )}
                     </div>
+                    
                     <div>
                       <p className="text-xs text-gray-400">Size</p>
                       <p className={`text-sm ${hasData ? '' : 'text-gray-500'}`}>
                         {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
                       </p>
                     </div>
+                    
                     <div>
                       <p className="text-xs text-gray-400">Cache Hit Rate</p>
                       {hasData ? (
@@ -316,6 +419,7 @@ const DownloadsTab = () => {
                         <span className="text-sm text-gray-500">N/A</span>
                       )}
                     </div>
+                    
                     <div>
                       <p className="text-xs text-gray-400 flex items-center">
                         Status / Time
@@ -358,6 +462,7 @@ const DownloadsTab = () => {
                     </div>
                   </div>
                 </div>
+                
                 {/* Expandable Game Info Section */}
                 {isExpanded && isSteam && hasData && (
                   <div className="border-t border-gray-700 bg-gray-850">
@@ -383,8 +488,8 @@ const DownloadsTab = () => {
                             </p>
                           )}
                         </div>
+                        
                         <div className="flex gap-6">
-                          {/* Show Steam logo if no valid game image */}
                           {game.headerImage && isValidGameInfo(game) ? (
                             <div className="flex-shrink-0">
                               <img 
@@ -393,7 +498,6 @@ const DownloadsTab = () => {
                                 className="rounded-lg shadow-lg"
                                 style={{ width: '460px', height: '215px', objectFit: 'cover' }}
                                 onError={(e) => {
-                                  // If image fails to load, replace with Steam logo
                                   e.target.style.display = 'none';
                                   e.target.parentElement.innerHTML = `
                                     <div class="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style="width: 460px; height: 215px;">
@@ -412,8 +516,8 @@ const DownloadsTab = () => {
                               </div>
                             </div>
                           )}
+                          
                           <div className="flex-grow space-y-3">
-                            {/* Cache statistics */}
                             <div className="flex justify-between text-sm">
                               <span className="text-gray-400">Cache Saved:</span>
                               <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
@@ -426,7 +530,7 @@ const DownloadsTab = () => {
                               <span className="text-gray-400">Total:</span>
                               <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
                             </div>
-                            {/* Only show View on Steam link if we have valid game info */}
+                            
                             {game.appId && isValidGameInfo(game) && !mockMode && (
                               <a
                                 href={`https://store.steampowered.com/app/${game.appId}`}
@@ -438,6 +542,7 @@ const DownloadsTab = () => {
                                 View on Steam <ExternalLink className="w-3 h-3" />
                               </a>
                             )}
+                            
                             {game.description && (
                               <div className="mt-4 pt-4 border-t border-gray-700">
                                 <p className="text-sm text-gray-300">
@@ -462,9 +567,9 @@ const DownloadsTab = () => {
       </div>
       
       {/* Show more indicator if limited */}
-      {itemsPerPage !== 'unlimited' && latestDownloads.length > itemsPerPage && (
+      {itemsPerPage !== 'unlimited' && filteredDownloadsBase.length > itemsPerPage && (
         <div className="text-center mt-4 text-sm text-gray-500">
-          Showing {filteredDownloads.length} of {latestDownloads.length} total downloads
+          Showing {renderedItems.length} of {filteredDownloadsBase.length} total downloads
         </div>
       )}
     </div>
