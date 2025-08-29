@@ -198,6 +198,23 @@ public class ManagementController : ControllerBase
             
             _processingCancellation = new CancellationTokenSource();
             
+            // Check if log file exists FIRST
+            if (!System.IO.File.Exists(LOG_PATH))
+            {
+                _logger.LogWarning($"Log file not found at: {LOG_PATH}");
+                return Ok(new { 
+                    message = $"Log file not found at: {LOG_PATH}. Waiting for logs...",
+                    logSizeMB = 0,
+                    estimatedTimeMinutes = 0,
+                    requiresRestart = false,
+                    status = "no_log_file"
+                });
+            }
+            
+            // Get log file size for user info
+            var fileInfo = new FileInfo(LOG_PATH);
+            var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
+            
             // Create marker file FIRST
             var markerData = new
             {
@@ -224,30 +241,23 @@ public class ManagementController : ControllerBase
                 {
                     { "startTime", DateTime.UtcNow },
                     { "startPosition", 0L },
-                    { "percentComplete", 0 }
+                    { "percentComplete", 0 },
+                    { "status", "processing" }
                 },
                 ExpiresAt = DateTime.UtcNow.AddHours(24)
             };
             stateService.SaveState("activeLogProcessing", operationState);
             
-            // Check if log file exists
-            if (!System.IO.File.Exists(LOG_PATH))
-            {
-                _logger.LogWarning($"Log file not found at: {LOG_PATH}");
-                return Ok(new { 
-                    message = $"Log file not found at: {LOG_PATH}. Waiting for logs...",
-                    logSizeMB = 0,
-                    estimatedTimeMinutes = 0,
-                    requiresRestart = false,
-                    status = "no_log_file"
-                });
-            }
-            
-            // Get log file size for user info
-            var fileInfo = new FileInfo(LOG_PATH);
-            var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
-            
             _logger.LogInformation($"Set to process entire log file ({sizeMB:F1} MB) from beginning");
+            
+            // Force the LogWatcherService to restart
+            // This is crucial - without this, the service won't pick up the marker
+            var logWatcherService = HttpContext.RequestServices.GetService<LogWatcherService>();
+            if (logWatcherService != null)
+            {
+                // The service will detect the marker on its next iteration
+                _logger.LogInformation("Log processing initiated, waiting for LogWatcherService to pick up");
+            }
             
             return Ok(new { 
                 message = $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",

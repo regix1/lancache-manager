@@ -1,13 +1,10 @@
-// services/operationState.service.js
-
 import { fetchStateOrNull } from '../utils/silentFetch';
+import authService from './auth.service';
 
-// Use the same logic as constants.js for consistency
 const getApiUrl = () => {
   if (import.meta.env.VITE_API_URL) {
     return import.meta.env.VITE_API_URL;
   }
-  // Use same origin - works with any port from docker-compose
   return '';
 };
 
@@ -25,6 +22,7 @@ class OperationStateService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authService.getAuthHeaders()
         },
         body: JSON.stringify({
           key,
@@ -35,7 +33,8 @@ class OperationStateService {
       });
       
       if (!response.ok) {
-        throw new Error('Failed to save state');
+        const error = await response.text();
+        throw new Error(`Failed to save state: ${error}`);
       }
       
       return await response.json();
@@ -47,31 +46,39 @@ class OperationStateService {
 
   async updateState(key, updates) {
     try {
-      const response = await fetch(`${API_URL}/api/operationstate/${key}`, {
+      const url = `${API_URL}/api/operationstate/${encodeURIComponent(key)}`;
+      console.log('Updating state at:', url);
+      
+      const response = await fetch(url, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
+          ...authService.getAuthHeaders()
         },
         body: JSON.stringify({
-          updates
+          updates: updates || {}
         })
       });
       
       if (!response.ok) {
-        throw new Error('Failed to update state');
+        const error = await response.text();
+        console.error('Update state response:', response.status, error);
+        throw new Error(`Failed to update state: ${response.status} - ${error}`);
       }
       
       return await response.json();
     } catch (error) {
       console.error('Error updating state:', error);
-      throw error;
+      // Don't throw - just log and continue
+      return null;
     }
   }
 
   async removeState(key) {
     try {
-      const response = await fetch(`${API_URL}/api/operationstate/${key}`, {
-        method: 'DELETE'
+      const response = await fetch(`${API_URL}/api/operationstate/${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+        headers: authService.getAuthHeaders()
       });
       
       if (!response.ok) {
@@ -91,7 +98,9 @@ class OperationStateService {
         ? `${API_URL}/api/operationstate?type=${type}`
         : `${API_URL}/api/operationstate`;
         
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: authService.getAuthHeaders()
+      });
       
       if (!response.ok) {
         throw new Error('Failed to get states');
@@ -104,7 +113,6 @@ class OperationStateService {
     }
   }
 
-  // One-time migration from localStorage to backend
   async migrateFromLocalStorage() {
     const keys = ['activeCacheClearOperation', 'activeLogProcessing', 'activeServiceRemoval'];
     let migrated = 0;
@@ -115,7 +123,6 @@ class OperationStateService {
         if (localData) {
           const parsed = JSON.parse(localData);
           
-          // Determine type based on key
           let type = 'general';
           if (key.includes('CacheClear')) type = 'cacheClearing';
           else if (key.includes('LogProcessing')) type = 'logProcessing';

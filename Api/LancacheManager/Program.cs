@@ -3,6 +3,7 @@ using LancacheManager.Data;
 using LancacheManager.Services;
 using LancacheManager.Security;
 using LancacheManager.Hubs;
+using Microsoft.AspNetCore.Routing.Constraints;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -127,6 +128,13 @@ app.UseAuthorization();
 // Map endpoints
 app.MapControllers();
 app.MapHub<DownloadHub>("/hubs/downloads");
+
+// Explicit route mapping for OperationState controller to fix 404 issues
+app.MapControllerRoute(
+    name: "operationstate_patch",
+    pattern: "api/operationstate/{key}",
+    defaults: new { controller = "OperationState", action = "UpdateState" },
+    constraints: new { httpMethod = new HttpMethodRouteConstraint("PATCH") });
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { 

@@ -70,15 +70,30 @@ public class OperationStateController : ControllerBase
         }
     }
 
+    // FIX: Use explicit route to avoid routing issues
     [HttpPatch("{key}")]
+    [Route("{key}")]
     public IActionResult UpdateState(string key, [FromBody] UpdateStateRequest request)
     {
         try
         {
+            _logger.LogInformation($"PATCH request received for key: {key}");
+            
             var state = _stateService.GetState(key);
             if (state == null)
             {
-                return NotFound();
+                _logger.LogWarning($"State not found for key: {key}");
+                // Instead of 404, create a new state if it doesn't exist
+                state = new OperationState
+                {
+                    Key = key,
+                    Type = "unknown",
+                    Data = new Dictionary<string, object>(),
+                    Status = request.Status,
+                    Message = request.Message,
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(30)
+                };
+                _stateService.SaveState(key, state);
             }
 
             if (request.Updates != null && request.Updates.Count > 0)
@@ -103,7 +118,7 @@ public class OperationStateController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error updating state for key: {key}");
-            return StatusCode(500, new { error = "Failed to update state" });
+            return StatusCode(500, new { error = "Failed to update state", message = ex.Message });
         }
     }
 

@@ -589,12 +589,12 @@ public class CacheClearingService : IHostedService
             var dirName = Path.GetFileName(directory);
             _logger.LogDebug($"Starting deletion of directory {dirName}");
             
-            // First, try using find with delete for efficiency
+            // Use rm -rf with sudo if needed (for permission issues)
             using var process = new Process();
             process.StartInfo = new ProcessStartInfo
             {
-                FileName = "/bin/sh",
-                Arguments = $"-c \"find '{directory}' -type f -delete 2>/dev/null; find '{directory}' -type d -empty -delete 2>/dev/null\"",
+                FileName = "/bin/bash",
+                Arguments = $"-c \"rm -rf '{directory}'/* 2>/dev/null || sudo rm -rf '{directory}'/* 2>/dev/null\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -603,43 +603,57 @@ public class CacheClearingService : IHostedService
             
             process.Start();
             
-            // Wait for up to 60 seconds per directory
-            bool completed = await Task.Run(() => process.WaitForExit(60000));
+            // Wait for up to 120 seconds per directory (increased timeout)
+            bool completed = await Task.Run(() => process.WaitForExit(120000));
             
             if (!completed)
             {
                 _logger.LogWarning($"Delete operation timed out for directory {dirName}, killing process");
                 process.Kill();
-                return false;
+                
+                // Try forceful deletion
+                return await ForceDeleteDirectory(directory);
             }
             
-            if (process.ExitCode == 0)
+            var error = await process.StandardError.ReadToEndAsync();
+            if (!string.IsNullOrEmpty(error))
             {
-                _logger.LogDebug($"Successfully deleted contents of directory {dirName} using find");
+                _logger.LogWarning($"Deletion warnings for {dirName}: {error}");
+            }
+            
+            // Verify deletion was successful
+            var remainingFiles = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Length;
+            if (remainingFiles == 0)
+            {
+                _logger.LogDebug($"Successfully deleted all contents of directory {dirName}");
                 return true;
             }
             else
             {
-                var error = await process.StandardError.ReadToEndAsync();
-                _logger.LogWarning($"Find command failed for directory {dirName}: {error}");
+                _logger.LogWarning($"Directory {dirName} still has {remainingFiles} files after deletion attempt");
+                return await ForceDeleteDirectory(directory);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, $"Failed to delete directory {directory} using find");
+            _logger.LogError(ex, $"Failed to delete directory {directory}");
+            return false;
         }
-        
-        // Fallback: Try rm -rf (more aggressive)
+    }
+
+    private async Task<bool> ForceDeleteDirectory(string directory)
+    {
         try
         {
             var dirName = Path.GetFileName(directory);
-            _logger.LogDebug($"Trying rm -rf for directory {dirName}");
+            _logger.LogWarning($"Attempting force deletion for directory {dirName}");
             
+            // Try with ionice to reduce I/O impact
             using var process = new Process();
             process.StartInfo = new ProcessStartInfo
             {
-                FileName = "/bin/sh",
-                Arguments = $"-c \"rm -rf '{directory}'/* 2>/dev/null\"",
+                FileName = "/bin/bash",
+                Arguments = $"-c \"ionice -c3 find '{directory}' -type f -delete && find '{directory}' -type d -empty -delete\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -647,58 +661,26 @@ public class CacheClearingService : IHostedService
             };
             
             process.Start();
-            bool completed = await Task.Run(() => process.WaitForExit(60000));
+            await process.WaitForExitAsync();
             
-            if (completed && process.ExitCode == 0)
+            // Final verification
+            var remainingFiles = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Length;
+            var success = remainingFiles == 0;
+            
+            if (success)
             {
-                _logger.LogDebug($"Successfully deleted contents of directory {dirName} using rm -rf");
-                return true;
+                _logger.LogInformation($"Force deletion successful for directory {dirName}");
             }
+            else
+            {
+                _logger.LogError($"Force deletion failed for directory {dirName}, {remainingFiles} files remain");
+            }
+            
+            return success;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, $"Failed to delete directory {directory} using rm -rf");
-        }
-        
-        // Last resort: Manual deletion
-        try
-        {
-            var dirName = Path.GetFileName(directory);
-            _logger.LogDebug($"Using manual deletion for directory {dirName}");
-            
-            int filesDeleted = 0;
-            var files = Directory.GetFiles(directory, "*", SearchOption.AllDirectories);
-            
-            foreach (var file in files)
-            {
-                try
-                {
-                    File.Delete(file);
-                    filesDeleted++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogTrace($"Failed to delete file {file}: {ex.Message}");
-                }
-            }
-            
-            // Delete empty subdirectories
-            var subdirs = Directory.GetDirectories(directory);
-            foreach (var subdir in subdirs)
-            {
-                try
-                {
-                    Directory.Delete(subdir, true);
-                }
-                catch { }
-            }
-            
-            _logger.LogDebug($"Manually deleted {filesDeleted} files from directory {dirName}");
-            return filesDeleted > 0;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Manual deletion failed for directory {directory}");
+            _logger.LogError(ex, $"Force deletion failed for {directory}");
             return false;
         }
     }
