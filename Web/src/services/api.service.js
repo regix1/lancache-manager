@@ -1,7 +1,15 @@
 import { API_BASE } from '../utils/constants';
+import authService from './auth.service';
 
 class ApiService {
   static async handleResponse(response) {
+    // Handle 401 Unauthorized
+    if (response.status === 401) {
+      authService.handleUnauthorized();
+      const error = await response.text().catch(() => '');
+      throw new Error(`Authentication required: ${error || 'Please provide API key'}`);
+    }
+    
     if (!response.ok) {
       const error = await response.text().catch(() => '');
       throw new Error(`HTTP ${response.status}: ${error || response.statusText}`);
@@ -9,9 +17,20 @@ class ApiService {
     return response.json();
   }
 
+  // Helper to add auth headers to all requests
+  static getHeaders(additionalHeaders = {}) {
+    return {
+      ...authService.getAuthHeaders(),
+      ...additionalHeaders
+    };
+  }
+
   static async getCacheInfo(signal) {
     try {
-      const res = await fetch(`${API_BASE}/management/cache`, { signal });
+      const res = await fetch(`${API_BASE}/management/cache`, { 
+        signal,
+        headers: this.getHeaders()
+      });
       return await this.handleResponse(res);
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -25,7 +44,10 @@ class ApiService {
 
   static async getActiveDownloads(signal) {
     try {
-      const res = await fetch(`${API_BASE}/downloads/active`, { signal });
+      const res = await fetch(`${API_BASE}/downloads/active`, { 
+        signal,
+        headers: this.getHeaders()
+      });
       return await this.handleResponse(res);
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -39,7 +61,10 @@ class ApiService {
 
   static async getLatestDownloads(signal) {
     try {
-      const res = await fetch(`${API_BASE}/downloads/latest`, { signal });
+      const res = await fetch(`${API_BASE}/downloads/latest`, { 
+        signal,
+        headers: this.getHeaders()
+      });
       return await this.handleResponse(res);
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -53,7 +78,10 @@ class ApiService {
 
   static async getClientStats(signal) {
     try {
-      const res = await fetch(`${API_BASE}/stats/clients`, { signal });
+      const res = await fetch(`${API_BASE}/stats/clients`, { 
+        signal,
+        headers: this.getHeaders()
+      });
       return await this.handleResponse(res);
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -67,7 +95,10 @@ class ApiService {
 
   static async getServiceStats(signal) {
     try {
-      const res = await fetch(`${API_BASE}/stats/services`, { signal });
+      const res = await fetch(`${API_BASE}/stats/services`, { 
+        signal,
+        headers: this.getHeaders()
+      });
       return await this.handleResponse(res);
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -79,13 +110,13 @@ class ApiService {
     }
   }
 
-  // Start async cache clearing operation
+  // Start async cache clearing operation (requires auth)
   static async clearAllCache() {
     try {
       const res = await fetch(`${API_BASE}/management/cache/clear-all`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10000) // 10 second timeout to start operation
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        signal: AbortSignal.timeout(10000)
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -98,7 +129,8 @@ class ApiService {
   static async getCacheClearStatus(operationId) {
     try {
       const res = await fetch(`${API_BASE}/management/cache/clear-status/${operationId}`, { 
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
+        headers: this.getHeaders()
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -107,12 +139,12 @@ class ApiService {
     }
   }
 
-  // Cancel cache clearing operation
+  // Cancel cache clearing operation (requires auth)
   static async cancelCacheClear(operationId) {
     try {
       const res = await fetch(`${API_BASE}/management/cache/clear-cancel/${operationId}`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(5000)
       });
       return await this.handleResponse(res);
@@ -126,7 +158,8 @@ class ApiService {
   static async getActiveCacheOperations() {
     try {
       const res = await fetch(`${API_BASE}/management/cache/active-operations`, { 
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
+        headers: this.getHeaders()
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -144,11 +177,12 @@ class ApiService {
     }
   }
 
+  // Reset database (requires auth)
   static async resetDatabase() {
     try {
       const res = await fetch(`${API_BASE}/management/database`, { 
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(60000)
       });
       return await this.handleResponse(res);
@@ -158,11 +192,12 @@ class ApiService {
     }
   }
 
+  // Reset log position (requires auth)
   static async resetLogPosition() {
     try {
       const res = await fetch(`${API_BASE}/management/reset-logs`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(60000)
       });
       return await this.handleResponse(res);
@@ -172,11 +207,12 @@ class ApiService {
     }
   }
 
+  // Process all logs (requires auth)
   static async processAllLogs() {
     try {
       const res = await fetch(`${API_BASE}/management/process-all-logs`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(120000)
       });
       return await this.handleResponse(res);
@@ -186,11 +222,12 @@ class ApiService {
     }
   }
 
+  // Cancel processing (requires auth)
   static async cancelProcessing() {
     try {
       const res = await fetch(`${API_BASE}/management/cancel-processing`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(10000)
       });
       return await this.handleResponse(res);
@@ -203,7 +240,8 @@ class ApiService {
   static async getProcessingStatus() {
     try {
       const res = await fetch(`${API_BASE}/management/processing-status`, { 
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
+        headers: this.getHeaders()
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -212,14 +250,14 @@ class ApiService {
     }
   }
 
-  // Remove specific service entries from log file
+  // Remove specific service entries from log file (requires auth)
   static async removeServiceFromLogs(service) {
     try {
       const res = await fetch(`${API_BASE}/management/logs/remove-service`, { 
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ service }),
-        signal: AbortSignal.timeout(120000) // 2 minutes for large logs
+        signal: AbortSignal.timeout(120000)
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -232,7 +270,8 @@ class ApiService {
   static async getServiceLogCounts() {
     try {
       const res = await fetch(`${API_BASE}/management/logs/service-counts`, { 
-        signal: AbortSignal.timeout(30000) // 30 seconds
+        signal: AbortSignal.timeout(30000),
+        headers: this.getHeaders()
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -241,18 +280,19 @@ class ApiService {
     }
   }
 
-  // Get configuration info (cache path, services list, etc.)
+  // Get configuration info
   static async getConfig() {
     try {
       const res = await fetch(`${API_BASE}/management/config`, { 
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(5000),
+        headers: this.getHeaders()
       });
       return await this.handleResponse(res);
     } catch (error) {
       console.error('getConfig error:', error);
       // Return defaults if API fails
       return {
-        cachePath: '/mnt/cache/cache',
+        cachePath: '/cache',
         logPath: '/logs/access.log',
         services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
       };

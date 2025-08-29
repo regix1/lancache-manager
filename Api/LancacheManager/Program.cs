@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Data;
 using LancacheManager.Services;
+using LancacheManager.Security;
 using LancacheManager.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -57,6 +58,10 @@ builder.Services.AddHttpClient<SteamService>(client =>
     client.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
 });
 
+// Register Authentication Services
+builder.Services.AddSingleton<ApiKeyService>();
+builder.Services.AddSingleton<DeviceAuthService>();
+
 // Register the Steam depot mapping service as singleton and hosted service
 builder.Services.AddSingleton<SteamDepotMappingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamDepotMappingService>());
@@ -92,6 +97,13 @@ builder.Logging.AddDebug();
 
 var app = builder.Build();
 
+// Initialize API Key on startup
+using (var scope = app.Services.CreateScope())
+{
+    var apiKeyService = scope.ServiceProvider.GetRequiredService<ApiKeyService>();
+    apiKeyService.DisplayApiKey(); // This will create and display the API key
+}
+
 // Enable Swagger in all environments
 app.UseSwagger();
 app.UseSwaggerUI(c =>
@@ -101,6 +113,9 @@ app.UseSwaggerUI(c =>
 });
 
 app.UseCors("AllowAll");
+
+// Add Authentication Middleware
+app.UseMiddleware<AuthenticationMiddleware>();
 
 // Serve static files
 app.UseDefaultFiles();

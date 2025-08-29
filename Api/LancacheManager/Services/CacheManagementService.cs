@@ -14,23 +14,17 @@ public class CacheManagementService
         _configuration = configuration;
         _logger = logger;
         
-        // Check if we're in Docker (container environment)
         // In container: cache is at /cache
-        // In development: might be at /mnt/cache/cache
+        // In development: use configured path or current directory
         if (Directory.Exists("/cache") && Directory.GetDirectories("/cache").Any(d => Path.GetFileName(d).Length == 2))
         {
             _cachePath = "/cache";
             _logger.LogInformation("Detected containerized environment, using cache path: /cache");
         }
-        else if (Directory.Exists("/mnt/cache/cache"))
-        {
-            _cachePath = "/mnt/cache/cache";
-            _logger.LogInformation("Using host cache path: /mnt/cache/cache");
-        }
         else
         {
-            _cachePath = configuration["LanCache:CachePath"] ?? "/cache";
-            _logger.LogWarning($"Using configured cache path: {_cachePath}");
+            _cachePath = configuration["LanCache:CachePath"] ?? "./cache";
+            _logger.LogInformation($"Using configured cache path: {_cachePath}");
         }
         
         _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
@@ -44,6 +38,13 @@ public class CacheManagementService
 
         try
         {
+            // For Windows development, skip drive info
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                _logger.LogDebug("Running on Windows, skipping drive info");
+                return info;
+            }
+
             // Find the actual mount point for the cache directory
             var mountPoint = GetMountPoint(_cachePath);
             _logger.LogInformation($"Cache path: {_cachePath}, Mount point: {mountPoint}");
@@ -100,28 +101,15 @@ public class CacheManagementService
                 return bestMatch;
             }
             
-            // Fallback: check common mount points
+            // Fallback: check if /cache is a mount point
             if (path.StartsWith("/cache"))
             {
                 if (Directory.Exists("/cache") && new DriveInfo("/cache").TotalSize > 0)
                     return "/cache";
             }
             
-            if (path.StartsWith("/mnt/cache"))
-            {
-                // Try specific mount points in order of specificity
-                if (Directory.Exists("/mnt/cache/cache") && new DriveInfo("/mnt/cache/cache").TotalSize > 0)
-                    return "/mnt/cache/cache";
-                if (Directory.Exists("/mnt/cache") && new DriveInfo("/mnt/cache").TotalSize > 0)
-                    return "/mnt/cache";
-            }
-            
-            // Last resort: use the parent directory
-            var parent = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
-            {
-                return parent;
-            }
+            // Last resort: use root
+            return "/";
         }
         catch (Exception ex)
         {

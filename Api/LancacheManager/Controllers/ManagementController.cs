@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
+using LancacheManager.Security;
 
 namespace LancacheManager.Controllers;
 
@@ -59,6 +60,7 @@ public class ManagementController : ControllerBase
 
     // New async endpoint for clearing all cache
     [HttpPost("cache/clear-all")]
+    [RequireAuth]
     public async Task<IActionResult> ClearAllCache()
     {
         try
@@ -97,6 +99,7 @@ public class ManagementController : ControllerBase
 
     // Cancel cache clearing operation
     [HttpPost("cache/clear-cancel/{operationId}")]
+    [RequireAuth]
     public IActionResult CancelClearOperation(string operationId)
     {
         var cancelled = _cacheClearingService.CancelOperation(operationId);
@@ -111,6 +114,7 @@ public class ManagementController : ControllerBase
 
     // Legacy endpoint for compatibility
     [HttpDelete("cache")]
+    [RequireAuth]
     public async Task<IActionResult> ClearCache([FromQuery] string? service = null)
     {
         try
@@ -140,6 +144,7 @@ public class ManagementController : ControllerBase
     }
 
     [HttpDelete("database")]
+    [RequireAuth]
     public async Task<IActionResult> ResetDatabase()
     {
         await _dbService.ResetDatabase();
@@ -147,6 +152,7 @@ public class ManagementController : ControllerBase
     }
 
     [HttpPost("reset-logs")]
+    [RequireAuth]
     public async Task<IActionResult> ResetLogPosition()
     {
         try
@@ -175,6 +181,7 @@ public class ManagementController : ControllerBase
     }
 
     [HttpPost("process-all-logs")]
+    [RequireAuth]
     public async Task<IActionResult> ProcessAllLogs()
     {
         try
@@ -233,6 +240,7 @@ public class ManagementController : ControllerBase
     }
 
     [HttpPost("cancel-processing")]
+    [RequireAuth]
     public async Task<IActionResult> CancelProcessing()
     {
         try
@@ -376,6 +384,7 @@ public class ManagementController : ControllerBase
 
     // New endpoint to remove service entries from log file
     [HttpPost("logs/remove-service")]
+    [RequireAuth]
     public async Task<IActionResult> RemoveServiceFromLogs([FromBody] RemoveServiceRequest request)
     {
         try
@@ -414,8 +423,6 @@ public class ManagementController : ControllerBase
             return StatusCode(500, new { error = "Failed to get service log counts" });
         }
     }
-
-    // Add these methods to your existing ManagementController class:
 
     [HttpGet("cache/clear-operations")]
     public IActionResult GetAllClearOperations()
@@ -473,7 +480,7 @@ public class ManagementController : ControllerBase
         {
             _logger.LogError(ex, "Error getting configuration");
             return Ok(new { 
-                cachePath = "/mnt/cache/cache",
+                cachePath = "/cache",
                 logPath = "/logs/access.log",
                 services = new[] { "steam", "epic", "origin", "blizzard", "wsus", "riot" }
             });

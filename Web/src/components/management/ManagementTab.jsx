@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, HardDrive, FileText, X, Eye } from 'lucide-react';
+import { ToggleLeft, ToggleRight, Trash2, Database, RefreshCw, PlayCircle, AlertCircle, CheckCircle, Loader, StopCircle, HardDrive, FileText, X, Eye, Key, Lock, Unlock } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import ApiService from '../../services/api.service';
+import authService from '../../services/auth.service';
 import operationStateService from '../../services/operationState.service';
 import { useBackendOperation } from '../../hooks/useBackendOperation';
-import { formatBytes } from '../../utils/formatters'; // Use existing utility
+import { formatBytes } from '../../utils/formatters';
 import * as signalR from '@microsoft/signalr';
 
 const ManagementTab = () => {
@@ -24,11 +25,19 @@ const ManagementTab = () => {
   const [alerts, setAlerts] = useState({ errors: [], success: null });
   const [serviceCounts, setServiceCounts] = useState({});
   const [config, setConfig] = useState({
-    cachePath: '/mnt/cache/cache',
+    cachePath: '/cache',
     logPath: '/logs/access.log',
     services: []
   });
   const [hasMigrated, setHasMigrated] = useState(false);
+  
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
   
   // Cache clearing state
   const [cacheClearProgress, setCacheClearProgress] = useState(null);
@@ -83,6 +92,30 @@ const ManagementTab = () => {
     };
   }, [clearIntervalRef]);
 
+  // Check authentication status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      setAuthChecking(true);
+      try {
+        const result = await authService.checkAuth();
+        setIsAuthenticated(result.isAuthenticated);
+        
+        // If not authenticated but we think we are registered, try again
+        if (!result.isAuthenticated && authService.isRegistered()) {
+          // Clear the registration flag and check again
+          authService.clearAuth();
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        setIsAuthenticated(false);
+      } finally {
+        setAuthChecking(false);
+      }
+    };
+    
+    checkAuth();
+  }, []);
+
   // Initialize on mount with migration
   useEffect(() => {
     const initialize = async () => {
@@ -114,7 +147,7 @@ const ManagementTab = () => {
     } catch (err) {
       console.error('Failed to load config:', err);
       setConfig({
-        cachePath: '/mnt/cache/cache',
+        cachePath: '/cache',
         logPath: '/logs/access.log',
         services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
       });
@@ -193,6 +226,91 @@ const ManagementTab = () => {
     } catch (err) {
       console.error('SignalR connection failed, falling back to polling:', err);
     }
+  };
+
+  // Authentication handlers
+  const handleAuthenticate = async () => {
+    if (!apiKey.trim()) {
+      setAuthError('Please enter an API key');
+      return;
+    }
+
+    setAuthLoading(true);
+    setAuthError('');
+
+    try {
+      const result = await authService.register(apiKey);
+      
+      if (result.success) {
+        setIsAuthenticated(true);
+        setShowAuthModal(false);
+        setApiKey('');
+        
+        // Clear all alerts including the regeneration error
+        clearAlerts();
+        
+        setSuccess('Authentication successful! You can now use management features.');
+        
+        // Reload config after authentication
+        await loadConfig();
+      } else {
+        setAuthError(result.message || 'Authentication failed');
+      }
+    } catch (error) {
+      console.error('Authentication error:', error);
+      setAuthError(error.message || 'Authentication failed');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Regenerate API key (server-side)
+  const handleRegenerateKey = async () => {
+    const message = 'WARNING: This will:\n\n' +
+      '1. Generate a NEW API key on the server\n' +
+      '2. Revoke ALL existing device registrations\n' +
+      '3. Require ALL users to re-authenticate\n' +
+      '4. You must check the container logs for the new key\n\n' +
+      'This cannot be undone. Continue?';
+    
+    if (!confirm(message)) return;
+    
+    setAuthLoading(true);
+    clearAlerts();
+    
+    try {
+      const result = await authService.regenerateApiKey();
+      
+      if (result.success) {
+        setIsAuthenticated(false);
+        setShowAuthModal(false);
+        
+        // Show detailed message about what happened
+        addError('API KEY REGENERATED - Check container logs for new key!');
+        setSuccess(result.message);
+        
+        // Show auth modal after a delay so user can read the messages
+        setTimeout(() => {
+          setShowAuthModal(true);
+        }, 3000);
+      } else {
+        addError(result.message || 'Failed to regenerate API key');
+      }
+    } catch (error) {
+      console.error('Error regenerating key:', error);
+      addError('Failed to regenerate API key: ' + error.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Wrap action handlers to check auth
+  const requireAuth = async (action) => {
+    if (!isAuthenticated) {
+      setShowAuthModal(true);
+      return false;
+    }
+    return true;
   };
 
   // Polling functions
@@ -287,6 +405,7 @@ const ManagementTab = () => {
 
   // Action handlers
   const handleClearAllCache = async () => {
+    if (!(await requireAuth())) return;
     if (!confirm('This will clear ALL cached game files. Continue?')) return;
     
     setActionLoading(true);
@@ -308,7 +427,11 @@ const ManagementTab = () => {
         startCacheClearPolling(result.operationId);
       }
     } catch (err) {
-      addError('Failed to start cache clearing: ' + err.message);
+      if (err.message.includes('Authentication required')) {
+        setShowAuthModal(true);
+      } else {
+        addError('Failed to start cache clearing: ' + err.message);
+      }
     } finally {
       setActionLoading(false);
     }
@@ -342,6 +465,7 @@ const ManagementTab = () => {
   };
 
   const handleCancelProcessing = async () => {
+    if (!(await requireAuth())) return;
     if (!confirm('Cancel log processing?')) return;
     
     setActionLoading(true);
@@ -356,7 +480,11 @@ const ManagementTab = () => {
         fetchData();
       }, 5000);
     } catch (err) {
-      addError('Failed to cancel processing');
+      if (err.message.includes('Authentication required')) {
+        setShowAuthModal(true);
+      } else {
+        addError('Failed to cancel processing');
+      }
     } finally {
       setActionLoading(false);
     }
@@ -367,6 +495,9 @@ const ManagementTab = () => {
       addError('Actions disabled in mock mode');
       return;
     }
+
+    // Check authentication for protected actions
+    if (!(await requireAuth())) return;
 
     setActionLoading(true);
     clearAlerts();
@@ -440,11 +571,16 @@ const ManagementTab = () => {
       if (action === 'processAllLogs') await logProcessingOp.clear();
       if (action === 'removeServiceLogs') await serviceRemovalOp.clear();
       
-      const errorMessage = err.message?.includes('read-only') 
-        ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
-        : err.message || 'Action failed';
-      
-      addError(errorMessage);
+      // Handle authentication errors
+      if (err.message.includes('Authentication required')) {
+        setShowAuthModal(true);
+      } else {
+        const errorMessage = err.message?.includes('read-only') 
+          ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
+          : err.message || 'Action failed';
+        
+        addError(errorMessage);
+      }
     } finally {
       setActionLoading(false);
     }
@@ -487,8 +623,140 @@ const ManagementTab = () => {
     </div>
   );
 
+  // Authentication Modal
+  const AuthModal = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4 border border-gray-700">
+        <div className="flex items-center space-x-3 mb-4">
+          <Key className="w-6 h-6 text-yellow-500" />
+          <h3 className="text-lg font-semibold text-white">Authentication Required</h3>
+        </div>
+        
+        <p className="text-gray-300 mb-4">
+          Management operations require authentication. Please enter your API key to continue.
+        </p>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              API Key
+            </label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleAuthenticate()}
+              placeholder="lm_xxxxxxxxxxxxxxxxxxxxx"
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+              disabled={authLoading}
+            />
+          </div>
+          
+          {authError && (
+            <div className="p-3 bg-red-900 bg-opacity-30 rounded border border-red-700">
+              <p className="text-sm text-red-400">{authError}</p>
+            </div>
+          )}
+          
+          <div className="text-xs text-gray-400">
+            <p>To find your API key:</p>
+            <ol className="list-decimal list-inside mt-1 space-y-1">
+              <li>SSH into your server</li>
+              <li>Check the file: <code className="bg-gray-700 px-1 rounded">/data/api_key.txt</code></li>
+              <li>Or check the API container logs on startup</li>
+            </ol>
+          </div>
+          
+          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
+            <button
+              onClick={() => {
+                setShowAuthModal(false);
+                setApiKey('');
+                setAuthError('');
+              }}
+              disabled={authLoading}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded text-white disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAuthenticate}
+              disabled={authLoading || !apiKey.trim()}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-white disabled:opacity-50 flex items-center space-x-2"
+            >
+              {authLoading ? (
+                <>
+                  <Loader className="w-4 h-4 animate-spin" />
+                  <span>Authenticating...</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>Authenticate</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
+      {/* Authentication Status */}
+      {!authChecking && (
+        <div className={`rounded-lg p-4 border ${
+          isAuthenticated 
+            ? 'bg-green-900 bg-opacity-30 border-green-700' 
+            : 'bg-yellow-900 bg-opacity-30 border-yellow-700'
+        }`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              {isAuthenticated ? (
+                <>
+                  <Unlock className="w-5 h-5 text-green-500" />
+                  <span className="text-green-400">Authenticated - Management features enabled</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-5 h-5 text-yellow-500" />
+                  <span className="text-yellow-400">Not authenticated - Management features require API key</span>
+                </>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              {isAuthenticated ? (
+                <button
+                  onClick={handleRegenerateKey}
+                  disabled={authLoading}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded text-white text-sm flex items-center space-x-2"
+                  title="Regenerate API key and revoke all devices"
+                >
+                  {authLoading ? (
+                    <Loader className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <AlertCircle className="w-3 h-3" />
+                  )}
+                  <span>Regenerate Key</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-white flex items-center space-x-2"
+                >
+                  <Key className="w-4 h-4" />
+                  <span>Authenticate</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Authentication Modal */}
+      {showAuthModal && <AuthModal />}
+
       {/* Status Bars */}
       {isCacheClearingInBackground && (
         <StatusBar
@@ -724,7 +992,7 @@ const ManagementTab = () => {
         </p>
         <button
           onClick={handleClearAllCache}
-          disabled={actionLoading || isProcessingLogs || mockMode || isCacheClearingInBackground || cacheOp.loading}
+          disabled={actionLoading || isProcessingLogs || mockMode || isCacheClearingInBackground || cacheOp.loading || !isAuthenticated}
           className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
           {actionLoading || cacheOp.loading ? <Loader className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
@@ -745,7 +1013,7 @@ const ManagementTab = () => {
         </p>
         <button
           onClick={() => handleAction('resetDatabase')}
-          disabled={actionLoading || isProcessingLogs || mockMode}
+          disabled={actionLoading || isProcessingLogs || mockMode || !isAuthenticated}
           className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-colors"
         >
           {actionLoading ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
@@ -767,7 +1035,7 @@ const ManagementTab = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <button
             onClick={() => handleAction('resetLogs')}
-            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading}
+            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 transition-colors"
           >
             <RefreshCw className="w-4 h-4" />
@@ -775,7 +1043,7 @@ const ManagementTab = () => {
           </button>
           <button
             onClick={() => handleAction('processAllLogs')}
-            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading}
+            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
             className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 disabled:opacity-50 transition-colors"
           >
             {logProcessingOp.loading ? <Loader className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
@@ -805,7 +1073,7 @@ const ManagementTab = () => {
               <button
                 key={service}
                 onClick={() => handleAction('removeServiceLogs', service)}
-                disabled={actionLoading || isProcessingLogs || mockMode || activeServiceRemoval || serviceRemovalOp.loading}
+                disabled={actionLoading || isProcessingLogs || mockMode || activeServiceRemoval || serviceRemovalOp.loading || !isAuthenticated}
                 className={`px-4 py-3 rounded-lg transition-colors flex flex-col items-center ${
                   isRemoving 
                     ? 'bg-orange-700 cursor-not-allowed opacity-75' 
