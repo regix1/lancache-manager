@@ -153,7 +153,7 @@ public class ManagementController : ControllerBase
 
     [HttpPost("reset-logs")]
     [RequireAuth]
-    public async Task<IActionResult> ResetLogPosition()
+    public async Task<IActionResult> ResetLogPosition([FromQuery] bool clearDatabase = false)
     {
         try
         {
@@ -163,14 +163,18 @@ public class ManagementController : ControllerBase
                 System.IO.File.Delete(POSITION_FILE);
             }
             
-            // Also reset database
-            await _dbService.ResetDatabase();
+            // Only reset database if explicitly requested
+            if (clearDatabase)
+            {
+                await _dbService.ResetDatabase();
+            }
             
-            _logger.LogInformation("Log position and database reset - will start from end of log");
+            _logger.LogInformation("Log position reset - will start from end of log");
             
             return Ok(new { 
                 message = "Log position reset successfully. Will start monitoring from the current end of the log file.",
-                requiresRestart = false 
+                requiresRestart = false,
+                databaseCleared = clearDatabase
             });
         }
         catch (Exception ex)
@@ -188,12 +192,13 @@ public class ManagementController : ControllerBase
         {
             // Cancel any existing processing
             _processingCancellation?.Cancel();
+            
+            // Wait a moment for cancellation to complete
+            await Task.Delay(500);
+            
             _processingCancellation = new CancellationTokenSource();
             
-            // Set position to 0 to process from beginning
-            await System.IO.File.WriteAllTextAsync(POSITION_FILE, "0");
-            
-            // Create marker file with metadata
+            // Create marker file FIRST
             var markerData = new
             {
                 startTime = DateTime.UtcNow,
@@ -203,23 +208,27 @@ public class ManagementController : ControllerBase
             await System.IO.File.WriteAllTextAsync(PROCESSING_MARKER, 
                 System.Text.Json.JsonSerializer.Serialize(markerData));
             
+            // Then set position to 0
+            await System.IO.File.WriteAllTextAsync(POSITION_FILE, "0");
+            
             _processingStartTime = DateTime.UtcNow;
-        
-        // Create operation state for frontend
-        var operationState = new OperationState
-        {
-            Key = "activeLogProcessing",
-            Type = "log_processing",
-            Status = "processing",
-            Message = "Processing entire log file from beginning",
-            Data = new Dictionary<string, object>
+            
+            // Create operation state for frontend
+            var operationState = new OperationState
             {
-                { "startTime", DateTime.UtcNow },
-                { "startPosition", 0L }
-            },
-            ExpiresAt = DateTime.UtcNow.AddHours(24)
-        };
-        stateService.SaveState("activeLogProcessing", operationState);
+                Key = "activeLogProcessing",
+                Type = "log_processing",
+                Status = "processing",
+                Message = "Processing entire log file from beginning",
+                Data = new Dictionary<string, object>
+                {
+                    { "startTime", DateTime.UtcNow },
+                    { "startPosition", 0L },
+                    { "percentComplete", 0 }
+                },
+                ExpiresAt = DateTime.UtcNow.AddHours(24)
+            };
+            stateService.SaveState("activeLogProcessing", operationState);
             
             // Check if log file exists
             if (!System.IO.File.Exists(LOG_PATH))
@@ -359,7 +368,7 @@ public class ManagementController : ControllerBase
                     mbTotal = fileInfo.Length / (1024.0 * 1024.0)
                 });
             }
-                        
+            
             // Calculate processing rate
             double processingRate = 0;
             string estimatedTime = "calculating...";

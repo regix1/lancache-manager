@@ -110,19 +110,11 @@ public class LogWatcherService : BackgroundService
         // Determine starting position
         if (hasBulkProcessingMarker)
         {
-            if (_lastPosition <= 0 || _lastPosition >= fileInfo.Length)
-            {
-                // Start from beginning for bulk processing
-                _lastPosition = 0;
-                _logger.LogInformation($"Bulk processing: starting from beginning ({fileInfo.Length / 1024.0 / 1024.0:F1} MB to process)");
-            }
-            else
-            {
-                // Resume bulk processing
-                var remaining = fileInfo.Length - _lastPosition;
-                _logger.LogInformation($"Bulk processing: resuming from {_lastPosition:N0} ({remaining / 1024.0 / 1024.0:F1} MB remaining)");
-            }
+            // Always start from 0 when marker exists, regardless of saved position
+            _lastPosition = 0;
+            _logger.LogInformation($"Bulk processing: starting from beginning ({fileInfo.Length / 1024.0 / 1024.0:F1} MB to process)");
             _isBulkProcessing = true;
+            await SavePosition(); // Save immediately to ensure consistency
         }
         else if (_lastPosition >= 0 && _lastPosition <= fileInfo.Length)
         {
@@ -251,7 +243,7 @@ public class LogWatcherService : BackgroundService
                         }
                     }
 
-                    if (entry != null && entry.BytesServed > 0)
+                    if (entry != null && entry.BytesServed > 0) // Process all entries with bytes
                     {
                         entriesProcessed++;
                         _batchBuffer.Add(entry);
@@ -270,6 +262,13 @@ public class LogWatcherService : BackgroundService
                     {
                         await ProcessBatch(_batchBuffer.ToList(), !_isBulkProcessing);
                         _batchBuffer.Clear();
+                        
+                        // Force position save after each batch during bulk processing
+                        if (_isBulkProcessing)
+                        {
+                            _lastPosition = stream.Position;
+                            await SavePosition();
+                        }
                     }
 
                     // Save position periodically
@@ -280,8 +279,9 @@ public class LogWatcherService : BackgroundService
                         lastSaveTime = DateTime.UtcNow;
                     }
 
-                    // Report progress
-                    if (DateTime.UtcNow - lastReportTime > TimeSpan.FromSeconds(10))
+                    // Report progress - more frequent during bulk processing
+                    var progressInterval = _isBulkProcessing ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(10);
+                    if (DateTime.UtcNow - lastReportTime > progressInterval)
                     {
                         if (_isBulkProcessing)
                         {
@@ -291,12 +291,30 @@ public class LogWatcherService : BackgroundService
                             
                             _logger.LogInformation($"Bulk processing: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesProcessed} entries from {linesProcessed} lines");
                             
+                            // Update operation state
+                            try
+                            {
+                                using var scope = _serviceProvider.CreateScope();
+                                var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+                                stateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
+                                {
+                                    { "percentComplete", percentComplete },
+                                    { "mbProcessed", mbProcessed },
+                                    { "mbTotal", mbTotal },
+                                    { "entriesProcessed", entriesProcessed },
+                                    { "linesProcessed", linesProcessed }
+                                });
+                            }
+                            catch { }
+                            
                             // Send progress update to clients
                             await _hubContext.Clients.All.SendAsync("ProcessingProgress", new {
                                 percentComplete,
                                 mbProcessed,
                                 mbTotal,
-                                entriesProcessed
+                                entriesProcessed,
+                                linesProcessed,
+                                timestamp = DateTime.UtcNow
                             });
                         }
                         else
@@ -349,6 +367,15 @@ public class LogWatcherService : BackgroundService
                                     _logger.LogError(ex, "Failed to remove processing marker");
                                 }
                             }
+                            
+                            // Clean up operation state
+                            try
+                            {
+                                using var scope = _serviceProvider.CreateScope();
+                                var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+                                stateService.RemoveState("activeLogProcessing");
+                            }
+                            catch { }
                             
                             // Notify clients
                             await _hubContext.Clients.All.SendAsync("BulkProcessingComplete");

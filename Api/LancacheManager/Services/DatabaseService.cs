@@ -36,6 +36,24 @@ public class DatabaseService
 
         try
         {
+            // During bulk reprocessing, check if we've already processed these entries
+            if (!sendRealtimeUpdates) // This indicates bulk processing
+            {
+                var firstTimestamp = entries.Min(e => e.Timestamp);
+                var lastTimestamp = entries.Max(e => e.Timestamp);
+                
+                // Check if we already have data for this time period
+                var existingCount = await _context.Downloads
+                    .Where(d => d.StartTime >= firstTimestamp && d.StartTime <= lastTimestamp)
+                    .CountAsync();
+                
+                if (existingCount > 100) // Threshold to detect duplicate processing
+                {
+                    _logger.LogDebug($"Skipping batch - appears to be duplicate data for {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
+                    return;
+                }
+            }
+
             // All entries in batch are for same client/service
             var firstEntry = entries.First();
             var sessionKey = $"{firstEntry.ClientIp}_{firstEntry.Service}";
@@ -59,41 +77,68 @@ public class DatabaseService
                 _sessionTracker[sessionKey] = entries.Max(e => e.Timestamp);
             }
 
-            // Find existing active download for this session
+            // When reprocessing, check for existing downloads in the same time window
+            var firstTimestampEntry = entries.Min(e => e.Timestamp);
+            var lastTimestampEntry = entries.Max(e => e.Timestamp);
+
             var download = await _context.Downloads
                 .Where(d => d.ClientIp == firstEntry.ClientIp &&
                            d.Service == firstEntry.Service &&
-                           d.IsActive)
+                           d.StartTime <= lastTimestampEntry &&
+                           d.EndTime >= firstTimestampEntry)
                 .OrderByDescending(d => d.StartTime)
                 .FirstOrDefaultAsync();
 
             bool isNewDownload = false;
             
-            if (download == null || shouldCreateNewDownload)
+            if (download == null)
             {
-                // Mark old download as complete if exists
-                if (download != null)
+                // Check for active download if no overlap found
+                download = await _context.Downloads
+                    .Where(d => d.ClientIp == firstEntry.ClientIp &&
+                               d.Service == firstEntry.Service &&
+                               d.IsActive)
+                    .OrderByDescending(d => d.StartTime)
+                    .FirstOrDefaultAsync();
+                
+                if (download == null || shouldCreateNewDownload)
                 {
-                    download.IsActive = false;
-                }
+                    // Mark old download as complete if exists
+                    if (download != null)
+                    {
+                        download.IsActive = false;
+                    }
 
-                // Create new download session
-                download = new Download
+                    // Create new download session
+                    download = new Download
+                    {
+                        Service = firstEntry.Service,
+                        ClientIp = firstEntry.ClientIp,
+                        StartTime = entries.Min(e => e.Timestamp),
+                        EndTime = entries.Max(e => e.Timestamp),
+                        IsActive = true
+                    };
+                    _context.Downloads.Add(download);
+                    isNewDownload = true;
+                    _logger.LogDebug($"Created new download session for {firstEntry.ClientIp} - {firstEntry.Service}");
+                }
+                else
                 {
-                    Service = firstEntry.Service,
-                    ClientIp = firstEntry.ClientIp,
-                    StartTime = entries.Min(e => e.Timestamp),
-                    EndTime = entries.Max(e => e.Timestamp),
-                    IsActive = true
-                };
-                _context.Downloads.Add(download);
-                isNewDownload = true;
-                _logger.LogDebug($"Created new download session for {firstEntry.ClientIp} - {firstEntry.Service}");
+                    // Update existing download session
+                    download.EndTime = entries.Max(e => e.Timestamp);
+                }
             }
             else
             {
-                // Update existing download session
-                download.EndTime = entries.Max(e => e.Timestamp);
+                // Update existing download session times if needed
+                if (firstTimestampEntry < download.StartTime)
+                {
+                    download.StartTime = firstTimestampEntry;
+                }
+                if (lastTimestampEntry > download.EndTime)
+                {
+                    download.EndTime = lastTimestampEntry;
+                }
             }
 
             // Aggregate bytes from all entries
