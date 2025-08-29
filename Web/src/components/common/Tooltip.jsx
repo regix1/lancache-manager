@@ -106,6 +106,32 @@ export const CacheInfoTooltip = memo(() => (
   />
 ));
 
+// Timestamp tooltip for downloads
+export const TimestampTooltip = memo(({ startTime, endTime, isActive, children }) => (
+  <BaseTooltip
+    width="w-72"
+    content={
+      <div className="space-y-2">
+        <div>
+          <strong className="text-green-400">Started:</strong>
+          <div className="text-gray-300">{startTime}</div>
+        </div>
+        {!isActive && endTime && (
+          <div>
+            <strong className="text-blue-400">Completed:</strong>
+            <div className="text-gray-300">{endTime}</div>
+          </div>
+        )}
+        {isActive && (
+          <div className="text-yellow-400">Currently downloading...</div>
+        )}
+      </div>
+    }
+  >
+    {children}
+  </BaseTooltip>
+));
+
 // Generic tooltip for custom content
 export const Tooltip = memo(({ children, content, width = 'w-72' }) => (
   <BaseTooltip width={width} content={content}>

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
-import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff } from 'lucide-react';
-import { CachePerformanceTooltip } from '../common/Tooltip';
+import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Filter, CheckCircle, Info } from 'lucide-react';
+import { CachePerformanceTooltip, TimestampTooltip } from '../common/Tooltip';
 
 const DownloadsTab = () => {
   const { latestDownloads, mockMode } = useData();
@@ -10,11 +10,59 @@ const DownloadsTab = () => {
   const [gameInfo, setGameInfo] = useState({});
   const [loadingGame, setLoadingGame] = useState(null);
   const [showZeroBytes, setShowZeroBytes] = useState(false);
+  const [selectedService, setSelectedService] = useState('all');
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
-  // Filter out zero-byte entries unless explicitly showing them
-  const filteredDownloads = showZeroBytes 
-    ? latestDownloads 
-    : latestDownloads.filter(d => (d.totalBytes || 0) > 0);
+  // Get unique services for filter dropdown
+  const availableServices = useMemo(() => {
+    const services = new Set(latestDownloads.map(d => d.service.toLowerCase()));
+    return Array.from(services).sort();
+  }, [latestDownloads]);
+
+  // Filter downloads based on selected criteria
+  const filteredDownloads = useMemo(() => {
+    let filtered = latestDownloads;
+    
+    // Filter by zero bytes
+    if (!showZeroBytes) {
+      filtered = filtered.filter(d => (d.totalBytes || 0) > 0);
+    }
+    
+    // Filter by service
+    if (selectedService !== 'all') {
+      filtered = filtered.filter(d => d.service.toLowerCase() === selectedService);
+    }
+    
+    // Limit items if not unlimited
+    if (itemsPerPage !== 'unlimited') {
+      filtered = filtered.slice(0, itemsPerPage);
+    }
+    
+    return filtered;
+  }, [latestDownloads, showZeroBytes, selectedService, itemsPerPage]);
+
+  // Calculate download duration
+  const getDownloadDuration = (startTime, endTime) => {
+    if (!startTime || !endTime) return null;
+    
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const durationMs = end - start;
+    
+    if (durationMs < 0) return null;
+    
+    const seconds = Math.floor(durationMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) {
+      return `${hours}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  };
 
   const handleDownloadClick = async (download) => {
     // Don't expand for non-Steam or zero-byte downloads
@@ -32,7 +80,6 @@ const DownloadsTab = () => {
 
     // Don't fetch game info in mock mode
     if (mockMode) {
-      // Create mock game info
       setGameInfo(prev => ({ 
         ...prev, 
         [download.id]: {
@@ -56,18 +103,15 @@ const DownloadsTab = () => {
       return;
     }
 
-    // Check if we already have game info
     if (gameInfo[download.id]) {
       return;
     }
 
-    // Only fetch if we have a valid database ID (not a timestamp from mock data)
     if (!download.id || download.id > 2147483647) {
       console.warn('Invalid download ID for API call:', download.id);
       return;
     }
 
-    // Fetch game info from API - use relative URL
     try {
       setLoadingGame(download.id);
       const apiUrl = import.meta.env.VITE_API_URL || '';
@@ -95,7 +139,6 @@ const DownloadsTab = () => {
     }
   };
 
-  // Determine download type based on characteristics
   const getDownloadType = (download) => {
     const bytes = download.totalBytes || 0;
     const isLocalhost = download.clientIp === '127.0.0.1';
@@ -111,14 +154,13 @@ const DownloadsTab = () => {
       return { type: 'game', label: download.gameName, icon: Gamepad2 };
     }
     
-    if (bytes < 1048576) { // Less than 1MB
+    if (bytes < 1048576) {
       return { type: 'metadata', label: 'Steam Update', icon: Database };
     }
     
     return { type: 'content', label: 'Steam Content', icon: CloudOff };
   };
 
-  // Check if game info is valid (not a generic Steam App)
   const isValidGameInfo = (game) => {
     if (!game || !game.gameName) return false;
     return !game.gameName.startsWith('Steam App') && 
@@ -136,6 +178,36 @@ const DownloadsTab = () => {
           </span>
         </h2>
         <div className="flex items-center gap-4">
+          {/* Service Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <select
+              value={selectedService}
+              onChange={(e) => setSelectedService(e.target.value)}
+              className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              <option value="all">All Services</option>
+              {availableServices.map(service => (
+                <option key={service} value={service}>
+                  {service.charAt(0).toUpperCase() + service.slice(1)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Items per page */}
+          <select
+            value={itemsPerPage}
+            onChange={(e) => setItemsPerPage(e.target.value === 'unlimited' ? 'unlimited' : parseInt(e.target.value))}
+            className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+          >
+            <option value={50}>50 items</option>
+            <option value={100}>100 items</option>
+            <option value={150}>150 items</option>
+            <option value="unlimited">Unlimited</option>
+          </select>
+
+          {/* Show metadata checkbox */}
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
             <input
               type="checkbox"
@@ -143,13 +215,15 @@ const DownloadsTab = () => {
               onChange={(e) => setShowZeroBytes(e.target.checked)}
               className="rounded border-gray-600 text-blue-500 focus:ring-blue-500"
             />
-            Show metadata requests
+            Show metadata
           </label>
+
+          {/* Status indicators */}
           <div className="text-sm text-gray-400">
             {mockMode ? (
-              <span className="text-yellow-400">Mock Mode - Using demo data</span>
+              <span className="text-yellow-400">Mock Mode</span>
             ) : (
-              `${filteredDownloads.length} downloads`
+              <span>{filteredDownloads.length} of {latestDownloads.length} shown</span>
             )}
           </div>
         </div>
@@ -159,11 +233,13 @@ const DownloadsTab = () => {
         {filteredDownloads.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <CloudOff className="w-12 h-12 mx-auto mb-3 text-gray-600" />
-            <p>No game downloads found</p>
+            <p>No downloads found</p>
             <p className="text-sm mt-2">
-              {!showZeroBytes && latestDownloads.length > 0 
-                ? `${latestDownloads.length} metadata requests hidden` 
-                : 'Waiting for downloads...'}
+              {selectedService !== 'all' 
+                ? `No ${selectedService} downloads` 
+                : !showZeroBytes && latestDownloads.length > 0 
+                  ? `${latestDownloads.length} metadata requests hidden` 
+                  : 'Waiting for downloads...'}
             </p>
           </div>
         ) : (
@@ -174,6 +250,7 @@ const DownloadsTab = () => {
             const game = gameInfo[download.id];
             const hasData = (download.totalBytes || 0) > 0;
             const IconComponent = downloadType.icon;
+            const duration = getDownloadDuration(download.startTime, download.endTime);
             
             return (
               <div key={download.id || idx} className="bg-gray-900 rounded-lg border border-gray-700">
@@ -240,11 +317,44 @@ const DownloadsTab = () => {
                       )}
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Time</p>
-                      <p className="text-sm">{formatDateTime(download.startTime)}</p>
-                      {download.isActive && (
-                        <span className="text-xs text-green-400">● Active</span>
-                      )}
+                      <p className="text-xs text-gray-400 flex items-center">
+                        Status / Time
+                        <span className="ml-1">
+                          <TimestampTooltip 
+                            startTime={formatDateTime(download.startTime)}
+                            endTime={download.endTime ? formatDateTime(download.endTime) : null}
+                            isActive={download.isActive}
+                          >
+                            <Info className="w-3 h-3 text-gray-400 cursor-help" />
+                          </TimestampTooltip>
+                        </span>
+                      </p>
+                      <div className="space-y-1">
+                        {download.isActive ? (
+                          <div>
+                            <span className="text-xs text-green-400 flex items-center gap-1">
+                              <span className="animate-pulse">●</span> Downloading
+                            </span>
+                            <p className="text-xs text-gray-500">
+                              Started: {formatDateTime(download.startTime)}
+                            </p>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="text-xs text-gray-400 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Completed
+                            </span>
+                            <p className="text-xs text-gray-500">
+                              {formatDateTime(download.endTime || download.startTime)}
+                            </p>
+                            {duration && (
+                              <p className="text-xs text-gray-600">
+                                Duration: {duration}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -303,6 +413,7 @@ const DownloadsTab = () => {
                             </div>
                           )}
                           <div className="flex-grow space-y-3">
+                            {/* Cache statistics */}
                             <div className="flex justify-between text-sm">
                               <span className="text-gray-400">Cache Saved:</span>
                               <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
@@ -349,6 +460,13 @@ const DownloadsTab = () => {
           })
         )}
       </div>
+      
+      {/* Show more indicator if limited */}
+      {itemsPerPage !== 'unlimited' && latestDownloads.length > itemsPerPage && (
+        <div className="text-center mt-4 text-sm text-gray-500">
+          Showing {filteredDownloads.length} of {latestDownloads.length} total downloads
+        </div>
+      )}
     </div>
   );
 };
