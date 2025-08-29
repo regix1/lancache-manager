@@ -1,4 +1,3 @@
-```markdown
 # LanCache Manager
 
 A comprehensive web-based monitoring and management dashboard for LanCache game caching servers. Track real-time downloads, monitor cache performance, manage cached content, and analyze client usage patterns with an intuitive interface.
@@ -158,4 +157,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [LanCache.NET](https://lancache.net/) for the amazing caching solution
 - [SteamDB](https://steamdb.info/) for Steam app information
 - The LanCache community for feedback and support
-```
