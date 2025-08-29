@@ -243,6 +243,7 @@ public class LogWatcherService : BackgroundService
                         }
                     }
 
+                    // Replace with better debugging:
                     if (entry != null && entry.BytesServed > 0) // Process all entries with bytes
                     {
                         entriesProcessed++;
@@ -252,6 +253,15 @@ public class LogWatcherService : BackgroundService
                         if (_isBulkProcessing && entriesProcessed <= 5)
                         {
                             _logger.LogWarning($"DEBUG: Added entry {entriesProcessed} to buffer (size now: {_batchBuffer.Count})");
+                        }
+                    }
+                    else if (_isBulkProcessing && linesProcessed % 10000 == 0)
+                    {
+                        // Log parsing failures periodically
+                        _logger.LogWarning($"Progress: {linesProcessed} lines read, {entriesProcessed} entries parsed ({(entriesProcessed * 100.0 / linesProcessed):F1}% success rate)");
+                        if (entry == null && !string.IsNullOrEmpty(line))
+                        {
+                            _logger.LogWarning($"Failed to parse line {linesProcessed}: {line.Substring(0, Math.Min(200, line.Length))}");
                         }
                     }
 

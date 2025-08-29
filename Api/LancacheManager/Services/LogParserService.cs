@@ -10,7 +10,7 @@ public class LogParserService
     // Updated regex to match your actual log format:
     // [service] IP / - - - [timestamp] "METHOD URL HTTP/version" status bytes "-" "user-agent" "HIT/MISS" "domain" "-"
     private static readonly Regex LogRegex = new(
-        @"^\[(?<service>\w+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS)""",
+        @"^\[(?<service>\w+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS|EXPIRED|UPDATING|STALE|BYPASS|REVALIDATED)""",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public LogParserService(ILogger<LogParserService> logger)
@@ -77,21 +77,39 @@ public class LogParserService
         return null;
     }
 
+    // Replace with more flexible parsing:
     private DateTime ParseTimestamp(string timestamp)
     {
         try
         {
-            // Remove timezone offset
-            timestamp = timestamp.Replace(" -0500", "").Replace(" -0600", "").Replace(" -0400", "").Replace(" -0700", "");
+            // Remove any timezone info
+            timestamp = System.Text.RegularExpressions.Regex.Replace(timestamp, @"\s[+-]\d{4}$", "");
             
-            // Parse format: 22/Aug/2025:22:30:06
-            if (DateTime.TryParseExact(timestamp, 
-                "dd/MMM/yyyy:HH:mm:ss", 
-                System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.AssumeUniversal,
-                out var result))
+            // Try multiple formats
+            string[] formats = new[]
             {
-                return result.ToUniversalTime();
+                "dd/MMM/yyyy:HH:mm:ss",
+                "yyyy-MM-dd HH:mm:ss",
+                "dd/MMM/yyyy HH:mm:ss",
+                "yyyy-MM-ddTHH:mm:ss"
+            };
+            
+            foreach (var format in formats)
+            {
+                if (DateTime.TryParseExact(timestamp, 
+                    format, 
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal,
+                    out var result))
+                {
+                    return result.ToUniversalTime();
+                }
+            }
+            
+            // Fallback to general parse
+            if (DateTime.TryParse(timestamp, out var fallbackResult))
+            {
+                return fallbackResult.ToUniversalTime();
             }
         }
         catch (Exception ex)
@@ -99,6 +117,7 @@ public class LogParserService
             _logger.LogTrace($"Error parsing timestamp '{timestamp}': {ex.Message}");
         }
         
+        _logger.LogWarning($"Failed to parse timestamp: {timestamp}");
         return DateTime.UtcNow;
     }
 }

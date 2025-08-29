@@ -42,14 +42,18 @@ public class DatabaseService
                 var firstTimestamp = entries.Min(e => e.Timestamp);
                 var lastTimestamp = entries.Max(e => e.Timestamp);
                 
-                // Check if we already have data for this time period
+                // Only skip if we have a very high number of exact matches in this time window
                 var existingCount = await _context.Downloads
-                    .Where(d => d.StartTime >= firstTimestamp && d.StartTime <= lastTimestamp)
+                    .Where(d => d.ClientIp == entries.First().ClientIp &&
+                            d.Service == entries.First().Service &&
+                            d.StartTime >= firstTimestamp && 
+                            d.StartTime <= lastTimestamp)
                     .CountAsync();
                 
-                if (existingCount > 100) // Threshold to detect duplicate processing
+                // Only skip if we clearly already processed this exact batch
+                if (existingCount > 500) // Much higher threshold
                 {
-                    _logger.LogDebug($"Skipping batch - appears to be duplicate data for {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
+                    _logger.LogDebug($"Skipping batch - appears to be duplicate data for {entries.First().ClientIp}/{entries.First().Service} at {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
                     return;
                 }
             }
