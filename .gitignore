@@ -66,3 +66,19 @@ logposition.txt
 
 # Static web assets
 staticwebassets/
+
+# Security - API Keys and Authentication
+api_key.txt
+/data/api_key.txt
+**/api_key.txt
+
+# Device registrations
+/data/devices/
+**/devices/*.json
+NGEzMDgyOWMtMGViMC00ZjgyLTg4NzUtOTcyNWMyMzlkMTA1.json
+
+# Other data files that might contain sensitive info
+/data/
+operation_states.json
+steam_depot_mappings.json
+steam_applist.json
