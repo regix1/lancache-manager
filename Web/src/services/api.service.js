@@ -59,9 +59,10 @@ class ApiService {
     }
   }
 
-  static async getLatestDownloads(signal) {
+  static async getLatestDownloads(signal, count = 50) {
     try {
-      const res = await fetch(`${API_BASE}/downloads/latest`, { 
+      const actualCount = count === 'unlimited' ? 9999 : count;
+      const res = await fetch(`${API_BASE}/downloads/latest?count=${actualCount}`, { 
         signal,
         headers: this.getHeaders()
       });

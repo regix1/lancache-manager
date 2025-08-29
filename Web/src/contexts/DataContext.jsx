@@ -14,6 +14,7 @@ export const useData = () => {
 export const DataProvider = ({ children }) => {
   const [mockMode, setMockMode] = useState(false);
   const [mockDownloadCount, setMockDownloadCount] = useState(50);
+  const [apiDownloadCount, setApiDownloadCount] = useState(50);
   const [cacheInfo, setCacheInfo] = useState(null);
   const [activeDownloads, setActiveDownloads] = useState([]);
   const [latestDownloads, setLatestDownloads] = useState([]);
@@ -80,11 +81,11 @@ export const DataProvider = ({ children }) => {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeout);
             
-            // Fetch all data in parallel
+            // Fetch all data in parallel - pass apiDownloadCount to getLatestDownloads
             const [cache, active, latest, clients, services] = await Promise.allSettled([
               ApiService.getCacheInfo(controller.signal),
               ApiService.getActiveDownloads(controller.signal),
-              ApiService.getLatestDownloads(controller.signal),
+              ApiService.getLatestDownloads(controller.signal, apiDownloadCount),
               ApiService.getClientStats(controller.signal),
               ApiService.getServiceStats(controller.signal)
             ]);
@@ -170,10 +171,15 @@ export const DataProvider = ({ children }) => {
     }
   };
 
+  // Method to update API download count
+  const updateApiDownloadCount = (count) => {
+    setApiDownloadCount(count);
+  };
+
   // Get current refresh interval based on mode and count
   const getCurrentRefreshInterval = () => {
     if (isProcessingLogs) return 15000; // 15 seconds during processing
-    if (mockDownloadCount === 'unlimited') return 30000; // 30 seconds for unlimited
+    if (mockDownloadCount === 'unlimited' || apiDownloadCount === 'unlimited') return 30000; // 30 seconds for unlimited
     return REFRESH_INTERVAL; // Default (5 seconds)
   };
 
@@ -192,7 +198,7 @@ export const DataProvider = ({ children }) => {
       
       return () => clearInterval(interval);
     }
-  }, [isProcessingLogs, mockMode, mockDownloadCount]); // Recreate interval when these change
+  }, [isProcessingLogs, mockMode, mockDownloadCount, apiDownloadCount]); // Recreate interval when these change
 
   // Handle mock mode changes and mock data count changes
   useEffect(() => {
@@ -254,6 +260,8 @@ export const DataProvider = ({ children }) => {
     setMockMode,
     mockDownloadCount,
     updateMockDataCount,
+    apiDownloadCount,
+    updateApiDownloadCount,
     cacheInfo,
     activeDownloads,
     latestDownloads,

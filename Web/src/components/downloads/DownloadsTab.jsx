@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, Cl
 import { CachePerformanceTooltip, TimestampTooltip } from '../common/Tooltip';
 
 const DownloadsTab = () => {
-  const { latestDownloads, mockMode, updateMockDataCount } = useData();
+  const { latestDownloads, mockMode, updateMockDataCount, updateApiDownloadCount } = useData();
   const [expandedDownload, setExpandedDownload] = useState(null);
   const [gameInfo, setGameInfo] = useState({});
   const [loadingGame, setLoadingGame] = useState(null);
@@ -15,12 +15,14 @@ const DownloadsTab = () => {
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [renderedItems, setRenderedItems] = useState([]);
   
-  // Update mock data count when itemsPerPage changes
+  // Update mock data count OR api download count when itemsPerPage changes
   useEffect(() => {
     if (mockMode && updateMockDataCount) {
       updateMockDataCount(itemsPerPage);
+    } else if (!mockMode && updateApiDownloadCount) {
+      updateApiDownloadCount(itemsPerPage);
     }
-  }, [itemsPerPage, mockMode, updateMockDataCount]);
+  }, [itemsPerPage, mockMode, updateMockDataCount, updateApiDownloadCount]);
   
   // Get unique services for filter dropdown
   const availableServices = useMemo(() => {
