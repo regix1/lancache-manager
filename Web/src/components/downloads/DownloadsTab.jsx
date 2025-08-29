@@ -118,10 +118,23 @@ const DownloadsTab = () => {
     return { type: 'content', label: 'Steam Content', icon: CloudOff };
   };
 
+  // Check if game info is valid (not a generic Steam App)
+  const isValidGameInfo = (game) => {
+    if (!game || !game.gameName) return false;
+    return !game.gameName.startsWith('Steam App') && 
+           game.gameName !== 'Unknown Steam Game' &&
+           game.gameName !== 'Unknown';
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold">All Downloads</h2>
+        <h2 className="text-xl font-semibold flex items-center">
+          All Downloads
+          <span className="ml-2">
+            <CachePerformanceTooltip />
+          </span>
+        </h2>
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
             <input
@@ -206,12 +219,7 @@ const DownloadsTab = () => {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400 flex items-center">
-                        Cache Hit Rate
-                        <span className="ml-2">
-                          <CachePerformanceTooltip />
-                        </span>
-                      </p>
+                      <p className="text-xs text-gray-400">Cache Hit Rate</p>
                       {hasData ? (
                         <div className="flex items-center gap-2">
                           <div className="flex-1 bg-gray-700 rounded-full h-2">
@@ -257,7 +265,7 @@ const DownloadsTab = () => {
                       <div className="p-4">
                         <div className="mb-4">
                           <h3 className="text-lg font-semibold text-white">
-                            {game.gameName === 'Unknown Steam Game' ? 'Steam Content' : game.gameName}
+                            {isValidGameInfo(game) ? game.gameName : 'Steam Content'}
                           </h3>
                           {game.appId && (
                             <p className="text-xs text-gray-400">
@@ -266,14 +274,32 @@ const DownloadsTab = () => {
                           )}
                         </div>
                         <div className="flex gap-6">
-                          {game.headerImage && (
+                          {/* Show Steam logo if no valid game image */}
+                          {game.headerImage && isValidGameInfo(game) ? (
                             <div className="flex-shrink-0">
                               <img 
                                 src={game.headerImage} 
                                 alt={game.gameName}
                                 className="rounded-lg shadow-lg"
                                 style={{ width: '460px', height: '215px', objectFit: 'cover' }}
+                                onError={(e) => {
+                                  // If image fails to load, replace with Steam logo
+                                  e.target.style.display = 'none';
+                                  e.target.parentElement.innerHTML = `
+                                    <div class="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style="width: 460px; height: 215px;">
+                                      <svg class="w-32 h-32 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15.5v-5l3 3-3 2.5zm1-6.5V6l5 5-5 3z"/>
+                                      </svg>
+                                    </div>
+                                  `;
+                                }}
                               />
+                            </div>
+                          ) : (
+                            <div className="flex-shrink-0">
+                              <div className="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style={{ width: '460px', height: '215px' }}>
+                                <Gamepad2 className="w-32 h-32 text-gray-600" />
+                              </div>
                             </div>
                           )}
                           <div className="flex-grow space-y-3">
@@ -289,7 +315,8 @@ const DownloadsTab = () => {
                               <span className="text-gray-400">Total:</span>
                               <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
                             </div>
-                            {game.appId && game.gameName !== 'Unknown Steam Game' && !mockMode && (
+                            {/* Only show View on Steam link if we have valid game info */}
+                            {game.appId && isValidGameInfo(game) && !mockMode && (
                               <a
                                 href={`https://store.steampowered.com/app/${game.appId}`}
                                 target="_blank"
