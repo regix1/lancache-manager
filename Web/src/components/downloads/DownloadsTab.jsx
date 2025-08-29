@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
-import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Filter, CheckCircle, Info, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Filter, CheckCircle, Info, AlertTriangle, Layers, Users } from 'lucide-react';
 import { CachePerformanceTooltip, TimestampTooltip } from '../common/Tooltip';
 
 const DownloadsTab = () => {
   const { latestDownloads, mockMode, updateMockDataCount, updateApiDownloadCount } = useData();
   const [expandedDownload, setExpandedDownload] = useState(null);
+  const [expandedGroup, setExpandedGroup] = useState(null);
   const [gameInfo, setGameInfo] = useState({});
   const [loadingGame, setLoadingGame] = useState(null);
   const [showZeroBytes, setShowZeroBytes] = useState(false);
@@ -14,6 +15,7 @@ const DownloadsTab = () => {
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [renderedItems, setRenderedItems] = useState([]);
+  const [groupGames, setGroupGames] = useState(false);
   
   // Update mock data count OR api download count when itemsPerPage changes
   useEffect(() => {
@@ -47,8 +49,83 @@ const DownloadsTab = () => {
     return filtered;
   }, [latestDownloads, showZeroBytes, selectedService]);
 
+  // Group downloads by game if grouping is enabled
+  const groupedDownloads = useMemo(() => {
+    if (!groupGames) return null;
+    
+    const groups = {};
+    
+    filteredDownloadsBase.forEach(download => {
+      // Determine group key
+      let groupKey;
+      let groupName;
+      let groupType;
+      
+      if (download.gameName && download.gameName !== 'Unknown Steam Game') {
+        groupKey = `game-${download.gameName}`;
+        groupName = download.gameName;
+        groupType = 'game';
+      } else if ((download.totalBytes || 0) === 0) {
+        groupKey = `metadata-${download.service}`;
+        groupName = `${download.service} Metadata`;
+        groupType = 'metadata';
+      } else {
+        groupKey = `content-${download.service}`;
+        groupName = `${download.service} Content`;
+        groupType = 'content';
+      }
+      
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          id: groupKey,
+          name: groupName,
+          type: groupType,
+          service: download.service,
+          downloads: [],
+          totalBytes: 0,
+          cacheHitBytes: 0,
+          cacheMissBytes: 0,
+          clientsSet: new Set(),
+          clientsArray: [],
+          firstSeen: download.startTime,
+          lastSeen: download.endTime || download.startTime,
+          count: 0
+        };
+      }
+      
+      groups[groupKey].downloads.push(download);
+      groups[groupKey].totalBytes += download.totalBytes || 0;
+      groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
+      groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
+      groups[groupKey].clientsSet.add(download.clientIp);
+      groups[groupKey].count++;
+      
+      // Update time range
+      if (new Date(download.startTime) < new Date(groups[groupKey].firstSeen)) {
+        groups[groupKey].firstSeen = download.startTime;
+      }
+      if (download.endTime && new Date(download.endTime) > new Date(groups[groupKey].lastSeen)) {
+        groups[groupKey].lastSeen = download.endTime;
+      }
+    });
+    
+    // Convert to array, convert Sets to arrays, and sort by total bytes
+    return Object.values(groups).map(group => ({
+      ...group,
+      clientsArray: Array.from(group.clientsSet),
+      clientCount: group.clientsSet.size
+    })).sort((a, b) => b.totalBytes - a.totalBytes);
+  }, [filteredDownloadsBase, groupGames]);
+
+  // Items to render (either grouped or ungrouped)
+  const itemsToRender = useMemo(() => {
+    return groupGames ? groupedDownloads : filteredDownloadsBase;
+  }, [groupGames, groupedDownloads, filteredDownloadsBase]);
+
   // Progressive rendering for large datasets
   const loadItemsProgressively = useCallback(async (items, limit) => {
+    if (!items) return;
+    
     setIsLoadingItems(true);
     setRenderedItems([]);
     
@@ -77,8 +154,8 @@ const DownloadsTab = () => {
 
   // Load items when filters or pagination changes
   useEffect(() => {
-    loadItemsProgressively(filteredDownloadsBase, itemsPerPage);
-  }, [filteredDownloadsBase, itemsPerPage, loadItemsProgressively]);
+    loadItemsProgressively(itemsToRender, itemsPerPage);
+  }, [itemsToRender, itemsPerPage, loadItemsProgressively]);
 
   // Calculate download duration
   const getDownloadDuration = (startTime, endTime) => {
@@ -178,6 +255,10 @@ const DownloadsTab = () => {
     }
   };
 
+  const handleGroupClick = (groupId) => {
+    setExpandedGroup(expandedGroup === groupId ? null : groupId);
+  };
+
   const getDownloadType = (download) => {
     const bytes = download.totalBytes || 0;
     const isLocalhost = download.clientIp === '127.0.0.1';
@@ -211,13 +292,381 @@ const DownloadsTab = () => {
     const newValue = value === 'unlimited' ? 'unlimited' : parseInt(value);
     
     // Show warning for large datasets
-    if (newValue === 'unlimited' && filteredDownloadsBase.length > 200) {
-      if (!window.confirm(`Loading ${filteredDownloadsBase.length} items may take a while and could affect performance. Continue?`)) {
+    if (newValue === 'unlimited' && itemsToRender && itemsToRender.length > 200) {
+      if (!window.confirm(`Loading ${itemsToRender.length} items may take a while and could affect performance. Continue?`)) {
         return;
       }
     }
     
     setItemsPerPage(newValue);
+  };
+
+  const renderGroupedItem = (group) => {
+    const isExpanded = expandedGroup === group.id;
+    const cacheHitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+    
+    return (
+      <div key={group.id} className="bg-gray-900 rounded-lg border border-gray-700">
+        <div 
+          className="p-4 cursor-pointer hover:bg-gray-850"
+          onClick={() => handleGroupClick(group.id)}
+        >
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div>
+              <p className="text-xs text-gray-400">Group / Type</p>
+              <div className="flex items-center gap-2">
+                {isExpanded ? 
+                  <ChevronDown className="w-4 h-4 text-gray-400" /> : 
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                }
+                <Layers className="w-4 h-4 text-purple-400" />
+                <p className="text-sm font-medium text-purple-400">{group.name}</p>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {group.count} {group.count === 1 ? 'download' : 'downloads'}
+              </p>
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400">Clients</p>
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-gray-400" />
+                <p className="text-sm">{group.clientCount || 0} {group.clientCount === 1 ? 'client' : 'clients'}</p>
+              </div>
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400">Total Size</p>
+              <p className={`text-sm font-medium ${group.totalBytes > 0 ? 'text-white' : 'text-gray-500'}`}>
+                {group.totalBytes > 0 ? formatBytes(group.totalBytes) : 'Metadata'}
+              </p>
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400">Cache Hit Rate</p>
+              {group.totalBytes > 0 ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-gray-700 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${
+                        cacheHitPercent > 75 ? 'bg-green-500' :
+                        cacheHitPercent > 50 ? 'bg-blue-500' :
+                        cacheHitPercent > 25 ? 'bg-yellow-500' :
+                        'bg-orange-500'
+                      }`}
+                      style={{ width: `${cacheHitPercent}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium">{formatPercent(cacheHitPercent)}</span>
+                </div>
+              ) : (
+                <span className="text-sm text-gray-500">N/A</span>
+              )}
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400">Time Range</p>
+              <p className="text-xs text-gray-400">
+                {formatDateTime(group.firstSeen)}
+              </p>
+              <p className="text-xs text-gray-500">
+                to {formatDateTime(group.lastSeen)}
+              </p>
+            </div>
+          </div>
+          
+          {/* Summary stats */}
+          {group.totalBytes > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-800 flex gap-6 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Cache Saved:</span>
+                <span className="text-green-400 font-medium">{formatBytes(group.cacheHitBytes)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Downloaded:</span>
+                <span className="text-yellow-400 font-medium">{formatBytes(group.cacheMissBytes)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400">Service:</span>
+                <span className="text-blue-400">{group.service}</span>
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Expanded downloads list */}
+        {isExpanded && (
+          <div className="border-t border-gray-700 bg-gray-850 p-4">
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {group.downloads.map((download, idx) => {
+                const hasData = (download.totalBytes || 0) > 0;
+                const duration = getDownloadDuration(download.startTime, download.endTime);
+                
+                return (
+                  <div key={download.id || idx} className="bg-gray-900 rounded p-3 border border-gray-700">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-gray-500">Client</p>
+                        <p className="text-gray-300">{download.clientIp}</p>
+                      </div>
+                      
+                      <div>
+                        <p className="text-xs text-gray-500">Size</p>
+                        <p className={hasData ? 'text-gray-300' : 'text-gray-500'}>
+                          {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <p className="text-xs text-gray-500">Cache Hit</p>
+                        <p className="text-gray-300">
+                          {hasData ? formatPercent(download.cacheHitPercent || 0) : 'N/A'}
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <p className="text-xs text-gray-500">Time</p>
+                        <p className="text-gray-400 text-xs">
+                          {formatDateTime(download.startTime)}
+                        </p>
+                      </div>
+                      
+                      <div>
+                        <p className="text-xs text-gray-500">Duration</p>
+                        <p className="text-gray-400 text-xs">
+                          {duration || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderDownloadItem = (download, idx) => {
+    const isExpanded = expandedDownload === download.id;
+    const isSteam = download.service.toLowerCase() === 'steam';
+    const downloadType = getDownloadType(download);
+    const game = gameInfo[download.id];
+    const hasData = (download.totalBytes || 0) > 0;
+    const IconComponent = downloadType.icon;
+    const duration = getDownloadDuration(download.startTime, download.endTime);
+    
+    return (
+      <div key={download.id || idx} className="bg-gray-900 rounded-lg border border-gray-700">
+        <div 
+          className={`p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850' : ''}`}
+          onClick={() => handleDownloadClick(download)}
+        >
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div>
+              <p className="text-xs text-gray-400">Service / Type</p>
+              <div className="flex items-center gap-2">
+                {isSteam && hasData && (
+                  isExpanded ? 
+                    <ChevronDown className="w-4 h-4 text-gray-400" /> : 
+                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                )}
+                <p className="text-sm font-medium text-blue-400">{download.service}</p>
+                <IconComponent className={`w-4 h-4 ${
+                  downloadType.type === 'game' ? 'text-green-400' :
+                  downloadType.type === 'metadata' ? 'text-gray-500' :
+                  'text-blue-400'
+                }`} />
+              </div>
+              {downloadType.type !== 'metadata' && (
+                <p className={`text-xs mt-1 truncate ${
+                  downloadType.type === 'game' ? 'text-green-400' : 'text-gray-500'
+                }`}>
+                  {downloadType.label}
+                </p>
+              )}
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400">Client</p>
+              <p className="text-sm">{download.clientIp}</p>
+              {download.clientIp === '127.0.0.1' && (
+                <p className="text-xs text-gray-500">Local</p>
+              )}
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400">Size</p>
+              <p className={`text-sm ${hasData ? '' : 'text-gray-500'}`}>
+                {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
+              </p>
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400">Cache Hit Rate</p>
+              {hasData ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-gray-700 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full ${
+                        download.cacheHitPercent > 75 ? 'bg-green-500' :
+                        download.cacheHitPercent > 50 ? 'bg-blue-500' :
+                        download.cacheHitPercent > 25 ? 'bg-yellow-500' :
+                        'bg-orange-500'
+                      }`}
+                      style={{ width: `${download.cacheHitPercent || 0}%` }}
+                    />
+                  </div>
+                  <span className="text-sm">{formatPercent(download.cacheHitPercent || 0)}</span>
+                </div>
+              ) : (
+                <span className="text-sm text-gray-500">N/A</span>
+              )}
+            </div>
+            
+            <div>
+              <p className="text-xs text-gray-400 flex items-center">
+                Status / Time
+                <span className="ml-1">
+                  <TimestampTooltip 
+                    startTime={formatDateTime(download.startTime)}
+                    endTime={download.endTime ? formatDateTime(download.endTime) : null}
+                    isActive={download.isActive}
+                  >
+                    <Info className="w-3 h-3 text-gray-400 cursor-help" />
+                  </TimestampTooltip>
+                </span>
+              </p>
+              <div className="space-y-1">
+                {download.isActive ? (
+                  <div>
+                    <span className="text-xs text-green-400 flex items-center gap-1">
+                      <span className="animate-pulse">●</span> Downloading
+                    </span>
+                    <p className="text-xs text-gray-500">
+                      Started: {formatDateTime(download.startTime)}
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-xs text-gray-400 flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" /> Completed
+                    </span>
+                    <p className="text-xs text-gray-500">
+                      {formatDateTime(download.endTime || download.startTime)}
+                    </p>
+                    {duration && (
+                      <p className="text-xs text-gray-600">
+                        Duration: {duration}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        {/* Expandable Game Info Section */}
+        {isExpanded && isSteam && hasData && (
+          <div className="border-t border-gray-700 bg-gray-850">
+            {loadingGame === download.id ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader className="w-5 h-5 animate-spin text-blue-500" />
+                <span className="ml-2 text-gray-400">Loading game information...</span>
+              </div>
+            ) : game?.error ? (
+              <div className="text-center py-8 text-gray-500">
+                <p>Unable to identify specific game</p>
+                <p className="text-xs mt-1">This may be a Steam client update or workshop content</p>
+              </div>
+            ) : game ? (
+              <div className="p-4">
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-white">
+                    {isValidGameInfo(game) ? game.gameName : 'Steam Content'}
+                  </h3>
+                  {game.appId && (
+                    <p className="text-xs text-gray-400">
+                      App ID: {game.appId}
+                    </p>
+                  )}
+                </div>
+                
+                <div className="flex gap-6">
+                  {game.headerImage && isValidGameInfo(game) ? (
+                    <div className="flex-shrink-0">
+                      <img 
+                        src={game.headerImage} 
+                        alt={game.gameName}
+                        className="rounded-lg shadow-lg"
+                        style={{ width: '460px', height: '215px', objectFit: 'cover' }}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          e.target.parentElement.innerHTML = `
+                            <div class="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style="width: 460px; height: 215px;">
+                              <svg class="w-32 h-32 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15.5v-5l3 3-3 2.5zm1-6.5V6l5 5-5 3z"/>
+                              </svg>
+                            </div>
+                          `;
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex-shrink-0">
+                      <div className="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style={{ width: '460px', height: '215px' }}>
+                        <Gamepad2 className="w-32 h-32 text-gray-600" />
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="flex-grow space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Cache Saved:</span>
+                      <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Downloaded:</span>
+                      <span className="text-yellow-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-400">Total:</span>
+                      <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
+                    </div>
+                    
+                    {game.appId && isValidGameInfo(game) && !mockMode && (
+                      <a
+                        href={`https://store.steampowered.com/app/${game.appId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 mt-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        View on Steam <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                    
+                    {game.description && (
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <p className="text-sm text-gray-300">
+                          {game.description}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                No additional information available
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -261,6 +710,19 @@ const DownloadsTab = () => {
             <option value="unlimited">Unlimited</option>
           </select>
           
+          {/* Group games checkbox */}
+          <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={groupGames}
+              onChange={(e) => setGroupGames(e.target.checked)}
+              className="rounded border-gray-600 text-purple-500 focus:ring-purple-500"
+              disabled={isLoadingItems}
+            />
+            <Layers className="w-4 h-4" />
+            Group games
+          </label>
+          
           {/* Show metadata checkbox */}
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
             <input
@@ -291,7 +753,12 @@ const DownloadsTab = () => {
               </span>
             ) : (
               <div className="flex items-center gap-3">
-                <span>{renderedItems.length} of {filteredDownloadsBase.length} shown</span>
+                <span>
+                  {groupGames && groupedDownloads ? 
+                    `${renderedItems.length} groups (${filteredDownloadsBase.length} downloads)` :
+                    `${renderedItems.length} of ${filteredDownloadsBase.length} shown`
+                  }
+                </span>
                 {itemsPerPage === 'unlimited' && (
                   <span className="text-xs text-gray-500">
                     (30s refresh rate)
@@ -304,11 +771,11 @@ const DownloadsTab = () => {
       </div>
 
       {/* Performance warning for large datasets */}
-      {itemsPerPage === 'unlimited' && filteredDownloadsBase.length > 200 && !isLoadingItems && (
+      {itemsPerPage === 'unlimited' && itemsToRender && itemsToRender.length > 200 && !isLoadingItems && (
         <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-600/50 rounded-lg flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-yellow-400">
-            <p className="font-medium">Large dataset ({filteredDownloadsBase.length} items)</p>
+            <p className="font-medium">Large dataset ({itemsToRender.length} items)</p>
             <p className="text-yellow-400/80 text-xs mt-1">
               Rendering this many items may affect scrolling performance. Consider using pagination for better performance.
             </p>
@@ -317,14 +784,14 @@ const DownloadsTab = () => {
       )}
       
       {/* Loading overlay for large datasets */}
-      {isLoadingItems && filteredDownloadsBase.length > 100 && (
+      {isLoadingItems && itemsToRender && itemsToRender.length > 100 && (
         <div className="mb-4 p-4 bg-blue-900/20 border border-blue-600/30 rounded-lg">
           <div className="flex items-center gap-3">
             <Loader className="w-5 h-5 animate-spin text-blue-500" />
             <div>
-              <p className="text-sm text-blue-400">Loading {filteredDownloadsBase.length} items...</p>
+              <p className="text-sm text-blue-400">Loading {itemsToRender.length} items...</p>
               <p className="text-xs text-blue-400/70 mt-1">
-                Progress: {renderedItems.length} / {filteredDownloadsBase.length}
+                Progress: {renderedItems.length} / {itemsToRender.length}
               </p>
             </div>
           </div>
@@ -345,233 +812,16 @@ const DownloadsTab = () => {
             </p>
           </div>
         ) : (
-          renderedItems.map((download, idx) => {
-            const isExpanded = expandedDownload === download.id;
-            const isSteam = download.service.toLowerCase() === 'steam';
-            const downloadType = getDownloadType(download);
-            const game = gameInfo[download.id];
-            const hasData = (download.totalBytes || 0) > 0;
-            const IconComponent = downloadType.icon;
-            const duration = getDownloadDuration(download.startTime, download.endTime);
-            
-            return (
-              <div key={download.id || idx} className="bg-gray-900 rounded-lg border border-gray-700">
-                <div 
-                  className={`p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850' : ''}`}
-                  onClick={() => handleDownloadClick(download)}
-                >
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                    <div>
-                      <p className="text-xs text-gray-400">Service / Type</p>
-                      <div className="flex items-center gap-2">
-                        {isSteam && hasData && (
-                          isExpanded ? 
-                            <ChevronDown className="w-4 h-4 text-gray-400" /> : 
-                            <ChevronRight className="w-4 h-4 text-gray-400" />
-                        )}
-                        <p className="text-sm font-medium text-blue-400">{download.service}</p>
-                        <IconComponent className={`w-4 h-4 ${
-                          downloadType.type === 'game' ? 'text-green-400' :
-                          downloadType.type === 'metadata' ? 'text-gray-500' :
-                          'text-blue-400'
-                        }`} />
-                      </div>
-                      {downloadType.type !== 'metadata' && (
-                        <p className={`text-xs mt-1 truncate ${
-                          downloadType.type === 'game' ? 'text-green-400' : 'text-gray-500'
-                        }`}>
-                          {downloadType.label}
-                        </p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <p className="text-xs text-gray-400">Client</p>
-                      <p className="text-sm">{download.clientIp}</p>
-                      {download.clientIp === '127.0.0.1' && (
-                        <p className="text-xs text-gray-500">Local</p>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <p className="text-xs text-gray-400">Size</p>
-                      <p className={`text-sm ${hasData ? '' : 'text-gray-500'}`}>
-                        {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
-                      </p>
-                    </div>
-                    
-                    <div>
-                      <p className="text-xs text-gray-400">Cache Hit Rate</p>
-                      {hasData ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-gray-700 rounded-full h-2">
-                            <div 
-                              className={`h-2 rounded-full ${
-                                download.cacheHitPercent > 75 ? 'bg-green-500' :
-                                download.cacheHitPercent > 50 ? 'bg-blue-500' :
-                                download.cacheHitPercent > 25 ? 'bg-yellow-500' :
-                                'bg-orange-500'
-                              }`}
-                              style={{ width: `${download.cacheHitPercent || 0}%` }}
-                            />
-                          </div>
-                          <span className="text-sm">{formatPercent(download.cacheHitPercent || 0)}</span>
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-500">N/A</span>
-                      )}
-                    </div>
-                    
-                    <div>
-                      <p className="text-xs text-gray-400 flex items-center">
-                        Status / Time
-                        <span className="ml-1">
-                          <TimestampTooltip 
-                            startTime={formatDateTime(download.startTime)}
-                            endTime={download.endTime ? formatDateTime(download.endTime) : null}
-                            isActive={download.isActive}
-                          >
-                            <Info className="w-3 h-3 text-gray-400 cursor-help" />
-                          </TimestampTooltip>
-                        </span>
-                      </p>
-                      <div className="space-y-1">
-                        {download.isActive ? (
-                          <div>
-                            <span className="text-xs text-green-400 flex items-center gap-1">
-                              <span className="animate-pulse">●</span> Downloading
-                            </span>
-                            <p className="text-xs text-gray-500">
-                              Started: {formatDateTime(download.startTime)}
-                            </p>
-                          </div>
-                        ) : (
-                          <div>
-                            <span className="text-xs text-gray-400 flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" /> Completed
-                            </span>
-                            <p className="text-xs text-gray-500">
-                              {formatDateTime(download.endTime || download.startTime)}
-                            </p>
-                            {duration && (
-                              <p className="text-xs text-gray-600">
-                                Duration: {duration}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Expandable Game Info Section */}
-                {isExpanded && isSteam && hasData && (
-                  <div className="border-t border-gray-700 bg-gray-850">
-                    {loadingGame === download.id ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader className="w-5 h-5 animate-spin text-blue-500" />
-                        <span className="ml-2 text-gray-400">Loading game information...</span>
-                      </div>
-                    ) : game?.error ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <p>Unable to identify specific game</p>
-                        <p className="text-xs mt-1">This may be a Steam client update or workshop content</p>
-                      </div>
-                    ) : game ? (
-                      <div className="p-4">
-                        <div className="mb-4">
-                          <h3 className="text-lg font-semibold text-white">
-                            {isValidGameInfo(game) ? game.gameName : 'Steam Content'}
-                          </h3>
-                          {game.appId && (
-                            <p className="text-xs text-gray-400">
-                              App ID: {game.appId}
-                            </p>
-                          )}
-                        </div>
-                        
-                        <div className="flex gap-6">
-                          {game.headerImage && isValidGameInfo(game) ? (
-                            <div className="flex-shrink-0">
-                              <img 
-                                src={game.headerImage} 
-                                alt={game.gameName}
-                                className="rounded-lg shadow-lg"
-                                style={{ width: '460px', height: '215px', objectFit: 'cover' }}
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                  e.target.parentElement.innerHTML = `
-                                    <div class="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style="width: 460px; height: 215px;">
-                                      <svg class="w-32 h-32 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15.5v-5l3 3-3 2.5zm1-6.5V6l5 5-5 3z"/>
-                                      </svg>
-                                    </div>
-                                  `;
-                                }}
-                              />
-                            </div>
-                          ) : (
-                            <div className="flex-shrink-0">
-                              <div className="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style={{ width: '460px', height: '215px' }}>
-                                <Gamepad2 className="w-32 h-32 text-gray-600" />
-                              </div>
-                            </div>
-                          )}
-                          
-                          <div className="flex-grow space-y-3">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-400">Cache Saved:</span>
-                              <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-400">Downloaded:</span>
-                              <span className="text-yellow-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
-                            </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-400">Total:</span>
-                              <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
-                            </div>
-                            
-                            {game.appId && isValidGameInfo(game) && !mockMode && (
-                              <a
-                                href={`https://store.steampowered.com/app/${game.appId}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 mt-2"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                View on Steam <ExternalLink className="w-3 h-3" />
-                              </a>
-                            )}
-                            
-                            {game.description && (
-                              <div className="mt-4 pt-4 border-t border-gray-700">
-                                <p className="text-sm text-gray-300">
-                                  {game.description}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-500">
-                        No additional information available
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
+          renderedItems.map((item, idx) => {
+            return groupGames ? renderGroupedItem(item) : renderDownloadItem(item, idx);
           })
         )}
       </div>
       
       {/* Show more indicator if limited */}
-      {itemsPerPage !== 'unlimited' && filteredDownloadsBase.length > itemsPerPage && (
+      {itemsPerPage !== 'unlimited' && itemsToRender && itemsToRender.length > itemsPerPage && (
         <div className="text-center mt-4 text-sm text-gray-500">
-          Showing {renderedItems.length} of {filteredDownloadsBase.length} total downloads
+          Showing {renderedItems.length} of {itemsToRender.length} total {groupGames ? 'groups' : 'downloads'}
         </div>
       )}
     </div>
