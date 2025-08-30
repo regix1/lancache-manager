@@ -220,49 +220,63 @@ const ManagementTab = () => {
         }
       });
 
-      // ADD THIS HANDLER FOR LOG PROCESSING PROGRESS
+      // Handler for processing progress updates
       connection.on('ProcessingProgress', async (progress) => {
         console.log('Processing progress received:', progress);
         
-        if (progress.percentComplete !== undefined) {
-          setIsProcessingLogs(true);
-          setProcessingStatus({
+        // Don't update if we're already showing complete status
+        setProcessingStatus(prev => {
+          if (prev?.status === 'complete') {
+            return prev; // Keep showing complete status
+          }
+          
+          return {
             message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
             detailMessage: `${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
             progress: progress.percentComplete || 0,
-            status: progress.status || 'processing'
-          });
-          
-          // Update backend operation state
-          await logProcessingOp.update({ 
-            lastProgress: progress.percentComplete || 0,
-            mbProcessed: progress.mbProcessed,
-            mbTotal: progress.mbTotal,
-            entriesProcessed: progress.entriesProcessed,
-            linesProcessed: progress.linesProcessed
-          });
-        }
+            status: 'processing'
+          };
+        });
+        
+        setIsProcessingLogs(true);
+        
+        // Update backend operation state
+        await logProcessingOp.update({ 
+          lastProgress: progress.percentComplete || 0,
+          mbProcessed: progress.mbProcessed,
+          mbTotal: progress.mbTotal,
+          entriesProcessed: progress.entriesProcessed,
+          linesProcessed: progress.linesProcessed
+        });
       });
 
-      // ADD THIS HANDLER FOR BULK PROCESSING COMPLETION
+      // Handler for bulk processing completion
       connection.on('BulkProcessingComplete', async (result) => {
         console.log('Bulk processing complete:', result);
         
-        setIsProcessingLogs(false);
-        await logProcessingOp.clear();
+        // Stop any polling immediately
         clearIntervalRef('processing');
         
+        // Show completion status for 10 seconds
         setProcessingStatus({
-          message: 'Processing complete!',
-          detailMessage: `Processed ${result.entriesProcessed} entries from ${result.linesProcessed} lines in ${result.elapsed?.toFixed(1)} minutes`,
+          message: 'Processing Complete!',
+          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes`,
           progress: 100,
           status: 'complete'
         });
         
+        // Keep showing as processing for the success message duration
+        setIsProcessingLogs(true);
+        
+        // Clear backend operation state
+        await logProcessingOp.clear();
+        
+        // After 10 seconds, hide the success message and refresh data
         setTimeout(() => {
+          setIsProcessingLogs(false);
           setProcessingStatus(null);
           fetchData();
-        }, 5000);
+        }, 10000); // Show success for 10 seconds
       });
 
       await connection.start();
@@ -362,6 +376,12 @@ const ManagementTab = () => {
   const startProcessingPolling = useCallback(() => {
     const checkStatus = async () => {
       try {
+        // Don't poll if we're showing complete status
+        const currentStatus = processingStatus;
+        if (currentStatus?.status === 'complete') {
+          return; // Don't update while showing success
+        }
+        
         const status = await ApiService.getProcessingStatus();
         if (status?.isProcessing) {
           setIsProcessingLogs(true);
@@ -378,19 +398,32 @@ const ManagementTab = () => {
             mbTotal: status.mbTotal
           });
         } else {
-          setIsProcessingLogs(false);
-          await logProcessingOp.clear();
-          clearIntervalRef('processing');
-          
+          // Processing finished but we didn't get a completion event
+          // This might happen if SignalR isn't connected
           if (status?.percentComplete >= 100) {
+            clearIntervalRef('processing');
+            
             setProcessingStatus({
-              message: 'Processing complete!',
+              message: 'Processing Complete!',
               detailMessage: `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
               progress: 100,
               status: 'complete'
             });
-            setTimeout(() => setProcessingStatus(null), 5000);
-            fetchData();
+            
+            setIsProcessingLogs(true); // Keep showing
+            await logProcessingOp.clear();
+            
+            // Hide after 10 seconds
+            setTimeout(() => {
+              setIsProcessingLogs(false);
+              setProcessingStatus(null);
+              fetchData();
+            }, 10000);
+          } else {
+            // Not processing and not complete - clear everything
+            setIsProcessingLogs(false);
+            await logProcessingOp.clear();
+            clearIntervalRef('processing');
           }
         }
       } catch (err) {
@@ -400,7 +433,7 @@ const ManagementTab = () => {
     
     checkStatus();
     setIntervalRef('processing', checkStatus, 3000);
-  }, [setIsProcessingLogs, setProcessingStatus, logProcessingOp, clearIntervalRef, setIntervalRef, fetchData]);
+  }, [setIsProcessingLogs, setProcessingStatus, logProcessingOp, clearIntervalRef, setIntervalRef, fetchData, processingStatus]);
 
   const startCacheClearPolling = useCallback((operationId) => {
     const pollStatus = async () => {
