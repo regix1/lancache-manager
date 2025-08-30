@@ -1,10 +1,17 @@
-using LancacheManager.Models;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
+using System.Threading.Channels;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
+using LancacheManager.Models;
 
 namespace LancacheManager.Services;
 
+/// <summary>
+/// High-throughput log processing service capable of handling thousands of lines per second.
+/// Uses Channel-based architecture for efficient producer-consumer pattern.
+/// </summary>
 public class LogWatcherService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
@@ -12,15 +19,33 @@ public class LogWatcherService : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly ILogger<LogWatcherService> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
-    private long _lastPosition = -1;
+    
+    // File tracking
+    private readonly string _logPath;
     private readonly string _positionFile = "/data/logposition.txt";
     private readonly string _processingMarker = "/data/bulk_processing.marker";
-    private readonly string _logPath;
-    private bool _isBulkProcessing = false;
-    private readonly List<LogEntry> _batchBuffer = new();
-    private DateTime _lastMarkerCheck = DateTime.MinValue;
-    private FileSystemWatcher? _markerWatcher;
-    private volatile bool _restartProcessing = false;
+    private long _lastPosition = -1;
+    private FileSystemWatcher? _fileWatcher;
+    
+    // Channel for high-throughput processing
+    private readonly Channel<ParsedLogEntry> _logChannel;
+    private readonly Channel<LogBatch> _batchChannel;
+    
+    // Processing state
+    private volatile bool _isBulkProcessing = false;
+    private readonly CancellationTokenSource _internalCts = new();
+    
+    // Configuration
+    private readonly int _channelCapacity;
+    private readonly int _batchSize;
+    private readonly int _batchTimeoutMs;
+    private readonly int _consumerCount;
+    
+    // Statistics
+    private readonly ConcurrentDictionary<string, long> _stats = new();
+    private DateTime _processingStartTime;
+    private long _totalLinesProcessed = 0;
+    private long _totalEntriesProcessed = 0;
 
     public LogWatcherService(
         IServiceProvider serviceProvider,
@@ -34,662 +59,458 @@ public class LogWatcherService : BackgroundService
         _configuration = configuration;
         _logger = logger;
         _hubContext = hubContext;
+        
         _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
+        
+        // Performance configuration
+        _channelCapacity = configuration.GetValue("LanCache:ChannelCapacity", 100_000);
+        _batchSize = configuration.GetValue("LanCache:BatchSize", 5_000);
+        _batchTimeoutMs = configuration.GetValue("LanCache:BatchTimeoutMs", 500);
+        _consumerCount = configuration.GetValue("LanCache:ConsumerCount", Environment.ProcessorCount);
+        
+        // Create bounded channels for backpressure
+        _logChannel = Channel.CreateBounded<ParsedLogEntry>(new BoundedChannelOptions(_channelCapacity)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleWriter = true,
+            SingleReader = false
+        });
+        
+        _batchChannel = Channel.CreateBounded<LogBatch>(new BoundedChannelOptions(100)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleWriter = false,
+            SingleReader = false
+        });
+        
+        _logger.LogInformation($"LogWatcherService initialized: capacity={_channelCapacity}, batch={_batchSize}, timeout={_batchTimeoutMs}ms, consumers={_consumerCount}");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        SetupMarkerWatcher();
-        
         // Wait for log file to exist
-        int waitAttempts = 0;
-        while (!File.Exists(_logPath) && !stoppingToken.IsCancellationRequested)
-        {
-            waitAttempts++;
-            _logger.LogInformation($"Waiting for log file: {_logPath} (attempt {waitAttempts})");
-            
-            if (File.Exists(_processingMarker))
-            {
-                _logger.LogInformation("Processing marker found while waiting for log file");
-            }
-            
-            var waitTime = Math.Min(10000 * waitAttempts, 60000);
-            await Task.Delay(waitTime, stoppingToken);
-            
-            if (waitAttempts == 10)
-            {
-                _logger.LogWarning($"Log file still not found after {waitAttempts} attempts");
-                var logDir = Path.GetDirectoryName(_logPath);
-                if (Directory.Exists(logDir))
-                {
-                    var files = Directory.GetFiles(logDir, "*.log");
-                    _logger.LogInformation($"Found {files.Length} .log files in {logDir}: {string.Join(", ", files.Take(5))}");
-                }
-            }
-        }
-
+        await WaitForLogFile(stoppingToken);
+        
         if (stoppingToken.IsCancellationRequested)
             return;
 
+        // Initialize position
         await InitializePosition();
-        await ProcessLogFile(stoppingToken);
-    }
+        
+        // Set up file watcher for rotation/truncation detection
+        SetupFileWatcher();
+        
+        // Create linked token source
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _internalCts.Token);
+        var linkedToken = linkedCts.Token;
+        
+        // Start all processing tasks
+        var tasks = new List<Task>
+        {
+            // File tailer (producer)
+            TailFileAsync(linkedToken),
+            
+            // Batch aggregator
+            AggregateBatchesAsync(linkedToken),
+            
+            // Progress reporter
+            ReportProgressAsync(linkedToken)
+        };
+        
+        // Add multiple parallel consumers
+        for (int i = 0; i < _consumerCount; i++)
+        {
+            var consumerId = i;
+            tasks.Add(ProcessBatchesAsync(consumerId, linkedToken));
+        }
+        
+        // Add multiple batch processors
+        var processorCount = Math.Max(2, _consumerCount / 2);
+        for (int i = 0; i < processorCount; i++)
+        {
+            var processorId = i;
+            tasks.Add(ProcessDatabaseBatchesAsync(processorId, linkedToken));
+        }
 
-    private void SetupMarkerWatcher()
-    {
         try
         {
-            var directory = Path.GetDirectoryName(_processingMarker) ?? "/data";
-            if (!Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            _markerWatcher = new FileSystemWatcher(directory)
-            {
-                Filter = Path.GetFileName(_processingMarker),
-                NotifyFilter = NotifyFilters.CreationTime | NotifyFilters.LastWrite | NotifyFilters.FileName,
-                EnableRaisingEvents = true
-            };
-
-            _markerWatcher.Created += OnMarkerCreated;
-            _markerWatcher.Changed += OnMarkerCreated;
-            
-            _logger.LogInformation("Marker file watcher initialized");
+            await Task.WhenAll(tasks);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("LogWatcherService stopping gracefully");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to setup marker watcher");
+            _logger.LogError(ex, "Fatal error in LogWatcherService");
         }
     }
 
-    private void OnMarkerCreated(object sender, FileSystemEventArgs e)
+    /// <summary>
+    /// Continuously tails the log file, reading new lines as they appear.
+    /// This is the producer that feeds the channel.
+    /// </summary>
+    private async Task TailFileAsync(CancellationToken cancellationToken)
     {
-        if (_isBulkProcessing)
+        _logger.LogInformation($"Starting file tailer from position {_lastPosition}");
+        
+        while (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogDebug("Already bulk processing, ignoring duplicate marker event");
-            return;
+            try
+            {
+                using var stream = new FileStream(_logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 
+                    bufferSize: 131072); // 128KB buffer for high throughput
+                using var reader = new StreamReader(stream, Encoding.UTF8, true, 131072);
+                
+                // Check for bulk processing marker
+                if (File.Exists(_processingMarker) && !_isBulkProcessing)
+                {
+                    _logger.LogInformation("Bulk processing marker detected - starting from beginning");
+                    _isBulkProcessing = true;
+                    _lastPosition = 0;
+                    _processingStartTime = DateTime.UtcNow;
+                    await CreateOperationState(stream.Length);
+                }
+                
+                // Seek to position
+                if (_lastPosition > 0 && _lastPosition < stream.Length)
+                {
+                    stream.Seek(_lastPosition, SeekOrigin.Begin);
+                    // Skip partial line
+                    if (_lastPosition > 0)
+                        await reader.ReadLineAsync();
+                }
+                else if (_isBulkProcessing)
+                {
+                    stream.Seek(0, SeekOrigin.Begin);
+                    _lastPosition = 0;
+                }
+                else
+                {
+                    stream.Seek(0, SeekOrigin.End);
+                    _lastPosition = stream.Position;
+                }
+                
+                _logger.LogInformation($"Tailing from position {stream.Position}/{stream.Length} (bulk={_isBulkProcessing})");
+                
+                var consecutiveEmptyReads = 0;
+                var lineBuffer = new List<string>(1000);
+                
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync();
+                    
+                    if (line != null)
+                    {
+                        consecutiveEmptyReads = 0;
+                        lineBuffer.Add(line);
+                        Interlocked.Increment(ref _totalLinesProcessed);
+                        
+                        // Process buffer when it gets large enough
+                        if (lineBuffer.Count >= 100)
+                        {
+                            await ProcessLineBuffer(lineBuffer, cancellationToken);
+                            lineBuffer.Clear();
+                        }
+                        
+                        _lastPosition = stream.Position;
+                    }
+                    else
+                    {
+                        // Process any remaining lines
+                        if (lineBuffer.Count > 0)
+                        {
+                            await ProcessLineBuffer(lineBuffer, cancellationToken);
+                            lineBuffer.Clear();
+                        }
+                        
+                        // Save position periodically
+                        await SavePositionAtomic();
+                        
+                        // Check if bulk processing is complete
+                        if (_isBulkProcessing)
+                        {
+                            var fileInfo = new FileInfo(_logPath);
+                            if (stream.Position >= fileInfo.Length - 1000 || consecutiveEmptyReads > 10)
+                            {
+                                await CompleteBulkProcessing();
+                                _isBulkProcessing = false;
+                            }
+                        }
+                        
+                        // Check for file growth
+                        var currentLength = new FileInfo(_logPath).Length;
+                        if (currentLength > stream.Length)
+                        {
+                            _logger.LogDebug($"File grew from {stream.Length} to {currentLength}");
+                            continue; // Keep reading
+                        }
+                        
+                        consecutiveEmptyReads++;
+                        
+                        // Backoff when no new data
+                        var delay = _isBulkProcessing ? 10 : Math.Min(consecutiveEmptyReads * 100, 1000);
+                        await Task.Delay(delay, cancellationToken);
+                    }
+                }
+            }
+            catch (FileNotFoundException)
+            {
+                _logger.LogWarning("Log file not found, waiting...");
+                await Task.Delay(5000, cancellationToken);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "IO error reading log file, retrying...");
+                await Task.Delay(1000, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in file tailer");
+                await Task.Delay(5000, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Processes a buffer of lines in parallel for maximum throughput
+    /// </summary>
+    private async Task ProcessLineBuffer(List<string> lines, CancellationToken cancellationToken)
+    {
+        var tasks = new List<Task>();
+        var semaphore = new SemaphoreSlim(Environment.ProcessorCount * 2);
+        
+        foreach (var line in lines)
+        {
+            await semaphore.WaitAsync(cancellationToken);
+            
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    var entry = _parser.ParseLine(line);
+                    if (entry != null && entry.BytesServed > 0)
+                    {
+                        var parsed = new ParsedLogEntry
+                        {
+                            Entry = entry,
+                            LineNumber = Interlocked.Read(ref _totalLinesProcessed)
+                        };
+                        
+                        await _logChannel.Writer.WriteAsync(parsed, cancellationToken);
+                        Interlocked.Increment(ref _totalEntriesProcessed);
+                    }
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }, cancellationToken));
         }
         
-        _logger.LogInformation("Processing marker detected via file watcher - FORCING bulk processing from position 0");
-        _lastPosition = 0;
-        _isBulkProcessing = true;
-        _restartProcessing = true;
-        _lastMarkerCheck = DateTime.UtcNow;
+        await Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Aggregates individual log entries into batches for efficient DB writes
+    /// </summary>
+    private async Task AggregateBatchesAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Starting batch aggregator");
         
-        // Force save position to 0 immediately
-        Task.Run(async () => {
-            await File.WriteAllTextAsync(_positionFile, "0");
-            _logger.LogInformation("Forced position file to 0 for bulk processing");
-        }).Wait();
+        var batch = new Dictionary<string, List<LogEntry>>();
+        var stopwatch = Stopwatch.StartNew();
+        var itemCount = 0;
+        
+        await foreach (var item in _logChannel.Reader.ReadAllAsync(cancellationToken))
+        {
+            var key = $"{item.Entry.ClientIp}_{item.Entry.Service}";
+            
+            if (!batch.ContainsKey(key))
+                batch[key] = new List<LogEntry>();
+            
+            batch[key].Add(item.Entry);
+            itemCount++;
+            
+            // Send batch when size or time threshold is reached
+            if (itemCount >= _batchSize || stopwatch.ElapsedMilliseconds >= _batchTimeoutMs)
+            {
+                if (batch.Count > 0)
+                {
+                    var logBatch = new LogBatch
+                    {
+                        Entries = batch,
+                        Timestamp = DateTime.UtcNow,
+                        IsBulkProcessing = _isBulkProcessing
+                    };
+                    
+                    await _batchChannel.Writer.WriteAsync(logBatch, cancellationToken);
+                    
+                    batch = new Dictionary<string, List<LogEntry>>();
+                    itemCount = 0;
+                    stopwatch.Restart();
+                }
+            }
+        }
+        
+        // Process final batch
+        if (batch.Count > 0)
+        {
+            await _batchChannel.Writer.WriteAsync(new LogBatch 
+            { 
+                Entries = batch, 
+                Timestamp = DateTime.UtcNow,
+                IsBulkProcessing = _isBulkProcessing
+            }, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Processes batches and sends them to the database
+    /// Multiple instances run in parallel for maximum throughput
+    /// </summary>
+    private async Task ProcessBatchesAsync(int consumerId, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation($"Starting batch consumer {consumerId}");
+        
+        await foreach (var batch in _batchChannel.Reader.ReadAllAsync(cancellationToken))
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+                
+                // Process each client/service group
+                var tasks = batch.Entries.Select(async kvp =>
+                {
+                    try
+                    {
+                        await dbService.ProcessLogEntryBatch(kvp.Value, !batch.IsBulkProcessing);
+                        
+                        // Update statistics
+                        var key = kvp.Key;
+                        _stats.AddOrUpdate(key, kvp.Value.Count, (k, v) => v + kvp.Value.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Error processing batch for {kvp.Key}");
+                    }
+                });
+                
+                await Task.WhenAll(tasks);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Consumer {consumerId} error processing batch");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Alternative batch processor for database writes
+    /// </summary>
+    private async Task ProcessDatabaseBatchesAsync(int processorId, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation($"Starting database processor {processorId}");
+        
+        // This is a placeholder for additional processing logic
+        // You could use this for secondary processing, caching, etc.
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Reports progress periodically for monitoring
+    /// </summary>
+    private async Task ReportProgressAsync(CancellationToken cancellationToken)
+    {
+        var lastReport = DateTime.UtcNow;
+        var lastLinesReported = 0L;
+        var lastEntriesReported = 0L;
+        
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(2000, cancellationToken);
+            
+            var now = DateTime.UtcNow;
+            var currentLines = Interlocked.Read(ref _totalLinesProcessed);
+            var currentEntries = Interlocked.Read(ref _totalEntriesProcessed);
+            
+            if (currentLines > lastLinesReported || _isBulkProcessing)
+            {
+                var elapsed = now - lastReport;
+                var linesPerSecond = (currentLines - lastLinesReported) / elapsed.TotalSeconds;
+                var entriesPerSecond = (currentEntries - lastEntriesReported) / elapsed.TotalSeconds;
+                
+                _logger.LogInformation($"Processing rate: {linesPerSecond:F0} lines/sec, {entriesPerSecond:F0} entries/sec");
+                _logger.LogInformation($"Channel status: {_logChannel.Reader.Count}/{_channelCapacity} items queued");
+                
+                if (_isBulkProcessing)
+                {
+                    await UpdateOperationState(currentLines, currentEntries);
+                    await SendProgressNotification(currentLines, currentEntries);
+                }
+                
+                lastReport = now;
+                lastLinesReported = currentLines;
+                lastEntriesReported = currentEntries;
+            }
+        }
+    }
+
+    // Helper methods
+
+    private async Task WaitForLogFile(CancellationToken cancellationToken)
+    {
+        var attempts = 0;
+        while (!File.Exists(_logPath) && !cancellationToken.IsCancellationRequested)
+        {
+            attempts++;
+            _logger.LogInformation($"Waiting for log file: {_logPath} (attempt {attempts})");
+            await Task.Delay(Math.Min(10000 * attempts, 60000), cancellationToken);
+        }
     }
 
     private async Task InitializePosition()
     {
-        // Check for bulk processing marker FIRST
-        bool hasBulkProcessingMarker = File.Exists(_processingMarker);
-        
-        if (hasBulkProcessingMarker)
-        {
-            _logger.LogInformation("Found bulk processing marker at initialization - FORCING position to 0");
-            _lastPosition = 0;
-            _isBulkProcessing = true;
-            await SavePosition();
-            
-            var fileInfo = new FileInfo(_logPath);
-            _logger.LogInformation($"Bulk processing WILL START FROM BEGINNING: {fileInfo.Length / 1024.0 / 1024.0:F1} MB to process");
-            return;
-        }
-        
-        // Only load saved position if NOT bulk processing
-        var fileInfo2 = new FileInfo(_logPath);
-        _logger.LogInformation($"Log file size: {fileInfo2.Length / 1024.0 / 1024.0:F1} MB");
-        
-        await LoadPosition();
-        
-        _logger.LogInformation($"Loaded position: {_lastPosition:N0} (File size: {fileInfo2.Length:N0})");
-        
-        if (_lastPosition >= 0 && _lastPosition <= fileInfo2.Length)
-        {
-            var behind = fileInfo2.Length - _lastPosition;
-            _logger.LogInformation($"Starting from saved position: {_lastPosition:N0} ({behind / 1024.0 / 1024.0:F1} MB behind)");
-            
-            if (behind > 100_000_000) // 100MB behind
-            {
-                _logger.LogInformation($"Large backlog detected: {behind / 1024.0 / 1024.0:F1} MB to process - enabling bulk mode");
-                _isBulkProcessing = true;
-            }
-        }
-        else
-        {
-            var startFromEnd = _configuration.GetValue<bool>("LanCache:StartFromEndOfLog", true);
-            
-            if (startFromEnd)
-            {
-                _lastPosition = fileInfo2.Length;
-                _logger.LogInformation($"Starting from END of log file (position: {_lastPosition:N0})");
-            }
-            else
-            {
-                _lastPosition = 0;
-                _logger.LogInformation("Starting from beginning of log file");
-                _isBulkProcessing = true;
-            }
-            
-            await SavePosition();
-        }
-    }
-
-    private async Task ProcessLogFile(CancellationToken stoppingToken)
-    {
-        int retryCount = 0;
-        const int maxRetries = 10;
-        
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                // Check for restart signal from file watcher
-                if (_restartProcessing)
-                {
-                    _restartProcessing = false;
-                    _logger.LogInformation("Restarting processing loop due to marker file");
-                }
-                
-                // Check for marker BEFORE starting processing
-                if (File.Exists(_processingMarker) && !_isBulkProcessing)
-                {
-                    _logger.LogInformation("Marker file detected - forcing bulk processing restart");
-                    _lastPosition = 0;
-                    _isBulkProcessing = true;
-                    await SavePosition();
-                }
-                
-                await ProcessLogFileInternal(stoppingToken);
-                retryCount = 0;
-                
-                // Loop back to start normal processing after bulk
-                if (!_isBulkProcessing)
-                {
-                    _logger.LogInformation("Transitioning from bulk to normal processing mode");
-                    continue;
-                }
-            }
-            catch (Exception ex)
-            {
-                retryCount++;
-                _logger.LogError(ex, $"Error in main processing loop (attempt {retryCount}/{maxRetries})");
-                
-                if (retryCount >= maxRetries)
-                {
-                    _logger.LogError("Max retries reached, waiting 60 seconds before retrying");
-                    await Task.Delay(60000, stoppingToken);
-                    retryCount = 0;
-                }
-                else
-                {
-                    var delay = Math.Min(5000 * retryCount, 30000);
-                    _logger.LogInformation($"Retrying in {delay/1000} seconds...");
-                    await Task.Delay(delay, stoppingToken);
-                }
-            }
-        }
-    }
-
-    private async Task ProcessLogFileInternal(CancellationToken stoppingToken)
-    {
-        // Store bulk processing state locally to prevent race conditions
-        bool isBulkMode = _isBulkProcessing;
-        
-        // Force position to 0 if bulk processing
-        if (isBulkMode)
-        {
-            _logger.LogInformation($"BULK PROCESSING MODE ACTIVE - Forcing position to 0 (previous position: {_lastPosition})");
-            _lastPosition = 0;
-            await SavePosition();
-        }
-        
-        // Check if file is empty
-        var fileCheck = new FileInfo(_logPath);
-        if (fileCheck.Length == 0)
-        {
-            _logger.LogWarning("Log file is empty (0 bytes), cannot process");
-            
-            if (isBulkMode)
-            {
-                _isBulkProcessing = false;
-                
-                if (File.Exists(_processingMarker))
-                {
-                    File.Delete(_processingMarker);
-                    _logger.LogInformation("Removed bulk processing marker (empty file)");
-                }
-                
-                CleanupOperationState();
-                
-                await _hubContext.Clients.All.SendAsync("ProcessingError", new {
-                    error = "Log file is empty",
-                    message = "No data to process"
-                });
-            }
-            
-            // Wait for file to have content
-            while (fileCheck.Length == 0 && !stoppingToken.IsCancellationRequested)
-            {
-                _logger.LogInformation("Waiting for log file to have content...");
-                await Task.Delay(10000, stoppingToken);
-                fileCheck = new FileInfo(_logPath);
-            }
-            
-            if (stoppingToken.IsCancellationRequested)
-                return;
-                
-            _logger.LogInformation($"Log file now has content: {fileCheck.Length} bytes");
-        }
-
-        var bufferSize = isBulkMode ? 131072 : 8192;
-        
-        // Open the log file
-        FileStream? stream = null;
-        StreamReader? reader = null;
-        int openAttempts = 0;
-        
-        while (stream == null && openAttempts < 10 && !stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                openAttempts++;
-                stream = new FileStream(_logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize);
-                reader = new StreamReader(stream, Encoding.UTF8, true, bufferSize);
-                _logger.LogInformation($"Successfully opened log file on attempt {openAttempts}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"Failed to open log file on attempt {openAttempts}: {ex.Message}");
-                await Task.Delay(5000, stoppingToken);
-            }
-        }
-        
-        if (stream == null || reader == null)
-        {
-            throw new Exception($"Could not open log file after {openAttempts} attempts");
-        }
-
-        try
-        {
-            // Position the stream
-            if (isBulkMode)
-            {
-                _logger.LogInformation($"BULK MODE: Seeking to position 0 (file length: {stream.Length})");
-                stream.Seek(0, SeekOrigin.Begin);
-                _lastPosition = 0;
-                
-                // Verify position
-                _logger.LogInformation($"Stream position after seek: {stream.Position}");
-                
-                if (stream.Position != 0)
-                {
-                    _logger.LogError($"Failed to seek to position 0! Stream is at {stream.Position}");
-                    stream.Position = 0;
-                    _logger.LogInformation($"Forced stream.Position = 0, now at: {stream.Position}");
-                }
-                
-                // Create initial operation state
-                CreateInitialOperationState(stream.Length);
-            }
-            else if (_lastPosition > 0 && _lastPosition < stream.Length)
-            {
-                _logger.LogInformation($"Normal mode: Seeking to saved position {_lastPosition:N0}");
-                stream.Seek(_lastPosition, SeekOrigin.Begin);
-                
-                if (_lastPosition > 0)
-                {
-                    await reader.ReadLineAsync(); // Skip partial line
-                }
-            }
-            else if (_lastPosition >= stream.Length)
-            {
-                _logger.LogInformation($"Position {_lastPosition} is at/past end of file {stream.Length}, seeking to end");
-                stream.Seek(0, SeekOrigin.End);
-            }
-            else
-            {
-                _logger.LogInformation("Starting from beginning of file (position 0)");
-                stream.Seek(0, SeekOrigin.Begin);
-            }
-
-            // Process the file
-            await ProcessFileContent(reader, stream, isBulkMode, stoppingToken);
-        }
-        finally
-        {
-            reader?.Dispose();
-            stream?.Dispose();
-        }
-    }
-
-    private async Task ProcessFileContent(StreamReader reader, FileStream stream, bool isBulkMode, CancellationToken stoppingToken)
-    {
-        var linesProcessed = 0;
-        var entriesProcessed = 0;
-        var bulkStartTime = DateTime.UtcNow;
-        var lastProgressUpdate = DateTime.UtcNow;
-        var emptyReadCount = 0;
-        double lastPercentReported = -1.0;
-
-        _logger.LogInformation($"Starting to read from position {stream.Position} (bulk={isBulkMode}, file size={stream.Length})");
-
-        while (!stoppingToken.IsCancellationRequested && !_restartProcessing)
-        {
-            try
-            {
-                var line = await reader.ReadLineAsync();
-                
-                if (!string.IsNullOrEmpty(line))
-                {
-                    emptyReadCount = 0;
-                    linesProcessed++;
-
-                    // Log first few lines in bulk mode for debugging
-                    if (isBulkMode && linesProcessed <= 5)
-                    {
-                        _logger.LogInformation($"Processing line {linesProcessed}: {line.Substring(0, Math.Min(100, line.Length))}...");
-                    }
-
-                    var entry = _parser.ParseLine(line);
-                    
-                    if (entry != null && entry.BytesServed > 0)
-                    {
-                        entriesProcessed++;
-                        _batchBuffer.Add(entry);
-                        
-                        if (isBulkMode && entriesProcessed <= 5)
-                        {
-                            _logger.LogInformation($"Parsed entry {entriesProcessed}: {entry.Service} - {entry.ClientIp} - {entry.BytesServed} bytes");
-                        }
-                    }
-
-                    // Process batch when buffer is full
-                    var batchSize = isBulkMode ? 500 : 50;
-                    if (_batchBuffer.Count >= batchSize)
-                    {
-                        await ProcessBatch(_batchBuffer.ToList(), !isBulkMode);
-                        _batchBuffer.Clear();
-                    }
-
-                    // Progress reporting for bulk processing
-                    if (isBulkMode)
-                    {
-                        var progressResult = await ReportProgressIfNeeded(stream, linesProcessed, entriesProcessed, 
-                            lastProgressUpdate, lastPercentReported);
-                        lastProgressUpdate = progressResult.lastUpdate;
-                        lastPercentReported = progressResult.lastPercent;
-                    }
-                }
-                else
-                {
-                    // No more data available
-                    emptyReadCount++;
-                    
-                    // Process any remaining entries
-                    if (_batchBuffer.Count > 0)
-                    {
-                        _logger.LogInformation($"Processing final batch of {_batchBuffer.Count} entries");
-                        await ProcessBatch(_batchBuffer.ToList(), !isBulkMode);
-                        _batchBuffer.Clear();
-                    }
-                    
-                    _lastPosition = stream.Position;
-                    
-                    if (!isBulkMode || entriesProcessed > 0)
-                    {
-                        await SavePosition();
-                    }
-                    
-                    // Check if bulk processing is complete
-                    if (isBulkMode)
-                    {
-                        var fileInfo = new FileInfo(_logPath);
-                        
-                        if (stream.Position >= fileInfo.Length - 1000 || emptyReadCount > 10)
-                        {
-                            await CompleteBulkProcessing(bulkStartTime, entriesProcessed, linesProcessed, stream.Position, fileInfo.Length);
-                            return;
-                        }
-                    }
-                    
-                    // Check for new data
-                    var currentFileInfo = new FileInfo(_logPath);
-                    if (currentFileInfo.Length > stream.Length)
-                    {
-                        emptyReadCount = 0;
-                        continue;
-                    }
-                    
-                    await Task.Delay(isBulkMode ? 100 : 1000, stoppingToken);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Error processing log line at position {stream.Position}");
-                await Task.Delay(5000, stoppingToken);
-            }
-        }
-        
-        if (_restartProcessing)
-        {
-            _logger.LogInformation("Exiting ProcessFileContent due to restart signal");
-        }
-    }
-
-    private async Task<(DateTime lastUpdate, double lastPercent)> ReportProgressIfNeeded(FileStream stream, int linesProcessed, int entriesProcessed, 
-        DateTime lastProgressUpdate, double lastPercentReported)
-    {
-        var percentComplete = (stream.Position * 100.0) / stream.Length;
-        var shouldReport = false;
-        
-        // Report if: 500 lines processed, 2 seconds elapsed, or 1% progress change
-        if (linesProcessed % 500 == 0 || 
-            DateTime.UtcNow - lastProgressUpdate > TimeSpan.FromSeconds(2) ||
-            Math.Abs(percentComplete - lastPercentReported) >= 1.0)
-        {
-            shouldReport = true;
-        }
-        
-        if (shouldReport)
-        {
-            var mbProcessed = stream.Position / (1024.0 * 1024.0);
-            var mbTotal = stream.Length / (1024.0 * 1024.0);
-            
-            _logger.LogInformation($"Progress: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesProcessed} entries from {linesProcessed} lines");
-            
-            // Update operation state
-            UpdateOperationState(percentComplete, mbProcessed, mbTotal, entriesProcessed, linesProcessed, stream.Position);
-            
-            // Send SignalR notification
-            try
-            {
-                await _hubContext.Clients.All.SendAsync("ProcessingProgress", new {
-                    percentComplete,
-                    mbProcessed,
-                    mbTotal,
-                    entriesProcessed,
-                    linesProcessed,
-                    timestamp = DateTime.UtcNow,
-                    status = "processing"
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send progress via SignalR");
-            }
-            
-            _lastPosition = stream.Position;
-            await SavePosition();
-            
-            return (DateTime.UtcNow, percentComplete);
-        }
-        
-        return (lastProgressUpdate, lastPercentReported);
-    }
-
-    private async Task CompleteBulkProcessing(DateTime bulkStartTime, int entriesProcessed, int linesProcessed, long finalPosition, long fileLength)
-    {
-        var elapsed = DateTime.UtcNow - bulkStartTime;
-        _logger.LogInformation($"Bulk processing completed in {elapsed.TotalMinutes:F1} minutes");
-        _logger.LogInformation($"Final stats: Processed {entriesProcessed} entries from {linesProcessed} lines");
-        _logger.LogInformation($"Final position: {finalPosition} / {fileLength}");
-        
-        _isBulkProcessing = false;
-        
-        if (entriesProcessed == 0 && linesProcessed == 0)
-        {
-            _logger.LogError("BULK PROCESSING FAILED: No lines were read. File may be inaccessible or in wrong format.");
-        }
-        
-        // Clean up marker file
         if (File.Exists(_processingMarker))
         {
+            _logger.LogInformation("Found processing marker - will start bulk processing");
+            _isBulkProcessing = true;
+            _lastPosition = 0;
+            _processingStartTime = DateTime.UtcNow;
+        }
+        else if (File.Exists(_positionFile))
+        {
             try
             {
-                File.Delete(_processingMarker);
-                _logger.LogInformation("Removed bulk processing marker");
+                var content = await File.ReadAllTextAsync(_positionFile);
+                if (long.TryParse(content, out var position))
+                {
+                    _lastPosition = position;
+                    _logger.LogInformation($"Loaded position: {_lastPosition}");
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to remove processing marker");
+                _logger.LogError(ex, "Error loading position");
             }
         }
         
-        // Clear operation state
-        CleanupOperationState();
-        
-        // Send completion notification
-        try
+        if (_lastPosition < 0)
         {
-            await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new {
-                entriesProcessed,
-                linesProcessed,
-                elapsed = elapsed.TotalMinutes,
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send completion notification");
+            var startFromEnd = _configuration.GetValue("LanCache:StartFromEndOfLog", true);
+            _lastPosition = startFromEnd ? new FileInfo(_logPath).Length : 0;
+            _logger.LogInformation($"Initial position: {_lastPosition}");
         }
     }
 
-    private void CreateInitialOperationState(long fileSize)
+    private async Task SavePositionAtomic()
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
-            var operationState = new OperationState
-            {
-                Key = "activeLogProcessing",
-                Type = "log_processing",
-                Status = "processing",
-                Message = "Starting to process log file",
-                Data = new Dictionary<string, object>
-                {
-                    { "startTime", DateTime.UtcNow },
-                    { "fileSize", fileSize },
-                    { "percentComplete", 0 },
-                    { "status", "processing" },
-                    { "isProcessing", true }
-                },
-                ExpiresAt = DateTime.UtcNow.AddHours(24)
-            };
-            stateService.SaveState("activeLogProcessing", operationState);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to create initial operation state");
-        }
-    }
-
-    private void UpdateOperationState(double percentComplete, double mbProcessed, double mbTotal, 
-        int entriesProcessed, int linesProcessed, long currentPosition)
-    {
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
-            stateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
-            {
-                { "percentComplete", percentComplete },
-                { "mbProcessed", mbProcessed },
-                { "mbTotal", mbTotal },
-                { "entriesProcessed", entriesProcessed },
-                { "linesProcessed", linesProcessed },
-                { "currentPosition", currentPosition },
-                { "isProcessing", true },
-                { "status", "processing" }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to update operation state");
-        }
-    }
-
-    private void CleanupOperationState()
-    {
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
-            stateService.RemoveState("activeLogProcessing");
-            _logger.LogInformation("Cleared operation state");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to clear operation state");
-        }
-    }
-
-    private async Task ProcessBatch(List<LogEntry> entries, bool sendRealtimeUpdates)
-    {
-        if (entries.Count == 0) return;
-
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
-
-            var grouped = entries.GroupBy(e => new { e.ClientIp, e.Service });
-
-            foreach (var group in grouped)
-            {
-                try
-                {
-                    await dbService.ProcessLogEntryBatch(group.ToList(), sendRealtimeUpdates);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing batch");
-        }
-    }
-
-    private async Task SavePosition()
-    {
-        try
-        {
-            if (!Directory.Exists("/data"))
-            {
-                Directory.CreateDirectory("/data");
-            }
-            
-            await File.WriteAllTextAsync(_positionFile, _lastPosition.ToString());
-            _logger.LogTrace($"Saved position: {_lastPosition}");
+            var tempFile = _positionFile + ".tmp";
+            await File.WriteAllTextAsync(tempFile, _lastPosition.ToString());
+            File.Move(tempFile, _positionFile, true);
         }
         catch (Exception ex)
         {
@@ -697,40 +518,192 @@ public class LogWatcherService : BackgroundService
         }
     }
 
-    private async Task LoadPosition()
+    private void SetupFileWatcher()
     {
         try
         {
-            if (File.Exists(_positionFile))
+            var dir = Path.GetDirectoryName(_logPath) ?? "/logs";
+            var file = Path.GetFileName(_logPath);
+            
+            _fileWatcher = new FileSystemWatcher(dir, file)
             {
-                var content = await File.ReadAllTextAsync(_positionFile);
-                if (long.TryParse(content, out var position))
-                {
-                    _lastPosition = position;
-                    _logger.LogInformation($"Loaded saved position: {_lastPosition:N0}");
-                }
-                else
-                {
-                    _logger.LogWarning($"Invalid position file content: {content}");
-                    _lastPosition = -1;
-                }
-            }
-            else
-            {
-                _logger.LogInformation("No saved position file found");
-                _lastPosition = -1;
-            }
+                NotifyFilter = NotifyFilters.Size | NotifyFilters.LastWrite | NotifyFilters.FileName,
+                EnableRaisingEvents = true
+            };
+            
+            _fileWatcher.Deleted += OnFileDeleted;
+            _fileWatcher.Created += OnFileCreated;
+            
+            _logger.LogInformation("File watcher initialized");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading position");
-            _lastPosition = -1;
+            _logger.LogError(ex, "Failed to setup file watcher");
+        }
+    }
+
+    private void OnFileDeleted(object sender, FileSystemEventArgs e)
+    {
+        _logger.LogWarning("Log file deleted - resetting position");
+        _lastPosition = 0;
+    }
+
+    private void OnFileCreated(object sender, FileSystemEventArgs e)
+    {
+        _logger.LogInformation("Log file recreated - restarting tailer");
+        _lastPosition = 0;
+    }
+
+    private async Task CreateOperationState(long fileSize)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+            
+            var state = new OperationState
+            {
+                Key = "activeLogProcessing",
+                Type = "log_processing",
+                Status = "processing",
+                Message = "Processing log file",
+                Data = new Dictionary<string, object>
+                {
+                    { "startTime", DateTime.UtcNow },
+                    { "fileSize", fileSize },
+                    { "status", "processing" }
+                },
+                ExpiresAt = DateTime.UtcNow.AddHours(24)
+            };
+            
+            stateService.SaveState("activeLogProcessing", state);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create operation state");
+        }
+    }
+
+    private async Task UpdateOperationState(long lines, long entries)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+            
+            var fileSize = new FileInfo(_logPath).Length;
+            var percentComplete = _lastPosition > 0 && fileSize > 0 
+                ? (_lastPosition * 100.0) / fileSize 
+                : 0;
+            
+            stateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
+            {
+                { "percentComplete", percentComplete },
+                { "linesProcessed", lines },
+                { "entriesProcessed", entries },
+                { "currentPosition", _lastPosition },
+                { "isProcessing", true }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update operation state");
+        }
+    }
+
+    private async Task SendProgressNotification(long lines, long entries)
+    {
+        try
+        {
+            var fileSize = new FileInfo(_logPath).Length;
+            var percentComplete = _lastPosition > 0 && fileSize > 0 
+                ? (_lastPosition * 100.0) / fileSize 
+                : 0;
+            
+            await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+            {
+                percentComplete,
+                mbProcessed = _lastPosition / (1024.0 * 1024.0),
+                mbTotal = fileSize / (1024.0 * 1024.0),
+                entriesProcessed = entries,
+                linesProcessed = lines,
+                timestamp = DateTime.UtcNow,
+                status = "processing"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send progress notification");
+        }
+    }
+
+    private async Task CompleteBulkProcessing()
+    {
+        var elapsed = DateTime.UtcNow - _processingStartTime;
+        _logger.LogInformation($"Bulk processing completed in {elapsed.TotalMinutes:F1} minutes");
+        _logger.LogInformation($"Processed {_totalLinesProcessed} lines, {_totalEntriesProcessed} entries");
+        
+        // Clean up marker
+        if (File.Exists(_processingMarker))
+        {
+            try
+            {
+                File.Delete(_processingMarker);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to delete processing marker");
+            }
+        }
+        
+        // Clear operation state
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+            stateService.RemoveState("activeLogProcessing");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear operation state");
+        }
+        
+        // Send completion notification
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new
+            {
+                entriesProcessed = _totalEntriesProcessed,
+                linesProcessed = _totalLinesProcessed,
+                elapsed = elapsed.TotalMinutes,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send completion notification");
         }
     }
 
     public override void Dispose()
     {
-        _markerWatcher?.Dispose();
+        _internalCts?.Cancel();
+        _internalCts?.Dispose();
+        _fileWatcher?.Dispose();
         base.Dispose();
     }
+}
+
+// Helper classes
+internal class ParsedLogEntry
+{
+    public LogEntry Entry { get; set; } = null!;
+    public long LineNumber { get; set; }
+}
+
+internal class LogBatch
+{
+    public Dictionary<string, List<LogEntry>> Entries { get; set; } = new();
+    public DateTime Timestamp { get; set; }
+    public bool IsBulkProcessing { get; set; }
 }
