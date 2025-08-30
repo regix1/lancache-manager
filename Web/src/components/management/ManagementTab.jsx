@@ -523,19 +523,32 @@ const ManagementTab = () => {
             return;
           }
           
-          await logProcessingOp.save({ type: 'processAll' });
           result = await ApiService.processAllLogs();
           
           if (result) {
-            setIsProcessingLogs(true);
-            setProcessingStatus({
-              message: 'Preparing to process logs...',
-              detailMessage: `${result.logSizeMB?.toFixed(1) || 0} MB to process`,
-              progress: 0,
-              estimatedTime: `Estimated: ${result.estimatedTimeMinutes} minutes`,
-              status: 'starting'
-            });
-            setTimeout(() => startProcessingPolling(), 5000);
+            // Check for empty or missing file
+            if (result.status === 'empty_file' || result.status === 'no_log_file' || result.status === 'insufficient_data') {
+              addError(result.message);
+              setActionLoading(false);
+              return;
+            }
+            
+            // Only save operation and start polling if we have data to process
+            if (result.logSizeMB > 0) {
+              await logProcessingOp.save({ type: 'processAll' });
+              setIsProcessingLogs(true);
+              setProcessingStatus({
+                message: 'Preparing to process logs...',
+                detailMessage: `${result.logSizeMB?.toFixed(1) || 0} MB to process`,
+                progress: 0,
+                estimatedTime: `Estimated: ${result.estimatedTimeMinutes} minutes`,
+                status: 'starting'
+              });
+              setTimeout(() => startProcessingPolling(), 5000);
+            } else {
+              addError('Log file appears to be empty or invalid');
+              await logProcessingOp.clear();
+            }
           } else {
             await logProcessingOp.clear();
           }

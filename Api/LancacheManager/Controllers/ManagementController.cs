@@ -192,18 +192,16 @@ public class ManagementController : ControllerBase
         {
             // Cancel any existing processing
             _processingCancellation?.Cancel();
-            
-            // Wait a moment for cancellation to complete
-            await Task.Delay(500);
+            await Task.Delay(1000);
             
             _processingCancellation = new CancellationTokenSource();
             
-            // Check if log file exists FIRST
+            // Check if log file exists
             if (!System.IO.File.Exists(LOG_PATH))
             {
                 _logger.LogWarning($"Log file not found at: {LOG_PATH}");
                 return Ok(new { 
-                    message = $"Log file not found at: {LOG_PATH}. Waiting for logs...",
+                    message = $"Log file not found at: {LOG_PATH}",
                     logSizeMB = 0,
                     estimatedTimeMinutes = 0,
                     requiresRestart = false,
@@ -211,26 +209,64 @@ public class ManagementController : ControllerBase
                 });
             }
             
-            // Get log file size for user info
+            // Get log file size
             var fileInfo = new FileInfo(LOG_PATH);
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
             
-            // Create marker file FIRST
+            // CHECK IF FILE IS EMPTY
+            if (fileInfo.Length == 0)
+            {
+                _logger.LogWarning($"Log file is empty (0 bytes): {LOG_PATH}");
+                return Ok(new { 
+                    message = "Log file is empty. No data to process.",
+                    logSizeMB = 0,
+                    estimatedTimeMinutes = 0,
+                    requiresRestart = false,
+                    status = "empty_file"
+                });
+            }
+            
+            // CHECK IF FILE IS TOO SMALL (less than 100 bytes probably means no real data)
+            if (fileInfo.Length < 100)
+            {
+                _logger.LogWarning($"Log file is very small ({fileInfo.Length} bytes): {LOG_PATH}");
+                return Ok(new { 
+                    message = $"Log file only contains {fileInfo.Length} bytes. Likely no game data yet.",
+                    logSizeMB = sizeMB,
+                    estimatedTimeMinutes = 0,
+                    requiresRestart = false,
+                    status = "insufficient_data"
+                });
+            }
+            
+            _logger.LogInformation($"Starting full log processing: {sizeMB:F1} MB");
+            
+            // Delete old marker first
+            if (System.IO.File.Exists(PROCESSING_MARKER))
+            {
+                System.IO.File.Delete(PROCESSING_MARKER);
+                await Task.Delay(100);
+            }
+            
+            // Set position to 0
+            await System.IO.File.WriteAllTextAsync(POSITION_FILE, "0");
+            
+            // Create marker with file size info
             var markerData = new
             {
                 startTime = DateTime.UtcNow,
                 startPosition = 0L,
-                triggerType = "manual"
+                fileSize = fileInfo.Length,
+                triggerType = "manual",
+                requestId = Guid.NewGuid().ToString()
             };
+            
             await System.IO.File.WriteAllTextAsync(PROCESSING_MARKER, 
                 System.Text.Json.JsonSerializer.Serialize(markerData));
             
-            // Then set position to 0
-            await System.IO.File.WriteAllTextAsync(POSITION_FILE, "0");
-            
             _processingStartTime = DateTime.UtcNow;
             
-            // Create operation state for frontend
+            // Create operation state
             var operationState = new OperationState
             {
                 Key = "activeLogProcessing",
@@ -241,30 +277,22 @@ public class ManagementController : ControllerBase
                 {
                     { "startTime", DateTime.UtcNow },
                     { "startPosition", 0L },
+                    { "fileSize", fileInfo.Length },
                     { "percentComplete", 0 },
-                    { "status", "processing" }
+                    { "status", "processing" },
+                    { "requestId", markerData.requestId }
                 },
                 ExpiresAt = DateTime.UtcNow.AddHours(24)
             };
             stateService.SaveState("activeLogProcessing", operationState);
             
-            _logger.LogInformation($"Set to process entire log file ({sizeMB:F1} MB) from beginning");
-            
-            // Force the LogWatcherService to restart
-            // This is crucial - without this, the service won't pick up the marker
-            var logWatcherService = HttpContext.RequestServices.GetService<LogWatcherService>();
-            if (logWatcherService != null)
-            {
-                // The service will detect the marker on its next iteration
-                _logger.LogInformation("Log processing initiated, waiting for LogWatcherService to pick up");
-            }
-            
             return Ok(new { 
                 message = $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",
                 logSizeMB = sizeMB,
-                estimatedTimeMinutes = Math.Ceiling(sizeMB / 100), // Rough estimate: 100MB per minute
+                estimatedTimeMinutes = Math.Max(1, Math.Ceiling(sizeMB / 100)),
                 requiresRestart = false,
-                status = "processing"
+                status = "processing",
+                requestId = markerData.requestId
             });
         }
         catch (Exception ex)
@@ -322,96 +350,93 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            // Check if processing marker exists
-            if (!System.IO.File.Exists(PROCESSING_MARKER))
-            {
-                return Ok(new { 
-                    isProcessing = false,
-                    message = "Not processing" 
-                });
-            }
+            // First check if marker exists
+            bool markerExists = System.IO.File.Exists(PROCESSING_MARKER);
             
-            // Check if log file exists
-            if (!System.IO.File.Exists(LOG_PATH))
-            {
-                return Ok(new { 
-                    isProcessing = false,
-                    message = "Log file not found",
-                    error = $"Log file not found at: {LOG_PATH}"
-                });
-            }
-            
-            // Read marker data
-            var markerContent = await System.IO.File.ReadAllTextAsync(PROCESSING_MARKER);
-            
+            // Then check position file
             long currentPosition = 0;
+            long totalSize = 0;
+            
+            if (System.IO.File.Exists(LOG_PATH))
+            {
+                var fileInfo = new FileInfo(LOG_PATH);
+                totalSize = fileInfo.Length;
+            }
+            
             if (System.IO.File.Exists(POSITION_FILE))
             {
                 var posContent = await System.IO.File.ReadAllTextAsync(POSITION_FILE);
                 long.TryParse(posContent, out currentPosition);
             }
             
-            var fileInfo = new FileInfo(LOG_PATH);
-            
-            // Calculate actual progress
-            var bytesProcessed = currentPosition;
-            var percentComplete = fileInfo.Length > 0 ? (bytesProcessed * 100.0) / fileInfo.Length : 0;
-            
-            // Check if we're at the end
-            if (currentPosition >= fileInfo.Length - 1000) // Within 1KB of end
+            // If no marker and position is at 0, we're not processing
+            if (!markerExists && currentPosition == 0)
             {
-                // We're at the end, processing is complete
-                if (System.IO.File.Exists(PROCESSING_MARKER))
-                {
-                    System.IO.File.Delete(PROCESSING_MARKER);
-                }
-                
-                // Remove operation state
-                var stateService = HttpContext.RequestServices.GetRequiredService<OperationStateService>();
-                stateService.RemoveState("activeLogProcessing");
-                
                 return Ok(new { 
                     isProcessing = false,
-                    message = "Processing complete",
-                    percentComplete = 100,
-                    mbProcessed = fileInfo.Length / (1024.0 * 1024.0),
-                    mbTotal = fileInfo.Length / (1024.0 * 1024.0)
+                    message = "Not processing",
+                    currentPosition = 0,
+                    totalSize = totalSize
                 });
             }
             
-            // Calculate processing rate
-            double processingRate = 0;
-            string estimatedTime = "calculating...";
-            
-            if (_processingStartTime.HasValue && currentPosition > 0)
+            // If marker exists or position > 0, we might be processing
+            if (markerExists || currentPosition > 0)
             {
-                var elapsed = DateTime.UtcNow - _processingStartTime.Value;
-                if (elapsed.TotalSeconds > 0)
+                var percentComplete = totalSize > 0 ? (currentPosition * 100.0) / totalSize : 0;
+                
+                // Check if we're actually at the end
+                if (currentPosition >= totalSize - 1000 && !markerExists)
                 {
-                    processingRate = bytesProcessed / elapsed.TotalSeconds; // bytes per second
-                    if (processingRate > 0)
+                    return Ok(new { 
+                        isProcessing = false,
+                        message = "Processing complete",
+                        percentComplete = 100,
+                        mbProcessed = totalSize / (1024.0 * 1024.0),
+                        mbTotal = totalSize / (1024.0 * 1024.0)
+                    });
+                }
+                
+                // Calculate processing rate
+                double processingRate = 0;
+                string estimatedTime = "calculating...";
+                
+                if (_processingStartTime.HasValue && currentPosition > 0)
+                {
+                    var elapsed = DateTime.UtcNow - _processingStartTime.Value;
+                    if (elapsed.TotalSeconds > 0)
                     {
-                        var remainingBytes = fileInfo.Length - currentPosition;
-                        var remainingSeconds = remainingBytes / processingRate;
-                        var remainingMinutes = Math.Ceiling(remainingSeconds / 60);
-                        estimatedTime = remainingMinutes > 60 
-                            ? $"{remainingMinutes / 60:F1} hours" 
-                            : $"{remainingMinutes} minutes";
+                        processingRate = currentPosition / elapsed.TotalSeconds;
+                        if (processingRate > 0)
+                        {
+                            var remainingBytes = totalSize - currentPosition;
+                            var remainingSeconds = remainingBytes / processingRate;
+                            var remainingMinutes = Math.Ceiling(remainingSeconds / 60);
+                            estimatedTime = remainingMinutes > 60 
+                                ? $"{remainingMinutes / 60:F1} hours" 
+                                : $"{remainingMinutes} minutes";
+                        }
                     }
                 }
+                
+                return Ok(new { 
+                    isProcessing = true,
+                    currentPosition,
+                    totalSize,
+                    percentComplete,
+                    mbProcessed = currentPosition / (1024.0 * 1024.0),
+                    mbTotal = totalSize / (1024.0 * 1024.0),
+                    processingRate = processingRate / (1024.0 * 1024.0), // MB/s
+                    estimatedTime,
+                    message = $"Processing log file... {percentComplete:F1}% complete",
+                    status = "processing",
+                    markerExists
+                });
             }
             
             return Ok(new { 
-                isProcessing = true,
-                currentPosition,
-                totalSize = fileInfo.Length,
-                percentComplete,
-                mbProcessed = currentPosition / (1024.0 * 1024.0),
-                mbTotal = fileInfo.Length / (1024.0 * 1024.0),
-                processingRate = processingRate / (1024.0 * 1024.0), // MB/s
-                estimatedTime,
-                message = $"Processing log file... {percentComplete:F1}% complete",
-                status = "processing"
+                isProcessing = false,
+                message = "Not processing" 
             });
         }
         catch (Exception ex)

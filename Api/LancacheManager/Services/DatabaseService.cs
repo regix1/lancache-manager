@@ -36,26 +36,17 @@ public class DatabaseService
 
         try
         {
-            // During bulk reprocessing, check if we've already processed these entries
+            // During bulk reprocessing, be more aggressive about processing
             if (!sendRealtimeUpdates) // This indicates bulk processing
             {
+                // Clear the change tracker to avoid caching issues
+                _context.ChangeTracker.Clear();
+                
                 var firstTimestamp = entries.Min(e => e.Timestamp);
                 var lastTimestamp = entries.Max(e => e.Timestamp);
                 
-                // Only skip if we have a very high number of exact matches in this time window
-                var existingCount = await _context.Downloads
-                    .Where(d => d.ClientIp == entries.First().ClientIp &&
-                            d.Service == entries.First().Service &&
-                            d.StartTime >= firstTimestamp && 
-                            d.StartTime <= lastTimestamp)
-                    .CountAsync();
-                
-                // Only skip if we clearly already processed this exact batch
-                if (existingCount > 500) // Much higher threshold
-                {
-                    _logger.LogDebug($"Skipping batch - appears to be duplicate data for {entries.First().ClientIp}/{entries.First().Service} at {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
-                    return;
-                }
+                // Don't skip ANY entries during bulk processing
+                _logger.LogDebug($"Processing batch for {entries.First().ClientIp}/{entries.First().Service} from {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
             }
 
             // All entries in batch are for same client/service
@@ -87,9 +78,9 @@ public class DatabaseService
 
             var download = await _context.Downloads
                 .Where(d => d.ClientIp == firstEntry.ClientIp &&
-                           d.Service == firstEntry.Service &&
-                           d.StartTime <= lastTimestampEntry &&
-                           d.EndTime >= firstTimestampEntry)
+                        d.Service == firstEntry.Service &&
+                        d.StartTime <= lastTimestampEntry &&
+                        d.EndTime >= firstTimestampEntry)
                 .OrderByDescending(d => d.StartTime)
                 .FirstOrDefaultAsync();
 
@@ -100,8 +91,8 @@ public class DatabaseService
                 // Check for active download if no overlap found
                 download = await _context.Downloads
                     .Where(d => d.ClientIp == firstEntry.ClientIp &&
-                               d.Service == firstEntry.Service &&
-                               d.IsActive)
+                            d.Service == firstEntry.Service &&
+                            d.IsActive)
                     .OrderByDescending(d => d.StartTime)
                     .FirstOrDefaultAsync();
                 
@@ -233,7 +224,7 @@ public class DatabaseService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing log entry batch");
-            throw;
+            // Don't throw - continue processing other batches
         }
     }
 

@@ -16,7 +16,6 @@ public class LogWatcherService : BackgroundService
     private readonly string _positionFile = "/data/logposition.txt";
     private readonly string _processingMarker = "/data/bulk_processing.marker";
     private readonly string _logPath;
-    private int _consecutiveEmptyReads = 0;
     private bool _isBulkProcessing = false;
     private readonly List<LogEntry> _batchBuffer = new();
     private DateTime _lastMarkerCheck = DateTime.MinValue;
@@ -257,6 +256,54 @@ public class LogWatcherService : BackgroundService
 
     private async Task ProcessLogFileInternal(CancellationToken stoppingToken)
     {
+        // Check if file is empty FIRST
+        var fileCheck = new FileInfo(_logPath);
+        if (fileCheck.Length == 0)
+        {
+            _logger.LogWarning("Log file is empty (0 bytes), cannot process");
+            
+            // If bulk processing was requested for empty file, clean up
+            if (_isBulkProcessing)
+            {
+                _isBulkProcessing = false;
+                
+                // Remove marker
+                if (File.Exists(_processingMarker))
+                {
+                    File.Delete(_processingMarker);
+                    _logger.LogInformation("Removed bulk processing marker (empty file)");
+                }
+                
+                // Clean up operation state
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+                    stateService.RemoveState("activeLogProcessing");
+                }
+                catch { }
+                
+                // Notify clients
+                await _hubContext.Clients.All.SendAsync("ProcessingError", new {
+                    error = "Log file is empty",
+                    message = "No data to process"
+                });
+            }
+            
+            // Wait for file to have content
+            while (fileCheck.Length == 0 && !stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Waiting for log file to have content...");
+                await Task.Delay(10000, stoppingToken);
+                fileCheck = new FileInfo(_logPath);
+            }
+            
+            if (stoppingToken.IsCancellationRequested)
+                return;
+                
+            _logger.LogInformation($"Log file now has content: {fileCheck.Length} bytes");
+        }
+        
         // Ensure we're starting from the correct position when bulk processing
         if (_isBulkProcessing && _lastPosition != 0)
         {
@@ -352,7 +399,7 @@ public class LogWatcherService : BackgroundService
                         }
 
                         // Process batch when ready
-                        var batchSize = _isBulkProcessing ? 500 : 50; // Smaller batches for faster updates
+                        var batchSize = _isBulkProcessing ? 500 : 50;
                         
                         if (_batchBuffer.Count >= batchSize)
                         {
@@ -428,7 +475,7 @@ public class LogWatcherService : BackgroundService
                         {
                             var fileInfo = new FileInfo(_logPath);
                             
-                            // More lenient completion check - if we've had many empty reads at the end
+                            // More lenient completion check
                             if (stream.Position >= fileInfo.Length - 1000 || emptyReadCount > 10)
                             {
                                 var elapsed = DateTime.UtcNow - bulkStartTime;
