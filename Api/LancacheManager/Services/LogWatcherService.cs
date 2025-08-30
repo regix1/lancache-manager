@@ -225,13 +225,24 @@ public class LogWatcherService : BackgroundService
         {
             try
             {
-                if (await CheckForProcessingMarker())
+                // Check for marker BEFORE starting processing
+                if (File.Exists(_processingMarker) && !_isBulkProcessing)
                 {
-                    _logger.LogInformation("Marker detected - restarting processing from beginning");
+                    _logger.LogInformation("Marker file detected - forcing bulk processing restart");
+                    _lastPosition = 0;
+                    _isBulkProcessing = true;
+                    await SavePosition();
                 }
                 
                 await ProcessLogFileInternal(stoppingToken);
                 retryCount = 0;
+                
+                // If we just finished bulk processing, loop back to start normal processing
+                if (!_isBulkProcessing)
+                {
+                    _logger.LogInformation("Transitioning from bulk to normal processing mode");
+                    continue;
+                }
             }
             catch (Exception ex)
             {
