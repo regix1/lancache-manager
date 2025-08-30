@@ -21,6 +21,7 @@ public class LogWatcherService : BackgroundService
     private DateTime _lastMarkerCheck = DateTime.MinValue;
     private FileSystemWatcher? _markerWatcher;
     private volatile bool _restartProcessing = false;
+    private DateTime _bulkProcessingStartTime = default; // Track when bulk processing started
 
     public LogWatcherService(
         IServiceProvider serviceProvider,
@@ -324,6 +325,9 @@ public class LogWatcherService : BackgroundService
                 stream.Seek(0, SeekOrigin.Begin);
                 _lastPosition = 0;
                 
+                // Set the bulk processing start time
+                _bulkProcessingStartTime = DateTime.UtcNow;
+                
                 // Verify position
                 _logger.LogInformation($"Stream position after seek: {stream.Position}");
                 
@@ -372,7 +376,6 @@ public class LogWatcherService : BackgroundService
     {
         var linesProcessed = 0;
         var entriesProcessed = 0;
-        var bulkStartTime = DateTime.UtcNow;
         var lastProgressUpdate = DateTime.UtcNow;
         var lastPositionSave = DateTime.UtcNow;
         var emptyReadCount = 0;
@@ -476,7 +479,7 @@ public class LogWatcherService : BackgroundService
                         if (isAtEnd || noMoreData)
                         {
                             _logger.LogInformation($"Bulk processing complete check: position={stream.Position}, fileLength={currentFileInfo.Length}, emptyReads={emptyReadCount}");
-                            await CompleteBulkProcessing(bulkStartTime, entriesProcessed, linesProcessed, stream.Position, currentFileInfo.Length);
+                            await CompleteBulkProcessing(entriesProcessed, linesProcessed, stream.Position, currentFileInfo.Length);
                             return;
                         }
                     }
@@ -547,7 +550,7 @@ public class LogWatcherService : BackgroundService
         // Send SignalR notification
         try
         {
-            await _hubContext.Clients.All.SendAsync("ProcessingProgress", new {
+            var progressData = new {
                 percentComplete,
                 mbProcessed,
                 mbTotal,
@@ -555,7 +558,10 @@ public class LogWatcherService : BackgroundService
                 linesProcessed,
                 timestamp = DateTime.UtcNow,
                 status = "processing"
-            });
+            };
+            
+            await _hubContext.Clients.All.SendAsync("ProcessingProgress", progressData);
+            _logger.LogDebug($"Sent SignalR progress update: {percentComplete:F1}%");
         }
         catch (Exception ex)
         {
@@ -563,14 +569,16 @@ public class LogWatcherService : BackgroundService
         }
     }
 
-    private async Task CompleteBulkProcessing(DateTime bulkStartTime, int entriesProcessed, int linesProcessed, long finalPosition, long fileLength)
+    private async Task CompleteBulkProcessing(int entriesProcessed, int linesProcessed, long finalPosition, long fileLength)
     {
-        var elapsed = DateTime.UtcNow - bulkStartTime;
+        // Use the class-level start time for accurate elapsed calculation
+        var elapsed = DateTime.UtcNow - _bulkProcessingStartTime;
         _logger.LogInformation($"Bulk processing completed in {elapsed.TotalMinutes:F1} minutes");
         _logger.LogInformation($"Final stats: Processed {entriesProcessed} entries from {linesProcessed} lines");
         _logger.LogInformation($"Final position: {finalPosition} / {fileLength}");
         
         _isBulkProcessing = false;
+        _bulkProcessingStartTime = default; // Reset for next bulk processing
         
         if (entriesProcessed == 0 && linesProcessed == 0)
         {
