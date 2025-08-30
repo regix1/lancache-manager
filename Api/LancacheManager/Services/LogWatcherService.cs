@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Services;
 using System.Text;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
@@ -343,6 +344,17 @@ public class LogWatcherService : BackgroundService
                     stream.Position = 0;
                     _logger.LogInformation($"Forced stream.Position = 0, now at: {stream.Position}");
                 }
+                
+                // Send initial progress notification for bulk processing
+                await _hubContext.Clients.All.SendAsync("ProcessingProgress", new {
+                    percentComplete = 0,
+                    mbProcessed = 0,
+                    mbTotal = stream.Length / (1024.0 * 1024.0),
+                    entriesProcessed = 0,
+                    linesProcessed = 0,
+                    timestamp = DateTime.UtcNow,
+                    status = "starting"
+                });
             }
             else if (_lastPosition > 0 && _lastPosition < stream.Length)
             {
@@ -414,42 +426,72 @@ public class LogWatcherService : BackgroundService
                         }
 
                         // Progress reporting for bulk processing
-                        if (isBulkMode && DateTime.UtcNow - lastProgressUpdate > TimeSpan.FromSeconds(2))
+                        // Report every 500 lines, or every 2 seconds, or if progress changed significantly
+                        if (isBulkMode)
                         {
+                            var shouldReport = false;
                             var percentComplete = (stream.Position * 100.0) / stream.Length;
-                            var mbProcessed = stream.Position / (1024.0 * 1024.0);
-                            var mbTotal = stream.Length / (1024.0 * 1024.0);
                             
-                            _logger.LogInformation($"Progress: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesProcessed} entries from {linesProcessed} lines");
-                            
-                            try
+                            // Report if: 500 lines processed, 2 seconds elapsed, or 1% progress change
+                            if (linesProcessed % 500 == 0 || 
+                                DateTime.UtcNow - lastProgressUpdate > TimeSpan.FromSeconds(2) ||
+                                Math.Abs(percentComplete - lastPercentReported) >= 1.0)
                             {
-                                using var scope = _serviceProvider.CreateScope();
-                                var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
-                                stateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
-                                {
-                                    { "percentComplete", percentComplete },
-                                    { "mbProcessed", mbProcessed },
-                                    { "mbTotal", mbTotal },
-                                    { "entriesProcessed", entriesProcessed },
-                                    { "linesProcessed", linesProcessed },
-                                    { "isProcessing", true }
-                                });
+                                shouldReport = true;
                             }
-                            catch { }
                             
-                            await _hubContext.Clients.All.SendAsync("ProcessingProgress", new {
-                                percentComplete,
-                                mbProcessed,
-                                mbTotal,
-                                entriesProcessed,
-                                linesProcessed,
-                                timestamp = DateTime.UtcNow
-                            });
-                            
-                            lastProgressUpdate = DateTime.UtcNow;
-                            _lastPosition = stream.Position;
-                            await SavePosition();
+                            if (shouldReport)
+                            {
+                                var mbProcessed = stream.Position / (1024.0 * 1024.0);
+                                var mbTotal = stream.Length / (1024.0 * 1024.0);
+                                
+                                _logger.LogInformation($"Progress: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesProcessed} entries from {linesProcessed} lines");
+                                
+                                // Update operation state
+                                try
+                                {
+                                    using var scope = _serviceProvider.CreateScope();
+                                    var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+                                    stateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
+                                    {
+                                        { "percentComplete", percentComplete },
+                                        { "mbProcessed", mbProcessed },
+                                        { "mbTotal", mbTotal },
+                                        { "entriesProcessed", entriesProcessed },
+                                        { "linesProcessed", linesProcessed },
+                                        { "currentPosition", stream.Position },
+                                        { "isProcessing", true },
+                                        { "status", "processing" }
+                                    });
+                                }
+                                catch (Exception ex) 
+                                { 
+                                    _logger.LogWarning(ex, "Failed to update operation state");
+                                }
+                                
+                                // Send SignalR notification
+                                try
+                                {
+                                    await _hubContext.Clients.All.SendAsync("ProcessingProgress", new {
+                                        percentComplete,
+                                        mbProcessed,
+                                        mbTotal,
+                                        entriesProcessed,
+                                        linesProcessed,
+                                        timestamp = DateTime.UtcNow,
+                                        status = "processing"
+                                    });
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "Failed to send progress via SignalR");
+                                }
+                                
+                                lastProgressUpdate = DateTime.UtcNow;
+                                lastPercentReported = percentComplete;
+                                _lastPosition = stream.Position;
+                                await SavePosition();
+                            }
                         }
                     }
                     else
@@ -490,6 +532,7 @@ public class LogWatcherService : BackgroundService
                                     _logger.LogError("BULK PROCESSING FAILED: No lines were read. File may be inaccessible or in wrong format.");
                                 }
                                 
+                                // Remove processing marker
                                 if (File.Exists(_processingMarker))
                                 {
                                     try
@@ -503,15 +546,33 @@ public class LogWatcherService : BackgroundService
                                     }
                                 }
                                 
+                                // Clear operation state
                                 try
                                 {
                                     using var scope = _serviceProvider.CreateScope();
                                     var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
                                     stateService.RemoveState("activeLogProcessing");
+                                    _logger.LogInformation("Cleared operation state");
                                 }
-                                catch { }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "Failed to clear operation state");
+                                }
                                 
-                                await _hubContext.Clients.All.SendAsync("BulkProcessingComplete");
+                                // Send completion notification
+                                try
+                                {
+                                    await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new {
+                                        entriesProcessed,
+                                        linesProcessed,
+                                        elapsed = elapsed.TotalMinutes,
+                                        timestamp = DateTime.UtcNow
+                                    });
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogWarning(ex, "Failed to send completion notification");
+                                }
                                 
                                 return;
                             }
