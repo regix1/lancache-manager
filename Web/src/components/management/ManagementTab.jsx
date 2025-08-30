@@ -220,6 +220,51 @@ const ManagementTab = () => {
         }
       });
 
+      // ADD THIS HANDLER FOR LOG PROCESSING PROGRESS
+      connection.on('ProcessingProgress', async (progress) => {
+        console.log('Processing progress received:', progress);
+        
+        if (progress.percentComplete !== undefined) {
+          setIsProcessingLogs(true);
+          setProcessingStatus({
+            message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
+            detailMessage: `${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
+            progress: progress.percentComplete || 0,
+            status: progress.status || 'processing'
+          });
+          
+          // Update backend operation state
+          await logProcessingOp.update({ 
+            lastProgress: progress.percentComplete || 0,
+            mbProcessed: progress.mbProcessed,
+            mbTotal: progress.mbTotal,
+            entriesProcessed: progress.entriesProcessed,
+            linesProcessed: progress.linesProcessed
+          });
+        }
+      });
+
+      // ADD THIS HANDLER FOR BULK PROCESSING COMPLETION
+      connection.on('BulkProcessingComplete', async (result) => {
+        console.log('Bulk processing complete:', result);
+        
+        setIsProcessingLogs(false);
+        await logProcessingOp.clear();
+        clearIntervalRef('processing');
+        
+        setProcessingStatus({
+          message: 'Processing complete!',
+          detailMessage: `Processed ${result.entriesProcessed} entries from ${result.linesProcessed} lines in ${result.elapsed?.toFixed(1)} minutes`,
+          progress: 100,
+          status: 'complete'
+        });
+        
+        setTimeout(() => {
+          setProcessingStatus(null);
+          fetchData();
+        }, 5000);
+      });
+
       await connection.start();
       signalRConnection.current = connection;
       console.log('SignalR connected');
