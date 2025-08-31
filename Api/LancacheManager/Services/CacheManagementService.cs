@@ -382,8 +382,8 @@ public class CacheManagementService
                             var endIndex = line.IndexOf(']');
                             var service = line.Substring(1, endIndex - 1).ToLower();
                             
-                            // Skip localhost entries
-                            if (service == "127.0.0.1")
+                            // Skip IP addresses (anything with dots) and localhost
+                            if (service.Contains(".") || service == "127")
                                 continue;
                             
                             if (!counts.ContainsKey(service))
@@ -417,10 +417,27 @@ public class CacheManagementService
         
         try
         {
+            // First, get all services that have counts
+            var serviceCounts = await GetServiceLogCounts();
+            foreach (var service in serviceCounts.Keys)
+            {
+                if (!string.IsNullOrEmpty(service) && !service.Contains("."))
+                {
+                    services.Add(service);
+                }
+            }
+            
+            // If we found services from counts, return them
+            if (services.Count > 0)
+            {
+                _logger.LogInformation($"Found services from counts: {string.Join(", ", services)}");
+                return services.OrderBy(s => s).ToList();
+            }
+            
+            // Fallback: scan log file if no counts found
             if (!File.Exists(_logPath))
             {
                 _logger.LogWarning($"Log file not found: {_logPath}");
-                // Return common services as fallback
                 return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
             }
 
@@ -430,9 +447,9 @@ public class CacheManagementService
                 {
                     string? line;
                     int linesChecked = 0;
+                    int maxLinesToCheck = 50000; // Increased from 10000 to scan more lines
                     
-                    // Check first 10000 lines to get service list quickly
-                    while ((line = await reader.ReadLineAsync()) != null && linesChecked < 10000)
+                    while ((line = await reader.ReadLineAsync()) != null && linesChecked < maxLinesToCheck)
                     {
                         linesChecked++;
                         
@@ -449,14 +466,19 @@ public class CacheManagementService
                         }
                     }
                     
-                    _logger.LogInformation($"Found services: {string.Join(", ", services)}");
+                    _logger.LogInformation($"Found services by scanning {linesChecked} lines: {string.Join(", ", services)}");
                 }
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error scanning for services");
-            // Return common services as fallback
+            return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
+        }
+        
+        // If no services found, return defaults
+        if (services.Count == 0)
+        {
             return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
         }
         

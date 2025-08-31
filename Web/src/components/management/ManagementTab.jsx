@@ -252,31 +252,32 @@ const ManagementTab = () => {
 
       // Handler for bulk processing completion
       connection.on('BulkProcessingComplete', async (result) => {
-        console.log('Bulk processing complete:', result);
-        
-        // Stop any polling immediately
-        clearIntervalRef('processing');
-        
-        // Show completion status for 10 seconds
-        setProcessingStatus({
-          message: 'Processing Complete!',
-          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes`,
-          progress: 100,
-          status: 'complete'
-        });
-        
-        // Keep showing as processing for the success message duration
-        setIsProcessingLogs(true);
-        
-        // Clear backend operation state
-        await logProcessingOp.clear();
-        
-        // After 10 seconds, hide the success message and refresh data
-        setTimeout(() => {
-          setIsProcessingLogs(false);
-          setProcessingStatus(null);
-          fetchData();
-        }, 10000); // Show success for 10 seconds
+          console.log('Bulk processing complete:', result);
+          
+          // Stop any polling immediately
+          clearIntervalRef('processing');
+          
+          // Show completion status for 10 seconds
+          setProcessingStatus({
+              message: 'Processing Complete!',
+              detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes`,
+              progress: 100,
+              status: 'complete'
+          });
+          
+          // Keep showing as processing for the success message duration
+          setIsProcessingLogs(true);
+          
+          // Clear backend operation state
+          await logProcessingOp.clear();
+          
+          // After 10 seconds, hide the success message and refresh data
+          setTimeout(async () => {  // Make this async
+              setIsProcessingLogs(false);
+              setProcessingStatus(null);
+              await loadConfig();  // Add this line to refresh the service list
+              fetchData();
+          }, 10000); // Show success for 10 seconds
       });
 
       await connection.start();
