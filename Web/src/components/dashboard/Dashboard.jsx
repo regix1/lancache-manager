@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { HardDrive, Download, Users, Database, TrendingUp, Zap, Server, Activity, Eye, EyeOff, ChevronDown, Search, Clock, Info } from 'lucide-react';
+import { HardDrive, Download, Users, Database, TrendingUp, Zap, Server, Activity, Eye, EyeOff, ChevronDown, Search, Clock, Info, GripVertical, RotateCcw } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
@@ -20,6 +20,18 @@ const DEFAULT_CARD_VISIBILITY = {
   activeClients: true,
   cacheHitRatio: true
 };
+
+// Default card order
+const DEFAULT_CARD_ORDER = [
+  'totalCache',
+  'usedSpace',
+  'bandwidthSaved',
+  'addedToCache',
+  'totalServed',
+  'activeDownloads',
+  'activeClients',
+  'cacheHitRatio'
+];
 
 // Info tooltips for stat cards
 const StatTooltips = {
@@ -45,6 +57,35 @@ const Dashboard = () => {
   const timeFilterRef = useRef(null);
   const fetchTimeoutRef = useRef(null);
   const isInitialLoad = useRef(true);
+  
+  // Drag and drop state
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedCard, setDraggedCard] = useState(null);
+  const [dragOverCard, setDragOverCard] = useState(null);
+  const dragCounter = useRef(0);
+
+  // Load card order from localStorage
+  const [cardOrder, setCardOrder] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER);
+    if (saved) {
+      try {
+        const order = JSON.parse(saved);
+        // Validate that all cards are present
+        const hasAllCards = DEFAULT_CARD_ORDER.every(card => order.includes(card));
+        if (hasAllCards) {
+          return order;
+        }
+      } catch (e) {
+        console.error('Failed to parse card order:', e);
+      }
+    }
+    return DEFAULT_CARD_ORDER;
+  });
+
+  // Save card order to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER, JSON.stringify(cardOrder));
+  }, [cardOrder]);
 
   // Define time range options
   const timeRanges = [
@@ -331,6 +372,70 @@ const Dashboard = () => {
     }));
   }, []);
 
+  // Drag and drop handlers
+  const handleDragStart = useCallback((e, cardKey) => {
+    setIsDragging(true);
+    setDraggedCard(cardKey);
+    e.dataTransfer.effectAllowed = 'move';
+    // Add a slight transparency to the dragged element
+    e.target.style.opacity = '0.5';
+  }, []);
+
+  const handleDragEnd = useCallback((e) => {
+    e.target.style.opacity = '';
+    setIsDragging(false);
+    setDraggedCard(null);
+    setDragOverCard(null);
+    dragCounter.current = 0;
+  }, []);
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleDragEnter = useCallback((e, cardKey) => {
+    e.preventDefault();
+    dragCounter.current++;
+    if (cardKey && cardKey !== draggedCard) {
+      setDragOverCard(cardKey);
+    }
+  }, [draggedCard]);
+
+  const handleDragLeave = useCallback((e) => {
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setDragOverCard(null);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e, targetCardKey) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (draggedCard && targetCardKey && draggedCard !== targetCardKey) {
+      setCardOrder(prevOrder => {
+        const newOrder = [...prevOrder];
+        const draggedIndex = newOrder.indexOf(draggedCard);
+        const targetIndex = newOrder.indexOf(targetCardKey);
+        
+        // Remove dragged card from its position
+        newOrder.splice(draggedIndex, 1);
+        // Insert it at the target position
+        newOrder.splice(targetIndex, 0, draggedCard);
+        
+        return newOrder;
+      });
+    }
+    
+    setDragOverCard(null);
+    dragCounter.current = 0;
+  }, [draggedCard]);
+
+  const resetCardOrder = useCallback(() => {
+    setCardOrder(DEFAULT_CARD_ORDER);
+  }, []);
+
   // Memoize calculated values to prevent recalculation on every render
   const stats = useMemo(() => {
     const activeClients = [...new Set(activeDownloads.map(d => d.clientIp))].length;
@@ -350,8 +455,8 @@ const Dashboard = () => {
   }, [activeDownloads, filteredServiceStats, dashboardStats, filteredClientStats]);
 
   // Define all stat cards with their data and metadata
-  const statCards = useMemo(() => [
-    {
+  const allStatCards = useMemo(() => ({
+    totalCache: {
       key: 'totalCache',
       title: 'Total Cache',
       value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B',
@@ -360,7 +465,7 @@ const Dashboard = () => {
       color: 'blue',
       visible: cardVisibility.totalCache
     },
-    {
+    usedSpace: {
       key: 'usedSpace',
       title: 'Used Space',
       value: cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B',
@@ -369,7 +474,7 @@ const Dashboard = () => {
       color: 'green',
       visible: cardVisibility.usedSpace
     },
-    {
+    bandwidthSaved: {
       key: 'bandwidthSaved',
       title: 'Bandwidth Saved',
       value: formatBytes(stats.bandwidthSaved),
@@ -379,7 +484,7 @@ const Dashboard = () => {
       visible: cardVisibility.bandwidthSaved,
       tooltip: StatTooltips.bandwidthSaved
     },
-    {
+    addedToCache: {
       key: 'addedToCache',
       title: 'Added to Cache',
       value: formatBytes(stats.addedToCache),
@@ -389,7 +494,7 @@ const Dashboard = () => {
       visible: cardVisibility.addedToCache,
       tooltip: StatTooltips.addedToCache
     },
-    {
+    totalServed: {
       key: 'totalServed',
       title: 'Total Served',
       value: formatBytes(stats.totalServed),
@@ -399,7 +504,7 @@ const Dashboard = () => {
       visible: cardVisibility.totalServed,
       tooltip: StatTooltips.totalServed
     },
-    {
+    activeDownloads: {
       key: 'activeDownloads',
       title: 'Active Downloads',
       value: stats.totalActiveDownloads,
@@ -408,7 +513,7 @@ const Dashboard = () => {
       color: 'orange',
       visible: cardVisibility.activeDownloads
     },
-    {
+    activeClients: {
       key: 'activeClients',
       title: 'Active Clients',
       value: stats.uniqueClients,
@@ -417,7 +522,7 @@ const Dashboard = () => {
       color: 'yellow',
       visible: cardVisibility.activeClients
     },
-    {
+    cacheHitRatio: {
       key: 'cacheHitRatio',
       title: 'Cache Hit Ratio',
       value: formatPercent(stats.cacheHitRatio * 100),
@@ -427,11 +532,16 @@ const Dashboard = () => {
       visible: cardVisibility.cacheHitRatio,
       tooltip: StatTooltips.cacheHitRatio
     }
-  ], [cacheInfo, cardVisibility, stats, selectedTimeRange, getTimeRangeLabel, dashboardStats, filteredLatestDownloads]);
+  }), [cacheInfo, cardVisibility, stats, selectedTimeRange, getTimeRangeLabel, dashboardStats, filteredLatestDownloads]);
+
+  // Get cards in order
+  const orderedStatCards = useMemo(() => {
+    return cardOrder.map(key => allStatCards[key]).filter(card => card);
+  }, [cardOrder, allStatCards]);
 
   // Filter visible cards and hidden cards
-  const visibleCards = statCards.filter(card => card.visible);
-  const hiddenCards = statCards.filter(card => !card.visible);
+  const visibleCards = orderedStatCards.filter(card => card.visible);
+  const hiddenCards = orderedStatCards.filter(card => !card.visible);
   const hiddenCardsCount = hiddenCards.length;
 
   // Filter hidden cards based on search query
@@ -460,47 +570,58 @@ const Dashboard = () => {
       {/* Time Range Filter */}
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold text-white">Dashboard</h2>
-        <div className="relative" ref={timeFilterRef}>
+        <div className="flex items-center gap-2">
+          {/* Reset card order button */}
           <button
-            onClick={() => setTimeFilterOpen(!timeFilterOpen)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700 hover:bg-gray-700 transition-colors"
+            onClick={resetCardOrder}
+            className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded-lg transition-colors"
+            title="Reset card layout to default"
           >
-            <Clock className="w-4 h-4 text-gray-400" />
-            <span className="text-sm text-gray-200">{getTimeRangeLabel(selectedTimeRange)}</span>
-            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${timeFilterOpen ? 'rotate-180' : ''}`} />
+            <RotateCcw className="w-4 h-4" />
           </button>
+          
+          <div className="relative" ref={timeFilterRef}>
+            <button
+              onClick={() => setTimeFilterOpen(!timeFilterOpen)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700 hover:bg-gray-700 transition-colors"
+            >
+              <Clock className="w-4 h-4 text-gray-400" />
+              <span className="text-sm text-gray-200">{getTimeRangeLabel(selectedTimeRange)}</span>
+              <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${timeFilterOpen ? 'rotate-180' : ''}`} />
+            </button>
 
-          {/* Time Range Dropdown */}
-          {timeFilterOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-gray-800 rounded-lg border border-gray-700 shadow-xl z-50">
-              <div className="p-2">
-                <div className="text-xs text-gray-500 font-semibold px-2 py-1.5">Time Range</div>
-                {timeRanges.map(range => (
-                  <button
-                    key={range.value}
-                    onClick={() => {
-                      setSelectedTimeRange(range.value);
-                      setTimeFilterOpen(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-700 transition-colors ${
-                      selectedTimeRange === range.value 
-                        ? 'bg-gray-700 text-blue-400' 
-                        : 'text-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span>{range.label}</span>
-                      {selectedTimeRange === range.value && (
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </div>
-                  </button>
-                ))}
+            {/* Time Range Dropdown */}
+            {timeFilterOpen && (
+              <div className="absolute right-0 mt-2 w-56 bg-gray-800 rounded-lg border border-gray-700 shadow-xl z-50">
+                <div className="p-2">
+                  <div className="text-xs text-gray-500 font-semibold px-2 py-1.5">Time Range</div>
+                  {timeRanges.map(range => (
+                    <button
+                      key={range.value}
+                      onClick={() => {
+                        setSelectedTimeRange(range.value);
+                        setTimeFilterOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-700 transition-colors ${
+                        selectedTimeRange === range.value 
+                          ? 'bg-gray-700 text-blue-400' 
+                          : 'text-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{range.label}</span>
+                        {selectedTimeRange === range.value && (
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -598,10 +719,27 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Enhanced Stats Grid - Always 4 columns on large screens */}
+      {/* Enhanced Stats Grid - Always 4 columns on large screens, now draggable */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {visibleCards.map((card) => (
-          <div key={card.key} className="relative group">
+          <div 
+            key={card.key} 
+            className={`relative group ${isDragging ? 'cursor-move' : 'cursor-grab'} ${
+              dragOverCard === card.key ? 'ring-2 ring-blue-500 ring-opacity-50' : ''
+            }`}
+            draggable
+            onDragStart={(e) => handleDragStart(e, card.key)}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            onDragEnter={(e) => handleDragEnter(e, card.key)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, card.key)}
+          >
+            {/* Drag handle indicator */}
+            <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+              <GripVertical className="w-4 h-4 text-gray-500" />
+            </div>
+            
             <StatCard
               title={card.title}
               value={card.value}
@@ -610,6 +748,7 @@ const Dashboard = () => {
               color={card.color}
               tooltip={card.tooltip}
             />
+            
             {/* Visibility toggle button */}
             <button
               onClick={() => toggleCardVisibility(card.key)}
