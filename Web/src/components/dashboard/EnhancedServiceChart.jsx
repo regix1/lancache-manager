@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo, useMemo, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { CHART_COLORS } from '../../utils/constants';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 
-const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
+const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
   const { mockMode } = useData();
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100); // Percentage of default size
@@ -17,20 +17,20 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
     { name: 'Bandwidth Saved', id: 'bandwidth' }
   ];
 
-  const handlePrevTab = () => {
+  const handlePrevTab = useCallback(() => {
     setActiveTab(prev => (prev - 1 + tabs.length) % tabs.length);
-  };
+  }, [tabs.length]);
 
-  const handleNextTab = () => {
+  const handleNextTab = useCallback(() => {
     setActiveTab(prev => (prev + 1) % tabs.length);
-  };
+  }, [tabs.length]);
 
-  const adjustSize = (delta) => {
+  const adjustSize = useCallback((delta) => {
     setChartSize(prev => Math.max(60, Math.min(120, prev + delta)));
-  };
+  }, []);
 
   // Process data for Service Distribution (total data transferred)
-  const getServiceDistributionData = () => {
+  const getServiceDistributionData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
@@ -66,10 +66,10 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
     }
 
     return processedData.sort((a, b) => b.value - a.value);
-  };
+  }, [serviceStats]);
 
   // Process data for Cache Hit Ratio (hits vs misses)
-  const getCacheHitRatioData = () => {
+  const getCacheHitRatioData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
@@ -82,10 +82,10 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
       { name: 'Cache Hits', value: totalHits, percentage: (totalHits / total) * 100 },
       { name: 'Cache Misses', value: totalMisses, percentage: (totalMisses / total) * 100 }
     ];
-  };
+  }, [serviceStats]);
 
   // Process data for Bandwidth Saved (cache hits by service)
-  const getBandwidthSavedData = () => {
+  const getBandwidthSavedData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
     const totalSaved = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
@@ -121,27 +121,27 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
     }
     
     return processedData.sort((a, b) => b.value - a.value);
-  };
+  }, [serviceStats]);
 
   // Get data based on active tab
-  const getChartData = () => {
+  const chartData = useMemo(() => {
     const currentTab = tabs[activeTab];
     if (!currentTab) return [];
     
     switch(currentTab.id) {
       case 'service':
-        return getServiceDistributionData();
+        return getServiceDistributionData;
       case 'hit-ratio':
-        return getCacheHitRatioData();
+        return getCacheHitRatioData;
       case 'bandwidth':
-        return getBandwidthSavedData();
+        return getBandwidthSavedData;
       default:
-        return getServiceDistributionData();
+        return getServiceDistributionData;
     }
-  };
+  }, [activeTab, getServiceDistributionData, getCacheHitRatioData, getBandwidthSavedData, tabs]);
 
   // Custom tooltip
-  const CustomTooltip = ({ active, payload }) => {
+  const CustomTooltip = useCallback(({ active, payload }) => {
     if (active && payload && payload[0]) {
       const data = payload[0].payload;
       return (
@@ -153,10 +153,10 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
       );
     }
     return null;
-  };
+  }, []);
 
   // Custom label function
-  const renderLabel = ({ name, value, percent, cx, cy, midAngle, innerRadius, outerRadius, index }) => {
+  const renderLabel = useCallback(({ name, value, percent, cx, cy, midAngle, innerRadius, outerRadius, index }) => {
     if (percent < 0.03) return null;
     
     const RADIAN = Math.PI / 180;
@@ -177,24 +177,25 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
         {`${name} ${(percent * 100).toFixed(1)}%`}
       </text>
     );
-  };
+  }, [chartSize]);
 
-  const chartData = getChartData();
   const chartHeight = 300 * (chartSize / 100);
   const outerRadius = 80 * (chartSize / 100);
   const currentTab = tabs[activeTab];
 
   // Calculate overall stats
-  const overallCacheHitRate = serviceStats && serviceStats.length > 0 ? 
-    (() => {
-      const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
-      const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
-      const total = totalHits + totalMisses;
-      return total > 0 ? (totalHits / total) * 100 : 0;
-    })() : 0;
-
-  const totalBandwidthSaved = serviceStats ? 
-    serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0) : 0;
+  const overallStats = useMemo(() => {
+    if (!serviceStats || serviceStats.length === 0) return { hitRate: 0, totalSaved: 0 };
+    
+    const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
+    const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
+    const total = totalHits + totalMisses;
+    
+    return {
+      hitRate: total > 0 ? (totalHits / total) * 100 : 0,
+      totalSaved: totalHits
+    };
+  }, [serviceStats]);
 
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
@@ -315,12 +316,12 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
           {currentTab?.id === 'hit-ratio' && (
             <div className="mt-4 pt-4 border-t border-gray-700">
               <div className="text-center">
-                <p className="text-2xl font-bold text-green-400">
-                  {formatPercent(overallCacheHitRate)}
+                <p className="text-2xl font-bold text-green-400 transition-all duration-500">
+                  {formatPercent(overallStats.hitRate)}
                 </p>
                 <p className="text-xs text-gray-500">Overall Cache Hit Rate</p>
                 <p className="text-sm text-gray-400 mt-1">
-                  Saved {formatBytes(totalBandwidthSaved)} of bandwidth
+                  Saved {formatBytes(overallStats.totalSaved)} of bandwidth
                 </p>
               </div>
             </div>
@@ -334,7 +335,7 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
                   Internet bandwidth saved by serving from cache
                 </p>
                 <p className="text-sm text-gray-400 mt-1">
-                  Total saved: {formatBytes(totalBandwidthSaved)}
+                  Total saved: {formatBytes(overallStats.totalSaved)}
                 </p>
               </div>
             </div>
@@ -361,6 +362,12 @@ const EnhancedServiceChart = ({ serviceStats, timeRange = '24h' }) => {
       )}
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison for memo - only re-render if data actually changed
+  return JSON.stringify(prevProps.serviceStats) === JSON.stringify(nextProps.serviceStats) &&
+         prevProps.timeRange === nextProps.timeRange;
+});
+
+EnhancedServiceChart.displayName = 'EnhancedServiceChart';
 
 export default EnhancedServiceChart;

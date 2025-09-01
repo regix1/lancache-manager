@@ -1,9 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, memo } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { CacheInfoTooltip } from '../common/Tooltip';
 
-const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }) => {
+const TopClientsTable = memo(({ clientStats = [], downloads = [], timeRange = '24h' }) => {
   // For real data, use clientStats directly. For mock data, calculate from downloads
   const { mockMode } = useData();
   
@@ -56,7 +56,7 @@ const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }
   }, [downloads, clientStats, mockMode]);
 
   // Get time range label for the table header
-  const getTimeRangeLabel = () => {
+  const timeRangeLabel = useMemo(() => {
     const labels = {
       '15m': 'Last 15 Minutes',
       '30m': 'Last 30 Minutes',
@@ -70,10 +70,10 @@ const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }
       'all': 'All Time'
     };
     return labels[timeRange] || 'Last 24 Hours';
-  };
+  }, [timeRange]);
 
   // Show top 10 clients
-  const displayClients = calculatedClientStats.slice(0, 10);
+  const displayClients = useMemo(() => calculatedClientStats.slice(0, 10), [calculatedClientStats]);
 
   return (
     <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
@@ -85,7 +85,7 @@ const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }
           </span>
         </h3>
         <span className="text-xs text-gray-500">
-          {getTimeRangeLabel()}
+          {timeRangeLabel}
         </span>
       </div>
       {displayClients.length > 0 ? (
@@ -104,12 +104,12 @@ const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }
             <tbody className="text-sm">
               {displayClients.map((client, idx) => (
                 <tr key={`${client.clientIp}-${idx}`} className="border-t border-gray-700">
-                  <td className="py-3 text-white">{client.clientIp}</td>
-                  <td className="py-3 text-gray-300">{formatBytes(client.totalBytes)}</td>
-                  <td className="py-3 text-green-400">{formatBytes(client.totalCacheHitBytes)}</td>
-                  <td className="py-3 text-yellow-400">{formatBytes(client.totalCacheMissBytes)}</td>
+                  <td className="py-3 text-white transition-all duration-300">{client.clientIp}</td>
+                  <td className="py-3 text-gray-300 transition-all duration-500">{formatBytes(client.totalBytes)}</td>
+                  <td className="py-3 text-green-400 transition-all duration-500">{formatBytes(client.totalCacheHitBytes)}</td>
+                  <td className="py-3 text-yellow-400 transition-all duration-500">{formatBytes(client.totalCacheMissBytes)}</td>
                   <td className="py-3">
-                    <span className={`px-2 py-1 rounded text-xs ${
+                    <span className={`px-2 py-1 rounded text-xs transition-colors ${
                       client.cacheHitPercent > 50 
                         ? 'bg-green-900 text-green-300' 
                         : 'bg-yellow-900 text-yellow-300'
@@ -132,6 +132,13 @@ const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }
       )}
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison - only re-render if data changed
+  return prevProps.clientStats === nextProps.clientStats &&
+         prevProps.downloads === nextProps.downloads &&
+         prevProps.timeRange === nextProps.timeRange;
+});
+
+TopClientsTable.displayName = 'TopClientsTable';
 
 export default TopClientsTable;
