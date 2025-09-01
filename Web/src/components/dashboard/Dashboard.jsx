@@ -135,22 +135,60 @@ const Dashboard = () => {
             return [];
           }),
         
-        // Service stats with time filter
-        ApiService.getServiceStats(controller.signal, selectedTimeRange)
-          .catch(err => {
-            console.error('Service stats error:', err);
-            return [];
-          })
+        // Service stats - for short time ranges, calculate from downloads
+        (selectedTimeRange === 'all' || selectedTimeRange === '7d' || selectedTimeRange === '30d' || selectedTimeRange === '90d')
+          ? ApiService.getServiceStats(controller.signal, selectedTimeRange)
+              .catch(err => {
+                console.error('Service stats error:', err);
+                return [];
+              })
+          : Promise.resolve([]) // Will calculate from downloads for short periods
       ];
 
       const [dashboardData, downloadsData, clientsData, servicesData] = await Promise.all(promises);
 
       clearTimeout(timeout);
 
+      // For short time ranges, calculate service stats from downloads
+      let finalServiceStats = servicesData;
+      if (servicesData.length === 0 && downloadsData.length > 0) {
+        const serviceMap = {};
+        
+        downloadsData.forEach(download => {
+          if (!serviceMap[download.service]) {
+            serviceMap[download.service] = {
+              service: download.service,
+              totalCacheHitBytes: 0,
+              totalCacheMissBytes: 0,
+              totalBytes: 0,
+              totalDownloads: 0,
+              lastActivity: download.startTime
+            };
+          }
+          
+          const stat = serviceMap[download.service];
+          stat.totalCacheHitBytes += download.cacheHitBytes || 0;
+          stat.totalCacheMissBytes += download.cacheMissBytes || 0;
+          stat.totalBytes += download.totalBytes || 0;
+          stat.totalDownloads += 1;
+          
+          if (new Date(download.startTime) > new Date(stat.lastActivity)) {
+            stat.lastActivity = download.startTime;
+          }
+        });
+        
+        finalServiceStats = Object.values(serviceMap).map(stat => ({
+          ...stat,
+          cacheHitPercent: stat.totalBytes > 0 
+            ? (stat.totalCacheHitBytes / stat.totalBytes) * 100 
+            : 0
+        }));
+      }
+
       setDashboardStats(dashboardData);
       setFilteredLatestDownloads(downloadsData || []);
       setFilteredClientStats(clientsData || []);
-      setFilteredServiceStats(servicesData || []);
+      setFilteredServiceStats(finalServiceStats || []);
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('Failed to fetch dashboard data:', error);
