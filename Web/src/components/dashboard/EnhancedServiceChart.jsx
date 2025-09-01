@@ -33,6 +33,7 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
   const getServiceDistributionData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
+    const knownServices = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'];
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
     if (totalBytes === 0) return [];
     
@@ -43,7 +44,8 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     serviceStats.forEach(s => {
       if (s.totalBytes > 0) {
         const percentage = (s.totalBytes / totalBytes) * 100;
-        if (percentage > 5) {
+        // Always show known services, only group unknown services into "Other"
+        if (knownServices.includes(s.service.toLowerCase()) || percentage > 5) {
           processedData.push({
             name: s.service,
             value: s.totalBytes,
@@ -88,6 +90,7 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
   const getBandwidthSavedData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
+    const knownServices = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'];
     const totalSaved = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
     
     if (totalSaved === 0) return [];
@@ -99,7 +102,8 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     serviceStats.forEach(s => {
       if (s.totalCacheHitBytes > 0) {
         const savedPercentage = (s.totalCacheHitBytes / totalSaved) * 100;
-        if (savedPercentage > 5) {
+        // Always show known services, only group unknown services into "Other"
+        if (knownServices.includes(s.service.toLowerCase()) || savedPercentage > 5) {
           processedData.push({
             name: s.service,
             value: s.totalCacheHitBytes,
