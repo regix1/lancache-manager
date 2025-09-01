@@ -4,18 +4,60 @@ import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatte
 import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Filter, CheckCircle, Info, AlertTriangle, Layers, Users } from 'lucide-react';
 import { CachePerformanceTooltip, TimestampTooltip } from '../common/Tooltip';
 
+// localStorage keys for persistence
+const STORAGE_KEYS = {
+  SERVICE_FILTER: 'lancache_downloads_service',
+  ITEMS_PER_PAGE: 'lancache_downloads_items',
+  GROUP_GAMES: 'lancache_downloads_group',
+  SHOW_METADATA: 'lancache_downloads_metadata'
+};
+
 const DownloadsTab = () => {
   const { latestDownloads, mockMode, updateMockDataCount, updateApiDownloadCount } = useData();
   const [expandedDownload, setExpandedDownload] = useState(null);
   const [expandedGroup, setExpandedGroup] = useState(null);
   const [gameInfo, setGameInfo] = useState({});
   const [loadingGame, setLoadingGame] = useState(null);
-  const [showZeroBytes, setShowZeroBytes] = useState(false);
-  const [selectedService, setSelectedService] = useState('all');
-  const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [renderedItems, setRenderedItems] = useState([]);
-  const [groupGames, setGroupGames] = useState(false);
+  
+  // Load settings from localStorage with defaults
+  const [showZeroBytes, setShowZeroBytes] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SHOW_METADATA);
+    return saved === 'true'; // Default to false
+  });
+  
+  const [selectedService, setSelectedService] = useState(() => {
+    return localStorage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all';
+  });
+  
+  const [itemsPerPage, setItemsPerPage] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
+    if (saved === 'unlimited') return 'unlimited';
+    return saved ? parseInt(saved, 10) : 50;
+  });
+  
+  const [groupGames, setGroupGames] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.GROUP_GAMES);
+    return saved === 'true'; // Default to false
+  });
+  
+  // Save settings to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, selectedService);
+  }, [selectedService]);
+  
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, itemsPerPage.toString());
+  }, [itemsPerPage]);
+  
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.GROUP_GAMES, groupGames.toString());
+  }, [groupGames]);
+  
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, showZeroBytes.toString());
+  }, [showZeroBytes]);
   
   // Update mock data count OR api download count when itemsPerPage changes
   useEffect(() => {
@@ -301,6 +343,13 @@ const DownloadsTab = () => {
     setItemsPerPage(newValue);
   };
 
+  const handleServiceFilterChange = (value) => {
+    setSelectedService(value);
+    // Reset expanded states when filter changes
+    setExpandedDownload(null);
+    setExpandedGroup(null);
+  };
+
   const renderGroupedItem = (group) => {
     const isExpanded = expandedGroup === group.id;
     const cacheHitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
@@ -308,7 +357,7 @@ const DownloadsTab = () => {
     return (
       <div key={group.id} className="bg-gray-900 rounded-lg border border-gray-700">
         <div 
-          className="p-4 cursor-pointer hover:bg-gray-850"
+          className="p-4 cursor-pointer hover:bg-gray-850 transition-colors"
           onClick={() => handleGroupClick(group.id)}
         >
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -348,7 +397,7 @@ const DownloadsTab = () => {
                 <div className="flex items-center gap-2">
                   <div className="flex-1 bg-gray-700 rounded-full h-2">
                     <div 
-                      className={`h-2 rounded-full ${
+                      className={`h-2 rounded-full transition-all ${
                         cacheHitPercent > 75 ? 'bg-green-500' :
                         cacheHitPercent > 50 ? 'bg-blue-500' :
                         cacheHitPercent > 25 ? 'bg-yellow-500' :
@@ -460,7 +509,7 @@ const DownloadsTab = () => {
     return (
       <div key={download.id || idx} className="bg-gray-900 rounded-lg border border-gray-700">
         <div 
-          className={`p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850' : ''}`}
+          className={`p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850 transition-colors' : ''}`}
           onClick={() => handleDownloadClick(download)}
         >
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -509,7 +558,7 @@ const DownloadsTab = () => {
                 <div className="flex items-center gap-2">
                   <div className="flex-1 bg-gray-700 rounded-full h-2">
                     <div 
-                      className={`h-2 rounded-full ${
+                      className={`h-2 rounded-full transition-all ${
                         download.cacheHitPercent > 75 ? 'bg-green-500' :
                         download.cacheHitPercent > 50 ? 'bg-blue-500' :
                         download.cacheHitPercent > 25 ? 'bg-yellow-500' :
@@ -641,7 +690,7 @@ const DownloadsTab = () => {
                         href={`https://store.steampowered.com/app/${game.appId}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 mt-2"
+                        className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 mt-2 transition-colors"
                         onClick={(e) => e.stopPropagation()}
                       >
                         View on Steam <ExternalLink className="w-3 h-3" />
@@ -684,8 +733,8 @@ const DownloadsTab = () => {
             <Filter className="w-4 h-4 text-gray-400" />
             <select
               value={selectedService}
-              onChange={(e) => setSelectedService(e.target.value)}
-              className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+              onChange={(e) => handleServiceFilterChange(e.target.value)}
+              className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none transition-colors"
               disabled={isLoadingItems}
             >
               <option value="all">All Services</option>
@@ -701,7 +750,7 @@ const DownloadsTab = () => {
           <select
             value={itemsPerPage}
             onChange={(e) => handleItemsPerPageChange(e.target.value)}
-            className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="bg-gray-700 text-sm text-gray-300 rounded px-3 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none transition-colors"
             disabled={isLoadingItems}
           >
             <option value={50}>50 items</option>
@@ -710,7 +759,7 @@ const DownloadsTab = () => {
             <option value="unlimited">Unlimited</option>
           </select>
           
-          {/* Group games checkbox */}
+          {/* Group items checkbox */}
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
             <input
               type="checkbox"
@@ -720,7 +769,7 @@ const DownloadsTab = () => {
               disabled={isLoadingItems}
             />
             <Layers className="w-4 h-4" />
-            Group games
+            Group items
           </label>
           
           {/* Show metadata checkbox */}

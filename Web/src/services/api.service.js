@@ -94,9 +94,12 @@ class ApiService {
     }
   }
 
-  static async getServiceStats(signal) {
+  static async getServiceStats(signal, since = null) {
     try {
-      const res = await fetch(`${API_BASE}/stats/services`, { 
+      const url = since 
+        ? `${API_BASE}/stats/services?since=${since}`
+        : `${API_BASE}/stats/services`;
+      const res = await fetch(url, { 
         signal,
         headers: this.getHeaders()
       });
@@ -106,6 +109,96 @@ class ApiService {
         console.log('getServiceStats request aborted (timeout)');
       } else {
         console.error('getServiceStats error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // NEW: Dashboard aggregated stats
+  static async getDashboardStats(period = '24h', signal) {
+    try {
+      const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, { 
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('getDashboardStats request aborted (timeout)');
+      } else {
+        console.error('getDashboardStats error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // NEW: Cache effectiveness stats
+  static async getCacheEffectiveness(period = '24h', signal) {
+    try {
+      const res = await fetch(`${API_BASE}/stats/cache-effectiveness?period=${period}`, { 
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('getCacheEffectiveness request aborted (timeout)');
+      } else {
+        console.error('getCacheEffectiveness error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // NEW: Timeline stats
+  static async getTimelineStats(period = '24h', interval = 'hourly', signal) {
+    try {
+      const res = await fetch(`${API_BASE}/stats/timeline?period=${period}&interval=${interval}`, { 
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('getTimelineStats request aborted (timeout)');
+      } else {
+        console.error('getTimelineStats error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // NEW: Bandwidth saved stats
+  static async getBandwidthSaved(period = 'all', signal) {
+    try {
+      const res = await fetch(`${API_BASE}/stats/bandwidth-saved?period=${period}`, { 
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('getBandwidthSaved request aborted (timeout)');
+      } else {
+        console.error('getBandwidthSaved error:', error);
+      }
+      throw error;
+    }
+  }
+
+  // NEW: Top games stats
+  static async getTopGames(limit = 10, period = '7d', signal) {
+    try {
+      const res = await fetch(`${API_BASE}/stats/top-games?limit=${limit}&period=${period}`, { 
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('getTopGames request aborted (timeout)');
+      } else {
+        console.error('getTopGames error:', error);
       }
       throw error;
     }
