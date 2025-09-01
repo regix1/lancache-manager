@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HardDrive, Download, Users, Database, TrendingUp, Zap, Server, Activity, Eye, EyeOff, ChevronDown, Search, Clock } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
-import { STORAGE_KEYS } from '../../utils/constants';
+import { STORAGE_KEYS, API_BASE } from '../../utils/constants';
 import StatCard from '../common/StatCard';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
+import ApiService from '../../services/api.service';
 
 // Default visibility state for all cards
 const DEFAULT_CARD_VISIBILITY = {
@@ -21,8 +22,11 @@ const DEFAULT_CARD_VISIBILITY = {
 };
 
 const Dashboard = () => {
-  const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats, mockMode } = useData();
+  const { cacheInfo, activeDownloads, mockMode } = useData();
   const [dashboardStats, setDashboardStats] = useState(null);
+  const [filteredLatestDownloads, setFilteredLatestDownloads] = useState([]);
+  const [filteredClientStats, setFilteredClientStats] = useState([]);
+  const [filteredServiceStats, setFilteredServiceStats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -86,56 +90,103 @@ const Dashboard = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
   
+  // Fetch all data when time range changes
   useEffect(() => {
-    // Only fetch dashboard stats if not in mock mode
     if (!mockMode) {
-      fetchDashboardStats();
-      const interval = setInterval(fetchDashboardStats, 10000); // Refresh every 10 seconds
+      fetchAllData();
+      const interval = setInterval(fetchAllData, 30000); // Refresh every 30 seconds
       return () => clearInterval(interval);
     } else {
-      // In mock mode, calculate stats from mock data
+      // In mock mode, use the mock data from context
+      const { latestDownloads, clientStats, serviceStats } = useData();
+      setFilteredLatestDownloads(latestDownloads || []);
+      setFilteredClientStats(clientStats || []);
+      setFilteredServiceStats(serviceStats || []);
       setLoading(false);
     }
   }, [mockMode, selectedTimeRange]);
 
-  const fetchDashboardStats = async () => {
+  const fetchAllData = async () => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || '';
-      const response = await fetch(`${apiUrl}/api/stats/dashboard?period=${selectedTimeRange}`);
-      if (response.ok) {
-        const data = await response.json();
-        setDashboardStats(data);
-      }
+      setLoading(true);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+
+      // Fetch all data in parallel with time filter
+      const [dashboardData, downloadsData, clientsData, servicesData] = await Promise.all([
+        // Dashboard stats
+        ApiService.getDashboardStats(selectedTimeRange, controller.signal),
+        
+        // Latest downloads - fetch more for shorter time ranges
+        fetchFilteredDownloads(selectedTimeRange, controller.signal),
+        
+        // Client stats with time filter
+        fetchFilteredClients(selectedTimeRange, controller.signal),
+        
+        // Service stats with time filter
+        ApiService.getServiceStats(controller.signal, selectedTimeRange)
+      ]);
+
+      clearTimeout(timeout);
+
+      setDashboardStats(dashboardData);
+      setFilteredLatestDownloads(downloadsData || []);
+      setFilteredClientStats(clientsData || []);
+      setFilteredServiceStats(servicesData || []);
     } catch (error) {
-      console.error('Failed to fetch dashboard stats:', error);
+      if (error.name !== 'AbortError') {
+        console.error('Failed to fetch dashboard data:', error);
+      }
     } finally {
       setLoading(false);
     }
   };
-  
-  const toggleCardVisibility = (cardKey) => {
-    setCardVisibility(prev => ({
-      ...prev,
-      [cardKey]: !prev[cardKey]
-    }));
+
+  // Fetch downloads filtered by time range
+  const fetchFilteredDownloads = async (period, signal) => {
+    try {
+      // Determine count based on period
+      const count = period === 'all' ? 'unlimited' : 
+                   period === '15m' || period === '30m' ? 20 :
+                   period === '1h' ? 30 :
+                   period === '6h' || period === '12h' ? 50 :
+                   100;
+      
+      const downloads = await ApiService.getLatestDownloads(signal, count);
+      
+      // Filter by time on client side if needed
+      if (period !== 'all') {
+        const cutoffTime = getCutoffTime(period);
+        return downloads.filter(d => new Date(d.startTime) >= cutoffTime);
+      }
+      
+      return downloads;
+    } catch (error) {
+      console.error('Failed to fetch downloads:', error);
+      return [];
+    }
   };
-  
-  // Filter data based on time range (only for mock mode)
-  const getFilteredData = () => {
-    // For real data, return as-is (backend handles filtering)
-    if (!mockMode) {
-      return { 
-        latestDownloads, 
-        clientStats, 
-        serviceStats 
-      };
-    }
 
-    // For mock data, filter on frontend
-    if (!selectedTimeRange || selectedTimeRange === 'all') {
-      return { latestDownloads, clientStats, serviceStats };
+  // Fetch clients filtered by time range
+  const fetchFilteredClients = async (period, signal) => {
+    try {
+      const clients = await ApiService.getClientStats(signal);
+      
+      // Filter by last seen time if needed
+      if (period !== 'all') {
+        const cutoffTime = getCutoffTime(period);
+        return clients.filter(c => new Date(c.lastSeen) >= cutoffTime);
+      }
+      
+      return clients;
+    } catch (error) {
+      console.error('Failed to fetch clients:', error);
+      return [];
     }
+  };
 
+  // Helper to get cutoff time for filtering
+  const getCutoffTime = (period) => {
     const now = new Date();
     const timeRangeMs = {
       '15m': 15 * 60 * 1000,
@@ -148,84 +199,36 @@ const Dashboard = () => {
       '30d': 30 * 24 * 60 * 60 * 1000,
       '90d': 90 * 24 * 60 * 60 * 1000
     };
-
-    const cutoffTime = now - (timeRangeMs[selectedTimeRange] || 24 * 60 * 60 * 1000);
-
-    // Filter downloads by time
-    const filteredDownloads = latestDownloads.filter(d => 
-      new Date(d.startTime) >= cutoffTime
-    );
-
-    // Recalculate service stats based on filtered downloads
-    const filteredServiceStats = serviceStats.map(service => {
-      const serviceDownloads = filteredDownloads.filter(d => d.service === service.service);
-      const hitBytes = serviceDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
-      const missBytes = serviceDownloads.reduce((sum, d) => sum + (d.cacheMissBytes || 0), 0);
-      const totalBytes = hitBytes + missBytes;
-      
-      return {
-        ...service,
-        totalCacheHitBytes: hitBytes,
-        totalCacheMissBytes: missBytes,
-        totalBytes: totalBytes,
-        cacheHitPercent: totalBytes > 0 ? (hitBytes / totalBytes) * 100 : 0,
-        totalDownloads: serviceDownloads.length
-      };
-    });
-
-    // For mock mode, recalculate client stats from filtered downloads
-    const clientMap = {};
-    filteredDownloads.forEach(download => {
-      if (!clientMap[download.clientIp]) {
-        clientMap[download.clientIp] = {
-          clientIp: download.clientIp,
-          totalCacheHitBytes: 0,
-          totalCacheMissBytes: 0,
-          totalBytes: 0,
-          totalDownloads: 0,
-          lastSeen: download.startTime
-        };
-      }
-      
-      const client = clientMap[download.clientIp];
-      client.totalCacheHitBytes += download.cacheHitBytes || 0;
-      client.totalCacheMissBytes += download.cacheMissBytes || 0;
-      client.totalBytes += download.totalBytes || 0;
-      client.totalDownloads += 1;
-      
-      if (new Date(download.startTime) > new Date(client.lastSeen)) {
-        client.lastSeen = download.startTime;
-      }
-    });
     
-    const filteredClientStats = Object.values(clientMap).map(client => ({
-      ...client,
-      cacheHitPercent: client.totalBytes > 0 
-        ? (client.totalCacheHitBytes / client.totalBytes) * 100 
-        : 0
-    })).sort((a, b) => b.totalBytes - a.totalBytes);
-
-    return {
-      latestDownloads: filteredDownloads,
-      clientStats: filteredClientStats,
-      serviceStats: filteredServiceStats
-    };
+    return new Date(now - (timeRangeMs[period] || 24 * 60 * 60 * 1000));
+  };
+  
+  const toggleCardVisibility = (cardKey) => {
+    setCardVisibility(prev => ({
+      ...prev,
+      [cardKey]: !prev[cardKey]
+    }));
   };
 
-  const filteredData = getFilteredData();
   const activeClients = [...new Set(activeDownloads.map(d => d.clientIp))].length;
   const totalActiveDownloads = activeDownloads.length;
   
   // Calculate total downloads from filtered service stats
-  const totalDownloads = filteredData.serviceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
+  const totalDownloads = filteredServiceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
   
   // Use dashboard stats if available, otherwise calculate from filtered data
-  const bandwidthSaved = dashboardStats?.totalBandwidthSaved || 
-    filteredData.serviceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
-  const addedToCache = dashboardStats?.totalAddedToCache || 
-    filteredData.serviceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
-  const totalServed = dashboardStats?.totalServed || 
+  const bandwidthSaved = dashboardStats?.period?.bandwidthSaved || 
+    dashboardStats?.totalBandwidthSaved ||
+    filteredServiceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
+  const addedToCache = dashboardStats?.period?.addedToCache || 
+    dashboardStats?.totalAddedToCache ||
+    filteredServiceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
+  const totalServed = dashboardStats?.period?.totalServed || 
+    dashboardStats?.totalServed ||
     (bandwidthSaved + addedToCache);
+  const cacheHitRatio = dashboardStats?.period?.hitRatio || 
+    dashboardStats?.cacheHitRatio ||
+    (totalServed > 0 ? bandwidthSaved / totalServed : 0);
 
   // Define all stat cards with their data and metadata
   const statCards = [
@@ -251,7 +254,7 @@ const Dashboard = () => {
       key: 'bandwidthSaved',
       title: 'Bandwidth Saved',
       value: formatBytes(bandwidthSaved),
-      subtitle: 'Internet bandwidth saved',
+      subtitle: selectedTimeRange === 'all' ? 'All-time saved' : `${getTimeRangeLabel(selectedTimeRange).toLowerCase()}`,
       icon: TrendingUp,
       color: 'emerald',
       visible: cardVisibility.bandwidthSaved
@@ -260,7 +263,7 @@ const Dashboard = () => {
       key: 'addedToCache',
       title: 'Added to Cache',
       value: formatBytes(addedToCache),
-      subtitle: 'New content cached',
+      subtitle: selectedTimeRange === 'all' ? 'All-time cached' : `${getTimeRangeLabel(selectedTimeRange).toLowerCase()}`,
       icon: Zap,
       color: 'purple',
       visible: cardVisibility.addedToCache
@@ -269,7 +272,7 @@ const Dashboard = () => {
       key: 'totalServed',
       title: 'Total Served',
       value: formatBytes(totalServed),
-      subtitle: 'All-time data served',
+      subtitle: selectedTimeRange === 'all' ? 'All-time served' : `${getTimeRangeLabel(selectedTimeRange).toLowerCase()}`,
       icon: Server,
       color: 'indigo',
       visible: cardVisibility.totalServed
@@ -278,7 +281,7 @@ const Dashboard = () => {
       key: 'activeDownloads',
       title: 'Active Downloads',
       value: totalActiveDownloads,
-      subtitle: `${filteredData.latestDownloads.length} recent`,
+      subtitle: `${filteredLatestDownloads.length} in period`,
       icon: Download,
       color: 'orange',
       visible: cardVisibility.activeDownloads
@@ -286,8 +289,8 @@ const Dashboard = () => {
     {
       key: 'activeClients',
       title: 'Active Clients',
-      value: dashboardStats?.uniqueClients || activeClients,
-      subtitle: `${totalDownloads} total downloads`,
+      value: dashboardStats?.uniqueClients || filteredClientStats.length || activeClients,
+      subtitle: `${totalDownloads} downloads`,
       icon: Users,
       color: 'yellow',
       visible: cardVisibility.activeClients
@@ -295,8 +298,8 @@ const Dashboard = () => {
     {
       key: 'cacheHitRatio',
       title: 'Cache Hit Ratio',
-      value: formatPercent((dashboardStats?.cacheHitRatio || (bandwidthSaved / (bandwidthSaved + addedToCache))) * 100),
-      subtitle: 'Overall effectiveness',
+      value: formatPercent(cacheHitRatio * 100),
+      subtitle: selectedTimeRange === 'all' ? 'Overall' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
       icon: Activity,
       color: 'cyan',
       visible: cardVisibility.cacheHitRatio
@@ -459,6 +462,19 @@ const Dashboard = () => {
         </div>
       )}
 
+      {/* Loading overlay */}
+      {loading && (
+        <div className="text-center py-4">
+          <div className="inline-flex items-center gap-2 text-gray-400">
+            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <span>Loading {getTimeRangeLabel(selectedTimeRange).toLowerCase()} data...</span>
+          </div>
+        </div>
+      )}
+
       {/* Enhanced Stats Grid - Always 4 columns on large screens */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {visibleCards.map((card) => (
@@ -485,19 +501,19 @@ const Dashboard = () => {
       {/* Enhanced Charts Row with tabs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <EnhancedServiceChart 
-          serviceStats={filteredData.serviceStats}
+          serviceStats={filteredServiceStats}
           timeRange={selectedTimeRange} 
         />
         <RecentDownloadsPanel 
-          downloads={filteredData.latestDownloads}
+          downloads={filteredLatestDownloads}
           timeRange={selectedTimeRange} 
         />
       </div>
 
       {/* Top Clients */}
       <TopClientsTable 
-        clientStats={filteredData.clientStats}
-        downloads={filteredData.latestDownloads}
+        clientStats={filteredClientStats}
+        downloads={filteredLatestDownloads}
         timeRange={selectedTimeRange} 
       />
     </div>
