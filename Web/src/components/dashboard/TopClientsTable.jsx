@@ -1,10 +1,19 @@
 import React, { useMemo } from 'react';
+import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { CacheInfoTooltip } from '../common/Tooltip';
 
 const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }) => {
-  // Calculate client stats from filtered downloads if needed
+  // For real data, use clientStats directly. For mock data, calculate from downloads
+  const { mockMode } = useData();
+  
   const calculatedClientStats = useMemo(() => {
+    // In real mode, use the clientStats as provided by the API
+    if (!mockMode) {
+      return clientStats;
+    }
+    
+    // In mock mode, calculate from filtered downloads
     if (!downloads || downloads.length === 0) return clientStats;
     
     // Group downloads by client IP
@@ -44,7 +53,7 @@ const TopClientsTable = ({ clientStats = [], downloads = [], timeRange = '24h' }
     
     // Sort by total bytes descending
     return clientArray.sort((a, b) => b.totalBytes - a.totalBytes);
-  }, [downloads, clientStats]);
+  }, [downloads, clientStats, mockMode]);
 
   // Get time range label for the table header
   const getTimeRangeLabel = () => {

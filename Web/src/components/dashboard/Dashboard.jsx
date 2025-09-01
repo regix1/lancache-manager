@@ -120,8 +120,18 @@ const Dashboard = () => {
     }));
   };
   
-  // Filter data based on time range
+  // Filter data based on time range (only for mock mode)
   const getFilteredData = () => {
+    // For real data, return as-is (backend handles filtering)
+    if (!mockMode) {
+      return { 
+        latestDownloads, 
+        clientStats, 
+        serviceStats 
+      };
+    }
+
+    // For mock data, filter on frontend
     if (!selectedTimeRange || selectedTimeRange === 'all') {
       return { latestDownloads, clientStats, serviceStats };
     }
@@ -163,8 +173,37 @@ const Dashboard = () => {
       };
     });
 
-    // Filter client stats - in real app this would be done server-side
-    const filteredClientStats = clientStats; // Keep all for now
+    // For mock mode, recalculate client stats from filtered downloads
+    const clientMap = {};
+    filteredDownloads.forEach(download => {
+      if (!clientMap[download.clientIp]) {
+        clientMap[download.clientIp] = {
+          clientIp: download.clientIp,
+          totalCacheHitBytes: 0,
+          totalCacheMissBytes: 0,
+          totalBytes: 0,
+          totalDownloads: 0,
+          lastSeen: download.startTime
+        };
+      }
+      
+      const client = clientMap[download.clientIp];
+      client.totalCacheHitBytes += download.cacheHitBytes || 0;
+      client.totalCacheMissBytes += download.cacheMissBytes || 0;
+      client.totalBytes += download.totalBytes || 0;
+      client.totalDownloads += 1;
+      
+      if (new Date(download.startTime) > new Date(client.lastSeen)) {
+        client.lastSeen = download.startTime;
+      }
+    });
+    
+    const filteredClientStats = Object.values(clientMap).map(client => ({
+      ...client,
+      cacheHitPercent: client.totalBytes > 0 
+        ? (client.totalCacheHitBytes / client.totalBytes) * 100 
+        : 0
+    })).sort((a, b) => b.totalBytes - a.totalBytes);
 
     return {
       latestDownloads: filteredDownloads,
