@@ -40,7 +40,13 @@ const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
     }
   }, [timeRange]);
 
-  const displayDownloads = useMemo(() => downloads.slice(0, displayCount), [downloads, displayCount]);
+  // Sort downloads by startTime (most recent first) and then slice
+  const displayDownloads = useMemo(() => {
+    const sorted = [...downloads].sort((a, b) => 
+      new Date(b.startTime) - new Date(a.startTime)
+    );
+    return sorted.slice(0, displayCount);
+  }, [downloads, displayCount]);
 
   // Calculate totals for the header
   const stats = useMemo(() => {
