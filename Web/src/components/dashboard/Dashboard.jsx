@@ -113,19 +113,37 @@ const Dashboard = () => {
       const timeout = setTimeout(() => controller.abort(), 10000);
 
       // Fetch all data in parallel with time filter
-      const [dashboardData, downloadsData, clientsData, servicesData] = await Promise.all([
+      const promises = [
         // Dashboard stats
-        ApiService.getDashboardStats(selectedTimeRange, controller.signal),
+        ApiService.getDashboardStats(selectedTimeRange, controller.signal)
+          .catch(err => {
+            console.error('Dashboard stats error:', err);
+            return null;
+          }),
         
-        // Latest downloads - fetch more for shorter time ranges
-        fetchFilteredDownloads(selectedTimeRange, controller.signal),
+        // Latest downloads - fetch more for all time ranges
+        fetchFilteredDownloads(selectedTimeRange, controller.signal)
+          .catch(err => {
+            console.error('Downloads error:', err);
+            return [];
+          }),
         
         // Client stats with time filter
-        fetchFilteredClients(selectedTimeRange, controller.signal),
+        fetchFilteredClients(selectedTimeRange, controller.signal)
+          .catch(err => {
+            console.error('Client stats error:', err);
+            return [];
+          }),
         
-        // Service stats with time filter
+        // Service stats with time filter - pass the period correctly
         ApiService.getServiceStats(controller.signal, selectedTimeRange)
-      ]);
+          .catch(err => {
+            console.error('Service stats error:', err);
+            return [];
+          })
+      ];
+
+      const [dashboardData, downloadsData, clientsData, servicesData] = await Promise.all(promises);
 
       clearTimeout(timeout);
 
@@ -145,16 +163,12 @@ const Dashboard = () => {
   // Fetch downloads filtered by time range
   const fetchFilteredDownloads = async (period, signal) => {
     try {
-      // Determine count based on period
-      const count = period === 'all' ? 'unlimited' : 
-                   period === '15m' || period === '30m' ? 20 :
-                   period === '1h' ? 30 :
-                   period === '6h' || period === '12h' ? 50 :
-                   100;
+      // Fetch more downloads for "all" time range
+      const count = period === 'all' ? 500 : 100;
       
       const downloads = await ApiService.getLatestDownloads(signal, count);
       
-      // Filter by time on client side if needed
+      // Filter by time on client side if needed (except for "all")
       if (period !== 'all') {
         const cutoffTime = getCutoffTime(period);
         return downloads.filter(d => new Date(d.startTime) >= cutoffTime);
