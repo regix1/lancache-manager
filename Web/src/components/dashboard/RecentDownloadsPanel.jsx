@@ -1,5 +1,46 @@
 import React, { memo, useMemo } from 'react';
-import { formatBytes, formatPercent, formatTime } from '../../utils/formatters';
+import { formatBytes, formatPercent } from '../../utils/formatters';
+
+// Helper to format time with relative date
+const formatTimeWithDate = (dateString) => {
+  if (!dateString) return 'Unknown';
+  
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    
+    // Check if invalid date
+    if (isNaN(date.getTime())) {
+      return 'Invalid time';
+    }
+    
+    // Calculate difference in days
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const daysDiff = Math.floor((startOfToday - startOfDate) / (1000 * 60 * 60 * 24));
+    
+    const timeString = date.toLocaleTimeString();
+    
+    if (daysDiff === 0) {
+      // Today - just show time
+      return timeString;
+    } else if (daysDiff === 1) {
+      // Yesterday
+      return `Yesterday, ${timeString}`;
+    } else if (daysDiff > 1 && daysDiff <= 7) {
+      // Within a week - show day name
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      return `${dayName}, ${timeString}`;
+    } else {
+      // Older - show date
+      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${dateStr}, ${timeString}`;
+    }
+  } catch (error) {
+    console.error('Error formatting time:', dateString, error);
+    return 'Invalid time';
+  }
+};
 
 const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
   // Get time range label for the panel
@@ -91,7 +132,7 @@ const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
               <div className="flex justify-between items-start mb-1">
                 <span className="text-sm font-medium text-blue-400">{download.service}</span>
                 <span className="text-xs text-gray-500">
-                  {formatTime(download.startTime)}
+                  {formatTimeWithDate(download.startTime)}
                 </span>
               </div>
               <div className="text-xs text-gray-400">{download.clientIp}</div>
