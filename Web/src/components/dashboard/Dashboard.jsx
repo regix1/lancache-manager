@@ -22,12 +22,13 @@ const DEFAULT_CARD_VISIBILITY = {
 };
 
 const Dashboard = () => {
-  const { cacheInfo, activeDownloads, mockMode } = useData();
+  const { cacheInfo, activeDownloads, mockMode, latestDownloads, clientStats, serviceStats } = useData();
   const [dashboardStats, setDashboardStats] = useState(null);
   const [filteredLatestDownloads, setFilteredLatestDownloads] = useState([]);
   const [filteredClientStats, setFilteredClientStats] = useState([]);
   const [filteredServiceStats, setFilteredServiceStats] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilterOpen, setTimeFilterOpen] = useState(false);
@@ -93,22 +94,29 @@ const Dashboard = () => {
   // Fetch all data when time range changes
   useEffect(() => {
     if (!mockMode) {
-      fetchAllData();
-      const interval = setInterval(fetchAllData, 30000); // Refresh every 30 seconds
+      // Initial load
+      fetchAllData(true);
+      // Set up refresh interval
+      const interval = setInterval(() => fetchAllData(false), 30000); // Refresh every 30 seconds
       return () => clearInterval(interval);
     } else {
       // In mock mode, use the mock data from context
-      const { latestDownloads, clientStats, serviceStats } = useData();
       setFilteredLatestDownloads(latestDownloads || []);
       setFilteredClientStats(clientStats || []);
       setFilteredServiceStats(serviceStats || []);
       setLoading(false);
     }
-  }, [mockMode, selectedTimeRange]);
+  }, [mockMode, selectedTimeRange, latestDownloads, clientStats, serviceStats]);
 
-  const fetchAllData = async () => {
+  const fetchAllData = async (isInitialLoad = false) => {
     try {
-      setLoading(true);
+      // Only show loading spinner on initial load or when changing time ranges
+      if (isInitialLoad) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
+      
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
 
@@ -118,21 +126,21 @@ const Dashboard = () => {
         ApiService.getDashboardStats(selectedTimeRange, controller.signal)
           .catch(err => {
             console.error('Dashboard stats error:', err);
-            return null;
+            return dashboardStats; // Return existing data on error
           }),
         
         // Latest downloads
         fetchFilteredDownloads(selectedTimeRange, controller.signal)
           .catch(err => {
             console.error('Downloads error:', err);
-            return [];
+            return filteredLatestDownloads; // Return existing data on error
           }),
         
         // Client stats with time filter
         fetchFilteredClients(selectedTimeRange, controller.signal)
           .catch(err => {
             console.error('Client stats error:', err);
-            return [];
+            return filteredClientStats; // Return existing data on error
           }),
         
         // Service stats - for short time ranges, calculate from downloads
@@ -140,7 +148,7 @@ const Dashboard = () => {
           ? ApiService.getServiceStats(controller.signal, selectedTimeRange)
               .catch(err => {
                 console.error('Service stats error:', err);
-                return [];
+                return filteredServiceStats; // Return existing data on error
               })
           : Promise.resolve([]) // Will calculate from downloads for short periods
       ];
@@ -151,7 +159,7 @@ const Dashboard = () => {
 
       // For short time ranges, calculate service stats from downloads
       let finalServiceStats = servicesData;
-      if (servicesData.length === 0 && downloadsData.length > 0) {
+      if (servicesData.length === 0 && downloadsData && downloadsData.length > 0) {
         const serviceMap = {};
         
         downloadsData.forEach(download => {
@@ -185,16 +193,18 @@ const Dashboard = () => {
         }));
       }
 
-      setDashboardStats(dashboardData);
-      setFilteredLatestDownloads(downloadsData || []);
-      setFilteredClientStats(clientsData || []);
-      setFilteredServiceStats(finalServiceStats || []);
+      // Only update state if we got valid data
+      if (dashboardData) setDashboardStats(dashboardData);
+      if (downloadsData) setFilteredLatestDownloads(downloadsData);
+      if (clientsData) setFilteredClientStats(clientsData);
+      if (finalServiceStats) setFilteredServiceStats(finalServiceStats);
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('Failed to fetch dashboard data:', error);
       }
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   };
 
@@ -508,7 +518,7 @@ const Dashboard = () => {
       )}
 
       {/* Loading overlay */}
-      {loading && (
+      {loading && !isRefreshing && (
         <div className="text-center py-4">
           <div className="inline-flex items-center gap-2 text-gray-400">
             <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
@@ -516,6 +526,19 @@ const Dashboard = () => {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
             </svg>
             <span>Loading {getTimeRangeLabel(selectedTimeRange).toLowerCase()} data...</span>
+          </div>
+        </div>
+      )}
+      
+      {/* Subtle refresh indicator */}
+      {isRefreshing && (
+        <div className="fixed top-4 right-4 z-50">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800/90 rounded-lg backdrop-blur-sm">
+            <svg className="animate-spin h-3 w-3 text-gray-400" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <span className="text-xs text-gray-400">Updating...</span>
           </div>
         </div>
       )}
