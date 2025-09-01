@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HardDrive, Download, Users, Database, TrendingUp, Zap, Server, Activity, Eye, EyeOff, ChevronDown, Search, Clock } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
-import { STORAGE_KEYS, API_BASE } from '../../utils/constants';
+import { STORAGE_KEYS } from '../../utils/constants';
 import StatCard from '../common/StatCard';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
@@ -121,7 +121,7 @@ const Dashboard = () => {
             return null;
           }),
         
-        // Latest downloads - fetch more for all time ranges
+        // Latest downloads
         fetchFilteredDownloads(selectedTimeRange, controller.signal)
           .catch(err => {
             console.error('Downloads error:', err);
@@ -135,7 +135,7 @@ const Dashboard = () => {
             return [];
           }),
         
-        // Service stats with time filter - pass the period correctly
+        // Service stats with time filter
         ApiService.getServiceStats(controller.signal, selectedTimeRange)
           .catch(err => {
             console.error('Service stats error:', err);
@@ -186,7 +186,7 @@ const Dashboard = () => {
     try {
       const clients = await ApiService.getClientStats(signal);
       
-      // Filter by last seen time if needed
+      // Filter by last seen time if needed (except for "all")
       if (period !== 'all') {
         const cutoffTime = getCutoffTime(period);
         return clients.filter(c => new Date(c.lastSeen) >= cutoffTime);
@@ -230,19 +230,12 @@ const Dashboard = () => {
   // Calculate total downloads from filtered service stats
   const totalDownloads = filteredServiceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
   
-  // Use dashboard stats if available, otherwise calculate from filtered data
-  const bandwidthSaved = dashboardStats?.period?.bandwidthSaved || 
-    dashboardStats?.totalBandwidthSaved ||
-    filteredServiceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
-  const addedToCache = dashboardStats?.period?.addedToCache || 
-    dashboardStats?.totalAddedToCache ||
-    filteredServiceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
-  const totalServed = dashboardStats?.period?.totalServed || 
-    dashboardStats?.totalServed ||
-    (bandwidthSaved + addedToCache);
-  const cacheHitRatio = dashboardStats?.period?.hitRatio || 
-    dashboardStats?.cacheHitRatio ||
-    (totalServed > 0 ? bandwidthSaved / totalServed : 0);
+  // Use period-specific metrics from dashboard stats
+  const bandwidthSaved = dashboardStats?.period?.bandwidthSaved || 0;
+  const addedToCache = dashboardStats?.period?.addedToCache || 0;
+  const totalServed = dashboardStats?.period?.totalServed || 0;
+  const cacheHitRatio = dashboardStats?.period?.hitRatio || 0;
+  const uniqueClients = dashboardStats?.uniqueClients || filteredClientStats.length;
 
   // Define all stat cards with their data and metadata
   const statCards = [
@@ -268,7 +261,7 @@ const Dashboard = () => {
       key: 'bandwidthSaved',
       title: 'Bandwidth Saved',
       value: formatBytes(bandwidthSaved),
-      subtitle: selectedTimeRange === 'all' ? 'All-time saved' : `${getTimeRangeLabel(selectedTimeRange).toLowerCase()}`,
+      subtitle: selectedTimeRange === 'all' ? 'All-time saved' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
       icon: TrendingUp,
       color: 'emerald',
       visible: cardVisibility.bandwidthSaved
@@ -277,7 +270,7 @@ const Dashboard = () => {
       key: 'addedToCache',
       title: 'Added to Cache',
       value: formatBytes(addedToCache),
-      subtitle: selectedTimeRange === 'all' ? 'All-time cached' : `${getTimeRangeLabel(selectedTimeRange).toLowerCase()}`,
+      subtitle: selectedTimeRange === 'all' ? 'All-time cached' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
       icon: Zap,
       color: 'purple',
       visible: cardVisibility.addedToCache
@@ -286,7 +279,7 @@ const Dashboard = () => {
       key: 'totalServed',
       title: 'Total Served',
       value: formatBytes(totalServed),
-      subtitle: selectedTimeRange === 'all' ? 'All-time served' : `${getTimeRangeLabel(selectedTimeRange).toLowerCase()}`,
+      subtitle: selectedTimeRange === 'all' ? 'All-time served' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
       icon: Server,
       color: 'indigo',
       visible: cardVisibility.totalServed
@@ -295,7 +288,7 @@ const Dashboard = () => {
       key: 'activeDownloads',
       title: 'Active Downloads',
       value: totalActiveDownloads,
-      subtitle: `${filteredLatestDownloads.length} in period`,
+      subtitle: `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} in period`,
       icon: Download,
       color: 'orange',
       visible: cardVisibility.activeDownloads
@@ -303,7 +296,7 @@ const Dashboard = () => {
     {
       key: 'activeClients',
       title: 'Active Clients',
-      value: dashboardStats?.uniqueClients || filteredClientStats.length || activeClients,
+      value: uniqueClients,
       subtitle: `${totalDownloads} downloads`,
       icon: Users,
       color: 'yellow',

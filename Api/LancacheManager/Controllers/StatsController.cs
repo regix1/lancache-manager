@@ -48,8 +48,8 @@ public class StatsController : ControllerBase
         {
             var query = _context.ServiceStats.AsNoTracking();
             
-            // Add time filtering if requested
-            if (!string.IsNullOrEmpty(since))
+            // Add time filtering if requested (but not for "all")
+            if (!string.IsNullOrEmpty(since) && since != "all")
             {
                 var cutoffTime = ParseTimePeriod(since);
                 if (cutoffTime.HasValue)
@@ -77,45 +77,46 @@ public class StatsController : ControllerBase
     {
         try
         {
-            var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+            // Parse the time period - handle "all" specially
+            DateTime? cutoffTime = null;
+            if (period != "all")
+            {
+                cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+            }
             
-            // Get all stats in one query for efficiency
+            // Get all service stats (these are all-time totals)
             var serviceStats = await _context.ServiceStats
                 .AsNoTracking()
                 .ToListAsync();
                 
+            // Get all client stats
             var clientStats = await _context.ClientStats
                 .AsNoTracking()
                 .ToListAsync();
-                
-            var recentDownloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.StartTime >= cutoffTime)
-                .ToListAsync();
-                
+            
+            // Get downloads based on period
+            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
+            if (cutoffTime.HasValue)
+            {
+                downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
+            }
+            var recentDownloads = await downloadsQuery.ToListAsync();
+            
+            // Active downloads count
             var activeDownloads = await _context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive && d.EndTime > DateTime.UtcNow.AddMinutes(-5))
                 .CountAsync();
-                
-            // Calculate aggregated metrics
+            
+            // Calculate all-time metrics from ServiceStats (these are cumulative totals)
             var totalBandwidthSaved = serviceStats.Sum(s => s.TotalCacheHitBytes);
             var totalAddedToCache = serviceStats.Sum(s => s.TotalCacheMissBytes);
             var totalServed = totalBandwidthSaved + totalAddedToCache;
-            
             var cacheHitRatio = totalServed > 0 
                 ? (double)totalBandwidthSaved / totalServed 
                 : 0;
-                
-            var uniqueClientsCount = clientStats
-                .Where(c => c.LastSeen >= cutoffTime)
-                .Count();
-                
-            var topService = serviceStats
-                .OrderByDescending(s => s.TotalBytes)
-                .FirstOrDefault()?.Service ?? "none";
-                
-            // Calculate period-specific metrics
+            
+            // Calculate period-specific metrics from downloads
             var periodHitBytes = recentDownloads.Sum(d => d.CacheHitBytes);
             var periodMissBytes = recentDownloads.Sum(d => d.CacheMissBytes);
             var periodTotal = periodHitBytes + periodMissBytes;
@@ -123,9 +124,28 @@ public class StatsController : ControllerBase
                 ? (double)periodHitBytes / periodTotal 
                 : 0;
             
+            // Count unique clients for the period
+            var uniqueClientsCount = cutoffTime.HasValue
+                ? clientStats.Where(c => c.LastSeen >= cutoffTime.Value).Count()
+                : clientStats.Count();
+            
+            // Get top service
+            var topService = serviceStats
+                .OrderByDescending(s => s.TotalBytes)
+                .FirstOrDefault()?.Service ?? "none";
+            
+            // For "all" period, period metrics should equal all-time metrics
+            if (period == "all")
+            {
+                periodHitBytes = totalBandwidthSaved;
+                periodMissBytes = totalAddedToCache;
+                periodTotal = totalServed;
+                periodHitRatio = cacheHitRatio;
+            }
+            
             return Ok(new
             {
-                // All-time metrics
+                // All-time metrics (always from ServiceStats totals)
                 totalBandwidthSaved,
                 totalAddedToCache,
                 totalServed,
@@ -148,7 +168,7 @@ public class StatsController : ControllerBase
                     downloads = recentDownloads.Count
                 },
                 
-                // Service breakdown for the period
+                // Service breakdown (always all-time for consistency)
                 serviceBreakdown = serviceStats
                     .Select(s => new
                     {
@@ -177,13 +197,20 @@ public class StatsController : ControllerBase
     {
         try
         {
-            var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+            // Handle "all" period
+            DateTime? cutoffTime = null;
+            if (period != "all")
+            {
+                cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+            }
             
-            // Get downloads within the period
-            var downloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.StartTime >= cutoffTime)
-                .ToListAsync();
+            // Get downloads based on period
+            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
+            if (cutoffTime.HasValue)
+            {
+                downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
+            }
+            var downloads = await downloadsQuery.ToListAsync();
                 
             // Calculate overall effectiveness
             var totalHitBytes = downloads.Sum(d => d.CacheHitBytes);
@@ -267,13 +294,21 @@ public class StatsController : ControllerBase
     {
         try
         {
-            var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+            // Handle "all" period
+            DateTime? cutoffTime = null;
+            if (period != "all")
+            {
+                cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
+            }
             var intervalMinutes = ParseInterval(interval);
             
-            // Get all downloads in the period
-            var downloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.StartTime >= cutoffTime)
+            // Get downloads based on period
+            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
+            if (cutoffTime.HasValue)
+            {
+                downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
+            }
+            var downloads = await downloadsQuery
                 .OrderBy(d => d.StartTime)
                 .ToListAsync();
                 
@@ -301,7 +336,8 @@ public class StatsController : ControllerBase
             
             // Group downloads by time interval
             var dataPoints = new List<object>();
-            var currentTime = cutoffTime;
+            var startTime = cutoffTime ?? downloads.Min(d => d.StartTime);
+            var currentTime = startTime;
             var endTime = DateTime.UtcNow;
             
             while (currentTime < endTime)
@@ -427,12 +463,22 @@ public class StatsController : ControllerBase
     {
         try
         {
-            var cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7);
+            // Handle "all" period
+            DateTime? cutoffTime = null;
+            if (period != "all")
+            {
+                cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7);
+            }
             
-            var topGames = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.StartTime >= cutoffTime && 
-                           d.Service == "steam" && 
+            IQueryable<Download> query = _context.Downloads.AsNoTracking();
+            
+            if (cutoffTime.HasValue)
+            {
+                query = query.Where(d => d.StartTime >= cutoffTime.Value);
+            }
+            
+            var topGames = await query
+                .Where(d => d.Service == "steam" && 
                            !string.IsNullOrEmpty(d.GameName) &&
                            d.GameName != "Unknown Steam Game")
                 .GroupBy(d => new { d.GameAppId, d.GameName })
@@ -472,13 +518,15 @@ public class StatsController : ControllerBase
     // Helper method to parse time period strings
     private DateTime? ParseTimePeriod(string period)
     {
-        if (string.IsNullOrEmpty(period))
+        if (string.IsNullOrEmpty(period) || period == "all")
             return null;
             
         var now = DateTime.UtcNow;
         
         return period.ToLower() switch
         {
+            "15m" => now.AddMinutes(-15),
+            "30m" => now.AddMinutes(-30),
             "1h" => now.AddHours(-1),
             "6h" => now.AddHours(-6),
             "12h" => now.AddHours(-12),
