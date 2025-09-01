@@ -50,6 +50,9 @@ class MockDataService {
     // Calculate the actual count - if "unlimited", generate a large dataset
     const actualCount = downloadCount === 'unlimited' ? 500 : downloadCount;
     
+    // Track client activity for accurate stats
+    const clientActivity = {};
+    
     for (let i = 0; i < actualCount; i++) {
       const service = SERVICES[Math.floor(Math.random() * SERVICES.length)];
       const client = clients[Math.floor(Math.random() * clients.length)];
@@ -58,7 +61,8 @@ class MockDataService {
       const isMetadata = Math.random() < 0.3;
       
       // Time distribution - more recent downloads at the top
-      const hoursAgo = Math.pow(i / actualCount, 2) * 168; // Up to 1 week ago, exponentially distributed
+      // Spread over 90 days instead of just 7 for better "all time" data
+      const hoursAgo = Math.pow(i / actualCount, 2) * 2160; // Up to 90 days ago, exponentially distributed
       const startTime = new Date(now - hoursAgo * 60 * 60 * 1000 - Math.random() * 3600000);
       
       let download;
@@ -96,7 +100,7 @@ class MockDataService {
         }
         
         // Cache hit ratio varies by age - older downloads have better cache hit
-        const cacheHitRatio = Math.min(0.95, 0.1 + (hoursAgo / 168) * 0.85);
+        const cacheHitRatio = Math.min(0.95, 0.1 + (hoursAgo / 2160) * 0.85);
         const cacheHitBytes = Math.floor(totalBytes * cacheHitRatio);
         const cacheMissBytes = totalBytes - cacheHitBytes;
         
@@ -122,32 +126,60 @@ class MockDataService {
         };
       }
       
+      // Track client activity
+      if (!clientActivity[client]) {
+        clientActivity[client] = {
+          totalCacheHitBytes: 0,
+          totalCacheMissBytes: 0,
+          totalDownloads: 0,
+          lastSeen: startTime
+        };
+      }
+      
+      clientActivity[client].totalCacheHitBytes += download.cacheHitBytes || 0;
+      clientActivity[client].totalCacheMissBytes += download.cacheMissBytes || 0;
+      clientActivity[client].totalDownloads += 1;
+      
+      // Update last seen if this is more recent
+      if (startTime > clientActivity[client].lastSeen) {
+        clientActivity[client].lastSeen = startTime;
+      }
+      
       downloads.push(download);
     }
     
     // Sort by start time (most recent first)
     downloads.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
 
-    // Generate client stats with more variety based on download count
+    // Generate client stats based on actual download activity
     const clientStats = clients.map(ip => {
-      const baseHitBytes = Math.floor(Math.random() * 100000000000);
-      const baseMissBytes = Math.floor(Math.random() * 20000000000);
+      const activity = clientActivity[ip];
       
-      // Scale stats with download count
-      const scaleFactor = actualCount / 50;
-      const hitBytes = baseHitBytes * scaleFactor;
-      const missBytes = baseMissBytes * scaleFactor;
-      
-      return {
-        clientIp: ip,
-        totalCacheHitBytes: hitBytes,
-        totalCacheMissBytes: missBytes,
-        totalBytes: hitBytes + missBytes,
-        cacheHitPercent: (hitBytes / (hitBytes + missBytes)) * 100,
-        totalDownloads: Math.floor((Math.random() * 100 + 10) * scaleFactor),
-        lastSeen: new Date(now - Math.random() * 3600000).toISOString()
-      };
-    });
+      if (activity) {
+        // Use actual data from downloads
+        const totalBytes = activity.totalCacheHitBytes + activity.totalCacheMissBytes;
+        return {
+          clientIp: ip,
+          totalCacheHitBytes: activity.totalCacheHitBytes,
+          totalCacheMissBytes: activity.totalCacheMissBytes,
+          totalBytes: totalBytes,
+          cacheHitPercent: totalBytes > 0 ? (activity.totalCacheHitBytes / totalBytes) * 100 : 0,
+          totalDownloads: activity.totalDownloads,
+          lastSeen: activity.lastSeen.toISOString()
+        };
+      } else {
+        // Client had no downloads - return zeros
+        return {
+          clientIp: ip,
+          totalCacheHitBytes: 0,
+          totalCacheMissBytes: 0,
+          totalBytes: 0,
+          cacheHitPercent: 0,
+          totalDownloads: 0,
+          lastSeen: null
+        };
+      }
+    }).filter(client => client.totalBytes > 0); // Only include clients with activity
 
     // Generate service stats
     const serviceStats = SERVICES.map(service => {

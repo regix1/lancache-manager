@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { HardDrive, Download, Users, Database, TrendingUp, Zap, Server, Activity, Eye, EyeOff, ChevronDown, Search } from 'lucide-react';
+import { HardDrive, Download, Users, Database, TrendingUp, Zap, Server, Activity, Eye, EyeOff, ChevronDown, Search, Clock } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
@@ -26,8 +26,31 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [timeFilterOpen, setTimeFilterOpen] = useState(false);
+  const [selectedTimeRange, setSelectedTimeRange] = useState('24h');
   const dropdownRef = useRef(null);
-  
+  const timeFilterRef = useRef(null);
+
+  // Define time range options
+  const timeRanges = [
+    { label: 'Last 15 minutes', value: '15m' },
+    { label: 'Last 30 minutes', value: '30m' },
+    { label: 'Last 1 hour', value: '1h' },
+    { label: 'Last 6 hours', value: '6h' },
+    { label: 'Last 12 hours', value: '12h' },
+    { label: 'Last 24 hours', value: '24h' },
+    { label: 'Last 7 days', value: '7d' },
+    { label: 'Last 30 days', value: '30d' },
+    { label: 'Last 90 days', value: '90d' },
+    { label: 'All time', value: 'all' }
+  ];
+
+  // Get label for selected time range
+  const getTimeRangeLabel = (value) => {
+    const range = timeRanges.find(r => r.value === value);
+    return range ? range.label : 'Last 24 hours';
+  };
+
   // Load card visibility from localStorage
   const [cardVisibility, setCardVisibility] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY);
@@ -54,6 +77,9 @@ const Dashboard = () => {
         setDropdownOpen(false);
         setSearchQuery('');
       }
+      if (timeFilterRef.current && !timeFilterRef.current.contains(event.target)) {
+        setTimeFilterOpen(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -67,29 +93,15 @@ const Dashboard = () => {
       const interval = setInterval(fetchDashboardStats, 10000); // Refresh every 10 seconds
       return () => clearInterval(interval);
     } else {
-      // In mock mode, set mock dashboard stats
-      setDashboardStats({
-        totalBandwidthSaved: 875000000000,
-        totalAddedToCache: 125000000000,
-        totalServed: 1000000000000,
-        uniqueClients: 12,
-        cacheHitRatio: 0.875,
-        serviceBreakdown: [
-          { service: 'steam', bytes: 450000000000, percentage: 45 },
-          { service: 'epic', bytes: 250000000000, percentage: 25 },
-          { service: 'blizzard', bytes: 150000000000, percentage: 15 },
-          { service: 'origin', bytes: 100000000000, percentage: 10 },
-          { service: 'riot', bytes: 50000000000, percentage: 5 }
-        ]
-      });
+      // In mock mode, calculate stats from mock data
       setLoading(false);
     }
-  }, [mockMode]);
+  }, [mockMode, selectedTimeRange]);
 
   const fetchDashboardStats = async () => {
     try {
       const apiUrl = import.meta.env.VITE_API_URL || '';
-      const response = await fetch(`${apiUrl}/api/stats/dashboard?period=24h`);
+      const response = await fetch(`${apiUrl}/api/stats/dashboard?period=${selectedTimeRange}`);
       if (response.ok) {
         const data = await response.json();
         setDashboardStats(data);
@@ -108,17 +120,71 @@ const Dashboard = () => {
     }));
   };
   
+  // Filter data based on time range
+  const getFilteredData = () => {
+    if (!selectedTimeRange || selectedTimeRange === 'all') {
+      return { latestDownloads, clientStats, serviceStats };
+    }
+
+    const now = new Date();
+    const timeRangeMs = {
+      '15m': 15 * 60 * 1000,
+      '30m': 30 * 60 * 1000,
+      '1h': 60 * 60 * 1000,
+      '6h': 6 * 60 * 60 * 1000,
+      '12h': 12 * 60 * 60 * 1000,
+      '24h': 24 * 60 * 60 * 1000,
+      '7d': 7 * 24 * 60 * 60 * 1000,
+      '30d': 30 * 24 * 60 * 60 * 1000,
+      '90d': 90 * 24 * 60 * 60 * 1000
+    };
+
+    const cutoffTime = now - (timeRangeMs[selectedTimeRange] || 24 * 60 * 60 * 1000);
+
+    // Filter downloads by time
+    const filteredDownloads = latestDownloads.filter(d => 
+      new Date(d.startTime) >= cutoffTime
+    );
+
+    // Recalculate service stats based on filtered downloads
+    const filteredServiceStats = serviceStats.map(service => {
+      const serviceDownloads = filteredDownloads.filter(d => d.service === service.service);
+      const hitBytes = serviceDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
+      const missBytes = serviceDownloads.reduce((sum, d) => sum + (d.cacheMissBytes || 0), 0);
+      const totalBytes = hitBytes + missBytes;
+      
+      return {
+        ...service,
+        totalCacheHitBytes: hitBytes,
+        totalCacheMissBytes: missBytes,
+        totalBytes: totalBytes,
+        cacheHitPercent: totalBytes > 0 ? (hitBytes / totalBytes) * 100 : 0,
+        totalDownloads: serviceDownloads.length
+      };
+    });
+
+    // Filter client stats - in real app this would be done server-side
+    const filteredClientStats = clientStats; // Keep all for now
+
+    return {
+      latestDownloads: filteredDownloads,
+      clientStats: filteredClientStats,
+      serviceStats: filteredServiceStats
+    };
+  };
+
+  const filteredData = getFilteredData();
   const activeClients = [...new Set(activeDownloads.map(d => d.clientIp))].length;
   const totalActiveDownloads = activeDownloads.length;
   
-  // Calculate total downloads from service stats
-  const totalDownloads = serviceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
+  // Calculate total downloads from filtered service stats
+  const totalDownloads = filteredData.serviceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
   
-  // Use dashboard stats if available, otherwise fall back to calculated values
+  // Use dashboard stats if available, otherwise calculate from filtered data
   const bandwidthSaved = dashboardStats?.totalBandwidthSaved || 
-    serviceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
+    filteredData.serviceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
   const addedToCache = dashboardStats?.totalAddedToCache || 
-    serviceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
+    filteredData.serviceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
   const totalServed = dashboardStats?.totalServed || 
     (bandwidthSaved + addedToCache);
 
@@ -173,7 +239,7 @@ const Dashboard = () => {
       key: 'activeDownloads',
       title: 'Active Downloads',
       value: totalActiveDownloads,
-      subtitle: `${latestDownloads.length} recent`,
+      subtitle: `${filteredData.latestDownloads.length} recent`,
       icon: Download,
       color: 'orange',
       visible: cardVisibility.activeDownloads
@@ -190,7 +256,7 @@ const Dashboard = () => {
     {
       key: 'cacheHitRatio',
       title: 'Cache Hit Ratio',
-      value: formatPercent((dashboardStats?.cacheHitRatio || 0) * 100),
+      value: formatPercent((dashboardStats?.cacheHitRatio || (bandwidthSaved / (bandwidthSaved + addedToCache))) * 100),
       subtitle: 'Overall effectiveness',
       icon: Activity,
       color: 'cyan',
@@ -226,6 +292,53 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Time Range Filter */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-white">Dashboard</h2>
+        <div className="relative" ref={timeFilterRef}>
+          <button
+            onClick={() => setTimeFilterOpen(!timeFilterOpen)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 rounded-lg border border-gray-700 hover:bg-gray-700 transition-colors"
+          >
+            <Clock className="w-4 h-4 text-gray-400" />
+            <span className="text-sm text-gray-200">{getTimeRangeLabel(selectedTimeRange)}</span>
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${timeFilterOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {/* Time Range Dropdown */}
+          {timeFilterOpen && (
+            <div className="absolute right-0 mt-2 w-56 bg-gray-800 rounded-lg border border-gray-700 shadow-xl z-50">
+              <div className="p-2">
+                <div className="text-xs text-gray-500 font-semibold px-2 py-1.5">Time Range</div>
+                {timeRanges.map(range => (
+                  <button
+                    key={range.value}
+                    onClick={() => {
+                      setSelectedTimeRange(range.value);
+                      setTimeFilterOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-700 transition-colors ${
+                      selectedTimeRange === range.value 
+                        ? 'bg-gray-700 text-blue-400' 
+                        : 'text-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span>{range.label}</span>
+                      {selectedTimeRange === range.value && (
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Stats Grid Header with enhanced dropdown */}
       {hiddenCardsCount > 0 && (
         <div className="relative" ref={dropdownRef}>
@@ -332,12 +445,22 @@ const Dashboard = () => {
 
       {/* Enhanced Charts Row with tabs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EnhancedServiceChart dashboardStats={dashboardStats} />
-        <RecentDownloadsPanel />
+        <EnhancedServiceChart 
+          serviceStats={filteredData.serviceStats}
+          timeRange={selectedTimeRange} 
+        />
+        <RecentDownloadsPanel 
+          downloads={filteredData.latestDownloads}
+          timeRange={selectedTimeRange} 
+        />
       </div>
 
       {/* Top Clients */}
-      <TopClientsTable />
+      <TopClientsTable 
+        clientStats={filteredData.clientStats}
+        downloads={filteredData.latestDownloads}
+        timeRange={selectedTimeRange} 
+      />
     </div>
   );
 };
