@@ -294,3 +294,203 @@ div[class*="from-"][class*="to-"] svg path {
 * {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
+
+/* Light theme specific - more vibrant colors for better visibility */
+[data-theme="light"] {
+  /* Colored backgrounds need darker, more saturated colors in light mode */
+  
+  /* Blues */
+  .bg-blue-500, .bg-blue-600 { 
+    background-color: #1e40af !important; /* Darker blue */
+  }
+  .bg-blue-900 { 
+    background-color: #1e3a8a !important;
+  }
+  button.bg-blue-600:hover { 
+    background-color: #1e3a8a !important;
+  }
+  
+  /* Greens */
+  .bg-green-500, .bg-green-600 { 
+    background-color: #15803d !important; /* Darker green */
+  }
+  .bg-green-900 { 
+    background-color: #14532d !important;
+  }
+  button.bg-green-600:hover { 
+    background-color: #14532d !important;
+  }
+  
+  /* Yellows/Ambers */
+  .bg-yellow-500, .bg-yellow-600 { 
+    background-color: #a16207 !important; /* Darker amber */
+  }
+  .bg-yellow-900 { 
+    background-color: #78350f !important;
+  }
+  button.bg-yellow-600:hover { 
+    background-color: #92400e !important;
+  }
+  .bg-amber-600 {
+    background-color: #92400e !important;
+  }
+  
+  /* Reds */
+  .bg-red-500, .bg-red-600 { 
+    background-color: #b91c1c !important; /* Darker red */
+  }
+  .bg-red-900 { 
+    background-color: #7f1d1d !important;
+  }
+  button.bg-red-600:hover { 
+    background-color: #991b1b !important;
+  }
+  
+  /* Purples */
+  .bg-purple-500, .bg-purple-600 { 
+    background-color: #7c3aed !important; /* Darker purple */
+  }
+  .bg-purple-900 { 
+    background-color: #581c87 !important;
+  }
+  button.bg-purple-600:hover { 
+    background-color: #6b21a8 !important;
+  }
+  
+  /* Oranges */
+  .bg-orange-500, .bg-orange-600 { 
+    background-color: #c2410c !important; /* Darker orange */
+  }
+  .bg-orange-900 { 
+    background-color: #7c2d12 !important;
+  }
+  
+  /* Cyans */
+  .bg-cyan-500, .bg-cyan-600 { 
+    background-color: #0891b2 !important; /* Darker cyan */
+  }
+  
+  /* Indigos */
+  .bg-indigo-500, .bg-indigo-600 { 
+    background-color: #4338ca !important; /* Darker indigo */
+  }
+  
+  /* Text colors also need to be darker in light mode */
+  .text-blue-400, .text-blue-500 { 
+    color: #1d4ed8 !important;
+  }
+  .text-green-400, .text-green-500 { 
+    color: #15803d !important;
+  }
+  .text-yellow-400, .text-yellow-500 { 
+    color: #a16207 !important;
+  }
+  .text-red-400, .text-red-500 { 
+    color: #b91c1c !important;
+  }
+  .text-purple-400, .text-purple-500 { 
+    color: #7c3aed !important;
+  }
+  .text-orange-400, .text-orange-500 { 
+    color: #ea580c !important;
+  }
+  
+  /* Hit rate badges and status badges */
+  .bg-green-900.text-green-300 {
+    background-color: #15803d !important;
+    color: #ffffff !important;
+  }
+  
+  .bg-yellow-900.text-yellow-300 {
+    background-color: #a16207 !important;
+    color: #ffffff !important;
+  }
+  
+  .bg-orange-900.text-orange-300 {
+    background-color: #c2410c !important;
+    color: #ffffff !important;
+  }
+  
+  .bg-red-900.text-red-300 {
+    background-color: #b91c1c !important;
+    color: #ffffff !important;
+  }
+  
+  .bg-blue-900.text-blue-300 {
+    background-color: #1d4ed8 !important;
+    color: #ffffff !important;
+  }
+  
+  /* Download count badges */
+  span.bg-blue-600,
+  span.bg-green-600,
+  span.bg-yellow-600,
+  span.bg-purple-600,
+  span.bg-orange-600 {
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Progress bars */
+  .bg-green-500.h-full {
+    background-color: #15803d !important;
+  }
+  
+  .bg-yellow-500.h-full {
+    background-color: #a16207 !important;
+  }
+  
+  /* Management page buttons */
+  button.bg-red-600 {
+    background-color: #dc2626 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  
+  button.bg-green-600 {
+    background-color: #16a34a !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  
+  button.bg-yellow-600 {
+    background-color: #ca8a04 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  
+  button.bg-blue-600 {
+    background-color: #2563eb !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  }
+  
+  /* Ensure white text on all colored backgrounds */
+  [class*="bg-red"],
+  [class*="bg-blue"],
+  [class*="bg-green"],
+  [class*="bg-yellow"],
+  [class*="bg-purple"],
+  [class*="bg-orange"],
+  [class*="bg-cyan"],
+  [class*="bg-indigo"] {
+    color: #ffffff !important;
+  }
+  
+  /* Status section backgrounds with better opacity */
+  .bg-green-900.bg-opacity-30 { 
+    background-color: rgba(22, 163, 74, 0.15) !important;
+    border-color: #16a34a !important;
+  }
+  
+  .bg-yellow-900.bg-opacity-30 { 
+    background-color: rgba(202, 138, 4, 0.15) !important;
+    border-color: #ca8a04 !important;
+  }
+  
+  .bg-red-900.bg-opacity-30 { 
+    background-color: rgba(220, 38, 38, 0.15) !important;
+    border-color: #dc2626 !important;
+  }
+  
+  .bg-blue-900.bg-opacity-30 { 
+    background-color: rgba(37, 99, 235, 0.15) !important;
+    border-color: #2563eb !important;
+  }
+}
