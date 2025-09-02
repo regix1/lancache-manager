@@ -304,23 +304,26 @@ const DownloadsTab = () => {
   const getDownloadType = (download) => {
     const bytes = download.totalBytes || 0;
     const isLocalhost = download.clientIp === '127.0.0.1';
+    // Properly capitalize the service name
+    const serviceName = download.service.charAt(0).toUpperCase() + download.service.slice(1).toLowerCase();
     
     if (bytes === 0) {
       if (isLocalhost) {
-        return { type: 'metadata', label: 'Steam Service', icon: Database };
+        return { type: 'metadata', label: `${serviceName} Service`, icon: Database };
       }
       return { type: 'metadata', label: 'Metadata', icon: Database };
     }
     
-    if (download.gameName && download.gameName !== 'Unknown Steam Game') {
+    // Only show game name for Steam games that have been identified
+    if (download.service.toLowerCase() === 'steam' && download.gameName && download.gameName !== 'Unknown Steam Game') {
       return { type: 'game', label: download.gameName, icon: Gamepad2 };
     }
     
-    if (bytes < 1048576) {
-      return { type: 'metadata', label: 'Steam Update', icon: Database };
+    if (bytes < 1048576) { // Less than 1MB
+      return { type: 'metadata', label: `${serviceName} Update`, icon: Database };
     }
     
-    return { type: 'content', label: 'Steam Content', icon: CloudOff };
+    return { type: 'content', label: `${serviceName} Content`, icon: CloudOff };
   };
 
   const isValidGameInfo = (game) => {
@@ -509,20 +512,22 @@ const DownloadsTab = () => {
     return (
       <div key={download.id || idx} className="bg-gray-900 rounded-lg border border-gray-700">
         <div 
-          className={`p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850 transition-colors' : ''}`}
+          className={`p-3 md:p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850 transition-colors' : ''}`}
           onClick={() => handleDownloadClick(download)}
         >
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div>
-              <p className="text-xs text-gray-400">Service / Type</p>
+          {/* Mobile: Stack layout, Desktop: Grid */}
+          <div className="flex flex-col sm:grid sm:grid-cols-2 md:grid-cols-5 gap-2 sm:gap-4">
+            {/* Service / Type - Full width on mobile */}
+            <div className="sm:col-span-2 md:col-span-1">
+              <p className="text-xs text-gray-400 mb-1">Service / Type</p>
               <div className="flex items-center gap-2">
                 {isSteam && hasData && (
                   isExpanded ? 
-                    <ChevronDown className="w-4 h-4 text-gray-400" /> : 
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : 
+                    <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
                 )}
-                <p className="text-sm font-medium text-blue-400">{download.service}</p>
-                <IconComponent className={`w-4 h-4 ${
+                <p className="text-xs sm:text-sm font-medium text-blue-400">{download.service}</p>
+                <IconComponent className={`w-4 h-4 flex-shrink-0 ${
                   downloadType.type === 'game' ? 'text-green-400' :
                   downloadType.type === 'metadata' ? 'text-gray-500' :
                   'text-blue-400'
@@ -537,28 +542,34 @@ const DownloadsTab = () => {
               )}
             </div>
             
-            <div>
-              <p className="text-xs text-gray-400">Client</p>
-              <p className="text-sm">{download.clientIp}</p>
-              {download.clientIp === '127.0.0.1' && (
-                <p className="text-xs text-gray-500">Local</p>
-              )}
+            {/* Mobile: Two column grid for client/size */}
+            <div className="grid grid-cols-2 gap-2 sm:contents">
+              {/* Client */}
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Client</p>
+                <p className="text-xs sm:text-sm truncate">{download.clientIp}</p>
+                {download.clientIp === '127.0.0.1' && (
+                  <p className="text-xs text-gray-500">Local</p>
+                )}
+              </div>
+              
+              {/* Size */}
+              <div>
+                <p className="text-xs text-gray-400 mb-1">Size</p>
+                <p className={`text-xs sm:text-sm ${hasData ? '' : 'text-gray-500'}`}>
+                  {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
+                </p>
+              </div>
             </div>
             
-            <div>
-              <p className="text-xs text-gray-400">Size</p>
-              <p className={`text-sm ${hasData ? '' : 'text-gray-500'}`}>
-                {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
-              </p>
-            </div>
-            
-            <div>
-              <p className="text-xs text-gray-400">Cache Hit Rate</p>
+            {/* Cache Hit Rate - Full width on mobile */}
+            <div className="col-span-2 sm:col-span-1">
+              <p className="text-xs text-gray-400 mb-1">Cache Hit Rate</p>
               {hasData ? (
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-gray-700 rounded-full h-2">
+                  <div className="flex-1 bg-gray-700 rounded-full h-1.5 sm:h-2">
                     <div 
-                      className={`h-2 rounded-full transition-all ${
+                      className={`h-1.5 sm:h-2 rounded-full transition-all ${
                         download.cacheHitPercent > 75 ? 'bg-green-500' :
                         download.cacheHitPercent > 50 ? 'bg-blue-500' :
                         download.cacheHitPercent > 25 ? 'bg-yellow-500' :
@@ -567,15 +578,16 @@ const DownloadsTab = () => {
                       style={{ width: `${download.cacheHitPercent || 0}%` }}
                     />
                   </div>
-                  <span className="text-sm">{formatPercent(download.cacheHitPercent || 0)}</span>
+                  <span className="text-xs sm:text-sm">{formatPercent(download.cacheHitPercent || 0)}</span>
                 </div>
               ) : (
-                <span className="text-sm text-gray-500">N/A</span>
+                <span className="text-xs sm:text-sm text-gray-500">N/A</span>
               )}
             </div>
             
-            <div>
-              <p className="text-xs text-gray-400 flex items-center">
+            {/* Status / Time - Hidden on mobile, shown on tablet+ */}
+            <div className="hidden sm:block">
+              <p className="text-xs text-gray-400 mb-1 flex items-center">
                 Status / Time
                 <span className="ml-1">
                   <TimestampTooltip 
@@ -593,47 +605,57 @@ const DownloadsTab = () => {
                     <span className="text-xs text-green-400 flex items-center gap-1">
                       <span className="animate-pulse">●</span> Downloading
                     </span>
-                    <p className="text-xs text-gray-500">
-                      Started: {formatDateTime(download.startTime)}
+                    <p className="text-xs text-gray-500 truncate">
+                      {formatDateTime(download.startTime)}
                     </p>
                   </div>
                 ) : (
                   <div>
                     <span className="text-xs text-gray-400 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" /> Completed
+                      <CheckCircle className="w-3 h-3" /> Done
                     </span>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 truncate">
                       {formatDateTime(download.endTime || download.startTime)}
                     </p>
                     {duration && (
-                      <p className="text-xs text-gray-600">
-                        Duration: {duration}
+                      <p className="text-xs text-gray-600 hidden md:block">
+                        {duration}
                       </p>
                     )}
                   </div>
                 )}
               </div>
             </div>
+            
+            {/* Mobile status - Simple version */}
+            <div className="col-span-2 sm:hidden">
+              <p className="text-xs text-gray-400 mb-1">Status</p>
+              {download.isActive ? (
+                <span className="text-xs text-green-400">● Downloading</span>
+              ) : (
+                <span className="text-xs text-gray-400">Completed</span>
+              )}
+            </div>
           </div>
         </div>
         
-        {/* Expandable Game Info Section */}
+        {/* Expandable Game Info Section - Only for Steam */}
         {isExpanded && isSteam && hasData && (
           <div className="border-t border-gray-700 bg-gray-850">
             {loadingGame === download.id ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader className="w-5 h-5 animate-spin text-blue-500" />
-                <span className="ml-2 text-gray-400">Loading game information...</span>
+              <div className="flex items-center justify-center py-6 sm:py-8">
+                <Loader className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-blue-500" />
+                <span className="ml-2 text-xs sm:text-sm text-gray-400">Loading game info...</span>
               </div>
             ) : game?.error ? (
-              <div className="text-center py-8 text-gray-500">
-                <p>Unable to identify specific game</p>
+              <div className="text-center py-6 sm:py-8 text-gray-500">
+                <p className="text-xs sm:text-sm">Unable to identify specific game</p>
                 <p className="text-xs mt-1">This may be a Steam client update or workshop content</p>
               </div>
             ) : game ? (
-              <div className="p-4">
-                <div className="mb-4">
-                  <h3 className="text-lg font-semibold text-white">
+              <div className="p-3 md:p-4">
+                <div className="mb-3 md:mb-4">
+                  <h3 className="text-sm sm:text-lg font-semibold text-white">
                     {isValidGameInfo(game) ? game.gameName : 'Steam Content'}
                   </h3>
                   {game.appId && (
@@ -643,44 +665,39 @@ const DownloadsTab = () => {
                   )}
                 </div>
                 
-                <div className="flex gap-6">
+                {/* Mobile: Stack, Desktop: Side by side */}
+                <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+                  {/* Game Image */}
                   {game.headerImage && isValidGameInfo(game) ? (
-                    <div className="flex-shrink-0">
+                    <div className="flex-shrink-0 w-full md:w-auto">
                       <img 
                         src={game.headerImage} 
                         alt={game.gameName}
-                        className="rounded-lg shadow-lg"
-                        style={{ width: '460px', height: '215px', objectFit: 'cover' }}
+                        className="rounded-lg shadow-lg w-full md:w-[460px] h-auto md:h-[215px] object-cover"
                         onError={(e) => {
                           e.target.style.display = 'none';
-                          e.target.parentElement.innerHTML = `
-                            <div class="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style="width: 460px; height: 215px;">
-                              <svg class="w-32 h-32 text-gray-600" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15.5v-5l3 3-3 2.5zm1-6.5V6l5 5-5 3z"/>
-                              </svg>
-                            </div>
-                          `;
                         }}
                       />
                     </div>
                   ) : (
                     <div className="flex-shrink-0">
-                      <div className="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg" style={{ width: '460px', height: '215px' }}>
-                        <Gamepad2 className="w-32 h-32 text-gray-600" />
+                      <div className="flex items-center justify-center bg-gray-900 rounded-lg shadow-lg h-32 md:h-[215px] w-full md:w-[460px]">
+                        <Gamepad2 className="w-16 h-16 md:w-32 md:h-32 text-gray-600" />
                       </div>
                     </div>
                   )}
                   
-                  <div className="flex-grow space-y-3">
-                    <div className="flex justify-between text-sm">
+                  {/* Game Stats */}
+                  <div className="flex-grow space-y-2 sm:space-y-3">
+                    <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-400">Cache Saved:</span>
                       <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-400">Downloaded:</span>
                       <span className="text-yellow-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-400">Total:</span>
                       <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
                     </div>
@@ -690,7 +707,7 @@ const DownloadsTab = () => {
                         href={`https://store.steampowered.com/app/${game.appId}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300 mt-2 transition-colors"
+                        className="inline-flex items-center gap-1 text-xs sm:text-sm text-blue-400 hover:text-blue-300 mt-2 transition-colors"
                         onClick={(e) => e.stopPropagation()}
                       >
                         View on Steam <ExternalLink className="w-3 h-3" />
@@ -698,8 +715,8 @@ const DownloadsTab = () => {
                     )}
                     
                     {game.description && (
-                      <div className="mt-4 pt-4 border-t border-gray-700">
-                        <p className="text-sm text-gray-300">
+                      <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-700">
+                        <p className="text-xs sm:text-sm text-gray-300">
                           {game.description}
                         </p>
                       </div>
@@ -708,8 +725,8 @@ const DownloadsTab = () => {
                 </div>
               </div>
             ) : (
-              <div className="text-center py-8 text-gray-500">
-                No additional information available
+              <div className="text-center py-6 sm:py-8 text-gray-500">
+                <p className="text-xs sm:text-sm">No additional information available</p>
               </div>
             )}
           </div>
@@ -855,9 +872,19 @@ const DownloadsTab = () => {
             <p className="text-sm mt-2">
               {selectedService !== 'all' 
                 ? `No ${selectedService} downloads` 
-                : !showZeroBytes && latestDownloads.length > 0 
-                  ? `${latestDownloads.length} metadata requests hidden` 
-                  : 'Waiting for downloads...'}
+                : (() => {
+                    const hiddenZeroBytes = !showZeroBytes ? latestDownloads.filter(d => (d.totalBytes || 0) === 0).length : 0;
+                    const hiddenSmallFiles = !showSmallFiles ? latestDownloads.filter(d => (d.totalBytes || 0) > 0 && (d.totalBytes || 0) < 1048576).length : 0;
+                    const totalHidden = hiddenZeroBytes + hiddenSmallFiles;
+                    
+                    if (totalHidden > 0) {
+                      const parts = [];
+                      if (hiddenZeroBytes > 0) parts.push(`${hiddenZeroBytes} zero-byte`);
+                      if (hiddenSmallFiles > 0) parts.push(`${hiddenSmallFiles} small`);
+                      return `${parts.join(' and ')} requests hidden`;
+                    }
+                    return 'Waiting for downloads...';
+                  })()}
             </p>
           </div>
         ) : (
