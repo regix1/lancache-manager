@@ -41,29 +41,61 @@ public class ThemeController : ControllerBase
                 InitializeDefaultThemes();
             }
 
-            var themeFiles = Directory.GetFiles(_themesPath, "*.json");
+            // Get both JSON and TOML files
+            var jsonFiles = Directory.GetFiles(_themesPath, "*.json");
+            var tomlFiles = Directory.GetFiles(_themesPath, "*.toml");
+            var themeFiles = jsonFiles.Concat(tomlFiles).ToArray();
 
-            // Define which themes are system themes
-            var systemThemes = new[] { "dark-default", "light-default", "high-contrast" };
+            // Define which themes are system themes (removed high-contrast)
+            var systemThemes = new[] { "dark-default", "light-default" };
 
             foreach (var file in themeFiles)
             {
                 try
                 {
-                    var content = await System.IO.File.ReadAllTextAsync(file);
-                    using var doc = JsonDocument.Parse(content);
-                    var root = doc.RootElement;
-
                     var themeId = Path.GetFileNameWithoutExtension(file);
+                    
+                    // Skip high-contrast if it exists
+                    if (themeId == "high-contrast")
+                    {
+                        // Delete the file if it exists
+                        System.IO.File.Delete(file);
+                        continue;
+                    }
+
+                    string name, description, author, version;
+
+                    if (file.EndsWith(".toml"))
+                    {
+                        // For TOML files, we'll let the frontend parse them
+                        // Just get basic metadata
+                        name = themeId;
+                        description = "TOML Theme";
+                        author = "Custom";
+                        version = "1.0.0";
+                    }
+                    else
+                    {
+                        // Parse JSON file
+                        var content = await System.IO.File.ReadAllTextAsync(file);
+                        using var doc = JsonDocument.Parse(content);
+                        var root = doc.RootElement;
+
+                        name = root.TryGetProperty("name", out var n) ? n.GetString() : themeId;
+                        description = root.TryGetProperty("description", out var d) ? d.GetString() : "";
+                        author = root.TryGetProperty("author", out var a) ? a.GetString() : "Unknown";
+                        version = root.TryGetProperty("version", out var v) ? v.GetString() : "1.0.0";
+                    }
 
                     themes.Add(new
                     {
                         id = themeId,
-                        name = root.TryGetProperty("name", out var n) ? n.GetString() : themeId,
-                        description = root.TryGetProperty("description", out var d) ? d.GetString() : "",
-                        author = root.TryGetProperty("author", out var a) ? a.GetString() : "Unknown",
-                        version = root.TryGetProperty("version", out var v) ? v.GetString() : "1.0.0",
-                        isDefault = systemThemes.Contains(themeId) // Mark system themes properly
+                        name = name,
+                        description = description,
+                        author = author,
+                        version = version,
+                        isDefault = systemThemes.Contains(themeId),
+                        format = file.EndsWith(".toml") ? "toml" : "json"
                     });
                 }
                 catch (Exception ex)
@@ -89,18 +121,27 @@ public class ThemeController : ControllerBase
             // Sanitize ID to prevent path traversal
             id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
 
-            var filePath = Path.Combine(_themesPath, $"{id}.json");
+            // Check for TOML file first
+            var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
+            if (System.IO.File.Exists(tomlPath))
+            {
+                var tomlContent = await System.IO.File.ReadAllTextAsync(tomlPath);
+                // Return TOML content directly with proper content type
+                return Content(tomlContent, "application/toml");
+            }
 
-            if (!System.IO.File.Exists(filePath))
+            // Fallback to JSON file
+            var jsonPath = Path.Combine(_themesPath, $"{id}.json");
+            if (!System.IO.File.Exists(jsonPath))
             {
                 _logger.LogWarning($"Theme not found: {id}");
                 return NotFound(new { error = "Theme not found" });
             }
 
-            var content = await System.IO.File.ReadAllTextAsync(filePath);
-            var theme = JsonSerializer.Deserialize<JsonElement>(content);
+            var content = await System.IO.File.ReadAllTextAsync(jsonPath);
+            var jsonTheme = JsonSerializer.Deserialize<JsonElement>(content);
 
-            return Ok(theme);
+            return Ok(jsonTheme);
         }
         catch (Exception ex)
         {
@@ -118,9 +159,12 @@ public class ThemeController : ControllerBase
             return BadRequest(new { error = "No file provided" });
         }
 
-        if (!file.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+        var isToml = file.FileName.EndsWith(".toml", StringComparison.OrdinalIgnoreCase);
+        var isJson = file.FileName.EndsWith(".json", StringComparison.OrdinalIgnoreCase);
+
+        if (!isToml && !isJson)
         {
-            return BadRequest(new { error = "Only JSON theme files are allowed" });
+            return BadRequest(new { error = "Only TOML and JSON theme files are allowed" });
         }
 
         if (file.Length > 1024 * 1024) // 1MB max
@@ -130,57 +174,67 @@ public class ThemeController : ControllerBase
 
         try
         {
-            // Read and validate JSON
+            string themeId;
+            string filePath;
+
             using var stream = file.OpenReadStream();
-            using var doc = await JsonDocument.ParseAsync(stream);
-            var root = doc.RootElement;
+            using var reader = new StreamReader(stream);
+            var content = await reader.ReadToEndAsync();
 
-            // Validate required fields
-            if (!root.TryGetProperty("name", out _))
+            if (isToml)
             {
-                return BadRequest(new { error = "Theme must have a 'name' property" });
-            }
+                // For TOML, just save it directly
+                // Generate safe filename from the original filename
+                var baseName = Path.GetFileNameWithoutExtension(file.FileName);
+                themeId = Regex.Replace(baseName, @"[^a-zA-Z0-9-_]", "-").ToLower();
+                themeId = themeId.Substring(0, Math.Min(themeId.Length, 50));
 
-            if (!root.TryGetProperty("colors", out var colors) || colors.ValueKind != JsonValueKind.Object)
-            {
-                return BadRequest(new { error = "Theme must have a 'colors' object" });
-            }
-
-            // Validate color format
-            foreach (var color in colors.EnumerateObject())
-            {
-                if (!color.Name.StartsWith("--"))
+                // Ensure unique ID
+                var counter = 0;
+                var baseId = themeId;
+                while (System.IO.File.Exists(Path.Combine(_themesPath, $"{themeId}.toml")))
                 {
-                    return BadRequest(new { error = $"Color property '{color.Name}' must start with '--'" });
+                    counter++;
+                    themeId = $"{baseId}-{counter}";
                 }
 
-                var value = color.Value.GetString();
-                if (string.IsNullOrEmpty(value) || (!value.StartsWith("#") && !value.StartsWith("rgb")))
-                {
-                    return BadRequest(new { error = $"Invalid color value for '{color.Name}'" });
-                }
+                filePath = Path.Combine(_themesPath, $"{themeId}.toml");
+                await System.IO.File.WriteAllTextAsync(filePath, content);
             }
-
-            // Generate safe filename
-            var themeName = root.GetProperty("name").GetString();
-            var themeId = Regex.Replace(themeName, @"[^a-zA-Z0-9-_]", "-").ToLower();
-            themeId = themeId.Substring(0, Math.Min(themeId.Length, 50)); // Limit length
-
-            // Ensure unique ID
-            var counter = 0;
-            var baseId = themeId;
-            while (System.IO.File.Exists(Path.Combine(_themesPath, $"{themeId}.json")))
+            else
             {
-                counter++;
-                themeId = $"{baseId}-{counter}";
+                // Parse JSON and validate
+                using var doc = JsonDocument.Parse(content);
+                var root = doc.RootElement;
+
+                // Validate required fields
+                if (!root.TryGetProperty("name", out _))
+                {
+                    return BadRequest(new { error = "Theme must have a 'name' property" });
+                }
+
+                if (!root.TryGetProperty("colors", out var colors) || colors.ValueKind != JsonValueKind.Object)
+                {
+                    return BadRequest(new { error = "Theme must have a 'colors' object" });
+                }
+
+                // Generate safe filename
+                var themeName = root.GetProperty("name").GetString();
+                themeId = Regex.Replace(themeName, @"[^a-zA-Z0-9-_]", "-").ToLower();
+                themeId = themeId.Substring(0, Math.Min(themeId.Length, 50));
+
+                // Ensure unique ID
+                var counter = 0;
+                var baseId = themeId;
+                while (System.IO.File.Exists(Path.Combine(_themesPath, $"{themeId}.json")))
+                {
+                    counter++;
+                    themeId = $"{baseId}-{counter}";
+                }
+
+                filePath = Path.Combine(_themesPath, $"{themeId}.json");
+                await System.IO.File.WriteAllTextAsync(filePath, content);
             }
-
-            var filePath = Path.Combine(_themesPath, $"{themeId}.json");
-
-            // Reset stream and save
-            stream.Position = 0;
-            using var fileStream = new FileStream(filePath, FileMode.Create);
-            await stream.CopyToAsync(fileStream);
 
             _logger.LogInformation($"Theme uploaded: {themeId} by {HttpContext.Connection.RemoteIpAddress}");
 
@@ -203,7 +257,6 @@ public class ThemeController : ControllerBase
         }
     }
 
-
     [HttpDelete("{id}")]
     [RequireAuth]
     public IActionResult DeleteTheme(string id)
@@ -211,8 +264,8 @@ public class ThemeController : ControllerBase
         // Sanitize ID
         id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
 
-        // Define system themes that cannot be deleted
-        var systemThemes = new[] { "dark-default", "light-default", "high-contrast" };
+        // Define system themes that cannot be deleted (removed high-contrast)
+        var systemThemes = new[] { "dark-default", "light-default" };
 
         // Prevent deletion of system themes
         if (systemThemes.Contains(id))
@@ -222,14 +275,22 @@ public class ThemeController : ControllerBase
 
         try
         {
-            var filePath = Path.Combine(_themesPath, $"{id}.json");
+            // Check for both TOML and JSON files
+            var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
+            var jsonPath = Path.Combine(_themesPath, $"{id}.json");
 
-            if (!System.IO.File.Exists(filePath))
+            if (System.IO.File.Exists(tomlPath))
+            {
+                System.IO.File.Delete(tomlPath);
+            }
+            else if (System.IO.File.Exists(jsonPath))
+            {
+                System.IO.File.Delete(jsonPath);
+            }
+            else
             {
                 return NotFound(new { error = "Theme not found" });
             }
-
-            System.IO.File.Delete(filePath);
 
             _logger.LogInformation($"Theme deleted: {id} by {HttpContext.Connection.RemoteIpAddress}");
 
@@ -246,6 +307,14 @@ public class ThemeController : ControllerBase
     {
         try
         {
+            // Remove high-contrast if it exists
+            var highContrastPath = Path.Combine(_themesPath, "high-contrast.json");
+            if (System.IO.File.Exists(highContrastPath))
+            {
+                System.IO.File.Delete(highContrastPath);
+                _logger.LogInformation("Removed deprecated high-contrast theme");
+            }
+
             var darkThemePath = Path.Combine(_themesPath, $"{DEFAULT_THEME_NAME}.json");
 
             if (!System.IO.File.Exists(darkThemePath))
@@ -265,8 +334,8 @@ public class ThemeController : ControllerBase
                         ["--bg-tertiary"] = "#374151",
                         ["--bg-hover"] = "#4b5563",
                         ["--bg-input"] = "#374151",
-                        ["--bg-dropdown"] = "#1f2937",  // Dark dropdown background for dark theme
-                        ["--bg-dropdown-hover"] = "#374151",  // Darker gray hover for dark theme
+                        ["--bg-dropdown"] = "#1f2937",
+                        ["--bg-dropdown-hover"] = "#374151",
                         ["--bg-nav"] = "#1f2937",
 
                         // Borders
@@ -274,7 +343,7 @@ public class ThemeController : ControllerBase
                         ["--border-secondary"] = "#4b5563",
                         ["--border-input"] = "#4b5563",
                         ["--border-nav"] = "#374151",
-                        ["--border-dropdown"] = "#374151",  // Dark gray dropdown border
+                        ["--border-dropdown"] = "#374151",
 
                         // Text colors
                         ["--text-primary"] = "#ffffff",
@@ -282,8 +351,8 @@ public class ThemeController : ControllerBase
                         ["--text-muted"] = "#9ca3af",
                         ["--text-disabled"] = "#6b7280",
                         ["--text-button"] = "#ffffff",
-                        ["--text-dropdown"] = "#ffffff",  // White text for dark dropdown
-                        ["--text-dropdown-item"] = "#ffffff",  // White text for dark dropdown items
+                        ["--text-dropdown"] = "#ffffff",
+                        ["--text-dropdown-item"] = "#ffffff",
                         ["--text-input"] = "#ffffff",
                         ["--text-placeholder"] = "#9ca3af",
                         ["--text-nav"] = "#d1d5db",
@@ -341,8 +410,8 @@ public class ThemeController : ControllerBase
                         ["--bg-tertiary"] = "#f3f4f6",
                         ["--bg-hover"] = "#e5e7eb",
                         ["--bg-input"] = "#ffffff",
-                        ["--bg-dropdown"] = "#ffffff",  // White dropdown background
-                        ["--bg-dropdown-hover"] = "#e5e7eb",  // Light gray hover for light theme
+                        ["--bg-dropdown"] = "#ffffff",
+                        ["--bg-dropdown-hover"] = "#e5e7eb",
                         ["--bg-nav"] = "#ffffff",
 
                         // Borders
@@ -350,7 +419,7 @@ public class ThemeController : ControllerBase
                         ["--border-secondary"] = "#d1d5db",
                         ["--border-input"] = "#d1d5db",
                         ["--border-nav"] = "#e5e7eb",
-                        ["--border-dropdown"] = "#9ca3af",  // Gray border for light theme
+                        ["--border-dropdown"] = "#9ca3af",
 
                         // Text colors
                         ["--text-primary"] = "#111827",
@@ -358,8 +427,8 @@ public class ThemeController : ControllerBase
                         ["--text-muted"] = "#6b7280",
                         ["--text-disabled"] = "#9ca3af",
                         ["--text-button"] = "#ffffff",
-                        ["--text-dropdown"] = "#111827",  // Black text for dropdown
-                        ["--text-dropdown-item"] = "#111827",  // Black text for dropdown items
+                        ["--text-dropdown"] = "#111827",
+                        ["--text-dropdown-item"] = "#111827",
                         ["--text-input"] = "#111827",
                         ["--text-placeholder"] = "#9ca3af",
                         ["--text-nav"] = "#374151",

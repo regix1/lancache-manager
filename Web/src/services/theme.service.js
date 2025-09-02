@@ -1,10 +1,11 @@
 import { API_BASE } from '../utils/constants';
-import authService from './auth.service';
+import TOML from 'toml';
 
 class ThemeService {
   constructor() {
     this.currentTheme = null;
     this.themes = [];
+    this.customStyleElement = null;
   }
 
   async loadThemes() {
@@ -23,19 +24,77 @@ class ThemeService {
     try {
       const response = await fetch(`${API_BASE}/theme/${themeId}`);
       if (!response.ok) throw new Error('Failed to load theme');
-      return await response.json();
+      
+      const contentType = response.headers.get('content-type');
+      
+      // Handle both JSON and TOML formats
+      if (contentType?.includes('application/toml') || themeId.endsWith('.toml')) {
+        const tomlText = await response.text();
+        return this.parseTomlTheme(tomlText);
+      } else {
+        return await response.json();
+      }
     } catch (error) {
       console.error('Error loading theme:', error);
       return null;
     }
   }
 
+  parseTomlTheme(tomlText) {
+    try {
+      const theme = TOML.parse(tomlText);
+      
+      // Transform TOML structure to expected format
+      const transformed = {
+        id: theme.meta?.id || 'custom',
+        name: theme.meta?.name || 'Custom Theme',
+        description: theme.meta?.description || '',
+        author: theme.meta?.author || 'Unknown',
+        version: theme.meta?.version || '1.0.0',
+        colors: theme.colors || {},
+        custom: theme.custom || {},
+        customCSS: theme.css?.content || null
+      };
+      
+      return transformed;
+    } catch (error) {
+      console.error('Error parsing TOML theme:', error);
+      return null;
+    }
+  }
+
   async uploadTheme(file) {
     const formData = new FormData();
-    formData.append('file', file);
+    
+    // Check file extension to determine format
+    const isToml = file.name.endsWith('.toml');
+    
+    if (isToml) {
+      // Parse TOML client-side first to validate
+      const text = await file.text();
+      try {
+        const theme = TOML.parse(text);
+        // Convert to JSON for backend if needed
+        const jsonBlob = new Blob([JSON.stringify(this.parseTomlTheme(text))], 
+          { type: 'application/json' });
+        formData.append('file', jsonBlob, file.name.replace('.toml', '.json'));
+        formData.append('originalFormat', 'toml');
+      } catch (error) {
+        throw new Error('Invalid TOML format: ' + error.message);
+      }
+    } else {
+      formData.append('file', file);
+    }
 
-    // Use the auth service to get proper headers
-    const headers = authService.getAuthHeaders();
+    // Get auth headers
+    const headers = {};
+    const deviceId = localStorage.getItem('lm_device_id');
+    const deviceToken = localStorage.getItem('lm_device_token');
+    
+    if (deviceId && deviceToken) {
+      headers['X-Device-Id'] = deviceId;
+      headers['Authorization'] = `Bearer ${deviceToken}`;
+    }
 
     const response = await fetch(`${API_BASE}/theme/upload`, {
       method: 'POST',
@@ -52,8 +111,14 @@ class ThemeService {
   }
 
   async deleteTheme(themeId) {
-    // Use the auth service to get proper headers
-    const headers = authService.getAuthHeaders();
+    const headers = {};
+    const deviceId = localStorage.getItem('lm_device_id');
+    const deviceToken = localStorage.getItem('lm_device_token');
+    
+    if (deviceId && deviceToken) {
+      headers['X-Device-Id'] = deviceId;
+      headers['Authorization'] = `Bearer ${deviceToken}`;
+    }
 
     const response = await fetch(`${API_BASE}/theme/${themeId}`, {
       method: 'DELETE',
@@ -77,6 +142,9 @@ class ThemeService {
     const isLight = theme.id?.includes('light') || 
                     theme.name?.toLowerCase().includes('light');
     root.setAttribute('data-theme', isLight ? 'light' : 'dark');
+    
+    // Set theme ID attribute for specific theme targeting
+    root.setAttribute('data-theme-id', theme.id || 'custom');
     
     // Apply ALL color variables - ensure none are missed
     const defaultColors = {
@@ -126,6 +194,20 @@ class ThemeService {
       Object.entries(theme.custom).forEach(([key, value]) => {
         root.style.setProperty(key, value);
       });
+    }
+
+    // Remove any existing custom style element
+    if (this.customStyleElement) {
+      this.customStyleElement.remove();
+      this.customStyleElement = null;
+    }
+
+    // Apply custom CSS if provided
+    if (theme.customCSS) {
+      this.customStyleElement = document.createElement('style');
+      this.customStyleElement.id = 'theme-custom-css';
+      this.customStyleElement.textContent = theme.customCSS;
+      document.head.appendChild(this.customStyleElement);
     }
 
     // Force a repaint to ensure all styles are applied

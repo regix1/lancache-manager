@@ -87,8 +87,8 @@ const ThemeManager = ({ isAuthenticated }) => {
         setUploadError(null);
         setUploadSuccess(null);
 
-        if (!file.name.endsWith('.json')) {
-            setUploadError('Only JSON theme files are allowed');
+        if (!file.name.endsWith('.json') && !file.name.endsWith('.toml')) {
+            setUploadError('Only JSON and TOML theme files are allowed');
             return;
         }
 
@@ -146,70 +146,98 @@ const ThemeManager = ({ isAuthenticated }) => {
     };
 
     const downloadSampleTheme = () => {
-        const sampleTheme = {
-            name: "Custom Theme",
-            description: "A customizable theme template with all available variables",
-            author: "Your Name",
-            version: "1.0.0",
-            colors: {
-                // Backgrounds
-                "--bg-primary": "#0f172a",
-                "--bg-secondary": "#1e293b",
-                "--bg-tertiary": "#334155",
-                "--bg-hover": "#475569",
-                "--bg-input": "#334155",
-                "--bg-dropdown": "#1e293b",
-                "--bg-dropdown-hover": "#334155",
-                "--bg-nav": "#1e293b",
-                
-                // Borders
-                "--border-primary": "#334155",
-                "--border-secondary": "#475569",
-                "--border-input": "#475569",
-                "--border-nav": "#334155",
-                "--border-dropdown": "#334155",
-                
-                // Text colors
-                "--text-primary": "#f8fafc",
-                "--text-secondary": "#cbd5e1",
-                "--text-muted": "#94a3b8",
-                "--text-disabled": "#64748b",
-                "--text-button": "#ffffff",
-                "--text-dropdown": "#f8fafc",
-                "--text-dropdown-item": "#f8fafc",
-                "--text-input": "#f8fafc",
-                "--text-placeholder": "#94a3b8",
-                "--text-nav": "#cbd5e1",
-                "--text-nav-active": "#0ea5e9",
-                
-                // Icon colors
-                "--icon-primary": "#cbd5e1",
-                "--icon-button": "#ffffff",
-                "--icon-muted": "#94a3b8",
-                
-                // Accent colors
-                "--accent-blue": "#0ea5e9",
-                "--accent-green": "#10b981",
-                "--accent-yellow": "#f59e0b",
-                "--accent-red": "#ef4444",
-                "--accent-purple": "#a855f7",
-                "--accent-cyan": "#06b6d4",
-                "--accent-orange": "#f97316",
-                "--accent-pink": "#ec4899",
-                
-                // Status colors
-                "--success": "#10b981",
-                "--warning": "#f59e0b",
-                "--error": "#ef4444",
-                "--info": "#0ea5e9"
-            }
-        };
+        // Download sample TOML theme
+        const sampleToml = `# Sample Theme for LanCache Monitor
+# Edit the values below to customize your theme
 
-        const blob = new Blob([JSON.stringify(sampleTheme, null, 2)], { type: 'application/json' });
+[meta]
+name = "My Custom Theme"
+id = "my-custom-theme"
+description = "A beautiful custom theme"
+author = "Your Name"
+version = "1.0.0"
+
+# ===================================
+# Background Colors
+# ===================================
+[colors]
+"--bg-primary" = "#0f172a"      # Main background
+"--bg-secondary" = "#1e293b"    # Card backgrounds
+"--bg-tertiary" = "#334155"     # Input backgrounds
+"--bg-hover" = "#475569"        # Hover states
+"--bg-input" = "#334155"        # Form inputs
+"--bg-dropdown" = "#1e293b"     # Dropdown menus
+"--bg-dropdown-hover" = "#334155"
+"--bg-nav" = "#1e293b"          # Navigation bar
+
+# ===================================
+# Borders
+# ===================================
+"--border-primary" = "#334155"
+"--border-secondary" = "#475569"
+"--border-input" = "#475569"
+"--border-nav" = "#334155"
+"--border-dropdown" = "#334155"
+
+# ===================================
+# Text Colors
+# ===================================
+"--text-primary" = "#f8fafc"    # Main text
+"--text-secondary" = "#cbd5e1"  # Secondary text
+"--text-muted" = "#94a3b8"      # Muted/disabled text
+"--text-disabled" = "#64748b"   # Disabled state
+"--text-button" = "#ffffff"     # Button text
+"--text-dropdown" = "#f8fafc"
+"--text-dropdown-item" = "#f8fafc"
+"--text-input" = "#f8fafc"
+"--text-placeholder" = "#94a3b8"
+"--text-nav" = "#cbd5e1"
+"--text-nav-active" = "#0ea5e9"
+
+# ===================================
+# Icons
+# ===================================
+"--icon-primary" = "#cbd5e1"
+"--icon-button" = "#ffffff"
+"--icon-muted" = "#94a3b8"
+
+# ===================================
+# Accent Colors
+# ===================================
+"--accent-blue" = "#0ea5e9"
+"--accent-green" = "#10b981"
+"--accent-yellow" = "#f59e0b"
+"--accent-red" = "#ef4444"
+"--accent-purple" = "#a855f7"
+"--accent-cyan" = "#06b6d4"
+"--accent-orange" = "#f97316"
+"--accent-pink" = "#ec4899"
+
+# ===================================
+# Status Colors
+# ===================================
+"--success" = "#10b981"
+"--warning" = "#f59e0b"
+"--error" = "#ef4444"
+"--info" = "#0ea5e9"
+
+# ===================================
+# Optional: Custom CSS
+# ===================================
+[css]
+content = """
+/* Add any custom CSS here */
+/* Example: Make all buttons rounded */
+button {
+  border-radius: 0.5rem;
+}
+"""`;
+
+        const blob = new Blob([sampleToml], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'sample-theme.json';
+        a.download = 'sample-theme.toml';
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -245,7 +273,8 @@ const ThemeManager = ({ isAuthenticated }) => {
                     {themes.map(theme => (
                         <option key={theme.id} value={theme.id}>
                             {theme.name} {theme.author && theme.author !== 'System' && `by ${theme.author}`}
-                            {theme.isDefault && ' (Default)'}
+                            {theme.isDefault && ' (System)'}
+                            {theme.format === 'toml' && ' [TOML]'}
                             {previewTheme === theme.id && ' (Preview)'}
                         </option>
                     ))}
@@ -283,6 +312,9 @@ const ThemeManager = ({ isAuthenticated }) => {
                                     )}
                                     {theme.isDefault && (
                                         <span className="px-2 py-0.5 bg-gray-600 text-gray-300 text-xs rounded">System</span>
+                                    )}
+                                    {theme.format === 'toml' && (
+                                        <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded">TOML</span>
                                     )}
                                 </div>
                                 {theme.description && (
@@ -380,12 +412,12 @@ const ThemeManager = ({ isAuthenticated }) => {
                                 Drag and drop a theme file here, or click to browse
                             </p>
                             <p className="text-xs text-gray-500 mb-3">
-                                JSON format, max 1MB
+                                TOML or JSON format, max 1MB
                             </p>
                             <input
                                 ref={fileInputRef}
                                 type="file"
-                                accept=".json"
+                                accept=".json,.toml"
                                 onChange={(e) => e.target.files[0] && handleFile(e.target.files[0])}
                                 className="hidden"
                             />
@@ -412,7 +444,7 @@ const ThemeManager = ({ isAuthenticated }) => {
                             className="flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300"
                         >
                             <Download className="w-4 h-4" />
-                            Download Sample Theme
+                            Download Sample TOML Theme
                         </button>
                     </div>
                 </>
