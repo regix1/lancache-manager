@@ -57,7 +57,7 @@ const Dashboard = () => {
   const timeFilterRef = useRef(null);
   const fetchTimeoutRef = useRef(null);
   const isInitialLoad = useRef(true);
-  
+
   // Drag and drop state
   const [isDragging, setIsDragging] = useState(false);
   const [draggedCard, setDraggedCard] = useState(null);
@@ -125,7 +125,7 @@ const Dashboard = () => {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY, JSON.stringify(cardVisibility));
   }, [cardVisibility]);
-  
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -147,19 +147,19 @@ const Dashboard = () => {
     const totalHits = mockServiceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
     const totalMisses = mockServiceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
     const total = totalHits + totalMisses;
-    
+
     // Filter downloads by time range
     const cutoffTime = selectedTimeRange === 'all' ? null : getCutoffTime(selectedTimeRange);
-    const periodDownloads = cutoffTime 
+    const periodDownloads = cutoffTime
       ? mockDownloads.filter(d => new Date(d.startTime) >= cutoffTime)
       : mockDownloads;
-    
+
     const periodHits = periodDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
     const periodMisses = periodDownloads.reduce((sum, d) => sum + (d.cacheMissBytes || 0), 0);
     const periodTotal = periodHits + periodMisses;
-    
+
     const uniqueClients = [...new Set(periodDownloads.map(d => d.clientIp))].length;
-    
+
     return {
       totalBandwidthSaved: totalHits,
       totalAddedToCache: totalMisses,
@@ -179,7 +179,7 @@ const Dashboard = () => {
       }
     };
   }, [selectedTimeRange, activeDownloads]);
-  
+
   // Fetch all data when time range changes
   useEffect(() => {
     if (!mockMode) {
@@ -187,13 +187,13 @@ const Dashboard = () => {
       if (fetchTimeoutRef.current) {
         clearTimeout(fetchTimeoutRef.current);
       }
-      
+
       // Initial load or time range change
       if (isInitialLoad.current || selectedTimeRange) {
         fetchAllData(isInitialLoad.current);
         isInitialLoad.current = false;
       }
-      
+
       // Set up refresh interval
       const interval = setInterval(() => fetchAllData(false), 30000); // Refresh every 30 seconds
       return () => clearInterval(interval);
@@ -216,7 +216,7 @@ const Dashboard = () => {
       } else {
         setIsRefreshing(true);
       }
-      
+
       const controller = new AbortController();
       fetchTimeoutRef.current = setTimeout(() => controller.abort(), 10000);
 
@@ -228,28 +228,28 @@ const Dashboard = () => {
             console.error('Dashboard stats error:', err);
             return dashboardStats; // Return existing data on error
           }),
-        
+
         // Latest downloads
         fetchFilteredDownloads(selectedTimeRange, controller.signal)
           .catch(err => {
             console.error('Downloads error:', err);
             return filteredLatestDownloads; // Return existing data on error
           }),
-        
+
         // Client stats with time filter
         fetchFilteredClients(selectedTimeRange, controller.signal)
           .catch(err => {
             console.error('Client stats error:', err);
             return filteredClientStats; // Return existing data on error
           }),
-        
+
         // Service stats - for short time ranges, calculate from downloads
         (selectedTimeRange === 'all' || selectedTimeRange === '7d' || selectedTimeRange === '30d' || selectedTimeRange === '90d')
           ? ApiService.getServiceStats(controller.signal, selectedTimeRange)
-              .catch(err => {
-                console.error('Service stats error:', err);
-                return filteredServiceStats; // Return existing data on error
-              })
+            .catch(err => {
+              console.error('Service stats error:', err);
+              return filteredServiceStats; // Return existing data on error
+            })
           : Promise.resolve([]) // Will calculate from downloads for short periods
       ];
 
@@ -261,7 +261,7 @@ const Dashboard = () => {
       let finalServiceStats = servicesData;
       if (servicesData.length === 0 && downloadsData && downloadsData.length > 0) {
         const serviceMap = {};
-        
+
         downloadsData.forEach(download => {
           if (!serviceMap[download.service]) {
             serviceMap[download.service] = {
@@ -273,22 +273,22 @@ const Dashboard = () => {
               lastActivity: download.startTime
             };
           }
-          
+
           const stat = serviceMap[download.service];
           stat.totalCacheHitBytes += download.cacheHitBytes || 0;
           stat.totalCacheMissBytes += download.cacheMissBytes || 0;
           stat.totalBytes += download.totalBytes || 0;
           stat.totalDownloads += 1;
-          
+
           if (new Date(download.startTime) > new Date(stat.lastActivity)) {
             stat.lastActivity = download.startTime;
           }
         });
-        
+
         finalServiceStats = Object.values(serviceMap).map(stat => ({
           ...stat,
-          cacheHitPercent: stat.totalBytes > 0 
-            ? (stat.totalCacheHitBytes / stat.totalBytes) * 100 
+          cacheHitPercent: stat.totalBytes > 0
+            ? (stat.totalCacheHitBytes / stat.totalBytes) * 100
             : 0
         }));
       }
@@ -313,15 +313,15 @@ const Dashboard = () => {
     try {
       // Fetch more downloads for "all" time range
       const count = period === 'all' ? 500 : 100;
-      
+
       const downloads = await ApiService.getLatestDownloads(signal, count);
-      
+
       // Filter by time on client side if needed (except for "all")
       if (period !== 'all') {
         const cutoffTime = getCutoffTime(period);
         return downloads.filter(d => new Date(d.startTime) >= cutoffTime);
       }
-      
+
       return downloads;
     } catch (error) {
       console.error('Failed to fetch downloads:', error);
@@ -333,13 +333,13 @@ const Dashboard = () => {
   const fetchFilteredClients = async (period, signal) => {
     try {
       const clients = await ApiService.getClientStats(signal);
-      
+
       // Filter by last seen time if needed (except for "all")
       if (period !== 'all') {
         const cutoffTime = getCutoffTime(period);
         return clients.filter(c => new Date(c.lastSeen) >= cutoffTime);
       }
-      
+
       return clients;
     } catch (error) {
       console.error('Failed to fetch clients:', error);
@@ -361,10 +361,10 @@ const Dashboard = () => {
       '30d': 30 * 24 * 60 * 60 * 1000,
       '90d': 90 * 24 * 60 * 60 * 1000
     };
-    
+
     return new Date(now - (timeRangeMs[period] || 24 * 60 * 60 * 1000));
   };
-  
+
   const toggleCardVisibility = useCallback((cardKey) => {
     setCardVisibility(prev => ({
       ...prev,
@@ -412,22 +412,22 @@ const Dashboard = () => {
   const handleDrop = useCallback((e, targetCardKey) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (draggedCard && targetCardKey && draggedCard !== targetCardKey) {
       setCardOrder(prevOrder => {
         const newOrder = [...prevOrder];
         const draggedIndex = newOrder.indexOf(draggedCard);
         const targetIndex = newOrder.indexOf(targetCardKey);
-        
+
         // Remove dragged card from its position
         newOrder.splice(draggedIndex, 1);
         // Insert it at the target position
         newOrder.splice(targetIndex, 0, draggedCard);
-        
+
         return newOrder;
       });
     }
-    
+
     setDragOverCard(null);
     dragCounter.current = 0;
   }, [draggedCard]);
@@ -441,7 +441,7 @@ const Dashboard = () => {
     const activeClients = [...new Set(activeDownloads.map(d => d.clientIp))].length;
     const totalActiveDownloads = activeDownloads.length;
     const totalDownloads = filteredServiceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
-    
+
     return {
       activeClients,
       totalActiveDownloads,
@@ -579,7 +579,7 @@ const Dashboard = () => {
           >
             <RotateCcw className="w-4 h-4" />
           </button>
-          
+
           <div className="relative" ref={timeFilterRef}>
             <button
               onClick={() => setTimeFilterOpen(!timeFilterOpen)}
@@ -602,11 +602,10 @@ const Dashboard = () => {
                         setSelectedTimeRange(range.value);
                         setTimeFilterOpen(false);
                       }}
-                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-700 transition-colors ${
-                        selectedTimeRange === range.value 
-                          ? 'bg-gray-700 text-blue-400' 
-                          : 'text-gray-300'
-                      }`}
+                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-700 transition-colors ${selectedTimeRange === range.value
+                          ? 'bg-gray-700 text-blue-400'
+                          : 'text-dropdown-item'  // Custom class that uses theme variable
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <span>{range.label}</span>
@@ -722,11 +721,10 @@ const Dashboard = () => {
       {/* Enhanced Stats Grid - Always 4 columns on large screens, now draggable */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {visibleCards.map((card) => (
-          <div 
-            key={card.key} 
-            className={`relative group ${isDragging ? 'cursor-move' : 'cursor-grab'} ${
-              dragOverCard === card.key ? 'ring-2 ring-blue-500 ring-opacity-50' : ''
-            }`}
+          <div
+            key={card.key}
+            className={`relative group ${isDragging ? 'cursor-move' : 'cursor-grab'} ${dragOverCard === card.key ? 'ring-2 ring-blue-500 ring-opacity-50' : ''
+              }`}
             draggable
             onDragStart={(e) => handleDragStart(e, card.key)}
             onDragEnd={handleDragEnd}
@@ -739,7 +737,7 @@ const Dashboard = () => {
             <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
               <GripVertical className="w-4 h-4 text-gray-500" />
             </div>
-            
+
             <StatCard
               title={card.title}
               value={card.value}
@@ -748,7 +746,7 @@ const Dashboard = () => {
               color={card.color}
               tooltip={card.tooltip}
             />
-            
+
             {/* Visibility toggle button */}
             <button
               onClick={() => toggleCardVisibility(card.key)}
@@ -763,21 +761,21 @@ const Dashboard = () => {
 
       {/* Enhanced Charts Row with tabs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EnhancedServiceChart 
+        <EnhancedServiceChart
           serviceStats={filteredServiceStats}
-          timeRange={selectedTimeRange} 
+          timeRange={selectedTimeRange}
         />
-        <RecentDownloadsPanel 
+        <RecentDownloadsPanel
           downloads={filteredLatestDownloads}
-          timeRange={selectedTimeRange} 
+          timeRange={selectedTimeRange}
         />
       </div>
 
       {/* Top Clients */}
-      <TopClientsTable 
+      <TopClientsTable
         clientStats={filteredClientStats}
         downloads={filteredLatestDownloads}
-        timeRange={selectedTimeRange} 
+        timeRange={selectedTimeRange}
       />
     </div>
   );

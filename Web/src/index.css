@@ -2,45 +2,285 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Default dark theme - comprehensive color system */
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --bg-tertiary: #374151;
+  --bg-hover: #4b5563;
+  --bg-input: #374151;
+  --bg-dropdown: #1f2937;  /* Dark dropdown for dark theme */
+  --bg-dropdown-hover: #374151;  /* Darker hover for dark theme */
+  --bg-nav: #1f2937;
+  
+  --border-primary: #374151;
+  --border-secondary: #4b5563;
+  --border-input: #4b5563;
+  --border-nav: #374151;
+  --border-dropdown: #374151;  /* Subtle border for dark theme */
+  
+  --text-primary: #ffffff;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --text-disabled: #6b7280;
+  --text-button: #ffffff;
+  --text-dropdown: #ffffff;  /* White text for dark dropdown */
+  --text-dropdown-item: #ffffff;  /* White text for dark dropdown items */
+  --text-input: #ffffff;
+  --text-placeholder: #9ca3af;
+  --text-nav: #d1d5db;
+  --text-nav-active: #3b82f6;
+  
+  --icon-primary: #d1d5db;
+  --icon-button: #ffffff;
+  --icon-muted: #9ca3af;
+  
+  --accent-blue: #3b82f6;
+  --accent-green: #10b981;
+  --accent-yellow: #f59e0b;
+  --accent-red: #ef4444;
+  --accent-purple: #8b5cf6;
+  --accent-cyan: #06b6d4;
+  --accent-orange: #f97316;
+  --accent-pink: #ec4899;
+  
+  --success: #10b981;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
+}
+
 @layer base {
   body {
-    @apply bg-gray-900 text-white;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
   }
 }
 
+/* Background colors */
+.bg-gray-900 { background-color: var(--bg-primary) !important; }
+.bg-gray-800 { background-color: var(--bg-secondary) !important; }
+.bg-gray-700 { background-color: var(--bg-tertiary) !important; }
+.bg-gray-600 { background-color: var(--bg-hover) !important; }
+.hover\:bg-gray-700:hover { background-color: var(--bg-tertiary) !important; }
+.hover\:bg-gray-600:hover { background-color: var(--bg-hover) !important; }
+.hover\:bg-gray-500:hover { background-color: var(--bg-hover) !important; }
+
+/* Border colors */
+.border-gray-700 { border-color: var(--border-primary) !important; }
+.border-gray-600 { border-color: var(--border-secondary) !important; }
+
+/* Text colors */
+.text-white { color: var(--text-primary) !important; }
+.text-gray-200 { color: var(--text-secondary) !important; }
+.text-gray-300 { color: var(--text-secondary) !important; }
+.text-gray-400 { color: var(--text-muted) !important; }
+.text-gray-500 { color: var(--text-disabled) !important; }
+
+/* Custom dropdown item class */
+.text-dropdown-item { color: var(--text-dropdown-item) !important; }
+
+/* Navigation styling */
+nav.px-6.py-3.bg-gray-800.border-b.border-gray-700 {
+  background-color: var(--bg-nav) !important;
+  border-bottom-color: var(--border-nav) !important;
+}
+
+nav button {
+  background-color: transparent !important;
+  color: var(--text-nav) !important;
+}
+
+nav button:hover {
+  background-color: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+nav button.text-blue-400 {
+  color: var(--text-nav-active) !important;
+}
+
+nav button.border-b-2.border-blue-500 {
+  border-bottom-color: var(--text-nav-active) !important;
+}
+
+/* Dropdown menus - Force update on theme change */
+div.absolute.bg-gray-800.rounded-lg,
+div.absolute.w-56.bg-gray-800 {
+  background-color: var(--bg-dropdown) !important;
+  border: 1px solid var(--border-dropdown) !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* All dropdown buttons - ensure they use theme variables */
+div.absolute button {
+  background-color: transparent !important;
+  color: var(--text-dropdown-item) !important;
+  transition: all 0.2s ease;
+}
+
+/* Dropdown hover state */
+div.absolute button:hover {
+  background-color: var(--bg-dropdown-hover) !important;
+  color: var(--text-dropdown-item) !important;
+}
+
+/* Selected item in dropdown */
+div.absolute button.bg-gray-700 {
+  background-color: var(--bg-dropdown-hover) !important;
+  color: var(--text-dropdown-item) !important;
+}
+
+/* Blue selected items keep their color */
+div.absolute .text-blue-400 {
+  color: var(--accent-blue) !important;
+}
+
+/* Dropdown headers */
+div.absolute .text-xs.font-semibold {
+  color: var(--text-muted) !important;
+  opacity: 0.8;
+}
+
+/* Colored buttons always white */
+button[class*="bg-red"],
+button[class*="bg-blue"],
+button[class*="bg-green"],
+button[class*="bg-yellow"],
+button[class*="bg-purple"],
+button[class*="bg-orange"],
+button[class*="bg-cyan"] {
+  color: #ffffff !important;
+}
+
+button[class*="bg-red"] *,
+button[class*="bg-blue"] *,
+button[class*="bg-green"] *,
+button[class*="bg-yellow"] *,
+button[class*="bg-purple"] *,
+button[class*="bg-orange"] *,
+button[class*="bg-cyan"] * {
+  color: #ffffff !important;
+}
+
+/* Select/input styles */
+select {
+  background-color: var(--bg-input) !important;
+  color: var(--text-input) !important;
+}
+
+input {
+  background-color: var(--bg-input) !important;
+  color: var(--text-input) !important;
+}
+
+input::placeholder {
+  color: var(--text-placeholder) !important;
+}
+
+/* Stat card icons - white stroke/outline only */
+.bg-gradient-to-br svg,
+.bg-gradient-to-r svg,
+.bg-gradient-to-l svg,
+.bg-gradient-to-t svg,
+.bg-gradient-to-b svg,
+[class*="bg-gradient"] svg,
+div[class*="from-"][class*="to-"] svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+  fill: none !important;  /* No fill - outline only */
+  stroke-width: 2;  /* Adjust thickness as needed */
+}
+
+/* Ensure Lucide icons in stat cards maintain their outline style */
+.p-2.rounded-lg.bg-gradient-to-br svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+  fill: none !important;
+}
+
+/* For any paths inside the SVGs that might have fill */
+.bg-gradient-to-br svg path,
+[class*="bg-gradient"] svg path,
+div[class*="from-"][class*="to-"] svg path {
+  fill: none !important;
+  stroke: #ffffff !important;
+  stroke-width: 2;
+}
+
+/* Ensure icons in colored backgrounds stay white */
+.from-blue-500 svg,
+.from-green-500 svg,
+.from-emerald-500 svg,
+.from-purple-500 svg,
+.from-indigo-500 svg,
+.from-orange-500 svg,
+.from-yellow-500 svg,
+.from-cyan-500 svg {
+  color: #ffffff !important;
+  fill: #ffffff !important;
+}
+
+/* Accent colors */
+.text-blue-400, .text-blue-500 { color: var(--accent-blue) !important; }
+.text-green-400, .text-green-500 { color: var(--accent-green) !important; }
+.text-yellow-400, .text-yellow-500 { color: var(--accent-yellow) !important; }
+.text-red-400, .text-red-500 { color: var(--error) !important; }
+.text-purple-400, .text-purple-500 { color: var(--accent-purple) !important; }
+.text-cyan-400, .text-cyan-500 { color: var(--accent-cyan) !important; }
+.text-orange-400, .text-orange-500 { color: var(--accent-orange) !important; }
+
+.bg-blue-500, .bg-blue-600 { background-color: var(--accent-blue) !important; }
+.bg-green-500, .bg-green-600 { background-color: var(--accent-green) !important; }
+.bg-yellow-500, .bg-yellow-600 { background-color: var(--accent-yellow) !important; }
+.bg-red-500, .bg-red-600 { background-color: var(--error) !important; }
+.bg-purple-500, .bg-purple-600 { background-color: var(--accent-purple) !important; }
+.bg-cyan-500, .bg-cyan-600 { background-color: var(--accent-cyan) !important; }
+.bg-orange-500, .bg-orange-600 { background-color: var(--accent-orange) !important; }
+
+/* Status backgrounds */
+.bg-green-900.bg-opacity-30 { background-color: rgba(16, 185, 129, 0.3) !important; }
+.bg-yellow-900.bg-opacity-30 { background-color: rgba(245, 158, 11, 0.3) !important; }
+.bg-red-900.bg-opacity-30 { background-color: rgba(239, 68, 68, 0.3) !important; }
+.bg-blue-900.bg-opacity-30 { background-color: rgba(59, 130, 246, 0.3) !important; }
+
+/* Borders */
+.border-green-700 { border-color: #047857 !important; }
+.border-yellow-700 { border-color: #b45309 !important; }
+.border-red-700 { border-color: #b91c1c !important; }
+.border-blue-700 { border-color: #1e40af !important; }
+
 @layer utilities {
   /* Custom scrollbar styles */
-  /* Webkit browsers */
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
-    @apply bg-gray-800 rounded;
+    background-color: var(--bg-secondary);
+    border-radius: 0.25rem;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-gray-600 rounded;
+    background-color: var(--bg-hover);
+    border-radius: 0.25rem;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-500;
+    background-color: var(--border-secondary);
   }
 
-  /* Firefox */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: theme('colors.gray.600') theme('colors.gray.800');
+    scrollbar-color: var(--bg-hover) var(--bg-secondary);
   }
 }
 
-/* Apply custom scrollbar to all scrollable areas */
 * {
   @apply scrollbar-thin;
 }
 
-/* Loading animation */
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -51,30 +291,6 @@
   animation: spin 1s linear infinite;
 }
 
-/* Animated stripes for progress bar */
-@keyframes slide {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: 40px 0;
-  }
-}
-
-.bg-stripes {
-  background-image: linear-gradient(
-    45deg,
-    rgba(255, 255, 255, 0.15) 25%,
-    transparent 25%,
-    transparent 50%,
-    rgba(255, 255, 255, 0.15) 50%,
-    rgba(255, 255, 255, 0.15) 75%,
-    transparent 75%,
-    transparent
-  );
-  background-size: 40px 40px;
-}
-
-.animate-slide {
-  animation: slide 1s linear infinite;
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }

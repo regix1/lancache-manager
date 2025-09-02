@@ -7,6 +7,7 @@ import operationStateService from '../../services/operationState.service';
 import { useBackendOperation } from '../../hooks/useBackendOperation';
 import { formatBytes } from '../../utils/formatters';
 import * as signalR from '@microsoft/signalr';
+import ThemeManager from './ThemeManager';
 
 const ManagementTab = () => {
   const { 
@@ -1197,6 +1198,9 @@ const ManagementTab = () => {
           </p>
         </div>
       </div>
+
+      {/* Theme Manager - NEW SECTION */}
+      <ThemeManager isAuthenticated={isAuthenticated} />
 
       {/* Backend Operation Status (for debugging) */}
       {(cacheOp.error || logProcessingOp.error || serviceRemovalOp.error) && (

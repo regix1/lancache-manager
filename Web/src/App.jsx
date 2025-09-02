@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DataProvider, useData } from './contexts/DataContext';
 import Header from './components/layout/Header';
 import Navigation from './components/layout/Navigation';
@@ -9,10 +9,16 @@ import ServicesTab from './components/services/ServicesTab';
 import ManagementTab from './components/management/ManagementTab';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import ProcessingStatus from './components/common/ProcessingStatus';
+import themeService from './services/theme.service';
 
 const AppContent = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { loading, error } = useData();
+
+  // Load saved theme on app start
+  useEffect(() => {
+    themeService.loadSavedTheme();
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
