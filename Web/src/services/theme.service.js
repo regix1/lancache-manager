@@ -1,4 +1,5 @@
 import { API_BASE } from '../utils/constants';
+import authService from './auth.service';
 
 class ThemeService {
   constructor() {
@@ -33,15 +34,8 @@ class ThemeService {
     const formData = new FormData();
     formData.append('file', file);
 
-    // Get auth headers
-    const headers = {};
-    const deviceId = localStorage.getItem('lm_device_id');
-    const deviceToken = localStorage.getItem('lm_device_token');
-    
-    if (deviceId && deviceToken) {
-      headers['X-Device-Id'] = deviceId;
-      headers['Authorization'] = `Bearer ${deviceToken}`;
-    }
+    // Use the auth service to get proper headers
+    const headers = authService.getAuthHeaders();
 
     const response = await fetch(`${API_BASE}/theme/upload`, {
       method: 'POST',
@@ -58,14 +52,8 @@ class ThemeService {
   }
 
   async deleteTheme(themeId) {
-    const headers = {};
-    const deviceId = localStorage.getItem('lm_device_id');
-    const deviceToken = localStorage.getItem('lm_device_token');
-    
-    if (deviceId && deviceToken) {
-      headers['X-Device-Id'] = deviceId;
-      headers['Authorization'] = `Bearer ${deviceToken}`;
-    }
+    // Use the auth service to get proper headers
+    const headers = authService.getAuthHeaders();
 
     const response = await fetch(`${API_BASE}/theme/${themeId}`, {
       method: 'DELETE',
