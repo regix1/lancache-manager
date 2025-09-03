@@ -1,0 +1,106 @@
+/* downloads-animations.css */
+/* Animation styles for DownloadsTab component */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 800px;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes progressFill {
+  from {
+    width: 0;
+  }
+}
+
+/* Download item animations */
+.download-item {
+  animation: fadeIn 0.3s ease-out;
+  animation-fill-mode: both;
+}
+
+.download-item:hover {
+  transform: translateX(2px);
+  transition: transform 0.2s ease;
+}
+
+/* Expandable content animations */
+.expandable-content {
+  animation: slideDown 0.3s ease-out;
+  overflow: hidden;
+}
+
+/* Cache hit progress bar animation */
+.cache-hit-bar {
+  animation: progressFill 0.8s ease-out;
+  transition: width 0.3s ease;
+}
+
+/* Status pulse for active downloads */
+.status-pulse {
+  animation: pulse 2s infinite;
+}
+
+/* Chevron rotation for expand/collapse */
+.chevron-icon {
+  transition: transform 0.2s ease;
+  display: inline-flex;
+}
+
+.chevron-icon.expanded {
+  transform: rotate(90deg);
+}
+
+/* Filter dropdown animation */
+.filter-dropdown {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Hover lift effect for cards */
+.hover-lift {
+  transition: all 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Button press effect */
+.button-press {
+  transition: all 0.1s ease;
+}
+
+.button-press:active {
+  transform: scale(0.98);
+}
+
+/* General smooth transition utility */
+.smooth-transition {
+  transition: all 0.3s ease;
+}

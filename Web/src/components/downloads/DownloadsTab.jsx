@@ -3,6 +3,7 @@ import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { ChevronDown, ChevronRight, Gamepad2, ExternalLink, Loader, Database, CloudOff, Filter, CheckCircle, Info, AlertTriangle, Layers, Users, Settings, X } from 'lucide-react';
 import { CachePerformanceTooltip, TimestampTooltip } from '../common/Tooltip';
+import './downloads-animations.css';
 
 // localStorage keys for persistence
 const STORAGE_KEYS = {
@@ -22,6 +23,7 @@ const DownloadsTab = () => {
   const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [renderedItems, setRenderedItems] = useState([]);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [animatedItems, setAnimatedItems] = useState(new Set());
 
   // Load settings from localStorage with defaults
   const [showZeroBytes, setShowZeroBytes] = useState(() => {
@@ -78,6 +80,20 @@ const DownloadsTab = () => {
       updateApiDownloadCount(itemsPerPage);
     }
   }, [itemsPerPage, mockMode, updateMockDataCount, updateApiDownloadCount]);
+
+  // Track new items for animation
+  useEffect(() => {
+    const newItems = new Set(latestDownloads.map(d => d.id));
+    setAnimatedItems(prev => {
+      const combined = new Set([...prev, ...newItems]);
+      // Keep only last 200 items to prevent memory issues
+      if (combined.size > 200) {
+        const arr = Array.from(combined);
+        return new Set(arr.slice(-200));
+      }
+      return combined;
+    });
+  }, [latestDownloads]);
 
   // Get unique services for filter dropdown
   const availableServices = useMemo(() => {
@@ -374,9 +390,13 @@ const DownloadsTab = () => {
     const cacheHitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
 
     return (
-      <div key={group.id} className="bg-gray-900 rounded-lg border border-gray-700">
+      <div 
+        key={group.id} 
+        className="download-item bg-gray-900 rounded-lg border border-gray-700 hover-lift"
+        style={{ animationDelay: `${Math.random() * 0.1}s` }}
+      >
         <div
-          className="p-3 md:p-4 cursor-pointer hover:bg-gray-850 transition-colors"
+          className="p-3 md:p-4 cursor-pointer hover:bg-gray-850 smooth-transition"
           onClick={() => handleGroupClick(group.id)}
         >
           {/* Mobile: Stack vertically, Desktop: Grid */}
@@ -385,10 +405,9 @@ const DownloadsTab = () => {
             <div className="sm:col-span-2 md:col-span-1">
               <p className="text-xs text-gray-400 mb-1">Group / Type</p>
               <div className="flex items-center gap-2">
-                {isExpanded ?
-                  <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> :
+                <div className={`chevron-icon ${isExpanded ? 'expanded' : ''}`}>
                   <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                }
+                </div>
                 <Layers className="w-4 h-4 text-purple-400 flex-shrink-0" />
                 <p className="text-sm font-medium text-purple-400 truncate">{group.name}</p>
               </div>
@@ -424,7 +443,7 @@ const DownloadsTab = () => {
                 <div className="flex items-center gap-2">
                   <div className="flex-1 bg-gray-700 rounded-full h-2">
                     <div
-                      className={`h-2 rounded-full transition-all ${cacheHitPercent > 75 ? 'bg-green-500' :
+                      className={`cache-hit-bar h-2 rounded-full ${cacheHitPercent > 75 ? 'bg-green-500' :
                           cacheHitPercent > 50 ? 'bg-blue-500' :
                             cacheHitPercent > 25 ? 'bg-yellow-500' :
                               'bg-orange-500'
@@ -472,14 +491,18 @@ const DownloadsTab = () => {
 
         {/* Expanded downloads list */}
         {isExpanded && (
-          <div className="border-t border-gray-700 bg-gray-850 p-3 md:p-4">
+          <div className="expandable-content border-t border-gray-700 bg-gray-850 p-3 md:p-4">
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {group.downloads.map((download, idx) => {
                 const hasData = (download.totalBytes || 0) > 0;
                 const duration = getDownloadDuration(download.startTime, download.endTime);
 
                 return (
-                  <div key={download.id || idx} className="bg-gray-900 rounded p-2 sm:p-3 border border-gray-700">
+                  <div 
+                    key={download.id || idx} 
+                    className="bg-gray-900 rounded p-2 sm:p-3 border border-gray-700 smooth-transition"
+                    style={{ animationDelay: `${idx * 0.05}s` }}
+                  >
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 sm:gap-3 text-xs sm:text-sm">
                       <div>
                         <p className="text-xs text-gray-500">Client</p>
@@ -532,11 +555,16 @@ const DownloadsTab = () => {
     const hasData = (download.totalBytes || 0) > 0;
     const IconComponent = downloadType.icon;
     const duration = getDownloadDuration(download.startTime, download.endTime);
+    const isNew = !animatedItems.has(download.id);
 
     return (
-      <div key={download.id || idx} className="bg-gray-900 rounded-lg border border-gray-700">
+      <div 
+        key={download.id || idx} 
+        className={`download-item bg-gray-900 rounded-lg border border-gray-700 ${isSteam && hasData ? 'hover-lift' : ''}`}
+        style={{ animationDelay: isNew ? `${idx * 0.02}s` : '0s' }}
+      >
         <div
-          className={`p-3 md:p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850 transition-colors' : ''}`}
+          className={`p-3 md:p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850 smooth-transition' : ''}`}
           onClick={() => handleDownloadClick(download)}
         >
           {/* Mobile: Stack layout, Desktop: Grid */}
@@ -546,9 +574,9 @@ const DownloadsTab = () => {
               <p className="text-xs text-gray-400 mb-1">Service / Type</p>
               <div className="flex items-center gap-2">
                 {isSteam && hasData && (
-                  isExpanded ?
-                    <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> :
+                  <div className={`chevron-icon ${isExpanded ? 'expanded' : ''}`}>
                     <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  </div>
                 )}
                 <p className="text-xs sm:text-sm font-medium text-blue-400">{download.service}</p>
                 <IconComponent className={`w-4 h-4 flex-shrink-0 ${downloadType.type === 'game' ? 'text-green-400' :
@@ -591,7 +619,7 @@ const DownloadsTab = () => {
                 <div className="flex items-center gap-2">
                   <div className="flex-1 bg-gray-700 rounded-full h-1.5 sm:h-2">
                     <div
-                      className={`h-1.5 sm:h-2 rounded-full transition-all ${download.cacheHitPercent > 75 ? 'bg-green-500' :
+                      className={`cache-hit-bar h-1.5 sm:h-2 rounded-full ${download.cacheHitPercent > 75 ? 'bg-green-500' :
                           download.cacheHitPercent > 50 ? 'bg-blue-500' :
                             download.cacheHitPercent > 25 ? 'bg-yellow-500' :
                               'bg-orange-500'
@@ -624,7 +652,7 @@ const DownloadsTab = () => {
                 {download.isActive ? (
                   <div>
                     <span className="text-xs text-green-400 flex items-center gap-1">
-                      <span className="animate-pulse">●</span> Downloading
+                      <span className="status-pulse">●</span> Downloading
                     </span>
                     <p className="text-xs text-gray-500 truncate">
                       {formatDateTime(download.startTime)}
@@ -652,7 +680,9 @@ const DownloadsTab = () => {
             <div className="col-span-2 sm:hidden">
               <p className="text-xs text-gray-400 mb-1">Status</p>
               {download.isActive ? (
-                <span className="text-xs text-green-400">● Downloading</span>
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <span className="status-pulse">●</span> Downloading
+                </span>
               ) : (
                 <span className="text-xs text-gray-400">Completed</span>
               )}
@@ -662,7 +692,7 @@ const DownloadsTab = () => {
 
         {/* Expandable Game Info Section - Only for Steam */}
         {isExpanded && isSteam && hasData && (
-          <div className="border-t border-gray-700 bg-gray-850">
+          <div className="expandable-content border-t border-gray-700 bg-gray-850">
             {loadingGame === download.id ? (
               <div className="flex items-center justify-center py-6 sm:py-8">
                 <Loader className="w-4 h-4 sm:w-5 sm:h-5 animate-spin text-blue-500" />
@@ -694,7 +724,7 @@ const DownloadsTab = () => {
                       <img
                         src={game.headerImage}
                         alt={game.gameName}
-                        className="rounded-lg shadow-lg w-full md:w-[460px] h-auto md:h-[215px] object-cover"
+                        className="rounded-lg shadow-lg w-full md:w-[460px] h-auto md:h-[215px] object-cover smooth-transition"
                         onError={(e) => {
                           e.target.style.display = 'none';
                         }}
@@ -728,7 +758,7 @@ const DownloadsTab = () => {
                         href={`https://store.steampowered.com/app/${game.appId}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs sm:text-sm text-blue-400 hover:text-blue-300 mt-2 transition-colors"
+                        className="inline-flex items-center gap-1 text-xs sm:text-sm text-blue-400 hover:text-blue-300 mt-2 smooth-transition button-press"
                         onClick={(e) => e.stopPropagation()}
                       >
                         View on Steam <ExternalLink className="w-3 h-3" />
@@ -795,7 +825,7 @@ const DownloadsTab = () => {
           <select
             value={selectedService}
             onChange={(e) => handleServiceFilterChange(e.target.value)}
-            className="flex-1 sm:flex-initial sm:w-40 bg-gray-700 text-xs sm:text-sm text-gray-300 rounded px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="flex-1 sm:flex-initial sm:w-40 bg-gray-700 text-xs sm:text-sm text-gray-300 rounded px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none smooth-transition"
             disabled={isLoadingItems}
           >
             <option value="all">All Services</option>
@@ -810,7 +840,7 @@ const DownloadsTab = () => {
           <select
             value={itemsPerPage}
             onChange={(e) => handleItemsPerPageChange(e.target.value)}
-            className="w-24 sm:w-32 bg-gray-700 text-xs sm:text-sm text-gray-300 rounded px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="w-24 sm:w-32 bg-gray-700 text-xs sm:text-sm text-gray-300 rounded px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none smooth-transition"
             disabled={isLoadingItems}
           >
             <option value={50}>50 items</option>
@@ -826,7 +856,7 @@ const DownloadsTab = () => {
           <div className="relative">
             <button
               onClick={() => setShowMobileFilters(!showMobileFilters)}
-              className="p-1.5 bg-gray-700 text-gray-300 rounded border border-gray-600 hover:bg-gray-600 transition-colors"
+              className="p-1.5 bg-gray-700 text-gray-300 rounded border border-gray-600 hover:bg-gray-600 smooth-transition button-press"
               disabled={isLoadingItems}
             >
               <Settings className="w-4 h-4" />
@@ -842,19 +872,19 @@ const DownloadsTab = () => {
                 />
 
                 {/* Dropdown menu */}
-                <div className="absolute right-0 z-20 mt-2 w-64 p-4 bg-gray-700 rounded-lg border border-gray-600 shadow-xl">
+                <div className="filter-dropdown absolute right-0 z-20 mt-2 w-64 p-4 bg-gray-700 rounded-lg border border-gray-600 shadow-xl">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm font-medium text-gray-200">Filter Settings</span>
                     <button
                       onClick={() => setShowMobileFilters(false)}
-                      className="text-gray-400 hover:text-gray-200 transition-colors p-0.5"
+                      className="text-gray-400 hover:text-gray-200 smooth-transition p-0.5 button-press"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
                   <div className="space-y-3">
-                    <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+                    <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer hover:text-white smooth-transition">
                       <input
                         type="checkbox"
                         checked={groupGames}
@@ -865,7 +895,7 @@ const DownloadsTab = () => {
                       <span>Group similar items</span>
                     </label>
 
-                    <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+                    <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer hover:text-white smooth-transition">
                       <input
                         type="checkbox"
                         checked={showZeroBytes}
@@ -876,7 +906,7 @@ const DownloadsTab = () => {
                       <span>Show 0-byte requests</span>
                     </label>
 
-                    <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
+                    <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer hover:text-white smooth-transition">
                       <input
                         type="checkbox"
                         checked={showSmallFiles}
