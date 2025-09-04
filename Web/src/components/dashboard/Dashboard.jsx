@@ -64,6 +64,11 @@ const Dashboard = () => {
   const [draggedCard, setDraggedCard] = useState(null);
   const [dragOverCard, setDragOverCard] = useState(null);
   const dragCounter = useRef(0);
+  const [chartPanelSize, setChartPanelSize] = useState(100);
+
+  const handleChartSizeChange = useCallback((newSize) => {
+    setChartPanelSize(newSize);
+  }, []);
 
   // Load card order from localStorage
   const [cardOrder, setCardOrder] = useState(() => {
@@ -604,8 +609,8 @@ const Dashboard = () => {
                         setTimeFilterOpen(false);
                       }}
                       className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-gray-700 transition-colors ${selectedTimeRange === range.value
-                          ? 'bg-gray-700 text-blue-400'
-                          : 'text-gray-300'
+                        ? 'bg-gray-700 text-blue-400'
+                        : 'text-gray-300'
                         }`}
                     >
                       <div className="flex items-center justify-between">
@@ -767,18 +772,28 @@ const Dashboard = () => {
         ))}
       </div>
 
-      {/* Enhanced Charts Row with fixed height alignment */}
+      {/* Enhanced Charts Row with synchronized dynamic sizing */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="chart-container h-[460px]">
+        <div className={`chart-container ${chartPanelSize >= 120 ? 'h-[520px]' :
+            chartPanelSize >= 100 ? 'h-[460px]' :
+              chartPanelSize >= 80 ? 'h-[400px]' :
+                'h-[350px]'
+          }`}>
           <EnhancedServiceChart
             serviceStats={filteredServiceStats}
             timeRange={selectedTimeRange}
+            onSizeChange={handleChartSizeChange}
           />
         </div>
-        <div className="chart-container h-[460px]" style={{ animationDelay: '0.4s' }}>
+        <div className={`chart-container ${chartPanelSize >= 120 ? 'h-[520px]' :
+            chartPanelSize >= 100 ? 'h-[460px]' :
+              chartPanelSize >= 80 ? 'h-[400px]' :
+                'h-[350px]'
+          }`} style={{ animationDelay: '0.4s' }}>
           <RecentDownloadsPanel
             downloads={filteredLatestDownloads}
             timeRange={selectedTimeRange}
+            panelSize={chartPanelSize}
           />
         </div>
       </div>

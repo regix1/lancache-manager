@@ -1,6 +1,5 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useMemo } from 'react';
 import { formatBytes, formatPercent } from '../../utils/formatters';
-import { ChevronUp, ChevronDown } from 'lucide-react';
 
 // Helper to format time with relative date
 const formatTimeWithDate = (dateString) => {
@@ -43,9 +42,7 @@ const formatTimeWithDate = (dateString) => {
   }
 };
 
-const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
-
+const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h', panelSize = 100 }) => {
   // Get time range label for the panel
   const getTimeRangeLabel = useMemo(() => {
     const labels = {
@@ -63,26 +60,33 @@ const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
     return labels[timeRange] || 'Recent';
   }, [timeRange]);
 
-  // Determine how many downloads to show based on time range
+  // Determine how many downloads to show based on time range and panel size
   const displayCount = useMemo(() => {
-    switch(timeRange) {
-      case '15m':
-      case '30m':
-        return 5;
-      case '1h':
-      case '6h':
-      case '12h':
-      case '24h':
-        return 8;
-      case '7d':
-      case '30d':
-      case '90d':
-      case 'all':
-        return 10;
-      default:
-        return 8;
-    }
-  }, [timeRange]);
+    const baseCount = (() => {
+      switch(timeRange) {
+        case '15m':
+        case '30m':
+          return 5;
+        case '1h':
+        case '6h':
+        case '12h':
+        case '24h':
+          return 8;
+        case '7d':
+        case '30d':
+        case '90d':
+        case 'all':
+          return 10;
+        default:
+          return 8;
+      }
+    })();
+    
+    // Adjust count based on panel size
+    if (panelSize >= 120) return Math.min(baseCount + 2, downloads.length);
+    if (panelSize <= 80) return Math.max(baseCount - 2, 3);
+    return baseCount;
+  }, [timeRange, panelSize, downloads.length]);
 
   // Sort downloads by startTime (most recent first) and then slice
   const displayDownloads = useMemo(() => {
@@ -102,8 +106,12 @@ const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
     return { totalDownloads, totalBytes, totalCacheHits, overallHitRate };
   }, [downloads]);
 
+  // Calculate dynamic container height based on panel size
+  const containerHeight = panelSize >= 100 ? 'h-full' : panelSize >= 80 ? 'h-[400px]' : 'h-[350px]';
+  const listMaxHeight = panelSize >= 120 ? 'max-h-[450px]' : panelSize >= 100 ? 'max-h-[380px]' : panelSize >= 80 ? 'max-h-[320px]' : 'max-h-[280px]';
+
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 h-full flex flex-col">
+    <div className={`bg-gray-800 rounded-lg p-6 border border-gray-700 ${containerHeight} flex flex-col`}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white">Recent Downloads</h3>
         <div className="flex items-center gap-3">
@@ -122,93 +130,87 @@ const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
             </>
           )}
           <span className="text-xs text-gray-500">{getTimeRangeLabel}</span>
-          
-          {/* Expand/Collapse button */}
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1 hover:bg-gray-700 rounded transition-colors ml-2"
-            aria-label={isExpanded ? "Collapse" : "Expand"}
-          >
-            {isExpanded ? (
-              <ChevronUp className="w-4 h-4 text-gray-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            )}
-          </button>
         </div>
       </div>
       
-      {/* Downloads list container - collapsible */}
-      {isExpanded && (
-        <div className="flex-1 flex flex-col min-h-0">
-          {displayDownloads.length > 0 ? (
-            <>
-              <div className="space-y-3 overflow-y-auto flex-1 pr-1">
-                {displayDownloads.map((download, idx) => (
-                  <div 
-                    key={download.id || idx} 
-                    className="bg-gray-900 rounded-lg p-3 border border-gray-700 hover:border-gray-600 transition-all duration-200 download-card"
-                    style={{ animationDelay: `${idx * 0.05}s` }}
-                  >
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="text-sm font-medium text-blue-400">{download.service}</span>
-                      <span className="text-xs text-gray-500">
-                        {formatTimeWithDate(download.startTime)}
-                      </span>
+      {/* Downloads list container - adjusts with panel size */}
+      <div className="flex-1 flex flex-col min-h-0">
+        {displayDownloads.length > 0 ? (
+          <>
+            <div className={`space-y-${panelSize >= 100 ? '3' : '2'} overflow-y-auto flex-1 pr-1 ${listMaxHeight}`}>
+              {displayDownloads.map((download, idx) => (
+                <div 
+                  key={download.id || idx} 
+                  className={`bg-gray-900 rounded-lg ${panelSize >= 100 ? 'p-3' : 'p-2'} border border-gray-700 hover:border-gray-600 transition-all duration-200 download-card`}
+                  style={{ animationDelay: `${idx * 0.05}s` }}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <span className={`font-medium text-blue-400 ${panelSize >= 100 ? 'text-sm' : 'text-xs'}`}>
+                      {download.service}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      {formatTimeWithDate(download.startTime)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400">{download.clientIp}</div>
+                  {download.gameName && panelSize >= 100 && (
+                    <div className="text-xs text-gray-500 mt-1 truncate" title={download.gameName}>
+                      {download.gameName}
                     </div>
-                    <div className="text-xs text-gray-400">{download.clientIp}</div>
-                    {download.gameName && (
-                      <div className="text-xs text-gray-500 mt-1 truncate" title={download.gameName}>
-                        {download.gameName}
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-white transition-all duration-300 smooth-number">{formatBytes(download.totalBytes)}</span>
+                  )}
+                  <div className="flex justify-between items-center mt-2">
+                    <div className="flex items-center gap-3">
+                      <span className={`text-white transition-all duration-300 smooth-number ${
+                        panelSize >= 100 ? 'text-sm' : 'text-xs'
+                      }`}>
+                        {formatBytes(download.totalBytes)}
+                      </span>
+                      {panelSize >= 90 && (
                         <div className="flex gap-2 text-xs">
                           <span className="text-green-400 smooth-number">↓ {formatBytes(download.cacheHitBytes)}</span>
                           <span className="text-yellow-400 smooth-number">→ {formatBytes(download.cacheMissBytes)}</span>
                         </div>
-                      </div>
-                      <span className={`text-xs px-2 py-1 rounded transition-colors animated-badge ${
-                        download.cacheHitPercent > 75 
-                          ? 'bg-green-900 text-green-300' 
-                          : download.cacheHitPercent > 50
-                          ? 'bg-blue-900 text-blue-300'
-                          : download.cacheHitPercent > 25
-                          ? 'bg-yellow-900 text-yellow-300'
-                          : 'bg-orange-900 text-orange-300'
-                      }`}>
-                        {formatPercent(download.cacheHitPercent)} Hit
-                      </span>
+                      )}
                     </div>
+                    <span className={`text-xs px-2 py-1 rounded transition-colors animated-badge ${
+                      download.cacheHitPercent > 75 
+                        ? 'bg-green-900 text-green-300' 
+                        : download.cacheHitPercent > 50
+                        ? 'bg-blue-900 text-blue-300'
+                        : download.cacheHitPercent > 25
+                        ? 'bg-yellow-900 text-yellow-300'
+                        : 'bg-orange-900 text-orange-300'
+                    }`}>
+                      {formatPercent(download.cacheHitPercent)} Hit
+                    </span>
                   </div>
-                ))}
-              </div>
-              
-              {downloads.length > displayCount && (
-                <div className="mt-3 pt-3 border-t border-gray-700 text-center">
-                  <span className="text-xs text-gray-500 smooth-number">
-                    Showing {displayCount} of {downloads.length} downloads
-                  </span>
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-500">
-              {timeRange === '15m' || timeRange === '30m' || timeRange === '1h'
-                ? `No downloads in the ${getTimeRangeLabel.toLowerCase()}`
-                : 'No downloads yet'}
+              ))}
             </div>
-          )}
-        </div>
-      )}
+            
+            {downloads.length > displayCount && (
+              <div className="mt-3 pt-3 border-t border-gray-700 text-center">
+                <span className="text-xs text-gray-500 smooth-number">
+                  Showing {displayCount} of {downloads.length} downloads
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-gray-500">
+            {timeRange === '15m' || timeRange === '30m' || timeRange === '1h'
+              ? `No downloads in the ${getTimeRangeLabel.toLowerCase()}`
+              : 'No downloads yet'}
+          </div>
+        )}
+      </div>
     </div>
   );
 }, (prevProps, nextProps) => {
-  // Only re-render if downloads actually changed
+  // Only re-render if downloads, timeRange, or panelSize changed
   return prevProps.downloads === nextProps.downloads && 
-         prevProps.timeRange === nextProps.timeRange;
+         prevProps.timeRange === nextProps.timeRange &&
+         prevProps.panelSize === nextProps.panelSize;
 });
 
 RecentDownloadsPanel.displayName = 'RecentDownloadsPanel';

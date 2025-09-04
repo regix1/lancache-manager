@@ -3,12 +3,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { CHART_COLORS } from '../../utils/constants';
-import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 
-const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
+const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h', onSizeChange }) => {
   const { mockMode } = useData();
   const [activeTab, setActiveTab] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [chartSize, setChartSize] = useState(100);
 
   // Define all tabs
   const tabs = [
@@ -25,7 +25,15 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     setActiveTab(prev => (prev + 1) % tabs.length);
   }, [tabs.length]);
 
-  // Process data for Service Distribution (total data transferred)
+  const adjustSize = useCallback((delta) => {
+    const newSize = Math.max(60, Math.min(140, chartSize + delta));
+    setChartSize(newSize);
+    if (onSizeChange) {
+      onSizeChange(newSize);
+    }
+  }, [chartSize, onSizeChange]);
+
+  // Process data for Service Distribution
   const getServiceDistributionData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
@@ -40,7 +48,6 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     serviceStats.forEach(s => {
       if (s.totalBytes > 0) {
         const percentage = (s.totalBytes / totalBytes) * 100;
-        // Always show known services, only group unknown services into "Other"
         if (knownServices.includes(s.service.toLowerCase()) || percentage > 5) {
           processedData.push({
             name: s.service,
@@ -66,7 +73,7 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     return processedData.sort((a, b) => b.value - a.value);
   }, [serviceStats]);
 
-  // Process data for Cache Hit Ratio (hits vs misses)
+  // Process data for Cache Hit Ratio
   const getCacheHitRatioData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
@@ -82,7 +89,7 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     ];
   }, [serviceStats]);
 
-  // Process data for Bandwidth Saved (cache hits by service)
+  // Process data for Bandwidth Saved
   const getBandwidthSavedData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return [];
     
@@ -98,7 +105,6 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     serviceStats.forEach(s => {
       if (s.totalCacheHitBytes > 0) {
         const savedPercentage = (s.totalCacheHitBytes / totalSaved) * 100;
-        // Always show known services, only group unknown services into "Other"
         if (knownServices.includes(s.service.toLowerCase()) || savedPercentage > 5) {
           processedData.push({
             name: s.service,
@@ -155,12 +161,13 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     return null;
   }, []);
 
-  // Custom label function - now more responsive
+  // Custom label function - only for Cache Hit Ratio
   const renderLabel = useCallback(({ name, value, percent, cx, cy, midAngle, innerRadius, outerRadius, index }) => {
-    if (percent < 0.03) return null;
+    if (tabs[activeTab]?.id !== 'hit-ratio') return null;
+    if (percent < 0.05) return null;
     
     const RADIAN = Math.PI / 180;
-    const radius = outerRadius + 20;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.7;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
     
@@ -169,14 +176,20 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
         x={x} 
         y={y} 
         fill="white" 
-        textAnchor={x > cx ? 'start' : 'end'} 
-        dominantBaseline="central"
-        className="text-xs"
+        textAnchor="middle" 
+        dominantBaseline="middle"
+        className="pointer-events-none"
+        style={{ 
+          fontSize: '13px',
+          fontWeight: 'bold',
+          textShadow: '0 1px 2px rgba(0, 0, 0, 0.7)'
+        }}
       >
-        {`${name} ${(percent * 100).toFixed(1)}%`}
+        <tspan x={x} dy="-0.2em">{name}</tspan>
+        <tspan x={x} dy="1.2em">{(percent * 100).toFixed(1)}%</tspan>
       </text>
     );
-  }, []);
+  }, [activeTab, tabs]);
 
   const currentTab = tabs[activeTab];
 
@@ -194,78 +207,94 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     };
   }, [serviceStats]);
 
+  // Calculate dimensions based on chart size
+  const dimensions = useMemo(() => {
+    const baseHeight = 200;
+    const baseRadius = 65;
+    
+    return {
+      chartHeight: baseHeight + (chartSize - 100) * 1,
+      outerRadius: baseRadius + (chartSize - 100) * 0.3
+    };
+  }, [chartSize]);
+
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 h-full flex flex-col">
-      {/* Header with tabs - Fixed width layout */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center">
-          <button
-            onClick={handlePrevTab}
-            className="p-1 hover:bg-gray-700 rounded transition-colors mr-2 chart-nav-button"
-            aria-label="Previous tab"
-          >
-            <ChevronLeft className="w-4 h-4 text-gray-400" />
-          </button>
-          
-          <div className="w-48 text-center">
-            <h3 className="text-lg font-semibold text-white truncate">
-              {currentTab?.name || 'Service Distribution'}
-            </h3>
+    <div className="bg-gray-800 rounded-lg border border-gray-700 h-full overflow-hidden">
+      {/* Fixed header section */}
+      <div className="p-6 pb-4">
+        {/* Navigation and size controls */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center">
+            <button
+              onClick={handlePrevTab}
+              className="p-1 hover:bg-gray-700 rounded transition-colors mr-2"
+            >
+              <ChevronLeft className="w-4 h-4 text-gray-400" />
+            </button>
+            
+            <div className="w-48 text-center">
+              <h3 className="text-lg font-semibold text-white truncate">
+                {currentTab?.name || 'Service Distribution'}
+              </h3>
+            </div>
+            
+            <button
+              onClick={handleNextTab}
+              className="p-1 hover:bg-gray-700 rounded transition-colors ml-2"
+            >
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
           </div>
-          
-          <button
-            onClick={handleNextTab}
-            className="p-1 hover:bg-gray-700 rounded transition-colors ml-2 chart-nav-button"
-            aria-label="Next tab"
-          >
-            <ChevronRight className="w-4 h-4 text-gray-400" />
-          </button>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => adjustSize(-10)}
+              className="p-1 hover:bg-gray-700 rounded transition-colors"
+            >
+              <Minimize2 className="w-4 h-4 text-gray-400" />
+            </button>
+            
+            <span className="text-xs text-gray-500">{chartSize}%</span>
+            
+            <button
+              onClick={() => adjustSize(10)}
+              className="p-1 hover:bg-gray-700 rounded transition-colors"
+            >
+              <Maximize2 className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
         </div>
 
-        {/* Expand/Collapse control */}
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 hover:bg-gray-700 rounded transition-colors"
-          aria-label={isExpanded ? "Collapse" : "Expand"}
-        >
-          {isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-gray-400" />
-          )}
-        </button>
+        {/* Tab indicators */}
+        <div className="flex space-x-1">
+          {tabs.map((tab, index) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(index)}
+              className={`h-1 flex-1 rounded-full transition-colors ${
+                index === activeTab ? 'bg-blue-500' : 'bg-gray-700'
+              }`}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Tab indicators */}
-      <div className="flex space-x-1 mb-4">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(index)}
-            className={`h-1 flex-1 rounded-full tab-indicator ${
-              index === activeTab ? 'bg-blue-500' : 'bg-gray-700'
-            }`}
-            aria-label={`Go to ${tab.name}`}
-          />
-        ))}
-      </div>
-
-      {/* Chart content area - collapsible */}
-      {isExpanded && (
-        <div className="flex-1 flex flex-col">
+      {/* Scrollable content area */}
+      <div className="overflow-y-auto" style={{ maxHeight: 'calc(100% - 120px)' }}>
+        <div className="px-6 pb-6">
           {chartData.length > 0 ? (
             <>
-              {/* Responsive container with dynamic height */}
-              <div style={{ height: '250px', width: '100%' }}>
+              {/* Chart container with fixed height */}
+              <div style={{ height: `${dimensions.chartHeight}px`, width: '100%' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
+                  <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
                     <Pie
                       data={chartData}
                       cx="50%"
                       cy="50%"
                       labelLine={false}
                       label={renderLabel}
-                      outerRadius={75}
+                      outerRadius={dimensions.outerRadius}
                       fill="#8884d8"
                       dataKey="value"
                       animationBegin={0}
@@ -286,69 +315,71 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              
-              {/* Legend - now more compact */}
-              <div className="mt-2 flex flex-wrap justify-center gap-2">
-                {chartData.slice(0, 4).map((entry, index) => (
-                  <div key={entry.name} className="flex items-center space-x-1 animated-badge">
+
+              {/* Legend */}
+              <div className="mt-4 flex flex-wrap justify-center gap-3">
+                {chartData.slice(0, chartSize >= 100 ? 6 : 4).map((entry, index) => (
+                  <div key={entry.name} className="flex items-center space-x-1">
                     <div 
-                      className="w-2 h-2 rounded"
+                      className="w-3 h-3 rounded"
                       style={{ 
                         backgroundColor: currentTab?.id === 'hit-ratio' 
                           ? (index === 0 ? '#10b981' : '#f59e0b')
                           : CHART_COLORS[index % CHART_COLORS.length]
                       }}
                     />
-                    <span className="text-xs text-gray-400">
-                      {entry.name}: {formatBytes(entry.value)}
-                    </span>
+                    <span className="text-xs text-gray-400">{entry.name}:</span>
+                    <span className="text-xs text-white font-medium">{entry.percentage.toFixed(1)}%</span>
+                    <span className="text-xs text-gray-500">({formatBytes(entry.value)})</span>
                   </div>
                 ))}
-                {chartData.length > 4 && (
-                  <span className="text-xs text-gray-500">+{chartData.length - 4} more</span>
-                )}
               </div>
 
-              {/* Additional stats for specific tabs - now more compact */}
+              {/* Tab-specific stats with proper spacing */}
               {currentTab?.id === 'hit-ratio' && (
-                <div className="mt-3 pt-3 border-t border-gray-700">
+                <div className="mt-6 pt-4 border-t border-gray-700">
                   <div className="text-center">
-                    <p className="text-xl font-bold text-green-400 smooth-number">
+                    <p className={`font-bold text-green-400 ${
+                      chartSize >= 100 ? 'text-2xl' : 'text-xl'
+                    }`}>
                       {formatPercent(overallStats.hitRate)}
                     </p>
-                    <p className="text-xs text-gray-500">Overall Cache Hit Rate</p>
+                    <p className="text-xs text-gray-500 mt-1">Overall Cache Hit Rate</p>
+                    <p className="text-sm text-gray-400 mt-2">
+                      Saved {formatBytes(overallStats.totalSaved)} of bandwidth
+                    </p>
                   </div>
                 </div>
               )}
               
-              {/* Additional context for other tabs - more compact */}
               {currentTab?.id === 'bandwidth' && (
-                <div className="mt-3 text-center">
-                  <p className="text-xs text-gray-400 smooth-number">
+                <div className="mt-6 text-center">
+                  <p className="text-xs text-gray-500">Internet bandwidth saved by serving from cache</p>
+                  <p className="text-sm text-gray-400 mt-2">
                     Total saved: {formatBytes(overallStats.totalSaved)}
                   </p>
                 </div>
               )}
               
               {currentTab?.id === 'service' && (
-                <div className="mt-3 text-center">
-                  <p className="text-xs text-gray-400 smooth-number">
+                <div className="mt-6 text-center">
+                  <p className="text-xs text-gray-500">Total data transferred (hits + misses)</p>
+                  <p className="text-sm text-gray-400 mt-2">
                     Total: {formatBytes(chartData.reduce((sum, d) => sum + d.value, 0))}
                   </p>
                 </div>
               )}
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex items-center justify-center h-48">
               <p className="text-gray-500">No data available for selected time range</p>
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }, (prevProps, nextProps) => {
-  // Custom comparison for memo - only re-render if data actually changed
   return JSON.stringify(prevProps.serviceStats) === JSON.stringify(nextProps.serviceStats) &&
          prevProps.timeRange === nextProps.timeRange;
 });
