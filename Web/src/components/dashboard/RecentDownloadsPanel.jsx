@@ -100,16 +100,16 @@ const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
   }, [downloads]);
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-white">Recent Downloads</h3>
         <div className="flex items-center gap-3">
           {downloads.length > 0 && (
             <>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-gray-400 smooth-number">
                 {stats.totalDownloads} total
               </span>
-              <span className={`text-xs px-2 py-0.5 rounded transition-colors ${
+              <span className={`text-xs px-2 py-0.5 rounded transition-colors animated-badge ${
                 stats.overallHitRate > 50 
                   ? 'bg-green-900/50 text-green-400' 
                   : 'bg-yellow-900/50 text-yellow-400'
@@ -122,63 +122,69 @@ const RecentDownloadsPanel = memo(({ downloads = [], timeRange = '24h' }) => {
         </div>
       </div>
       
-      <div className="space-y-3 max-h-[400px] overflow-y-auto">
+      {/* Downloads list container - flex-1 to fill remaining space */}
+      <div className="flex-1 flex flex-col min-h-0">
         {displayDownloads.length > 0 ? (
-          displayDownloads.map((download, idx) => (
-            <div 
-              key={download.id || idx} 
-              className="bg-gray-900 rounded-lg p-3 border border-gray-700 hover:border-gray-600 transition-all duration-200"
-            >
-              <div className="flex justify-between items-start mb-1">
-                <span className="text-sm font-medium text-blue-400">{download.service}</span>
-                <span className="text-xs text-gray-500">
-                  {formatTimeWithDate(download.startTime)}
-                </span>
-              </div>
-              <div className="text-xs text-gray-400">{download.clientIp}</div>
-              {download.gameName && (
-                <div className="text-xs text-gray-500 mt-1 truncate" title={download.gameName}>
-                  {download.gameName}
-                </div>
-              )}
-              <div className="flex justify-between items-center mt-2">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-white transition-all duration-300">{formatBytes(download.totalBytes)}</span>
-                  <div className="flex gap-2 text-xs">
-                    <span className="text-green-400">↓ {formatBytes(download.cacheHitBytes)}</span>
-                    <span className="text-yellow-400">→ {formatBytes(download.cacheMissBytes)}</span>
+          <>
+            <div className="space-y-3 overflow-y-auto flex-1 pr-1">
+              {displayDownloads.map((download, idx) => (
+                <div 
+                  key={download.id || idx} 
+                  className="bg-gray-900 rounded-lg p-3 border border-gray-700 hover:border-gray-600 transition-all duration-200 download-card"
+                  style={{ animationDelay: `${idx * 0.05}s` }}
+                >
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="text-sm font-medium text-blue-400">{download.service}</span>
+                    <span className="text-xs text-gray-500">
+                      {formatTimeWithDate(download.startTime)}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400">{download.clientIp}</div>
+                  {download.gameName && (
+                    <div className="text-xs text-gray-500 mt-1 truncate" title={download.gameName}>
+                      {download.gameName}
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center mt-2">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-white transition-all duration-300 smooth-number">{formatBytes(download.totalBytes)}</span>
+                      <div className="flex gap-2 text-xs">
+                        <span className="text-green-400 smooth-number">↓ {formatBytes(download.cacheHitBytes)}</span>
+                        <span className="text-yellow-400 smooth-number">→ {formatBytes(download.cacheMissBytes)}</span>
+                      </div>
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded transition-colors animated-badge ${
+                      download.cacheHitPercent > 75 
+                        ? 'bg-green-900 text-green-300' 
+                        : download.cacheHitPercent > 50
+                        ? 'bg-blue-900 text-blue-300'
+                        : download.cacheHitPercent > 25
+                        ? 'bg-yellow-900 text-yellow-300'
+                        : 'bg-orange-900 text-orange-300'
+                    }`}>
+                      {formatPercent(download.cacheHitPercent)} Hit
+                    </span>
                   </div>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded transition-colors ${
-                  download.cacheHitPercent > 75 
-                    ? 'bg-green-900 text-green-300' 
-                    : download.cacheHitPercent > 50
-                    ? 'bg-blue-900 text-blue-300'
-                    : download.cacheHitPercent > 25
-                    ? 'bg-yellow-900 text-yellow-300'
-                    : 'bg-orange-900 text-orange-300'
-                }`}>
-                  {formatPercent(download.cacheHitPercent)} Hit
+              ))}
+            </div>
+            
+            {downloads.length > displayCount && (
+              <div className="mt-3 pt-3 border-t border-gray-700 text-center">
+                <span className="text-xs text-gray-500 smooth-number">
+                  Showing {displayCount} of {downloads.length} downloads
                 </span>
               </div>
-            </div>
-          ))
+            )}
+          </>
         ) : (
-          <div className="flex items-center justify-center h-[300px] text-gray-500">
+          <div className="flex-1 flex items-center justify-center text-gray-500">
             {timeRange === '15m' || timeRange === '30m' || timeRange === '1h'
               ? `No downloads in the ${getTimeRangeLabel.toLowerCase()}`
               : 'No downloads yet'}
           </div>
         )}
       </div>
-      
-      {downloads.length > displayCount && (
-        <div className="mt-3 pt-3 border-t border-gray-700 text-center">
-          <span className="text-xs text-gray-500">
-            Showing {displayCount} of {downloads.length} downloads
-          </span>
-        </div>
-      )}
     </div>
   );
 }, (prevProps, nextProps) => {

@@ -91,7 +91,7 @@ const TopClientsTable = memo(({ clientStats = [], downloads = [], timeRange = '2
       {displayClients.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead>
+            <thead className="table-header">
               <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
                 <th className="pb-3">Client IP</th>
                 <th className="pb-3">Total Downloaded</th>
@@ -103,13 +103,17 @@ const TopClientsTable = memo(({ clientStats = [], downloads = [], timeRange = '2
             </thead>
             <tbody className="text-sm">
               {displayClients.map((client, idx) => (
-                <tr key={`${client.clientIp}-${idx}`} className="border-t border-gray-700">
+                <tr 
+                  key={`${client.clientIp}-${idx}`} 
+                  className="border-t border-gray-700 table-row"
+                  style={{ animationDelay: `${idx * 0.05}s` }}
+                >
                   <td className="py-3 text-white transition-all duration-300">{client.clientIp}</td>
-                  <td className="py-3 text-gray-300 transition-all duration-500">{formatBytes(client.totalBytes)}</td>
-                  <td className="py-3 text-green-400 transition-all duration-500">{formatBytes(client.totalCacheHitBytes)}</td>
-                  <td className="py-3 text-yellow-400 transition-all duration-500">{formatBytes(client.totalCacheMissBytes)}</td>
+                  <td className="py-3 text-gray-300 transition-all duration-500 smooth-number">{formatBytes(client.totalBytes)}</td>
+                  <td className="py-3 text-green-400 transition-all duration-500 smooth-number">{formatBytes(client.totalCacheHitBytes)}</td>
+                  <td className="py-3 text-yellow-400 transition-all duration-500 smooth-number">{formatBytes(client.totalCacheMissBytes)}</td>
                   <td className="py-3">
-                    <span className={`px-2 py-1 rounded text-xs transition-colors ${
+                    <span className={`px-2 py-1 rounded text-xs transition-colors animated-badge ${
                       client.cacheHitPercent > 50 
                         ? 'bg-green-900 text-green-300' 
                         : 'bg-yellow-900 text-yellow-300'

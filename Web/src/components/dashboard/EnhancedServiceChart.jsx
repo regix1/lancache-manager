@@ -202,13 +202,13 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
   }, [serviceStats]);
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 h-full flex flex-col">
       {/* Header with tabs - Fixed width layout */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
           <button
             onClick={handlePrevTab}
-            className="p-1 hover:bg-gray-700 rounded transition-colors mr-2"
+            className="p-1 hover:bg-gray-700 rounded transition-colors mr-2 chart-nav-button"
             aria-label="Previous tab"
           >
             <ChevronLeft className="w-4 h-4 text-gray-400" />
@@ -222,7 +222,7 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
           
           <button
             onClick={handleNextTab}
-            className="p-1 hover:bg-gray-700 rounded transition-colors ml-2"
+            className="p-1 hover:bg-gray-700 rounded transition-colors ml-2 chart-nav-button"
             aria-label="Next tab"
           >
             <ChevronRight className="w-4 h-4 text-gray-400" />
@@ -233,17 +233,17 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
         <div className="flex items-center space-x-2">
           <button
             onClick={() => adjustSize(-10)}
-            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            className="p-1 hover:bg-gray-700 rounded transition-colors size-control"
             aria-label="Decrease size"
           >
             <Minimize2 className="w-4 h-4 text-gray-400" />
           </button>
           
-          <span className="text-xs text-gray-500">{chartSize}%</span>
+          <span className="text-xs text-gray-500 smooth-transition">{chartSize}%</span>
           
           <button
             onClick={() => adjustSize(10)}
-            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            className="p-1 hover:bg-gray-700 rounded transition-colors size-control"
             aria-label="Increase size"
           >
             <Maximize2 className="w-4 h-4 text-gray-400" />
@@ -257,7 +257,7 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(index)}
-            className={`h-1 flex-1 rounded-full transition-colors ${
+            className={`h-1 flex-1 rounded-full tab-indicator ${
               index === activeTab ? 'bg-blue-500' : 'bg-gray-700'
             }`}
             aria-label={`Go to ${tab.name}`}
@@ -265,105 +265,107 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
         ))}
       </div>
 
-      {/* Chart */}
-      {chartData.length > 0 ? (
-        <>
-          <ResponsiveContainer width="100%" height={chartHeight}>
-            <PieChart>
-              <Pie
-                data={chartData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={renderLabel}
-                outerRadius={outerRadius}
-                fill="#8884d8"
-                dataKey="value"
-                animationBegin={0}
-                animationDuration={400}
-              >
-                {chartData.map((entry, index) => (
-                  <Cell 
-                    key={`cell-${index}`} 
-                    fill={
-                      currentTab?.id === 'hit-ratio' 
+      {/* Chart content area - flex-1 to fill remaining space */}
+      <div className="flex-1 flex flex-col">
+        {chartData.length > 0 ? (
+          <>
+            <ResponsiveContainer width="100%" height={chartHeight}>
+              <PieChart>
+                <Pie
+                  data={chartData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={renderLabel}
+                  outerRadius={outerRadius}
+                  fill="#8884d8"
+                  dataKey="value"
+                  animationBegin={0}
+                  animationDuration={400}
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={
+                        currentTab?.id === 'hit-ratio' 
+                          ? (index === 0 ? '#10b981' : '#f59e0b')
+                          : CHART_COLORS[index % CHART_COLORS.length]
+                      } 
+                    />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            
+            {/* Legend */}
+            <div className="mt-4 flex flex-wrap justify-center gap-3">
+              {chartData.map((entry, index) => (
+                <div key={entry.name} className="flex items-center space-x-2 animated-badge">
+                  <div 
+                    className="w-3 h-3 rounded"
+                    style={{ 
+                      backgroundColor: currentTab?.id === 'hit-ratio' 
                         ? (index === 0 ? '#10b981' : '#f59e0b')
                         : CHART_COLORS[index % CHART_COLORS.length]
-                    } 
+                    }}
                   />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-          
-          {/* Legend */}
-          <div className="mt-4 flex flex-wrap justify-center gap-3">
-            {chartData.map((entry, index) => (
-              <div key={entry.name} className="flex items-center space-x-2">
-                <div 
-                  className="w-3 h-3 rounded"
-                  style={{ 
-                    backgroundColor: currentTab?.id === 'hit-ratio' 
-                      ? (index === 0 ? '#10b981' : '#f59e0b')
-                      : CHART_COLORS[index % CHART_COLORS.length]
-                  }}
-                />
-                <span className="text-xs text-gray-400">
-                  {entry.name}: {formatBytes(entry.value)}
-                </span>
-              </div>
-            ))}
-          </div>
+                  <span className="text-xs text-gray-400">
+                    {entry.name}: {formatBytes(entry.value)}
+                  </span>
+                </div>
+              ))}
+            </div>
 
-          {/* Additional stats for specific tabs */}
-          {currentTab?.id === 'hit-ratio' && (
-            <div className="mt-4 pt-4 border-t border-gray-700">
-              <div className="text-center">
-                <p className="text-2xl font-bold text-green-400 transition-all duration-500">
-                  {formatPercent(overallStats.hitRate)}
-                </p>
-                <p className="text-xs text-gray-500">Overall Cache Hit Rate</p>
-                <p className="text-sm text-gray-400 mt-1">
-                  Saved {formatBytes(overallStats.totalSaved)} of bandwidth
-                </p>
+            {/* Additional stats for specific tabs */}
+            {currentTab?.id === 'hit-ratio' && (
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-green-400 transition-all duration-500 smooth-number">
+                    {formatPercent(overallStats.hitRate)}
+                  </p>
+                  <p className="text-xs text-gray-500">Overall Cache Hit Rate</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Saved {formatBytes(overallStats.totalSaved)} of bandwidth
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
-          
-          {/* Additional context for bandwidth saved */}
-          {currentTab?.id === 'bandwidth' && (
-            <div className="mt-4 pt-4 border-t border-gray-700">
-              <div className="text-center">
-                <p className="text-xs text-gray-500">
-                  Internet bandwidth saved by serving from cache
-                </p>
-                <p className="text-sm text-gray-400 mt-1">
-                  Total saved: {formatBytes(overallStats.totalSaved)}
-                </p>
+            )}
+            
+            {/* Additional context for bandwidth saved */}
+            {currentTab?.id === 'bandwidth' && (
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500">
+                    Internet bandwidth saved by serving from cache
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1 smooth-number">
+                    Total saved: {formatBytes(overallStats.totalSaved)}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
-          
-          {/* Additional context for service distribution */}
-          {currentTab?.id === 'service' && (
-            <div className="mt-4 pt-4 border-t border-gray-700">
-              <div className="text-center">
-                <p className="text-xs text-gray-500">
-                  Total data transferred (hits + misses)
-                </p>
-                <p className="text-sm text-gray-400 mt-1">
-                  Total: {formatBytes(chartData.reduce((sum, d) => sum + d.value, 0))}
-                </p>
+            )}
+            
+            {/* Additional context for service distribution */}
+            {currentTab?.id === 'service' && (
+              <div className="mt-4 pt-4 border-t border-gray-700">
+                <div className="text-center">
+                  <p className="text-xs text-gray-500">
+                    Total data transferred (hits + misses)
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1 smooth-number">
+                    Total: {formatBytes(chartData.reduce((sum, d) => sum + d.value, 0))}
+                  </p>
+                </div>
               </div>
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="flex items-center justify-center" style={{ height: chartHeight }}>
-          <p className="text-gray-500">No data available for selected time range</p>
-        </div>
-      )}
+            )}
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-gray-500">No data available for selected time range</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }, (prevProps, nextProps) => {

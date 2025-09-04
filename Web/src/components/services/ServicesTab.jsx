@@ -1,48 +1,63 @@
 import React from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
+import './services-animations.css';
 
 const ServicesTab = () => {
   const { serviceStats } = useData();
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 services-grid">
         {serviceStats.map((service, idx) => (
-          <div key={idx} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+          <div key={idx} className="bg-gray-800 rounded-lg p-6 border border-gray-700 service-card animated-border">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold capitalize">{service.service}</h3>
-              <span className="px-2 py-1 bg-blue-900 text-blue-300 rounded text-xs">
+              <h3 className="text-lg font-semibold capitalize service-title">{service.service}</h3>
+              <span className="px-2 py-1 bg-blue-900 text-blue-300 rounded text-xs download-badge">
                 {service.totalDownloads} downloads
               </span>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-3 stats-section">
               <div>
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">Total Data</span>
-                  <span className="text-white font-medium">{formatBytes(service.totalBytes)}</span>
+                  <span className="text-gray-400 data-label">Total Data</span>
+                  <span className="text-white font-medium data-value smooth-transition">{formatBytes(service.totalBytes)}</span>
                 </div>
               </div>
               <div>
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-400">Cache Hit Rate</span>
-                  <span className="text-white font-medium">{formatPercent(service.cacheHitPercent)}</span>
+                  <span className="text-gray-400 data-label">Cache Hit Rate</span>
+                  <span className={`text-white font-medium data-value smooth-transition ${
+                    service.cacheHitPercent > 75 ? 'percentage-high' :
+                    service.cacheHitPercent > 50 ? 'percentage-medium' :
+                    'percentage-low'
+                  }`}>
+                    {formatPercent(service.cacheHitPercent)}
+                  </span>
                 </div>
                 <div className="w-full bg-gray-700 rounded-full h-2">
                   <div 
-                    className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full"
+                    className="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full hit-rate-bar"
                     style={{ width: `${service.cacheHitPercent}%` }}
                   />
                 </div>
               </div>
               <div className="pt-2 border-t border-gray-700">
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-gray-400 last-activity">
                   Last Activity: {formatDateTime(service.lastActivity)}
                 </div>
               </div>
             </div>
           </div>
         ))}
+        
+        {serviceStats.length === 0 && (
+          <div className="col-span-full">
+            <div className="empty-state">
+              <p className="text-gray-500 text-center">No service data available</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

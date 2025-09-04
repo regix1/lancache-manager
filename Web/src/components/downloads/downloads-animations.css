@@ -12,6 +12,17 @@
   }
 }
 
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -38,15 +49,62 @@
   }
 }
 
-/* Download item animations */
-.download-item {
-  animation: fadeIn 0.3s ease-out;
+/* Main container animation - consistent with other tabs */
+.downloads-container {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* Header section animation */
+.downloads-header {
+  animation: slideInFromLeft 0.5s ease-out;
+  animation-delay: 0.1s;
   animation-fill-mode: both;
 }
 
+/* Controls bar animation */
+.downloads-controls {
+  animation: slideInFromLeft 0.5s ease-out;
+  animation-delay: 0.15s;
+  animation-fill-mode: both;
+}
+
+/* Downloads list container */
+.downloads-list {
+  animation: fadeIn 0.5s ease-out;
+  animation-delay: 0.2s;
+  animation-fill-mode: both;
+}
+
+/* Download item animations with stagger */
+.download-item {
+  animation: slideInFromLeft 0.3s ease-out;
+  animation-fill-mode: both;
+  transition: all 0.2s ease;
+}
+
+.download-item:nth-child(1) { animation-delay: 0.05s; }
+.download-item:nth-child(2) { animation-delay: 0.1s; }
+.download-item:nth-child(3) { animation-delay: 0.15s; }
+.download-item:nth-child(4) { animation-delay: 0.2s; }
+.download-item:nth-child(5) { animation-delay: 0.25s; }
+.download-item:nth-child(6) { animation-delay: 0.3s; }
+.download-item:nth-child(7) { animation-delay: 0.35s; }
+.download-item:nth-child(8) { animation-delay: 0.4s; }
+.download-item:nth-child(9) { animation-delay: 0.45s; }
+.download-item:nth-child(10) { animation-delay: 0.5s; }
+.download-item:nth-child(11) { animation-delay: 0.55s; }
+.download-item:nth-child(12) { animation-delay: 0.6s; }
+.download-item:nth-child(13) { animation-delay: 0.65s; }
+.download-item:nth-child(14) { animation-delay: 0.7s; }
+.download-item:nth-child(15) { animation-delay: 0.75s; }
+
+/* For items beyond 15, use a consistent delay */
+.download-item:nth-child(n+16) { animation-delay: 0.8s; }
+
+/* Row hover effect - consistent with clients tab */
 .download-item:hover {
-  transform: translateX(2px);
-  transition: transform 0.2s ease;
+  background-color: rgba(55, 65, 81, 0.3);
+  transform: translateX(4px);
 }
 
 /* Expandable content animations */
@@ -57,8 +115,12 @@
 
 /* Cache hit progress bar animation */
 .cache-hit-bar {
-  animation: progressFill 0.8s ease-out;
-  transition: width 0.3s ease;
+  animation: progressFill 1s ease-out;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.download-item:hover .cache-hit-bar {
+  filter: brightness(1.2);
 }
 
 /* Status pulse for active downloads */
@@ -76,19 +138,28 @@
   transform: rotate(90deg);
 }
 
-/* Filter dropdown animation */
-.filter-dropdown {
+/* Settings dropdown animation */
+.settings-dropdown {
   animation: fadeIn 0.2s ease-out;
+  transform-origin: top right;
 }
 
-/* Hover lift effect for cards */
-.hover-lift {
-  transition: all 0.2s ease;
+/* Empty state animation */
+.empty-state {
+  animation: fadeIn 0.5s ease-out;
+  text-align: center;
+  padding: 3rem;
 }
 
-.hover-lift:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+/* Loading state */
+.loading-indicator {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Warning banners */
+.warning-banner {
+  animation: slideInFromLeft 0.4s ease-out;
+  animation-fill-mode: both;
 }
 
 /* Button press effect */
@@ -100,7 +171,68 @@
   transform: scale(0.98);
 }
 
-/* General smooth transition utility */
+/* Hover lift effect for expandable cards */
+.hover-lift {
+  transition: all 0.2s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Data value animations */
+.data-value {
+  transition: all 0.3s ease;
+}
+
+.download-item:hover .data-value {
+  transform: scale(1.02);
+}
+
+/* Service name color transition */
+.service-name {
+  transition: all 0.2s ease;
+}
+
+.download-item:hover .service-name {
+  color: #60a5fa;
+}
+
+/* Cache values color transitions */
+.cache-hits {
+  transition: color 0.3s ease;
+}
+
+.download-item:hover .cache-hits {
+  color: #34d399;
+  filter: brightness(1.2);
+}
+
+.cache-misses {
+  transition: color 0.3s ease;
+}
+
+.download-item:hover .cache-misses {
+  color: #fbbf24;
+  filter: brightness(1.2);
+}
+
+/* Group header hover effect */
+.group-header {
+  transition: all 0.2s ease;
+}
+
+.group-header:hover {
+  background-color: rgba(55, 65, 81, 0.5);
+}
+
+/* Smooth transition utility */
 .smooth-transition {
   transition: all 0.3s ease;
+}
+
+/* Animated number transitions */
+.animated-number {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }

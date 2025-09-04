@@ -393,10 +393,9 @@ const DownloadsTab = () => {
       <div 
         key={group.id} 
         className="download-item bg-gray-900 rounded-lg border border-gray-700 hover-lift"
-        style={{ animationDelay: `${Math.random() * 0.1}s` }}
       >
         <div
-          className="p-3 md:p-4 cursor-pointer hover:bg-gray-850 smooth-transition"
+          className="p-3 md:p-4 cursor-pointer group-header smooth-transition"
           onClick={() => handleGroupClick(group.id)}
         >
           {/* Mobile: Stack vertically, Desktop: Grid */}
@@ -423,14 +422,14 @@ const DownloadsTab = () => {
                 <p className="text-xs text-gray-400 mb-1">Clients</p>
                 <div className="flex items-center gap-1">
                   <Users className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400" />
-                  <p className="text-xs sm:text-sm">{group.clientCount || 0}</p>
+                  <p className="text-xs sm:text-sm data-value animated-number">{group.clientCount || 0}</p>
                 </div>
               </div>
 
               {/* Total Size */}
               <div>
                 <p className="text-xs text-gray-400 mb-1">Total Size</p>
-                <p className={`text-xs sm:text-sm font-medium ${group.totalBytes > 0 ? 'text-white' : 'text-gray-500'}`}>
+                <p className={`text-xs sm:text-sm font-medium data-value animated-number ${group.totalBytes > 0 ? 'text-white' : 'text-gray-500'}`}>
                   {group.totalBytes > 0 ? formatBytes(group.totalBytes) : 'Metadata'}
                 </p>
               </div>
@@ -451,7 +450,7 @@ const DownloadsTab = () => {
                       style={{ width: `${cacheHitPercent}%` }}
                     />
                   </div>
-                  <span className="text-xs sm:text-sm font-medium">{formatPercent(cacheHitPercent)}</span>
+                  <span className="text-xs sm:text-sm font-medium animated-number">{formatPercent(cacheHitPercent)}</span>
                 </div>
               ) : (
                 <span className="text-xs sm:text-sm text-gray-500">N/A</span>
@@ -475,15 +474,15 @@ const DownloadsTab = () => {
             <div className="mt-3 pt-3 border-t border-gray-800 flex flex-wrap gap-3 sm:gap-6 text-xs">
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-gray-400">Saved:</span>
-                <span className="text-green-400 font-medium">{formatBytes(group.cacheHitBytes)}</span>
+                <span className="text-green-400 font-medium cache-hits animated-number">{formatBytes(group.cacheHitBytes)}</span>
               </div>
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-gray-400">Downloaded:</span>
-                <span className="text-yellow-400 font-medium">{formatBytes(group.cacheMissBytes)}</span>
+                <span className="text-yellow-400 font-medium cache-misses animated-number">{formatBytes(group.cacheMissBytes)}</span>
               </div>
               <div className="flex items-center gap-1 sm:gap-2">
                 <span className="text-gray-400">Service:</span>
-                <span className="text-blue-400">{group.service}</span>
+                <span className="text-blue-400 service-name">{group.service}</span>
               </div>
             </div>
           )}
@@ -511,14 +510,14 @@ const DownloadsTab = () => {
 
                       <div>
                         <p className="text-xs text-gray-500">Size</p>
-                        <p className={hasData ? 'text-gray-300' : 'text-gray-500'}>
+                        <p className={hasData ? 'text-gray-300 animated-number' : 'text-gray-500'}>
                           {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
                         </p>
                       </div>
 
                       <div className="hidden sm:block">
                         <p className="text-xs text-gray-500">Cache Hit</p>
-                        <p className="text-gray-300">
+                        <p className="text-gray-300 animated-number">
                           {hasData ? formatPercent(download.cacheHitPercent || 0) : 'N/A'}
                         </p>
                       </div>
@@ -555,16 +554,14 @@ const DownloadsTab = () => {
     const hasData = (download.totalBytes || 0) > 0;
     const IconComponent = downloadType.icon;
     const duration = getDownloadDuration(download.startTime, download.endTime);
-    const isNew = !animatedItems.has(download.id);
 
     return (
       <div 
         key={download.id || idx} 
         className={`download-item bg-gray-900 rounded-lg border border-gray-700 ${isSteam && hasData ? 'hover-lift' : ''}`}
-        style={{ animationDelay: isNew ? `${idx * 0.02}s` : '0s' }}
       >
         <div
-          className={`p-3 md:p-4 ${isSteam && hasData ? 'cursor-pointer hover:bg-gray-850 smooth-transition' : ''}`}
+          className={`p-3 md:p-4 ${isSteam && hasData ? 'cursor-pointer smooth-transition' : ''}`}
           onClick={() => handleDownloadClick(download)}
         >
           {/* Mobile: Stack layout, Desktop: Grid */}
@@ -578,7 +575,7 @@ const DownloadsTab = () => {
                     <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
                   </div>
                 )}
-                <p className="text-xs sm:text-sm font-medium text-blue-400">{download.service}</p>
+                <p className="text-xs sm:text-sm font-medium text-blue-400 service-name">{download.service}</p>
                 <IconComponent className={`w-4 h-4 flex-shrink-0 ${downloadType.type === 'game' ? 'text-green-400' :
                     downloadType.type === 'metadata' ? 'text-gray-500' :
                       'text-blue-400'
@@ -606,7 +603,7 @@ const DownloadsTab = () => {
               {/* Size */}
               <div>
                 <p className="text-xs text-gray-400 mb-1">Size</p>
-                <p className={`text-xs sm:text-sm ${hasData ? '' : 'text-gray-500'}`}>
+                <p className={`text-xs sm:text-sm data-value animated-number ${hasData ? '' : 'text-gray-500'}`}>
                   {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
                 </p>
               </div>
@@ -627,7 +624,7 @@ const DownloadsTab = () => {
                       style={{ width: `${download.cacheHitPercent || 0}%` }}
                     />
                   </div>
-                  <span className="text-xs sm:text-sm">{formatPercent(download.cacheHitPercent || 0)}</span>
+                  <span className="text-xs sm:text-sm animated-number">{formatPercent(download.cacheHitPercent || 0)}</span>
                 </div>
               ) : (
                 <span className="text-xs sm:text-sm text-gray-500">N/A</span>
@@ -742,15 +739,15 @@ const DownloadsTab = () => {
                   <div className="flex-grow space-y-2 sm:space-y-3">
                     <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-400">Cache Saved:</span>
-                      <span className="text-green-400">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
+                      <span className="text-green-400 cache-hits animated-number">{formatBytes(game.cacheHitBytes || download.cacheHitBytes || 0)}</span>
                     </div>
                     <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-400">Downloaded:</span>
-                      <span className="text-yellow-400">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
+                      <span className="text-yellow-400 cache-misses animated-number">{formatBytes(game.cacheMissBytes || download.cacheMissBytes || 0)}</span>
                     </div>
                     <div className="flex justify-between text-xs sm:text-sm">
                       <span className="text-gray-400">Total:</span>
-                      <span className="text-white">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
+                      <span className="text-white data-value animated-number">{formatBytes(game.totalBytes || download.totalBytes || 0)}</span>
                     </div>
 
                     {game.appId && isValidGameInfo(game) && !mockMode && (
@@ -787,11 +784,11 @@ const DownloadsTab = () => {
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-3 md:p-6 border border-gray-700">
+    <div className="bg-gray-800 rounded-lg p-3 md:p-6 border border-gray-700 downloads-container">
       {/* Header and Controls */}
       <div className="mb-4">
         {/* Title and Status - Always visible */}
-        <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center justify-between gap-2 mb-3 downloads-header">
           <h2 className="text-lg md:text-xl font-semibold flex items-center">
             All Downloads
             <span className="ml-2 hidden sm:inline">
@@ -804,7 +801,7 @@ const DownloadsTab = () => {
             {mockMode ? (
               <span className="text-yellow-400">Mock</span>
             ) : isLoadingItems ? (
-              <span className="text-blue-400 flex items-center gap-1">
+              <span className="text-blue-400 flex items-center gap-1 loading-indicator">
                 <Loader className="w-3 h-3 animate-spin" />
                 <span className="hidden sm:inline">Loading...</span>
               </span>
@@ -820,7 +817,7 @@ const DownloadsTab = () => {
         </div>
 
         {/* Controls bar */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 downloads-controls">
           {/* Service filter */}
           <select
             value={selectedService}
@@ -872,7 +869,7 @@ const DownloadsTab = () => {
                 />
 
                 {/* Dropdown menu */}
-                <div className="filter-dropdown absolute right-0 z-20 mt-2 w-64 p-4 bg-gray-700 rounded-lg border border-gray-600 shadow-xl">
+                <div className="settings-dropdown absolute right-0 z-20 mt-2 w-64 p-4 bg-gray-700 rounded-lg border border-gray-600 shadow-xl">
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm font-medium text-gray-200">Filter Settings</span>
                     <button
@@ -926,7 +923,7 @@ const DownloadsTab = () => {
 
       {/* Performance warning for large datasets */}
       {itemsPerPage === 'unlimited' && itemsToRender && itemsToRender.length > 200 && !isLoadingItems && (
-        <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-600/50 rounded-lg flex items-start gap-2">
+        <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-600/50 rounded-lg flex items-start gap-2 warning-banner">
           <AlertTriangle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />
           <div className="text-sm text-yellow-400">
             <p className="font-medium">Large dataset ({itemsToRender.length} items)</p>
@@ -939,7 +936,7 @@ const DownloadsTab = () => {
 
       {/* Loading overlay for large datasets */}
       {isLoadingItems && itemsToRender && itemsToRender.length > 100 && (
-        <div className="mb-4 p-4 bg-blue-900/20 border border-blue-600/30 rounded-lg">
+        <div className="mb-4 p-4 bg-blue-900/20 border border-blue-600/30 rounded-lg loading-indicator">
           <div className="flex items-center gap-3">
             <Loader className="w-5 h-5 animate-spin text-blue-500" />
             <div>
@@ -952,12 +949,12 @@ const DownloadsTab = () => {
         </div>
       )}
 
-      <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto">
+      <div className="space-y-3 max-h-[calc(100vh-300px)] overflow-y-auto downloads-list">
         {renderedItems.length === 0 && !isLoadingItems ? (
-          <div className="text-center py-8 text-gray-500">
+          <div className="empty-state">
             <CloudOff className="w-12 h-12 mx-auto mb-3 text-gray-600" />
-            <p>No downloads found</p>
-            <p className="text-sm mt-2">
+            <p className="text-gray-500">No downloads found</p>
+            <p className="text-sm mt-2 text-gray-500">
               {selectedService !== 'all'
                 ? `No ${selectedService} downloads`
                 : (() => {

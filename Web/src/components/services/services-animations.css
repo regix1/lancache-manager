@@ -1,0 +1,249 @@
+/* services-animations.css */
+/* Animation styles for ServicesTab component */
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes progressGrow {
+  from {
+    width: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Service card animations */
+.service-card {
+  animation: fadeInScale 0.4s ease-out;
+  animation-fill-mode: both;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.service-card:nth-child(1) { animation-delay: 0.05s; }
+.service-card:nth-child(2) { animation-delay: 0.1s; }
+.service-card:nth-child(3) { animation-delay: 0.15s; }
+.service-card:nth-child(4) { animation-delay: 0.2s; }
+.service-card:nth-child(5) { animation-delay: 0.25s; }
+.service-card:nth-child(6) { animation-delay: 0.3s; }
+.service-card:nth-child(7) { animation-delay: 0.35s; }
+.service-card:nth-child(8) { animation-delay: 0.4s; }
+.service-card:nth-child(9) { animation-delay: 0.45s; }
+
+/* Card hover effects */
+.service-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Service title animation */
+.service-title {
+  transition: all 0.3s ease;
+}
+
+.service-card:hover .service-title {
+  color: #60a5fa;
+  transform: translateX(4px);
+}
+
+/* Download count badge */
+.download-badge {
+  animation: slideUp 0.5s ease-out;
+  animation-delay: 0.3s;
+  animation-fill-mode: both;
+  transition: all 0.2s ease;
+}
+
+.service-card:hover .download-badge {
+  transform: scale(1.1);
+  background-color: rgba(29, 78, 216, 0.8);
+  box-shadow: 0 2px 8px rgba(29, 78, 216, 0.4);
+}
+
+/* Progress bar animation */
+.hit-rate-bar {
+  animation: progressGrow 1s ease-out;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.hit-rate-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  animation: shimmer 2s infinite;
+}
+
+.service-card:hover .hit-rate-bar {
+  filter: brightness(1.3);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+}
+
+/* Data value animations */
+.data-value {
+  transition: all 0.3s ease;
+}
+
+.service-card:hover .data-value {
+  transform: scale(1.05);
+  font-weight: 600;
+}
+
+/* Label animations */
+.data-label {
+  transition: all 0.2s ease;
+}
+
+.service-card:hover .data-label {
+  color: #9ca3af;
+}
+
+/* Last activity timestamp */
+.last-activity {
+  transition: all 0.3s ease;
+  opacity: 0.8;
+}
+
+.service-card:hover .last-activity {
+  opacity: 1;
+  color: #60a5fa;
+}
+
+/* Border animation on hover */
+.animated-border {
+  position: relative;
+}
+
+.animated-border::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 0.5rem;
+  padding: 1px;
+  background: linear-gradient(
+    45deg,
+    transparent,
+    rgba(59, 130, 246, 0.3),
+    transparent
+  );
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.service-card:hover .animated-border::before {
+  opacity: 1;
+}
+
+/* Stats section animation */
+.stats-section {
+  transition: all 0.3s ease;
+}
+
+.service-card:hover .stats-section {
+  background-color: rgba(55, 65, 81, 0.2);
+  padding: 0.5rem;
+  margin: -0.5rem;
+  border-radius: 0.375rem;
+}
+
+/* Empty state */
+.empty-state {
+  animation: fadeInScale 0.5s ease-out;
+  text-align: center;
+  padding: 4rem;
+}
+
+/* Loading skeleton */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(55, 65, 81, 0.5) 25%,
+    rgba(75, 85, 99, 0.5) 50%,
+    rgba(55, 65, 81, 0.5) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Percentage text color transitions */
+.percentage-high {
+  color: #10b981;
+  transition: color 0.3s ease;
+}
+
+.service-card:hover .percentage-high {
+  color: #34d399;
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+}
+
+.percentage-medium {
+  color: #3b82f6;
+  transition: color 0.3s ease;
+}
+
+.service-card:hover .percentage-medium {
+  color: #60a5fa;
+  text-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+}
+
+.percentage-low {
+  color: #f59e0b;
+  transition: color 0.3s ease;
+}
+
+.service-card:hover .percentage-low {
+  color: #fbbf24;
+  text-shadow: 0 0 8px rgba(251, 191, 36, 0.5);
+}
+
+/* Grid container responsive animation */
+.services-grid {
+  animation: fadeInScale 0.3s ease-out;
+}
+
+/* Smooth transitions for value updates */
+.smooth-transition {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}

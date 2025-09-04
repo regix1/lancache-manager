@@ -1,0 +1,214 @@
+/* clients-animations.css */
+/* Animation styles for ClientsTab component */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes progressFill {
+  from {
+    width: 0;
+  }
+}
+
+/* Main container animation */
+.clients-container {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* Table animations */
+.clients-table {
+  animation: slideInFromLeft 0.5s ease-out;
+  animation-delay: 0.1s;
+  animation-fill-mode: both;
+}
+
+/* Table header animation */
+.table-header {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Table row animations */
+.client-row {
+  animation: slideInFromLeft 0.3s ease-out;
+  animation-fill-mode: both;
+  transition: all 0.2s ease;
+}
+
+.client-row:nth-child(1) { animation-delay: 0.05s; }
+.client-row:nth-child(2) { animation-delay: 0.1s; }
+.client-row:nth-child(3) { animation-delay: 0.15s; }
+.client-row:nth-child(4) { animation-delay: 0.2s; }
+.client-row:nth-child(5) { animation-delay: 0.25s; }
+.client-row:nth-child(6) { animation-delay: 0.3s; }
+.client-row:nth-child(7) { animation-delay: 0.35s; }
+.client-row:nth-child(8) { animation-delay: 0.4s; }
+.client-row:nth-child(9) { animation-delay: 0.45s; }
+.client-row:nth-child(10) { animation-delay: 0.5s; }
+.client-row:nth-child(11) { animation-delay: 0.55s; }
+.client-row:nth-child(12) { animation-delay: 0.6s; }
+.client-row:nth-child(13) { animation-delay: 0.65s; }
+.client-row:nth-child(14) { animation-delay: 0.7s; }
+.client-row:nth-child(15) { animation-delay: 0.75s; }
+
+/* Row hover effect */
+.client-row:hover {
+  background-color: rgba(55, 65, 81, 0.3);
+  transform: translateX(4px);
+}
+
+.client-row:hover td:first-child {
+  padding-left: 20px;
+}
+
+/* Cache hit progress bar */
+.cache-hit-bar {
+  animation: progressFill 1s ease-out;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.client-row:hover .cache-hit-bar {
+  filter: brightness(1.2);
+}
+
+/* IP address highlight */
+.client-ip {
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.client-row:hover .client-ip {
+  color: #60a5fa;
+  font-weight: 500;
+}
+
+/* Data cell animations */
+.data-cell {
+  transition: all 0.3s ease;
+}
+
+.client-row:hover .data-cell {
+  transform: scale(1.02);
+}
+
+/* Percentage badge */
+.hit-rate-container {
+  transition: all 0.2s ease;
+}
+
+.hit-rate-text {
+  transition: all 0.2s ease;
+}
+
+.client-row:hover .hit-rate-text {
+  font-weight: 600;
+}
+
+/* Color transitions for values */
+.cache-hits {
+  transition: color 0.3s ease;
+}
+
+.client-row:hover .cache-hits {
+  color: #34d399;
+  filter: brightness(1.2);
+}
+
+.cache-misses {
+  transition: color 0.3s ease;
+}
+
+.client-row:hover .cache-misses {
+  color: #fbbf24;
+  filter: brightness(1.2);
+}
+
+/* Last seen timestamp */
+.last-seen {
+  transition: all 0.2s ease;
+}
+
+.client-row:hover .last-seen {
+  color: #d1d5db;
+}
+
+/* Empty state animation */
+.empty-state {
+  animation: fadeIn 0.5s ease-out;
+  text-align: center;
+  padding: 3rem;
+}
+
+/* Loading state */
+.loading-row {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.1;
+  }
+}
+
+/* Smooth number transitions */
+.animated-number {
+  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Tooltip animation */
+.tooltip-icon {
+  transition: all 0.2s ease;
+  display: inline-block;
+}
+
+.tooltip-icon:hover {
+  transform: scale(1.2);
+  color: #60a5fa;
+}
+
+/* Scroll shadow effect */
+.table-container {
+  position: relative;
+}
+
+.table-container::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(
+    to top,
+    rgba(31, 41, 55, 0.8),
+    transparent
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.table-container.scrollable::after {
+  opacity: 1;
+}
