@@ -3,12 +3,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { CHART_COLORS } from '../../utils/constants';
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 
 const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
   const { mockMode } = useData();
   const [activeTab, setActiveTab] = useState(0);
-  const [chartSize, setChartSize] = useState(100); // Percentage of default size
+  const [isExpanded, setIsExpanded] = useState(true);
 
   // Define all tabs
   const tabs = [
@@ -24,10 +24,6 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
   const handleNextTab = useCallback(() => {
     setActiveTab(prev => (prev + 1) % tabs.length);
   }, [tabs.length]);
-
-  const adjustSize = useCallback((delta) => {
-    setChartSize(prev => Math.max(60, Math.min(120, prev + delta)));
-  }, []);
 
   // Process data for Service Distribution (total data transferred)
   const getServiceDistributionData = useMemo(() => {
@@ -159,12 +155,12 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
     return null;
   }, []);
 
-  // Custom label function
+  // Custom label function - now more responsive
   const renderLabel = useCallback(({ name, value, percent, cx, cy, midAngle, innerRadius, outerRadius, index }) => {
     if (percent < 0.03) return null;
     
     const RADIAN = Math.PI / 180;
-    const radius = outerRadius * (chartSize / 100) + 25;
+    const radius = outerRadius + 20;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
     
@@ -176,15 +172,12 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
         textAnchor={x > cx ? 'start' : 'end'} 
         dominantBaseline="central"
         className="text-xs"
-        style={{ fontSize: `${Math.max(10, 12 * (chartSize / 100))}px` }}
       >
         {`${name} ${(percent * 100).toFixed(1)}%`}
       </text>
     );
-  }, [chartSize]);
+  }, []);
 
-  const chartHeight = 300 * (chartSize / 100);
-  const outerRadius = 80 * (chartSize / 100);
   const currentTab = tabs[activeTab];
 
   // Calculate overall stats
@@ -229,26 +222,18 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
           </button>
         </div>
 
-        {/* Size control */}
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => adjustSize(-10)}
-            className="p-1 hover:bg-gray-700 rounded transition-colors size-control"
-            aria-label="Decrease size"
-          >
-            <Minimize2 className="w-4 h-4 text-gray-400" />
-          </button>
-          
-          <span className="text-xs text-gray-500 smooth-transition">{chartSize}%</span>
-          
-          <button
-            onClick={() => adjustSize(10)}
-            className="p-1 hover:bg-gray-700 rounded transition-colors size-control"
-            aria-label="Increase size"
-          >
-            <Maximize2 className="w-4 h-4 text-gray-400" />
-          </button>
-        </div>
+        {/* Expand/Collapse control */}
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="p-1 hover:bg-gray-700 rounded transition-colors"
+          aria-label={isExpanded ? "Collapse" : "Expand"}
+        >
+          {isExpanded ? (
+            <ChevronUp className="w-4 h-4 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-gray-400" />
+          )}
+        </button>
       </div>
 
       {/* Tab indicators */}
@@ -265,107 +250,101 @@ const EnhancedServiceChart = memo(({ serviceStats, timeRange = '24h' }) => {
         ))}
       </div>
 
-      {/* Chart content area - flex-1 to fill remaining space */}
-      <div className="flex-1 flex flex-col">
-        {chartData.length > 0 ? (
-          <>
-            <ResponsiveContainer width="100%" height={chartHeight}>
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={renderLabel}
-                  outerRadius={outerRadius}
-                  fill="#8884d8"
-                  dataKey="value"
-                  animationBegin={0}
-                  animationDuration={400}
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell 
-                      key={`cell-${index}`} 
-                      fill={
-                        currentTab?.id === 'hit-ratio' 
+      {/* Chart content area - collapsible */}
+      {isExpanded && (
+        <div className="flex-1 flex flex-col">
+          {chartData.length > 0 ? (
+            <>
+              {/* Responsive container with dynamic height */}
+              <div style={{ height: '250px', width: '100%' }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={renderLabel}
+                      outerRadius={75}
+                      fill="#8884d8"
+                      dataKey="value"
+                      animationBegin={0}
+                      animationDuration={400}
+                    >
+                      {chartData.map((entry, index) => (
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={
+                            currentTab?.id === 'hit-ratio' 
+                              ? (index === 0 ? '#10b981' : '#f59e0b')
+                              : CHART_COLORS[index % CHART_COLORS.length]
+                          } 
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              
+              {/* Legend - now more compact */}
+              <div className="mt-2 flex flex-wrap justify-center gap-2">
+                {chartData.slice(0, 4).map((entry, index) => (
+                  <div key={entry.name} className="flex items-center space-x-1 animated-badge">
+                    <div 
+                      className="w-2 h-2 rounded"
+                      style={{ 
+                        backgroundColor: currentTab?.id === 'hit-ratio' 
                           ? (index === 0 ? '#10b981' : '#f59e0b')
                           : CHART_COLORS[index % CHART_COLORS.length]
-                      } 
+                      }}
                     />
-                  ))}
-                </Pie>
-                <Tooltip content={<CustomTooltip />} />
-              </PieChart>
-            </ResponsiveContainer>
-            
-            {/* Legend */}
-            <div className="mt-4 flex flex-wrap justify-center gap-3">
-              {chartData.map((entry, index) => (
-                <div key={entry.name} className="flex items-center space-x-2 animated-badge">
-                  <div 
-                    className="w-3 h-3 rounded"
-                    style={{ 
-                      backgroundColor: currentTab?.id === 'hit-ratio' 
-                        ? (index === 0 ? '#10b981' : '#f59e0b')
-                        : CHART_COLORS[index % CHART_COLORS.length]
-                    }}
-                  />
-                  <span className="text-xs text-gray-400">
-                    {entry.name}: {formatBytes(entry.value)}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Additional stats for specific tabs */}
-            {currentTab?.id === 'hit-ratio' && (
-              <div className="mt-4 pt-4 border-t border-gray-700">
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-green-400 transition-all duration-500 smooth-number">
-                    {formatPercent(overallStats.hitRate)}
-                  </p>
-                  <p className="text-xs text-gray-500">Overall Cache Hit Rate</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Saved {formatBytes(overallStats.totalSaved)} of bandwidth
-                  </p>
-                </div>
+                    <span className="text-xs text-gray-400">
+                      {entry.name}: {formatBytes(entry.value)}
+                    </span>
+                  </div>
+                ))}
+                {chartData.length > 4 && (
+                  <span className="text-xs text-gray-500">+{chartData.length - 4} more</span>
+                )}
               </div>
-            )}
-            
-            {/* Additional context for bandwidth saved */}
-            {currentTab?.id === 'bandwidth' && (
-              <div className="mt-4 pt-4 border-t border-gray-700">
-                <div className="text-center">
-                  <p className="text-xs text-gray-500">
-                    Internet bandwidth saved by serving from cache
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1 smooth-number">
+
+              {/* Additional stats for specific tabs - now more compact */}
+              {currentTab?.id === 'hit-ratio' && (
+                <div className="mt-3 pt-3 border-t border-gray-700">
+                  <div className="text-center">
+                    <p className="text-xl font-bold text-green-400 smooth-number">
+                      {formatPercent(overallStats.hitRate)}
+                    </p>
+                    <p className="text-xs text-gray-500">Overall Cache Hit Rate</p>
+                  </div>
+                </div>
+              )}
+              
+              {/* Additional context for other tabs - more compact */}
+              {currentTab?.id === 'bandwidth' && (
+                <div className="mt-3 text-center">
+                  <p className="text-xs text-gray-400 smooth-number">
                     Total saved: {formatBytes(overallStats.totalSaved)}
                   </p>
                 </div>
-              </div>
-            )}
-            
-            {/* Additional context for service distribution */}
-            {currentTab?.id === 'service' && (
-              <div className="mt-4 pt-4 border-t border-gray-700">
-                <div className="text-center">
-                  <p className="text-xs text-gray-500">
-                    Total data transferred (hits + misses)
-                  </p>
-                  <p className="text-sm text-gray-400 mt-1 smooth-number">
+              )}
+              
+              {currentTab?.id === 'service' && (
+                <div className="mt-3 text-center">
+                  <p className="text-xs text-gray-400 smooth-number">
                     Total: {formatBytes(chartData.reduce((sum, d) => sum + d.value, 0))}
                   </p>
                 </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <p className="text-gray-500">No data available for selected time range</p>
-          </div>
-        )}
-      </div>
+              )}
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="text-gray-500">No data available for selected time range</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }, (prevProps, nextProps) => {
