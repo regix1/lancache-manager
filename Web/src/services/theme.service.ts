@@ -99,7 +99,7 @@ class ThemeService {
     
     let apiThemes: Theme[] = [];
     try {
-      const response = await fetch(`${API_BASE}/themes`);
+      const response = await fetch(`${API_BASE}/theme`);  // Changed from /themes to /theme
       if (response.ok) {
         const themeList = await response.json();
         // Parse TOML themes from API
