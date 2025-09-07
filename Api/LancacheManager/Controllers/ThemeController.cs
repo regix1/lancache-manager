@@ -16,7 +16,7 @@ public class ThemeController : ControllerBase
     public ThemeController(IConfiguration configuration, ILogger<ThemeController> logger)
     {
         _logger = logger;
-
+        
         _themesPath = Path.Combine("/data", "themes");
 
         // Ensure themes directory exists
@@ -262,83 +262,110 @@ public class ThemeController : ControllerBase
     [RequireAuth]
     public IActionResult DeleteTheme(string id)
     {
-        _logger.LogInformation($"Delete theme request received for ID: '{id}' from {HttpContext.Connection.RemoteIpAddress}");
-        
         // Sanitize ID
         id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
 
+        // Define system themes that cannot be deleted (removed high-contrast)
         var systemThemes = new[] { "dark-default", "light-default" };
+
+        // Prevent deletion of system themes
         if (systemThemes.Contains(id))
         {
-            return BadRequest(new { error = "Cannot delete system themes" });
+            return BadRequest(new { error = "Cannot delete system themes. These are built-in themes required for the application." });
         }
 
         try
         {
-            var deleted = false;
-            var deletedFiles = new List<string>();
-
-            // Get all theme files
-            var themeFiles = Directory.GetFiles(_themesPath, "*.toml")
-                .Concat(Directory.GetFiles(_themesPath, "*.json"))
-                .ToArray();
-
-            // Try exact match first
+            // Check for both TOML and JSON files
             var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
             var jsonPath = Path.Combine(_themesPath, $"{id}.json");
+            var deleted = false;
 
             if (System.IO.File.Exists(tomlPath))
             {
                 System.IO.File.Delete(tomlPath);
-                deletedFiles.Add(Path.GetFileName(tomlPath));
                 deleted = true;
+                _logger.LogInformation($"Deleted TOML theme: {id}");
             }
             
             if (System.IO.File.Exists(jsonPath))
             {
                 System.IO.File.Delete(jsonPath);
-                deletedFiles.Add(Path.GetFileName(jsonPath));
                 deleted = true;
+                _logger.LogInformation($"Deleted JSON theme: {id}");
             }
-
-            // If not found, try to find partial matches (be careful with this)
+            
             if (!deleted)
             {
-                // Look for files containing the ID
-                var matchingFiles = themeFiles
-                    .Where(f => Path.GetFileNameWithoutExtension(f).Contains(id, StringComparison.OrdinalIgnoreCase))
-                    .Where(f => !systemThemes.Contains(Path.GetFileNameWithoutExtension(f)))
-                    .ToList();
-
-                if (matchingFiles.Count == 1)
-                {
-                    // Only delete if there's exactly one match to avoid accidental deletions
-                    var fileToDelete = matchingFiles.First();
-                    _logger.LogWarning($"Exact match not found for '{id}', but found similar file: {Path.GetFileName(fileToDelete)}");
-                    System.IO.File.Delete(fileToDelete);
-                    deletedFiles.Add(Path.GetFileName(fileToDelete));
-                    deleted = true;
-                }
-                else if (matchingFiles.Count > 1)
-                {
-                    _logger.LogWarning($"Multiple files match '{id}': {string.Join(", ", matchingFiles.Select(Path.GetFileName))}");
-                    return BadRequest(new { error = $"Multiple themes match '{id}'. Please be more specific." });
-                }
+                // List all files for debugging
+                var files = Directory.GetFiles(_themesPath);
+                _logger.LogWarning($"Theme not found: {id}. Available files: {string.Join(", ", files.Select(Path.GetFileName))}");
+                return NotFound(new { error = "Theme not found" });
             }
 
-            if (!deleted)
-            {
-                _logger.LogWarning($"Theme not found: {id}. Available themes: {string.Join(", ", themeFiles.Select(Path.GetFileName))}");
-                return NotFound(new { error = $"Theme '{id}' not found" });
-            }
+            _logger.LogInformation($"Theme deleted: {id} by {HttpContext.Connection.RemoteIpAddress}");
 
-            _logger.LogInformation($"Theme deleted successfully. Files removed: {string.Join(", ", deletedFiles)}");
-            return Ok(new { success = true, message = $"Theme deleted successfully", deletedFiles });
+            return Ok(new { success = true, message = "Theme deleted successfully" });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Failed to delete theme {id}");
-            return StatusCode(500, new { error = $"Failed to delete theme: {ex.Message}" });
+            return StatusCode(500, new { error = "Failed to delete theme" });
+        }
+    }
+
+    [HttpPost("cleanup")]
+    [RequireAuth]
+    public IActionResult CleanupThemes()
+    {
+        var systemThemes = new[] { "dark-default", "light-default" };
+        var deletedThemes = new List<string>();
+        var errors = new List<string>();
+
+        try
+        {
+            // Get all theme files
+            var themeFiles = Directory.GetFiles(_themesPath, "*.toml")
+                .Concat(Directory.GetFiles(_themesPath, "*.json"))
+                .ToArray();
+
+            foreach (var file in themeFiles)
+            {
+                var fileName = Path.GetFileNameWithoutExtension(file);
+                
+                // Skip system themes
+                if (systemThemes.Contains(fileName))
+                {
+                    _logger.LogInformation($"Skipping system theme: {fileName}");
+                    continue;
+                }
+
+                try
+                {
+                    System.IO.File.Delete(file);
+                    deletedThemes.Add(fileName);
+                    _logger.LogInformation($"Deleted theme: {fileName}");
+                }
+                catch (Exception ex)
+                {
+                    errors.Add($"Failed to delete {fileName}: {ex.Message}");
+                    _logger.LogError(ex, $"Failed to delete theme file: {file}");
+                }
+            }
+
+            return Ok(new 
+            { 
+                success = true, 
+                message = $"Cleanup complete. Deleted {deletedThemes.Count} theme(s)",
+                deletedThemes,
+                errors,
+                remainingThemes = systemThemes
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cleanup themes");
+            return StatusCode(500, new { error = "Failed to cleanup themes", details = ex.Message });
         }
     }
 

@@ -11,6 +11,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { API_BASE } from '../../utils/constants';
+import authService from '../../services/auth.service';
 
 interface Theme {
   meta: {
@@ -690,48 +691,44 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       return;
     }
 
+    if (!window.confirm('This will DELETE all custom themes (keeping only system themes). This cannot be undone. Continue?')) {
+      return;
+    }
+
     setLoading(true);
-    let cleaned = 0;
 
     try {
-      const validThemes: Theme[] = [];
-
-      for (const theme of themes) {
-        // Skip built-in themes
-        if (['dark-default', 'light-default'].includes(theme.meta.id)) {
-          validThemes.push(theme);
-          continue;
+      // Import authService at the top of the file if not already imported
+      const authHeaders = authService.getAuthHeaders();
+      
+      // Call the cleanup endpoint to delete all non-system themes
+      const response = await fetch(`${API_BASE}/theme/cleanup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
         }
+      });
 
-        // Try to fetch the theme
-        try {
-          const response = await fetch(`${API_BASE}/theme/${theme.meta.id}`);
-          if (response.ok) {
-            validThemes.push(theme);
-          } else if (response.status === 404) {
-            cleaned++;
-            console.log(`Removing orphaned theme: ${theme.meta.id}`);
-          } else {
-            // Keep themes with other errors (might be temporary)
-            validThemes.push(theme);
-          }
-        } catch {
-          // Keep themes with network errors (might be temporary)
-          validThemes.push(theme);
-        }
+      if (!response.ok) {
+        throw new Error('Failed to cleanup themes');
       }
 
-      setThemes(validThemes);
-
-      if (cleaned > 0) {
-        setUploadSuccess(`Cleaned up ${cleaned} orphaned theme(s)`);
-        setTimeout(() => setUploadSuccess(null), 5000);
-      } else {
-        setUploadSuccess('No orphaned themes found');
-        setTimeout(() => setUploadSuccess(null), 5000);
+      const result = await response.json();
+      
+      // Reload themes to get the updated list (should only have system themes now)
+      await loadThemes();
+      
+      // If current theme was deleted, switch to default
+      const remainingThemeIds = themes.map(t => t.meta.id);
+      if (!remainingThemeIds.includes(currentTheme)) {
+        handleThemeChange('dark-default');
       }
+
+      setUploadSuccess(result.message || 'All custom themes have been deleted');
+      setTimeout(() => setUploadSuccess(null), 5000);
     } catch (error: any) {
-      setUploadError('Failed to cleanup themes');
+      setUploadError('Failed to cleanup themes: ' + error.message);
       setTimeout(() => setUploadError(null), 5000);
     } finally {
       setLoading(false);
@@ -1253,8 +1250,8 @@ content = """
               </h4>
               <div
                 className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
-                    ? 'border-purple-500 bg-purple-900 bg-opacity-20'
-                    : 'border-gray-600 hover:border-gray-500'
+                  ? 'border-purple-500 bg-purple-900 bg-opacity-20'
+                  : 'border-gray-600 hover:border-gray-500'
                   }`}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
