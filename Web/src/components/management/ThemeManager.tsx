@@ -6,12 +6,12 @@ import {
   Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component, Sparkles
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
+import authService from '../../services/auth.service';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { API_BASE } from '../../utils/constants';
-import authService from '../../services/auth.service';
 
 interface Theme {
   meta: {
@@ -655,30 +655,55 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     setLoading(true);
     try {
-      await themeService.deleteTheme(themeId);
-      await loadThemes();
+      // Make the delete request
+      const response = await fetch(`${API_BASE}/theme/${themeId}`, {
+        method: 'DELETE',
+        headers: authService.getAuthHeaders()
+      });
 
-      if (currentTheme === themeId) {
-        handleThemeChange('dark-default');
-      }
+      const result = await response.json();
 
-      setUploadSuccess(`Theme "${themeName}" deleted successfully`);
-      setTimeout(() => setUploadSuccess(null), 5000);
-    } catch (error: any) {
-      // Handle 404 specifically - remove from local list
-      if (error.message?.includes('404') || error.message?.includes('not found') || error.message?.includes('Not Found')) {
-        // Remove the theme from local state since it doesn't exist on server
-        setThemes(prev => prev.filter(t => t.meta.id !== themeId));
-        setUploadSuccess(`Theme "${themeName}" removed from list (file not found on server)`);
-        setTimeout(() => setUploadSuccess(null), 5000);
-
+      if (response.ok && result.success) {
+        // Theme was successfully deleted
+        await loadThemes();
+        
         if (currentTheme === themeId) {
           handleThemeChange('dark-default');
         }
+        
+        // Show success with details about what was deleted
+        const deletedFiles = result.filesDeleted?.join(', ') || 'theme files';
+        setUploadSuccess(`Theme "${themeName}" deleted successfully (removed: ${deletedFiles})`);
+        setTimeout(() => setUploadSuccess(null), 5000);
+      } else if (response.status === 404) {
+        // Theme file doesn't exist on server
+        setUploadError(`Theme "${themeName}" not found on server. ${result.details || ''}`);
+        
+        // Still remove from local list since it doesn't exist
+        setThemes(prev => prev.filter(t => t.meta.id !== themeId));
+        
+        if (currentTheme === themeId) {
+          handleThemeChange('dark-default');
+        }
+        
+        // Show available themes if provided
+        if (result.availableThemes) {
+          console.log('Available themes on server:', result.availableThemes);
+        }
+        
+        setTimeout(() => setUploadError(null), 10000);
       } else {
-        setUploadError(error.message);
-        setTimeout(() => setUploadError(null), 5000);
+        // Other errors (permissions, server errors, etc.)
+        const errorMsg = result.error || result.message || 'Failed to delete theme';
+        const details = result.details ? ` Details: ${result.details}` : '';
+        setUploadError(`${errorMsg}${details}`);
+        setTimeout(() => setUploadError(null), 7000);
       }
+    } catch (error: any) {
+      // Network error or other unexpected error
+      console.error('Delete request failed:', error);
+      setUploadError(`Failed to delete theme: ${error.message || 'Network error'}`);
+      setTimeout(() => setUploadError(null), 7000);
     } finally {
       setLoading(false);
     }
@@ -698,15 +723,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
 
     try {
-      // Import authService at the top of the file if not already imported
-      const authHeaders = authService.getAuthHeaders();
-      
       // Call the cleanup endpoint to delete all non-system themes
       const response = await fetch(`${API_BASE}/theme/cleanup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...authHeaders
+          ...authService.getAuthHeaders()
         }
       });
 
@@ -1055,7 +1077,7 @@ content = """
                   }}
                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
                   onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                  title="Clean up orphaned themes"
+                  title="Delete all custom themes"
                 >
                   <Sparkles className="w-4 h-4" />
                 </button>
