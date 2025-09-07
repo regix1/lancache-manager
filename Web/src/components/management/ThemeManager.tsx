@@ -3,7 +3,7 @@ import { Gamepad2 } from "lucide-react";
 import {
   Palette, Upload, Trash2, Check, Download, Eye, RefreshCw,
   Lock, Plus, EyeOff, ChevronDown, ChevronRight, Info, Save, Copy,
-  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component, Sparkles
+  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component, Sparkles, Activity
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import authService from '../../services/auth.service';
@@ -131,6 +131,20 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     iconBgYellow: '#eab308',
     iconBgCyan: '#06b6d4',
     iconBgRed: '#ef4444',
+
+    chartColor1: '#3b82f6',
+    chartColor2: '#10b981',
+    chartColor3: '#f59e0b',
+    chartColor4: '#ef4444',
+    chartColor5: '#8b5cf6',
+    chartColor6: '#06b6d4',
+    chartColor7: '#f97316',
+    chartColor8: '#ec4899',
+    chartBorderColor: '#1f2937',
+    chartGridColor: '#374151',
+    chartTextColor: '#9ca3af',
+    chartCacheHitColor: '#10b981',
+    chartCacheMissColor: '#f59e0b',
 
     customCSS: ''
   });
@@ -511,6 +525,91 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           affects: ['Error icons', 'Critical indicators']
         }
       ]
+    },
+    {
+      name: 'charts',
+      icon: Activity,
+      description: 'Colors for data visualization and charts',
+      colors: [
+        {
+          key: 'chartColor1',
+          label: 'Chart Color 1',
+          description: 'Primary chart data color',
+          affects: ['First data series', 'Primary pie/donut slice']
+        },
+        {
+          key: 'chartColor2',
+          label: 'Chart Color 2',
+          description: 'Secondary chart data color',
+          affects: ['Second data series', 'Secondary pie/donut slice']
+        },
+        {
+          key: 'chartColor3',
+          label: 'Chart Color 3',
+          description: 'Tertiary chart data color',
+          affects: ['Third data series', 'Third pie/donut slice']
+        },
+        {
+          key: 'chartColor4',
+          label: 'Chart Color 4',
+          description: 'Quaternary chart data color',
+          affects: ['Fourth data series', 'Fourth pie/donut slice']
+        },
+        {
+          key: 'chartColor5',
+          label: 'Chart Color 5',
+          description: 'Fifth chart data color',
+          affects: ['Fifth data series', 'Fifth pie/donut slice']
+        },
+        {
+          key: 'chartColor6',
+          label: 'Chart Color 6',
+          description: 'Sixth chart data color',
+          affects: ['Sixth data series', 'Sixth pie/donut slice']
+        },
+        {
+          key: 'chartColor7',
+          label: 'Chart Color 7',
+          description: 'Seventh chart data color',
+          affects: ['Seventh data series', 'Seventh pie/donut slice']
+        },
+        {
+          key: 'chartColor8',
+          label: 'Chart Color 8',
+          description: 'Eighth chart data color',
+          affects: ['Eighth data series', 'Eighth pie/donut slice']
+        },
+        {
+          key: 'chartBorderColor',
+          label: 'Chart Border Color',
+          description: 'Border color between chart segments',
+          affects: ['Donut/pie borders', 'Bar borders']
+        },
+        {
+          key: 'chartGridColor',
+          label: 'Chart Grid Color',
+          description: 'Grid lines and axes color',
+          affects: ['Grid lines', 'Axes', 'Tick marks']
+        },
+        {
+          key: 'chartTextColor',
+          label: 'Chart Text Color',
+          description: 'Chart labels and legend text',
+          affects: ['Axis labels', 'Legend text', 'Data labels']
+        },
+        {
+          key: 'chartCacheHitColor',
+          label: 'Cache Hit Color',
+          description: 'Color for cache hit data in charts',
+          affects: ['Cache hit ratio chart', 'Hit indicators']
+        },
+        {
+          key: 'chartCacheMissColor',
+          label: 'Cache Miss Color',
+          description: 'Color for cache miss data in charts',
+          affects: ['Cache miss ratio chart', 'Miss indicators']
+        }
+      ]
     }
   ];
 
@@ -655,7 +754,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     setLoading(true);
     try {
-      // Make the delete request
       const response = await fetch(`${API_BASE}/theme/${themeId}`, {
         method: 'DELETE',
         headers: authService.getAuthHeaders()
@@ -664,43 +762,36 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        // Theme was successfully deleted
         await loadThemes();
-        
+
         if (currentTheme === themeId) {
           handleThemeChange('dark-default');
         }
-        
-        // Show success with details about what was deleted
+
         const deletedFiles = result.filesDeleted?.join(', ') || 'theme files';
         setUploadSuccess(`Theme "${themeName}" deleted successfully (removed: ${deletedFiles})`);
         setTimeout(() => setUploadSuccess(null), 5000);
       } else if (response.status === 404) {
-        // Theme file doesn't exist on server
         setUploadError(`Theme "${themeName}" not found on server. ${result.details || ''}`);
-        
-        // Still remove from local list since it doesn't exist
+
         setThemes(prev => prev.filter(t => t.meta.id !== themeId));
-        
+
         if (currentTheme === themeId) {
           handleThemeChange('dark-default');
         }
-        
-        // Show available themes if provided
+
         if (result.availableThemes) {
           console.log('Available themes on server:', result.availableThemes);
         }
-        
+
         setTimeout(() => setUploadError(null), 10000);
       } else {
-        // Other errors (permissions, server errors, etc.)
         const errorMsg = result.error || result.message || 'Failed to delete theme';
         const details = result.details ? ` Details: ${result.details}` : '';
         setUploadError(`${errorMsg}${details}`);
         setTimeout(() => setUploadError(null), 7000);
       }
     } catch (error: any) {
-      // Network error or other unexpected error
       console.error('Delete request failed:', error);
       setUploadError(`Failed to delete theme: ${error.message || 'Network error'}`);
       setTimeout(() => setUploadError(null), 7000);
@@ -723,7 +814,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
 
     try {
-      // Call the cleanup endpoint to delete all non-system themes
       const response = await fetch(`${API_BASE}/theme/cleanup`, {
         method: 'POST',
         headers: {
@@ -737,11 +827,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       }
 
       const result = await response.json();
-      
-      // Reload themes to get the updated list (should only have system themes now)
+
       await loadThemes();
-      
-      // If current theme was deleted, switch to default
+
       const remainingThemeIds = themes.map(t => t.meta.id);
       if (!remainingThemeIds.includes(currentTheme)) {
         handleThemeChange('dark-default');
@@ -782,7 +870,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       css: newTheme.customCSS ? { content: newTheme.customCSS } : undefined
     };
 
-    // Remove non-color properties from colors object
     delete theme.colors.name;
     delete theme.colors.description;
     delete theme.colors.author;
@@ -803,27 +890,31 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setCurrentTheme(theme.meta.id);
       setCreateModalOpen(false);
 
-      // Reset form
       setNewTheme({
         name: '',
         description: '',
         author: '',
         version: '1.0.0',
         isDark: true,
+
         primaryColor: '#3b82f6',
         secondaryColor: '#8b5cf6',
         accentColor: '#06b6d4',
+
         bgPrimary: '#111827',
         bgSecondary: '#1f2937',
         bgTertiary: '#374151',
         bgHover: '#4b5563',
+
         textPrimary: '#ffffff',
         textSecondary: '#d1d5db',
         textMuted: '#9ca3af',
         textAccent: '#60a5fa',
+
         borderPrimary: '#374151',
         borderSecondary: '#4b5563',
         borderFocus: '#3b82f6',
+
         success: '#10b981',
         successBg: '#064e3b',
         successText: '#34d399',
@@ -836,12 +927,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         info: '#3b82f6',
         infoBg: '#1e3a8a',
         infoText: '#93c5fd',
+
         steamColor: '#1e40af',
         epicColor: '#7c3aed',
         originColor: '#ea580c',
         blizzardColor: '#0891b2',
         wsusColor: '#16a34a',
         riotColor: '#dc2626',
+
         cardBg: '#1f2937',
         cardBorder: '#374151',
         buttonBg: '#3b82f6',
@@ -854,6 +947,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         badgeText: '#ffffff',
         progressBar: '#3b82f6',
         progressBg: '#374151',
+
         iconBgBlue: '#3b82f6',
         iconBgGreen: '#10b981',
         iconBgEmerald: '#10b981',
@@ -863,6 +957,22 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         iconBgYellow: '#eab308',
         iconBgCyan: '#06b6d4',
         iconBgRed: '#ef4444',
+
+        // Chart colors
+        chartColor1: '#3b82f6',
+        chartColor2: '#10b981',
+        chartColor3: '#f59e0b',
+        chartColor4: '#ef4444',
+        chartColor5: '#8b5cf6',
+        chartColor6: '#06b6d4',
+        chartColor7: '#f97316',
+        chartColor8: '#ec4899',
+        chartBorderColor: '#1f2937',
+        chartGridColor: '#374151',
+        chartTextColor: '#9ca3af',
+        chartCacheHitColor: '#10b981',
+        chartCacheMissColor: '#f59e0b',
+
         customCSS: ''
       });
 
@@ -901,7 +1011,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         errorBg: '#7f1d1d',
         errorText: '#fca5a5',
         infoBg: '#1e3a8a',
-        infoText: '#93c5fd'
+        infoText: '#93c5fd',
+        chartBorderColor: '#1f2937',
+        chartGridColor: '#374151',
+        chartTextColor: '#9ca3af'
       }));
     } else {
       setNewTheme((prev: any) => ({
@@ -928,7 +1041,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         errorBg: '#fee2e2',
         errorText: '#991b1b',
         infoBg: '#dbeafe',
-        infoText: '#1e40af'
+        infoText: '#1e40af',
+        chartBorderColor: '#e5e7eb',
+        chartGridColor: '#d1d5db',
+        chartTextColor: '#6b7280'
       }));
     }
   };
@@ -1023,6 +1139,21 @@ iconBgOrange = "#f97316"
 iconBgYellow = "#eab308"
 iconBgCyan = "#06b6d4"
 iconBgRed = "#ef4444"
+
+# Chart colors
+chartColor1 = "#3b82f6"
+chartColor2 = "#10b981"
+chartColor3 = "#f59e0b"
+chartColor4 = "#ef4444"
+chartColor5 = "#8b5cf6"
+chartColor6 = "#06b6d4"
+chartColor7 = "#f97316"
+chartColor8 = "#ec4899"
+chartBorderColor = "#1f2937"
+chartGridColor = "#374151"
+chartTextColor = "#9ca3af"
+chartCacheHitColor = "#10b981"
+chartCacheMissColor = "#f59e0b"
 
 [css]
 content = """
