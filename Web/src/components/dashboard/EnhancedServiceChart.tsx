@@ -1,11 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import * as Recharts from 'recharts';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters';
 import { CHART_COLORS } from '../../utils/constants';
 import { Card } from '../ui/Card';
-
-const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } = Recharts;
+import Chart from 'chart.js/auto';
 
 interface EnhancedServiceChartProps {
   serviceStats: any[];
@@ -17,6 +15,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100);
+  const chartRef = useRef<HTMLCanvasElement>(null);
+  const chartInstance = useRef<Chart | null>(null);
 
   const tabs = [
     { name: 'Service Distribution', id: 'service' },
@@ -25,31 +25,40 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
   ];
 
   const getServiceDistributionData = useMemo(() => {
-    if (!serviceStats || serviceStats.length === 0) return [];
+    if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
     
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
-    if (totalBytes === 0) return [];
+    if (totalBytes === 0) return { labels: [], data: [], colors: [] };
     
-    return serviceStats.map(s => ({
-      name: s.service,
-      value: s.totalBytes,
-      percentage: (s.totalBytes / totalBytes) * 100
-    })).sort((a, b) => b.value - a.value);
+    const sorted = serviceStats
+      .map(s => ({
+        name: s.service,
+        value: s.totalBytes,
+        percentage: (s.totalBytes / totalBytes) * 100
+      }))
+      .sort((a, b) => b.value - a.value);
+    
+    return {
+      labels: sorted.map(s => s.name),
+      data: sorted.map(s => s.value),
+      colors: sorted.map((_, i) => CHART_COLORS[i % CHART_COLORS.length])
+    };
   }, [serviceStats]);
 
   const getCacheHitRatioData = useMemo(() => {
-    if (!serviceStats || serviceStats.length === 0) return [];
+    if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
     
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
     const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
     const total = totalHits + totalMisses;
     
-    if (total === 0) return [];
+    if (total === 0) return { labels: [], data: [], colors: [] };
     
-    return [
-      { name: 'Cache Hits', value: totalHits, percentage: (totalHits / total) * 100 },
-      { name: 'Cache Misses', value: totalMisses, percentage: (totalMisses / total) * 100 }
-    ];
+    return {
+      labels: ['Cache Hits', 'Cache Misses'],
+      data: [totalHits, totalMisses],
+      colors: ['#10b981', '#f59e0b']
+    };
   }, [serviceStats]);
 
   const chartData = useMemo(() => {
@@ -65,19 +74,56 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
     }
   }, [activeTab, getServiceDistributionData, getCacheHitRatioData]);
 
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload[0]) {
-      const data = payload[0].payload;
-      return (
-        <div className="bg-gray-800 p-3 rounded-lg border border-gray-600 shadow-lg">
-          <p className="text-white font-medium">{data.name}</p>
-          <p className="text-gray-300">{formatBytes(data.value)}</p>
-          <p className="text-gray-400">{data.percentage.toFixed(1)}%</p>
-        </div>
-      );
+  useEffect(() => {
+    if (!chartRef.current || chartData.labels.length === 0) return;
+
+    // Destroy existing chart
+    if (chartInstance.current) {
+      chartInstance.current.destroy();
     }
-    return null;
-  };
+
+    // Create new chart
+    const ctx = chartRef.current.getContext('2d');
+    if (!ctx) return;
+
+    chartInstance.current = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: chartData.labels,
+        datasets: [{
+          data: chartData.data,
+          backgroundColor: chartData.colors,
+          borderColor: '#1f2937',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            callbacks: {
+              label: (context) => {
+                const value = context.raw as number;
+                const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number;
+                const percentage = ((value / total) * 100).toFixed(1);
+                return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return () => {
+      if (chartInstance.current) {
+        chartInstance.current.destroy();
+      }
+    };
+  }, [chartData, chartSize]);
 
   return (
     <Card padding="none">
@@ -138,49 +184,35 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
       </div>
 
       <div className="px-6 pb-6">
-        {chartData.length > 0 ? (
+        {chartData.labels.length > 0 ? (
           <>
-            <div style={{ height: `${200 + (chartSize - 100) * 2}px` }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={chartData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={65 + (chartSize - 100) * 0.3}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {chartData.map((_, index) => (
-                      <Cell 
-                        key={`cell-${index}`} 
-                        fill={tabs[activeTab]?.id === 'hit-ratio' 
-                          ? (index === 0 ? '#10b981' : '#f59e0b')
-                          : CHART_COLORS[index % CHART_COLORS.length]
-                        } 
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<CustomTooltip />} />
-                </PieChart>
-              </ResponsiveContainer>
+            <div className="flex justify-center" style={{ height: `${200 + (chartSize - 100) * 2}px` }}>
+              <canvas 
+                ref={chartRef}
+                style={{ 
+                  maxHeight: '100%',
+                  maxWidth: '100%'
+                }}
+              />
             </div>
 
             <div className="mt-4 flex flex-wrap justify-center gap-3">
-              {chartData.map((entry, index) => (
-                <div key={entry.name} className="flex items-center space-x-1">
-                  <div 
-                    className="w-3 h-3 rounded"
-                    style={{ 
-                      backgroundColor: tabs[activeTab]?.id === 'hit-ratio' 
-                        ? (index === 0 ? '#10b981' : '#f59e0b')
-                        : CHART_COLORS[index % CHART_COLORS.length]
-                    }}
-                  />
-                  <span className="text-xs text-gray-400">{entry.name}:</span>
-                  <span className="text-xs text-white font-medium">{entry.percentage.toFixed(1)}%</span>
-                </div>
-              ))}
+              {chartData.labels.map((label, index) => {
+                const value = chartData.data[index];
+                const total = chartData.data.reduce((a, b) => a + b, 0);
+                const percentage = ((value / total) * 100).toFixed(1);
+                
+                return (
+                  <div key={label} className="flex items-center space-x-1">
+                    <div 
+                      className="w-3 h-3 rounded"
+                      style={{ backgroundColor: chartData.colors[index] }}
+                    />
+                    <span className="text-xs text-gray-400">{label}:</span>
+                    <span className="text-xs text-white font-medium">{percentage}%</span>
+                  </div>
+                );
+              })}
             </div>
           </>
         ) : (
