@@ -71,6 +71,21 @@ interface ThemeColors {
   iconBgYellow?: string;
   iconBgCyan?: string;
   iconBgRed?: string;
+  
+  // Chart colors
+  chartColor1?: string;
+  chartColor2?: string;
+  chartColor3?: string;
+  chartColor4?: string;
+  chartColor5?: string;
+  chartColor6?: string;
+  chartColor7?: string;
+  chartColor8?: string;
+  chartBorderColor?: string;
+  chartGridColor?: string;
+  chartTextColor?: string;
+  chartCacheHitColor?: string;
+  chartCacheMissColor?: string;
 }
 
 interface ThemeMeta {
@@ -245,7 +260,22 @@ class ThemeService {
           iconBgOrange: '#f97316',
           iconBgYellow: '#eab308',
           iconBgCyan: '#06b6d4',
-          iconBgRed: '#ef4444'
+          iconBgRed: '#ef4444',
+          
+          // Chart colors
+          chartColor1: '#3b82f6',
+          chartColor2: '#10b981',
+          chartColor3: '#f59e0b',
+          chartColor4: '#ef4444',
+          chartColor5: '#8b5cf6',
+          chartColor6: '#06b6d4',
+          chartColor7: '#f97316',
+          chartColor8: '#ec4899',
+          chartBorderColor: '#1f2937',
+          chartGridColor: '#374151',
+          chartTextColor: '#9ca3af',
+          chartCacheHitColor: '#10b981',
+          chartCacheMissColor: '#f59e0b'
         }
       },
       {
@@ -310,7 +340,20 @@ class ThemeService {
           iconBgOrange: '#f97316',
           iconBgYellow: '#eab308',
           iconBgCyan: '#06b6d4',
-          iconBgRed: '#ef4444'
+          iconBgRed: '#ef4444',
+          chartColor1: '#3b82f6',
+          chartColor2: '#10b981',
+          chartColor3: '#f59e0b',
+          chartColor4: '#ef4444',
+          chartColor5: '#8b5cf6',
+          chartColor6: '#06b6d4',
+          chartColor7: '#f97316',
+          chartColor8: '#ec4899',
+          chartBorderColor: '#e5e7eb',
+          chartGridColor: '#d1d5db',
+          chartTextColor: '#6b7280',
+          chartCacheHitColor: '#10b981',
+          chartCacheMissColor: '#f59e0b'
         }
       }
     ];
@@ -458,6 +501,19 @@ class ThemeService {
         --theme-icon-yellow: #eab308;
         --theme-icon-cyan: #06b6d4;
         --theme-icon-red: #ef4444;
+        --theme-chart-1: #3b82f6;
+        --theme-chart-2: #10b981;
+        --theme-chart-3: #f59e0b;
+        --theme-chart-4: #ef4444;
+        --theme-chart-5: #8b5cf6;
+        --theme-chart-6: #06b6d4;
+        --theme-chart-7: #f97316;
+        --theme-chart-8: #ec4899;
+        --theme-chart-border: #1f2937;
+        --theme-chart-grid: #374151;
+        --theme-chart-text: #9ca3af;
+        --theme-chart-cache-hit: #10b981;
+        --theme-chart-cache-miss: #f59e0b;
       }
     `;
 
@@ -556,6 +612,21 @@ class ThemeService {
         --theme-icon-yellow: ${colors.iconBgYellow || '#eab308'};
         --theme-icon-cyan: ${colors.iconBgCyan || '#06b6d4'};
         --theme-icon-red: ${colors.iconBgRed || '#ef4444'};
+        
+        /* Chart colors */
+        --theme-chart-1: ${colors.chartColor1 || '#3b82f6'};
+        --theme-chart-2: ${colors.chartColor2 || '#10b981'};
+        --theme-chart-3: ${colors.chartColor3 || '#f59e0b'};
+        --theme-chart-4: ${colors.chartColor4 || '#ef4444'};
+        --theme-chart-5: ${colors.chartColor5 || '#8b5cf6'};
+        --theme-chart-6: ${colors.chartColor6 || '#06b6d4'};
+        --theme-chart-7: ${colors.chartColor7 || '#f97316'};
+        --theme-chart-8: ${colors.chartColor8 || '#ec4899'};
+        --theme-chart-border: ${colors.chartBorderColor || '#1f2937'};
+        --theme-chart-grid: ${colors.chartGridColor || '#374151'};
+        --theme-chart-text: ${colors.chartTextColor || '#9ca3af'};
+        --theme-chart-cache-hit: ${colors.chartCacheHitColor || '#10b981'};
+        --theme-chart-cache-miss: ${colors.chartCacheMissColor || '#f59e0b'};
       }
 
       /* Apply theme styles with proper specificity */
