@@ -262,91 +262,78 @@ public class ThemeController : ControllerBase
     [RequireAuth]
     public IActionResult DeleteTheme(string id)
     {
-        // Log the incoming request
         _logger.LogInformation($"Delete theme request received for ID: '{id}' from {HttpContext.Connection.RemoteIpAddress}");
         
         // Sanitize ID
-        var originalId = id;
         id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
-        
-        if (originalId != id)
-        {
-            _logger.LogWarning($"Theme ID was sanitized from '{originalId}' to '{id}'");
-        }
 
-        // Define system themes that cannot be deleted
         var systemThemes = new[] { "dark-default", "light-default" };
-
-        // Prevent deletion of system themes
         if (systemThemes.Contains(id))
         {
-            _logger.LogWarning($"Attempted to delete system theme: {id}");
-            return BadRequest(new { error = "Cannot delete system themes. These are built-in themes required for the application." });
+            return BadRequest(new { error = "Cannot delete system themes" });
         }
 
         try
         {
-            // Check for both TOML and JSON files
+            var deleted = false;
+            var deletedFiles = new List<string>();
+
+            // Get all theme files
+            var themeFiles = Directory.GetFiles(_themesPath, "*.toml")
+                .Concat(Directory.GetFiles(_themesPath, "*.json"))
+                .ToArray();
+
+            // Try exact match first
             var tomlPath = Path.Combine(_themesPath, $"{id}.toml");
             var jsonPath = Path.Combine(_themesPath, $"{id}.json");
-            
-            _logger.LogInformation($"Looking for theme files:");
-            _logger.LogInformation($"  TOML path: {tomlPath} - Exists: {System.IO.File.Exists(tomlPath)}");
-            _logger.LogInformation($"  JSON path: {jsonPath} - Exists: {System.IO.File.Exists(jsonPath)}");
 
-            var deleted = false;
-            
             if (System.IO.File.Exists(tomlPath))
             {
-                _logger.LogInformation($"Deleting TOML file: {tomlPath}");
                 System.IO.File.Delete(tomlPath);
+                deletedFiles.Add(Path.GetFileName(tomlPath));
                 deleted = true;
-                
-                // Verify deletion
-                if (System.IO.File.Exists(tomlPath))
-                {
-                    _logger.LogError($"File still exists after deletion attempt: {tomlPath}");
-                    return StatusCode(500, new { error = "Failed to delete theme file - file still exists" });
-                }
             }
             
             if (System.IO.File.Exists(jsonPath))
             {
-                _logger.LogInformation($"Deleting JSON file: {jsonPath}");
                 System.IO.File.Delete(jsonPath);
+                deletedFiles.Add(Path.GetFileName(jsonPath));
                 deleted = true;
-                
-                // Verify deletion
-                if (System.IO.File.Exists(jsonPath))
-                {
-                    _logger.LogError($"File still exists after deletion attempt: {jsonPath}");
-                    return StatusCode(500, new { error = "Failed to delete theme file - file still exists" });
-                }
             }
-            
+
+            // If not found, try to find partial matches (be careful with this)
             if (!deleted)
             {
-                _logger.LogWarning($"Theme not found: {id}");
-                
-                // List actual files in directory for debugging
-                var files = Directory.GetFiles(_themesPath);
-                _logger.LogInformation($"Files in themes directory: {string.Join(", ", files.Select(Path.GetFileName))}");
-                
+                // Look for files containing the ID
+                var matchingFiles = themeFiles
+                    .Where(f => Path.GetFileNameWithoutExtension(f).Contains(id, StringComparison.OrdinalIgnoreCase))
+                    .Where(f => !systemThemes.Contains(Path.GetFileNameWithoutExtension(f)))
+                    .ToList();
+
+                if (matchingFiles.Count == 1)
+                {
+                    // Only delete if there's exactly one match to avoid accidental deletions
+                    var fileToDelete = matchingFiles.First();
+                    _logger.LogWarning($"Exact match not found for '{id}', but found similar file: {Path.GetFileName(fileToDelete)}");
+                    System.IO.File.Delete(fileToDelete);
+                    deletedFiles.Add(Path.GetFileName(fileToDelete));
+                    deleted = true;
+                }
+                else if (matchingFiles.Count > 1)
+                {
+                    _logger.LogWarning($"Multiple files match '{id}': {string.Join(", ", matchingFiles.Select(Path.GetFileName))}");
+                    return BadRequest(new { error = $"Multiple themes match '{id}'. Please be more specific." });
+                }
+            }
+
+            if (!deleted)
+            {
+                _logger.LogWarning($"Theme not found: {id}. Available themes: {string.Join(", ", themeFiles.Select(Path.GetFileName))}");
                 return NotFound(new { error = $"Theme '{id}' not found" });
             }
 
-            _logger.LogInformation($"Theme successfully deleted: {id}");
-            return Ok(new { success = true, message = "Theme deleted successfully" });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            _logger.LogError(ex, $"Permission denied when deleting theme {id}");
-            return StatusCode(500, new { error = "Permission denied - cannot delete theme file" });
-        }
-        catch (IOException ex)
-        {
-            _logger.LogError(ex, $"IO error when deleting theme {id}");
-            return StatusCode(500, new { error = $"IO error: {ex.Message}" });
+            _logger.LogInformation($"Theme deleted successfully. Files removed: {string.Join(", ", deletedFiles)}");
+            return Ok(new { success = true, message = $"Theme deleted successfully", deletedFiles });
         }
         catch (Exception ex)
         {
