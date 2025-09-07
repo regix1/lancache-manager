@@ -693,6 +693,82 @@ class ThemeService {
         color: var(--theme-text-primary) !important;
       }
 
+      /* COMPREHENSIVE TAILWIND CLASS OVERRIDES */
+      
+      /* Background Colors */
+      .bg-gray-900, body { 
+        background-color: var(--theme-bg-primary) !important; 
+      }
+
+      .bg-gray-800:not(header):not(nav *):not(.bg-gray-800 nav) { 
+        background-color: var(--theme-bg-secondary) !important; 
+      }
+
+      .bg-gray-700 { 
+        background-color: var(--theme-progress-bg) !important; 
+      }
+
+      .bg-gray-600 { 
+        background-color: var(--theme-bg-hover) !important; 
+      }
+
+      /* Success/Green colors for hit rates and progress */
+      .bg-green-500 { 
+        background-color: var(--theme-chart-cache-hit) !important; 
+      }
+
+      .bg-green-900 { 
+        background-color: var(--theme-success-bg) !important; 
+      }
+
+      .text-green-300 { 
+        color: var(--theme-success-text) !important; 
+      }
+
+      .text-green-400, .text-green-500 { 
+        color: var(--theme-success-text) !important; 
+      }
+
+      /* Info/Blue colors for active states and primary elements */
+      .bg-blue-500:not([role="progressbar"]) {
+        background-color: var(--theme-primary) !important;
+      }
+
+      .bg-blue-600:not([role="progressbar"]) {
+        background-color: var(--theme-button-bg) !important;
+      }
+
+      .text-blue-400:not(nav *), .text-blue-500:not(nav *) { 
+        color: var(--theme-info-text) !important; 
+      }
+
+      /* Purple/Secondary colors */
+      .bg-purple-600 {
+        background-color: var(--theme-secondary) !important;
+      }
+
+      .bg-purple-700, .hover\\:bg-purple-700:hover {
+        background-color: var(--theme-icon-purple) !important;
+      }
+
+      /* Warning/Orange colors */
+      .text-yellow-400, .text-yellow-500 { 
+        color: var(--theme-warning-text) !important; 
+      }
+
+      .bg-orange-500 {
+        background-color: var(--theme-icon-orange) !important;
+      }
+
+      /* Error/Red colors */
+      .text-red-400, .text-red-500 { 
+        color: var(--theme-error-text) !important; 
+      }
+
+      .bg-red-500, .bg-red-600 {
+        background-color: var(--theme-error) !important;
+      }
+
       /* Navigation Specific Styles */
       .bg-gray-800 {
         background-color: var(--theme-nav-bg) !important;
@@ -731,61 +807,6 @@ class ThemeService {
         background-color: var(--theme-nav-mobile-item-hover) !important;
       }
 
-      /* Mobile active item background */
-      .bg-gray-700 {
-        background-color: var(--theme-nav-mobile-item-hover) !important;
-      }
-
-      /* Header navigation specific overrides */
-      header.bg-gray-800 {
-        background-color: var(--theme-nav-bg) !important;
-      }
-
-      header .border-gray-700 {
-        border-color: var(--theme-nav-border) !important;
-      }
-
-      /* Navigation container specific */
-      nav.hidden,
-      nav .space-x-8 {
-        /* Keep navigation structure intact */
-      }
-
-      /* Navigation button states */
-      nav button {
-        transition: all 0.2s ease !important;
-      }
-
-      nav button.border-blue-500 {
-        border-bottom-color: var(--theme-nav-tab-active-border) !important;
-        color: var(--theme-nav-tab-active) !important;
-      }
-
-      nav button.border-transparent {
-        border-bottom-color: transparent !important;
-      }
-
-      nav button.border-transparent.text-gray-400 {
-        color: var(--theme-nav-tab-inactive) !important;
-      }
-
-      nav button.border-transparent.text-gray-400:hover {
-        color: var(--theme-nav-tab-hover) !important;
-      }
-
-      /* Background overrides for other elements */
-      .bg-gray-900, body { 
-        background-color: var(--theme-bg-primary) !important; 
-      }
-
-      .bg-gray-800:not(header):not(nav *):not(.bg-gray-800 nav) { 
-        background-color: var(--theme-bg-secondary) !important; 
-      }
-
-      .bg-gray-600 { 
-        background-color: var(--theme-bg-hover) !important; 
-      }
-
       .hover\\:bg-gray-600:hover { 
         background-color: var(--theme-bg-hover) !important; 
         opacity: 0.8; 
@@ -809,28 +830,7 @@ class ThemeService {
         border-color: var(--theme-border-secondary) !important; 
       }
 
-      /* Status colors */
-      .text-green-400, .text-green-500 { 
-        color: var(--theme-success-text) !important; 
-      }
-
-      .text-yellow-400, .text-yellow-500 { 
-        color: var(--theme-warning-text) !important; 
-      }
-
-      .text-red-400, .text-red-500 { 
-        color: var(--theme-error-text) !important; 
-      }
-
-      .text-blue-400:not(nav *), .text-blue-500:not(nav *) { 
-        color: var(--theme-info-text) !important; 
-      }
-
-      /* Buttons */
-      .bg-blue-600:not([role="progressbar"]) {
-        background-color: var(--theme-button-bg) !important;
-      }
-
+      /* Button hover states */
       .hover\\:bg-blue-700:hover {
         background-color: var(--theme-button-hover) !important;
       }
@@ -854,6 +854,49 @@ class ThemeService {
       input:focus, select:focus, textarea:focus {
         border-color: var(--theme-input-focus) !important;
         outline-color: var(--theme-input-focus) !important;
+      }
+
+      /* Progress bars - high priority for hit rate displays */
+      .bg-green-500 {
+        background-color: var(--theme-chart-cache-hit) !important;
+      }
+
+      /* Tab/pagination indicators */
+      .bg-blue-500 {
+        background-color: var(--theme-primary) !important;
+      }
+
+      /* Badge combinations for hit rates */
+      .bg-green-900.text-green-300 {
+        background-color: var(--theme-success-bg) !important;
+        color: var(--theme-success-text) !important;
+      }
+
+      /* Inline badges and spans */
+      span.bg-green-900 {
+        background-color: var(--theme-success-bg) !important;
+      }
+
+      span.text-green-300 {
+        color: var(--theme-success-text) !important;
+      }
+
+      /* Progress bar containers and fills */
+      .bg-gray-700 {
+        background-color: var(--theme-progress-bg) !important;
+      }
+
+      .bg-green-500 {
+        background-color: var(--theme-chart-cache-hit) !important;
+      }
+
+      /* Management buttons and specific UI elements */
+      .bg-red-600, .hover\\:bg-red-700:hover {
+        background-color: var(--theme-error) !important;
+      }
+
+      .bg-yellow-600, .hover\\:bg-yellow-700:hover {
+        background-color: var(--theme-warning) !important;
       }
 
       /* Custom CSS if provided */
