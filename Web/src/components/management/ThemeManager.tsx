@@ -66,7 +66,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['navigation']);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
-  
+
   // Enhanced state for UI element control
   const [viewMode, setViewMode] = useState<'categories' | 'elements' | 'all'>('elements');
   const [searchTerm, setSearchTerm] = useState('');
@@ -595,7 +595,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     if (viewMode === 'elements' && selectedElement) {
       const element = uiElements.find(el => el.id === selectedElement);
       if (!element) return [];
-      
+
       if (searchTerm) {
         return element.properties.filter(prop =>
           prop.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -604,7 +604,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       }
       return element.properties;
     }
-    
+
     if (viewMode === 'categories') {
       let allColors: any[] = [];
       colorGroups.forEach(group => {
@@ -613,7 +613,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           allColors.push({ ...color, groupName: group.name });
         });
       });
-      
+
       if (searchTerm) {
         return allColors.filter(color =>
           color.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -622,7 +622,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       }
       return allColors;
     }
-    
+
     return [];
   };
 
@@ -662,7 +662,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         buttonBg: '#3b82f6'
       }
     };
-    
+
     if (presets[preset]) {
       setNewTheme((prev: any) => ({ ...prev, ...presets[preset] }));
     }
@@ -772,8 +772,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   borderColor: currentTheme === theme.meta.id && !previewTheme
                     ? 'var(--theme-primary)'
                     : previewTheme === theme.meta.id
-                    ? 'var(--theme-warning)'
-                    : 'transparent'
+                      ? 'var(--theme-warning)'
+                      : 'transparent'
                 }}
               >
                 <div className="flex-1">
@@ -845,11 +845,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               Upload Custom Theme
             </h4>
             <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                dragActive
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
                   ? 'border-purple-500 bg-purple-900 bg-opacity-20'
                   : 'border-gray-600 hover:border-gray-500'
-              }`}
+                }`}
               onDragEnter={handleDrag}
               onDragLeave={handleDrag}
               onDragOver={handleDrag}
@@ -1009,6 +1008,25 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             </div>
           </div>
 
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={quickEditMode}
+                onChange={(e) => setQuickEditMode(e.target.checked)}
+              />
+              <span className="text-sm">Quick Edit Mode</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showAdvanced}
+                onChange={(e) => setShowAdvanced(e.target.checked)}
+              />
+              <span className="text-sm">Show Advanced Options</span>
+            </label>
+          </div>
+
           {/* Search Bar */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -1042,16 +1060,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               {uiElements.map(element => {
                 const Icon = element.icon;
                 const isSelected = selectedElement === element.id;
-                
+
                 return (
                   <button
                     key={element.id}
                     onClick={() => setSelectedElement(element.id)}
-                    className={`p-3 rounded-lg border transition-all ${
-                      isSelected 
-                        ? 'border-blue-500 bg-blue-500 bg-opacity-10' 
+                    className={`p-3 rounded-lg border transition-all ${isSelected
+                        ? 'border-blue-500 bg-blue-500 bg-opacity-10'
                         : 'border-gray-600 hover:border-gray-500'
-                    }`}
+                      }`}
                   >
                     <Icon className={`w-5 h-5 mb-1 ${isSelected ? 'text-blue-400' : 'text-gray-400'}`} />
                     <div className="text-xs font-medium">{element.name}</div>
@@ -1067,9 +1084,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               <div key={prop.key} className="p-3 rounded-lg border" style={{ borderColor: 'var(--theme-border-primary)' }}>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2">
-                    <div 
+                    <div
                       className="w-10 h-10 rounded border-2 cursor-pointer"
-                      style={{ 
+                      style={{
                         backgroundColor: newTheme[prop.key],
                         borderColor: 'var(--theme-border-secondary)'
                       }}
@@ -1120,7 +1137,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             {viewMode === 'categories' && colorGroups.map(group => {
               const Icon = group.icon;
               const isExpanded = expandedGroups.includes(group.name);
-              
+
               return (
                 <div key={group.name} className="border rounded-lg"
                   style={{ borderColor: 'var(--theme-border-primary)' }}>
@@ -1148,9 +1165,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                       {group.colors.map(color => (
                         <div key={color.key} className="flex items-center gap-3">
                           <div className="flex items-center gap-2">
-                            <div 
+                            <div
                               className="w-10 h-10 rounded border-2 cursor-pointer"
-                              style={{ 
+                              style={{
                                 backgroundColor: newTheme[color.key],
                                 borderColor: 'var(--theme-border-secondary)'
                               }}
