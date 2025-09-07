@@ -1,11 +1,11 @@
-// ThemeManager.tsx - Complete Enhanced Version
-import React, { useState, useEffect, useRef, } from 'react';
+// ThemeManager.tsx - Complete Enhanced Version with Navigation Support
+import React, { useState, useEffect, useRef } from 'react';
+import { Gamepad2 } from "lucide-react";
 import {
   Palette, Upload, Trash2, Check, Download, Eye, RefreshCw,
   Lock, Plus, EyeOff, ChevronDown, ChevronRight, Info, Save, Copy,
   Sun, Moon, Layout, Type, Square,
-  Search, X, Layers,
-  Navigation, BarChart3, Hash, MousePointer, FileText, Grid, Bell, Gamepad2
+  Search, X, Layers, Navigation, BarChart3, Hash, MousePointer, FileText, Grid, Bell
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import { Alert } from '../ui/Alert';
@@ -103,6 +103,16 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     borderSecondary: '#4b5563',
     borderFocus: '#3b82f6',
 
+    // Navigation specific colors
+    navBg: '#1f2937',
+    navBorder: '#374151',
+    navTabActive: '#3b82f6',
+    navTabInactive: '#9ca3af',
+    navTabHover: '#ffffff',
+    navTabActiveBorder: '#3b82f6',
+    navMobileMenuBg: '#1f2937',
+    navMobileItemHover: '#374151',
+
     // Status colors with backgrounds and text
     success: '#10b981',
     successBg: '#064e3b',
@@ -170,7 +180,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Define UI Elements with specific properties
+  // Define UI Elements with specific properties including enhanced navigation
   const uiElements: UIElementConfig[] = [
     {
       id: 'navigation',
@@ -178,12 +188,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       description: 'Top navigation bar, tabs, and header area',
       icon: Navigation,
       properties: [
-        { key: 'bgSecondary', label: 'Navigation Background', description: 'Background color of navigation bar' },
-        { key: 'borderPrimary', label: 'Navigation Border', description: 'Border color between sections' },
-        { key: 'primaryColor', label: 'Active Tab Color', description: 'Color of active navigation tab' },
-        { key: 'textSecondary', label: 'Inactive Tab Text', description: 'Text color of inactive tabs' },
-        { key: 'textPrimary', label: 'Header Text', description: 'Main header text color' },
-        { key: 'bgHover', label: 'Tab Hover Background', description: 'Background when hovering over tabs' }
+        { key: 'navBg', label: 'Navigation Background', description: 'Background color of navigation bar' },
+        { key: 'navBorder', label: 'Navigation Border', description: 'Border color between sections' },
+        { key: 'navTabActive', label: 'Active Tab Color', description: 'Color of active navigation tab text' },
+        { key: 'navTabActiveBorder', label: 'Active Tab Border', description: 'Border color of active tab' },
+        { key: 'navTabInactive', label: 'Inactive Tab Text', description: 'Text color of inactive tabs' },
+        { key: 'navTabHover', label: 'Tab Hover Color', description: 'Text color when hovering over tabs' },
+        { key: 'navMobileMenuBg', label: 'Mobile Menu Background', description: 'Background of mobile navigation menu' },
+        { key: 'navMobileItemHover', label: 'Mobile Item Hover', description: 'Background when hovering mobile nav items' }
       ]
     },
     {
@@ -321,8 +333,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
   ];
 
-  // Color groups for category view
+  // Enhanced color groups for category view including navigation
   const colorGroups: ColorGroup[] = [
+    {
+      name: 'navigation',
+      icon: Navigation,
+      description: 'Navigation and header colors',
+      colors: [
+        { key: 'navBg', label: 'Navigation Background', description: 'Main navigation bar background', affects: ['Header', 'Navigation bar'] },
+        { key: 'navBorder', label: 'Navigation Border', description: 'Navigation section borders', affects: ['Nav borders', 'Dividers'] },
+        { key: 'navTabActive', label: 'Active Tab Color', description: 'Active tab text color', affects: ['Active nav items'] },
+        { key: 'navTabActiveBorder', label: 'Active Tab Border', description: 'Active tab border color', affects: ['Active tab underline'] },
+        { key: 'navTabInactive', label: 'Inactive Tab Color', description: 'Inactive tab text color', affects: ['Inactive nav items'] },
+        { key: 'navTabHover', label: 'Tab Hover Color', description: 'Tab hover text color', affects: ['Nav hover states'] }
+      ]
+    },
     {
       name: 'core',
       icon: Palette,
@@ -636,21 +661,27 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         bgPrimary: '#0f172a',
         bgSecondary: '#1e293b',
         cardBg: '#1e293b',
-        buttonBg: '#3b82f6'
+        buttonBg: '#3b82f6',
+        navBg: '#1e293b',
+        navTabActive: '#3b82f6'
       },
       'dark-purple': {
         primaryColor: '#8b5cf6',
         bgPrimary: '#18181b',
         bgSecondary: '#27272a',
         cardBg: '#27272a',
-        buttonBg: '#8b5cf6'
+        buttonBg: '#8b5cf6',
+        navBg: '#27272a',
+        navTabActive: '#8b5cf6'
       },
       'dark-green': {
         primaryColor: '#10b981',
         bgPrimary: '#0f172a',
         bgSecondary: '#1e293b',
         cardBg: '#1e293b',
-        buttonBg: '#10b981'
+        buttonBg: '#10b981',
+        navBg: '#1e293b',
+        navTabActive: '#10b981'
       },
       'light': {
         primaryColor: '#3b82f6',
@@ -659,7 +690,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         cardBg: '#ffffff',
         textPrimary: '#111827',
         textSecondary: '#374151',
-        buttonBg: '#3b82f6'
+        buttonBg: '#3b82f6',
+        navBg: '#f9fafb',
+        navTabActive: '#3b82f6',
+        navTabInactive: '#6b7280',
+        navTabHover: '#111827'
       }
     };
 
@@ -1199,6 +1234,18 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                               {color.description}
                             </div>
                           </div>
+                          <button
+                            onClick={() => copyColor(newTheme[color.key])}
+                            className="p-1 rounded hover:bg-opacity-50"
+                            style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                            title="Copy color"
+                          >
+                            {copiedColor === newTheme[color.key] ? (
+                              <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+                            ) : (
+                              <Copy className="w-3 h-3" style={{ color: 'var(--theme-text-muted)' }} />
+                            )}
+                          </button>
                         </div>
                       ))}
                     </div>

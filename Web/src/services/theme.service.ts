@@ -25,6 +25,16 @@ interface ThemeColors {
   borderSecondary?: string;
   borderFocus?: string;
   
+  // Navigation specific colors
+  navBg?: string;
+  navBorder?: string;
+  navTabActive?: string;
+  navTabInactive?: string;
+  navTabHover?: string;
+  navTabActiveBorder?: string;
+  navMobileMenuBg?: string;
+  navMobileItemHover?: string;
+  
   // Status colors
   success?: string;
   successBg?: string;
@@ -215,6 +225,16 @@ class ThemeService {
           borderSecondary: '#4b5563',
           borderFocus: '#3b82f6',
           
+          // Navigation
+          navBg: '#1f2937',
+          navBorder: '#374151',
+          navTabActive: '#3b82f6',
+          navTabInactive: '#9ca3af',
+          navTabHover: '#ffffff',
+          navTabActiveBorder: '#3b82f6',
+          navMobileMenuBg: '#1f2937',
+          navMobileItemHover: '#374151',
+          
           // Status colors
           success: '#10b981',
           successBg: '#064e3b',
@@ -302,6 +322,17 @@ class ThemeService {
           borderPrimary: '#e5e7eb',
           borderSecondary: '#d1d5db',
           borderFocus: '#3b82f6',
+          
+          // Navigation (light theme)
+          navBg: '#f9fafb',
+          navBorder: '#e5e7eb',
+          navTabActive: '#3b82f6',
+          navTabInactive: '#6b7280',
+          navTabHover: '#111827',
+          navTabActiveBorder: '#3b82f6',
+          navMobileMenuBg: '#f9fafb',
+          navMobileItemHover: '#e5e7eb',
+          
           success: '#10b981',
           successBg: '#d1fae5',
           successText: '#065f46',
@@ -462,6 +493,17 @@ class ThemeService {
         --theme-border-primary: #374151;
         --theme-border-secondary: #4b5563;
         --theme-border-focus: #3b82f6;
+        
+        /* Navigation Variables */
+        --theme-nav-bg: #1f2937;
+        --theme-nav-border: #374151;
+        --theme-nav-tab-active: #3b82f6;
+        --theme-nav-tab-inactive: #9ca3af;
+        --theme-nav-tab-hover: #ffffff;
+        --theme-nav-tab-active-border: #3b82f6;
+        --theme-nav-mobile-menu-bg: #1f2937;
+        --theme-nav-mobile-item-hover: #374151;
+        
         --theme-success: #10b981;
         --theme-success-bg: #064e3b;
         --theme-success-text: #34d399;
@@ -573,6 +615,17 @@ class ThemeService {
         --theme-border-primary: ${colors.borderPrimary || '#374151'};
         --theme-border-secondary: ${colors.borderSecondary || '#4b5563'};
         --theme-border-focus: ${colors.borderFocus || '#3b82f6'};
+        
+        /* Navigation CSS Variables */
+        --theme-nav-bg: ${colors.navBg || colors.bgSecondary || '#1f2937'};
+        --theme-nav-border: ${colors.navBorder || colors.borderPrimary || '#374151'};
+        --theme-nav-tab-active: ${colors.navTabActive || colors.primaryColor || '#3b82f6'};
+        --theme-nav-tab-inactive: ${colors.navTabInactive || colors.textMuted || '#9ca3af'};
+        --theme-nav-tab-hover: ${colors.navTabHover || colors.textPrimary || '#ffffff'};
+        --theme-nav-tab-active-border: ${colors.navTabActiveBorder || colors.primaryColor || '#3b82f6'};
+        --theme-nav-mobile-menu-bg: ${colors.navMobileMenuBg || colors.bgSecondary || '#1f2937'};
+        --theme-nav-mobile-item-hover: ${colors.navMobileItemHover || colors.bgTertiary || '#374151'};
+        
         --theme-success: ${colors.success || '#10b981'};
         --theme-success-bg: ${colors.successBg || '#064e3b'};
         --theme-success-text: ${colors.successText || '#34d399'};
@@ -640,42 +693,154 @@ class ThemeService {
         color: var(--theme-text-primary) !important;
       }
 
-      /* Background overrides */
-      .bg-gray-900, body { background-color: var(--theme-bg-primary) !important; }
-      .bg-gray-800 { background-color: var(--theme-bg-secondary) !important; }
-      .bg-gray-700 { background-color: var(--theme-bg-tertiary) !important; }
-      .bg-gray-600 { background-color: var(--theme-bg-hover) !important; }
-      .hover\\:bg-gray-700:hover { background-color: var(--theme-bg-hover) !important; }
-      .hover\\:bg-gray-600:hover { background-color: var(--theme-bg-hover) !important; opacity: 0.8; }
+      /* Navigation Specific Styles */
+      .bg-gray-800 {
+        background-color: var(--theme-nav-bg) !important;
+      }
+
+      .border-gray-700 {
+        border-color: var(--theme-nav-border) !important;
+      }
+
+      /* Navigation tabs - active state */
+      .border-blue-500 {
+        border-color: var(--theme-nav-tab-active-border) !important;
+      }
+
+      .text-blue-500 {
+        color: var(--theme-nav-tab-active) !important;
+      }
+
+      /* Navigation tabs - inactive state */
+      .text-gray-400 {
+        color: var(--theme-nav-tab-inactive) !important;
+      }
+
+      /* Navigation tabs - hover state */
+      .hover\\:text-white:hover {
+        color: var(--theme-nav-tab-hover) !important;
+      }
+
+      /* Mobile navigation background */
+      .md\\:hidden .bg-gray-800 {
+        background-color: var(--theme-nav-mobile-menu-bg) !important;
+      }
+
+      /* Mobile navigation item hover */
+      .hover\\:bg-gray-700:hover {
+        background-color: var(--theme-nav-mobile-item-hover) !important;
+      }
+
+      /* Mobile active item background */
+      .bg-gray-700 {
+        background-color: var(--theme-nav-mobile-item-hover) !important;
+      }
+
+      /* Header navigation specific overrides */
+      header.bg-gray-800 {
+        background-color: var(--theme-nav-bg) !important;
+      }
+
+      header .border-gray-700 {
+        border-color: var(--theme-nav-border) !important;
+      }
+
+      /* Navigation container specific */
+      nav.hidden,
+      nav .space-x-8 {
+        /* Keep navigation structure intact */
+      }
+
+      /* Navigation button states */
+      nav button {
+        transition: all 0.2s ease !important;
+      }
+
+      nav button.border-blue-500 {
+        border-bottom-color: var(--theme-nav-tab-active-border) !important;
+        color: var(--theme-nav-tab-active) !important;
+      }
+
+      nav button.border-transparent {
+        border-bottom-color: transparent !important;
+      }
+
+      nav button.border-transparent.text-gray-400 {
+        color: var(--theme-nav-tab-inactive) !important;
+      }
+
+      nav button.border-transparent.text-gray-400:hover {
+        color: var(--theme-nav-tab-hover) !important;
+      }
+
+      /* Background overrides for other elements */
+      .bg-gray-900, body { 
+        background-color: var(--theme-bg-primary) !important; 
+      }
+
+      .bg-gray-800:not(header):not(nav *):not(.bg-gray-800 nav) { 
+        background-color: var(--theme-bg-secondary) !important; 
+      }
+
+      .bg-gray-600 { 
+        background-color: var(--theme-bg-hover) !important; 
+      }
+
+      .hover\\:bg-gray-600:hover { 
+        background-color: var(--theme-bg-hover) !important; 
+        opacity: 0.8; 
+      }
 
       /* Text color overrides */
-      .text-white, .text-gray-100, .text-gray-200 { color: var(--theme-text-primary) !important; }
-      .text-gray-300, .text-gray-400 { color: var(--theme-text-secondary) !important; }
-      .text-gray-500, .text-gray-600 { color: var(--theme-text-muted) !important; }
+      .text-white, .text-gray-100, .text-gray-200 { 
+        color: var(--theme-text-primary) !important; 
+      }
+
+      .text-gray-300:not(nav *) { 
+        color: var(--theme-text-secondary) !important; 
+      }
+
+      .text-gray-500, .text-gray-600 { 
+        color: var(--theme-text-muted) !important; 
+      }
 
       /* Border overrides */
-      .border-gray-700 { border-color: var(--theme-border-primary) !important; }
-      .border-gray-600 { border-color: var(--theme-border-secondary) !important; }
+      .border-gray-600:not(nav *) { 
+        border-color: var(--theme-border-secondary) !important; 
+      }
 
       /* Status colors */
-      .text-green-400, .text-green-500 { color: var(--theme-success-text) !important; }
-      .text-yellow-400, .text-yellow-500 { color: var(--theme-warning-text) !important; }
-      .text-red-400, .text-red-500 { color: var(--theme-error-text) !important; }
-      .text-blue-400, .text-blue-500 { color: var(--theme-info-text) !important; }
+      .text-green-400, .text-green-500 { 
+        color: var(--theme-success-text) !important; 
+      }
+
+      .text-yellow-400, .text-yellow-500 { 
+        color: var(--theme-warning-text) !important; 
+      }
+
+      .text-red-400, .text-red-500 { 
+        color: var(--theme-error-text) !important; 
+      }
+
+      .text-blue-400:not(nav *), .text-blue-500:not(nav *) { 
+        color: var(--theme-info-text) !important; 
+      }
 
       /* Buttons */
       .bg-blue-600:not([role="progressbar"]) {
         background-color: var(--theme-button-bg) !important;
       }
+
       .hover\\:bg-blue-700:hover {
         background-color: var(--theme-button-hover) !important;
       }
 
       /* Cards */
-      .bg-gray-800.rounded-lg {
+      .bg-gray-800.rounded-lg:not(nav *) {
         background-color: var(--theme-card-bg) !important;
       }
-      .border.border-gray-700 {
+
+      .border.border-gray-700:not(nav *) {
         border-color: var(--theme-card-border) !important;
       }
 
@@ -685,6 +850,7 @@ class ThemeService {
         border-color: var(--theme-input-border) !important;
         color: var(--theme-text-primary) !important;
       }
+
       input:focus, select:focus, textarea:focus {
         border-color: var(--theme-input-focus) !important;
         outline-color: var(--theme-input-focus) !important;
