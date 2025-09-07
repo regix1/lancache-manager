@@ -98,15 +98,26 @@ class ThemeService {
     const builtInThemes = this.getBuiltInThemes();
     
     let apiThemes: Theme[] = [];
+    const deletedThemeIds: string[] = []; // Track themes that don't exist
+    
     try {
-      const response = await fetch(`${API_BASE}/theme`);  // Changed from /themes to /theme
+      const response = await fetch(`${API_BASE}/theme`);
       if (response.ok) {
         const themeList = await response.json();
+        
         // Parse TOML themes from API
         for (const themeInfo of themeList) {
           if (themeInfo.format === 'toml') {
             try {
               const themeResponse = await fetch(`${API_BASE}/theme/${themeInfo.id}`);
+              
+              if (themeResponse.status === 404) {
+                // Theme file doesn't exist, mark for removal
+                deletedThemeIds.push(themeInfo.id);
+                console.log(`Theme ${themeInfo.id} no longer exists on server`);
+                continue;
+              }
+              
               if (themeResponse.ok) {
                 const tomlContent = await themeResponse.text();
                 const theme = this.parseTomlTheme(tomlContent);
@@ -116,6 +127,22 @@ class ThemeService {
               }
             } catch (error) {
               console.error(`Failed to load theme ${themeInfo.id}:`, error);
+              // Don't add themes that fail to load
+            }
+          }
+        }
+        
+        // Clean up deleted themes from localStorage if they were the active theme
+        if (deletedThemeIds.length > 0) {
+          const currentThemeId = localStorage.getItem('lancache_theme');
+          if (currentThemeId && deletedThemeIds.includes(currentThemeId)) {
+            console.log(`Current theme ${currentThemeId} was deleted, resetting to default`);
+            localStorage.removeItem('lancache_theme');
+            localStorage.removeItem('lancache_theme_applied');
+            // Apply default theme
+            const darkDefault = builtInThemes.find(t => t.meta.id === 'dark-default');
+            if (darkDefault) {
+              this.applyTheme(darkDefault);
             }
           }
         }
@@ -364,7 +391,7 @@ class ThemeService {
       headers: authService.getAuthHeaders()
     });
 
-    if (!response.ok) {
+    if (!response.ok && response.status !== 404) {
       const error = await response.json().catch(() => ({ error: 'Failed to delete theme' }));
       throw new Error(error.error || 'Failed to delete theme');
     }
@@ -632,6 +659,15 @@ class ThemeService {
       const theme = await this.getTheme(savedThemeId);
       if (theme) {
         this.applyTheme(theme);
+      } else {
+        // Theme doesn't exist anymore, reset to default
+        console.log(`Saved theme ${savedThemeId} not found, resetting to default`);
+        localStorage.removeItem('lancache_theme');
+        localStorage.removeItem('lancache_theme_applied');
+        const darkDefault = await this.getTheme('dark-default');
+        if (darkDefault) {
+          this.applyTheme(darkDefault);
+        }
       }
     } else if (!themeApplied) {
       // First time user - apply dark-default theme automatically

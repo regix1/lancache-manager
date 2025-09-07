@@ -48,10 +48,7 @@ const StatTooltips: Record<string, string> = {
 const Dashboard: React.FC = () => {
   const { cacheInfo, activeDownloads, mockMode, latestDownloads, clientStats, serviceStats } = useData();
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [filteredLatestDownloads, setFilteredLatestDownloads] = useState<any[]>([]);
-  const [filteredClientStats, setFilteredClientStats] = useState<any[]>([]);
-  const [filteredServiceStats, setFilteredServiceStats] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilterOpen, setTimeFilterOpen] = useState(false);
@@ -133,42 +130,37 @@ const Dashboard: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const generateMockDashboardStats = useCallback((mockDownloads: any[], mockServiceStats: any[]): DashboardStats => {
-    const totalHits = mockServiceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
-    const totalMisses = mockServiceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
+  const generateDashboardStats = useCallback((downloads: any[], services: any[]): DashboardStats => {
+    const totalHits = services.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
+    const totalMisses = services.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
     const total = totalHits + totalMisses;
 
     return {
       totalBandwidthSaved: totalHits,
       totalAddedToCache: totalMisses,
       totalServed: total,
-      cacheHitRatio: total > 0 ? totalHits / total : 0,
+      cacheHitRatio: total > 0 ? (totalHits / total) : 0,
       activeDownloads: activeDownloads.length,
-      uniqueClients: [...new Set(mockDownloads.map(d => d.clientIp))].length,
-      topService: mockServiceStats[0]?.service || 'steam',
+      uniqueClients: [...new Set(downloads.map(d => d.clientIp))].length,
+      topService: services[0]?.service || 'steam',
       period: {
         duration: selectedTimeRange,
         bandwidthSaved: totalHits,
         addedToCache: totalMisses,
         totalServed: total,
-        hitRatio: total > 0 ? totalHits / total : 0,
-        downloads: mockDownloads.length
+        hitRatio: total > 0 ? (totalHits / total) : 0,
+        downloads: downloads.length
       }
     };
   }, [selectedTimeRange, activeDownloads]);
 
+  // Generate dashboard stats whenever data changes
   useEffect(() => {
-    if (mockMode) {
-      const mockDashboardStats = generateMockDashboardStats(latestDownloads || [], serviceStats || []);
-      setDashboardStats(mockDashboardStats);
-      setFilteredLatestDownloads(latestDownloads || []);
-      setFilteredClientStats(clientStats || []);
-      setFilteredServiceStats(serviceStats || []);
-      setLoading(false);
-    } else {
-      setLoading(false);
+    if (latestDownloads && serviceStats) {
+      const stats = generateDashboardStats(latestDownloads, serviceStats);
+      setDashboardStats(stats);
     }
-  }, [mockMode, selectedTimeRange, latestDownloads, clientStats, serviceStats, generateMockDashboardStats]);
+  }, [latestDownloads, serviceStats, generateDashboardStats]);
 
   const toggleCardVisibility = useCallback((cardKey: string) => {
     setCardVisibility((prev: CardVisibility) => ({
@@ -234,7 +226,7 @@ const Dashboard: React.FC = () => {
   const stats = useMemo(() => {
     const activeClients = [...new Set(activeDownloads.map(d => d.clientIp))].length;
     const totalActiveDownloads = activeDownloads.length;
-    const totalDownloads = filteredServiceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
+    const totalDownloads = serviceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
 
     return {
       activeClients,
@@ -244,9 +236,9 @@ const Dashboard: React.FC = () => {
       addedToCache: dashboardStats?.period?.addedToCache || 0,
       totalServed: dashboardStats?.period?.totalServed || 0,
       cacheHitRatio: dashboardStats?.period?.hitRatio || 0,
-      uniqueClients: dashboardStats?.uniqueClients || filteredClientStats.length
+      uniqueClients: dashboardStats?.uniqueClients || clientStats.length
     };
-  }, [activeDownloads, filteredServiceStats, dashboardStats, filteredClientStats]);
+  }, [activeDownloads, serviceStats, dashboardStats, clientStats]);
 
   const allStatCards = useMemo<AllStatCards>(() => ({
     totalCache: {
@@ -301,7 +293,7 @@ const Dashboard: React.FC = () => {
       key: 'activeDownloads',
       title: 'Active Downloads',
       value: stats.totalActiveDownloads,
-      subtitle: `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} in period`,
+      subtitle: `${dashboardStats?.period?.downloads || latestDownloads.length} in period`,
       icon: Download,
       color: 'orange' as const,
       visible: cardVisibility.activeDownloads
@@ -325,7 +317,7 @@ const Dashboard: React.FC = () => {
       visible: cardVisibility.cacheHitRatio,
       tooltip: StatTooltips.cacheHitRatio
     }
-  }), [cacheInfo, cardVisibility, stats, selectedTimeRange, getTimeRangeLabel, dashboardStats, filteredLatestDownloads]);
+  }), [cacheInfo, cardVisibility, stats, selectedTimeRange, getTimeRangeLabel, dashboardStats, latestDownloads]);
 
   const orderedStatCards = useMemo(() => {
     return cardOrder.map((key: string) => allStatCards[key]).filter((card: StatCardData | undefined): card is StatCardData => card !== undefined);
@@ -538,14 +530,14 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      {/* Charts Row */}
+      {/* Charts Row - Pass the actual data arrays */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EnhancedServiceChart serviceStats={filteredServiceStats} timeRange={selectedTimeRange} />
-        <RecentDownloadsPanel downloads={filteredLatestDownloads} timeRange={selectedTimeRange} />
+        <EnhancedServiceChart serviceStats={serviceStats || []} timeRange={selectedTimeRange} />
+        <RecentDownloadsPanel downloads={latestDownloads || []} timeRange={selectedTimeRange} />
       </div>
 
-      {/* Top Clients */}
-      <TopClientsTable clientStats={filteredClientStats} downloads={filteredLatestDownloads} timeRange={selectedTimeRange} />
+      {/* Top Clients - Pass the actual data arrays */}
+      <TopClientsTable clientStats={clientStats || []} downloads={latestDownloads || []} timeRange={selectedTimeRange} />
     </div>
   );
 };
