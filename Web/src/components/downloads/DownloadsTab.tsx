@@ -463,7 +463,7 @@ const DownloadsTab: React.FC = () => {
     );
   }, [expandedDownload, gameInfo, loadingGame]);
   
-  const renderVirtualItem = useCallback((item: Download | DownloadGroup, index: number) => {
+  const renderVirtualItem = useCallback((item: Download | DownloadGroup) => {
     return isDownloadGroup(item) ? renderGroup(item) : renderDownload(item);
   }, [renderGroup, renderDownload]);
   

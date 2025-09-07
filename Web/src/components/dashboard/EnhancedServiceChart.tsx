@@ -1,8 +1,7 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
-import { useData } from '../../contexts/DataContext';
-import { formatBytes, formatPercent } from '../../utils/formatters';
+import { formatBytes } from '../../utils/formatters';
 import { CHART_COLORS } from '../../utils/constants';
 import { Card } from '../ui/Card';
 
@@ -12,8 +11,7 @@ interface EnhancedServiceChartProps {
 }
 
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ 
-  serviceStats, 
-  timeRange = '24h' 
+  serviceStats
 }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100);

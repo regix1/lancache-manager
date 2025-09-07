@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Lock, Unlock, Loader, AlertCircle } from 'lucide-react';
+import { Key, Lock, Unlock, AlertCircle } from 'lucide-react';
 import authService from '../../services/auth.service';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { Modal } from '../ui/Modal';
-import { Card } from '../ui/Card';
 
 interface AuthenticationManagerProps {
   onAuthChange?: (isAuthenticated: boolean) => void;

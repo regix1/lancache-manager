@@ -9,9 +9,9 @@ interface TopClientsTableProps {
   timeRange?: string;
 }
 
+
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(({ 
   clientStats = [], 
-  downloads = [], 
   timeRange = '24h' 
 }) => {
   const timeRangeLabel = useMemo(() => {

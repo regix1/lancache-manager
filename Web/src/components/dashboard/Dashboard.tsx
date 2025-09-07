@@ -12,7 +12,6 @@ import StatCard from '../common/StatCard';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
-import ApiService from '../../services/api.service';
 
 type CardVisibility = Record<string, boolean>;
 type AllStatCards = Record<string, StatCardData>;
@@ -53,7 +52,6 @@ const Dashboard: React.FC = () => {
   const [filteredClientStats, setFilteredClientStats] = useState<any[]>([]);
   const [filteredServiceStats, setFilteredServiceStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilterOpen, setTimeFilterOpen] = useState(false);
@@ -493,19 +491,12 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Loading overlay */}
-      {loading && !isRefreshing && (
+      {loading && (
         <div className="text-center py-4">
           <div className="inline-flex items-center gap-2 text-gray-400">
             <Loader className="animate-spin h-5 w-5" />
             <span>Loading {getTimeRangeLabel(selectedTimeRange).toLowerCase()} data...</span>
           </div>
-        </div>
-      )}
-
-      {/* Refresh indicator */}
-      {isRefreshing && (
-        <div className="fixed top-4 right-4 bg-gray-800 px-3 py-1 rounded-lg border border-gray-700">
-          <span className="text-xs text-gray-400">Refreshing...</span>
         </div>
       )}
 

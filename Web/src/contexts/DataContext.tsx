@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import ApiService from '../services/api.service';
 import MockDataService from '../services/mockData.service';
-import { REFRESH_INTERVAL, MOCK_UPDATE_INTERVAL } from '../utils/constants';
+import { REFRESH_INTERVAL } from '../utils/constants';
 
 interface CacheInfo {
   totalCacheSize: number;

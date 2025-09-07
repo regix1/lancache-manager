@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Gamepad2 } from "lucide-react";
 import { 
-  Palette, Upload, Trash2, Check, X, Download, Loader, Eye, RefreshCw, 
+  Palette, Upload, Trash2, Check, Download, Eye, RefreshCw, 
   Lock, Plus, EyeOff, ChevronDown, ChevronRight, Info, Save, Copy,
-  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component,
-  Server, Gamepad2
+  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import { Alert } from '../ui/Alert';

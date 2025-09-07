@@ -9,8 +9,7 @@ import type {
   ProcessingStatus,
   ClearCacheResponse,
   Config,
-  DashboardStats,
-  ApiResponse
+  DashboardStats
 } from '../types';
 
 class ApiService {
