@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
+import * as Recharts from 'recharts';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters';
 import { CHART_COLORS } from '../../utils/constants';
 import { Card } from '../ui/Card';
+
+const { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } = Recharts;
 
 interface EnhancedServiceChartProps {
   serviceStats: any[];
