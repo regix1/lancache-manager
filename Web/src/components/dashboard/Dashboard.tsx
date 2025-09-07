@@ -46,9 +46,9 @@ const StatTooltips: Record<string, string> = {
 };
 
 const Dashboard: React.FC = () => {
-  const { cacheInfo, activeDownloads, mockMode, latestDownloads, clientStats, serviceStats } = useData();
+  const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats } = useData();
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilterOpen, setTimeFilterOpen] = useState(false);
