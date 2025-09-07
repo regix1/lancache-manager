@@ -175,10 +175,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
             const timeout = isProcessingLogs ? 30000 : 10000;
             const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
             
-            // IMPORTANT: Limit initial download count to 20 for fast first load
-            const downloadCount = isInitialLoad.current ? 20 : 
-              (apiDownloadCount === 'unlimited' ? 100 : apiDownloadCount);
-            
             if (isInitialLoad.current) {
               // Phase 1: Critical data for initial display
               const [cache, active] = await Promise.all([
