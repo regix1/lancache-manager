@@ -545,23 +545,23 @@ const DownloadsTab: React.FC = () => {
                   <Loader className="w-6 h-6 animate-spin" />
                 </div>
               ) : (
-                <div className="flex gap-4 items-start">
+                <div className="flex gap-6 items-start">
                   {game.headerImage && (
                     <div className="flex-shrink-0">
                       <img 
                         src={game.headerImage} 
                         alt={game.gameName} 
-                        className="rounded w-32 h-15 object-cover"
-                        style={{ height: '60px' }}
+                        className="rounded w-56 object-cover shadow-lg"
+                        style={{ height: '107px' }}
                       />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-base font-semibold text-white mb-2 truncate">{game.gameName}</h3>
+                    <h3 className="text-lg font-semibold text-white mb-3 truncate">{game.gameName}</h3>
                     {game.description && (
-                      <p className="text-sm text-gray-400 mb-3 line-clamp-3">
-                        {game.description.length > 150 
-                          ? `${game.description.substring(0, 150)}...` 
+                      <p className="text-sm text-gray-400 mb-4 line-clamp-3">
+                        {game.description.length > 200 
+                          ? `${game.description.substring(0, 200)}...` 
                           : game.description
                         }
                       </p>
@@ -571,9 +571,9 @@ const DownloadsTab: React.FC = () => {
                         href={`https://store.steampowered.com/app/${game.appId}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                        className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors font-medium"
                       >
-                        View on Steam <ExternalLink size={14} />
+                        View on Steam <ExternalLink size={16} />
                       </a>
                     )}
                   </div>
