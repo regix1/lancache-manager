@@ -695,6 +695,60 @@ class ThemeService {
 
       /* COMPREHENSIVE TAILWIND CLASS OVERRIDES */
       
+      /* Hit Rate Badge Combinations - Specific targeting */
+      .bg-green-900.text-green-300,
+      span.bg-green-900.text-green-300 {
+        background-color: var(--theme-hit-rate-high-bg) !important;
+        color: var(--theme-hit-rate-high-text) !important;
+      }
+
+      .bg-blue-900.text-blue-300,
+      span.bg-blue-900.text-blue-300 {
+        background-color: var(--theme-hit-rate-medium-bg) !important;
+        color: var(--theme-hit-rate-medium-text) !important;
+      }
+
+      .bg-orange-900.text-orange-300,
+      span.bg-orange-900.text-orange-300 {
+        background-color: var(--theme-hit-rate-low-bg) !important;
+        color: var(--theme-hit-rate-low-text) !important;
+      }
+
+      /* Status Warning Badge Combinations */
+      .bg-yellow-900.text-yellow-300,
+      span.bg-yellow-900.text-yellow-300 {
+        background-color: var(--theme-status-warning-bg) !important;
+        color: var(--theme-status-warning-text) !important;
+      }
+
+      /* Action Button Combinations */
+      .bg-yellow-600,
+      button.bg-yellow-600 {
+        background-color: var(--theme-action-reset-bg) !important;
+      }
+
+      .bg-yellow-600:hover,
+      .hover\\:bg-yellow-700:hover,
+      button.bg-yellow-600:hover {
+        background-color: var(--theme-action-reset-hover) !important;
+      }
+
+      .bg-green-600,
+      button.bg-green-600 {
+        background-color: var(--theme-action-process-bg) !important;
+      }
+
+      .bg-green-600:hover,
+      .hover\\:bg-green-700:hover,
+      button.bg-green-600:hover {
+        background-color: var(--theme-action-process-hover) !important;
+      }
+
+      /* Progress Bar Fills */
+      .bg-yellow-500 {
+        background-color: var(--theme-action-reset-bg) !important;
+      }
+
       /* Background Colors */
       .bg-gray-900, body { 
         background-color: var(--theme-bg-primary) !important; 

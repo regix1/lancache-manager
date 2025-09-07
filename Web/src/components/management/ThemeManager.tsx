@@ -1193,6 +1193,24 @@ navTabActiveBorder = "#3b82f6"
 navMobileMenuBg = "#1f2937"
 navMobileItemHover = "#374151"
 
+# Hit Rate & Status Badge colors
+hitRateHighBg = "#064e3b"
+hitRateHighText = "#34d399"
+hitRateMediumBg = "#1e3a8a"
+hitRateMediumText = "#93c5fd"
+hitRateLowBg = "#ea580c"
+hitRateLowText = "#fb923c"
+statusWarningBg = "#78350f"
+statusWarningText = "#fbbf24"
+
+# Action Button colors
+actionResetBg = "#f59e0b"
+actionResetHover = "#d97706"
+actionProcessBg = "#10b981"
+actionProcessHover = "#059669"
+actionDeleteBg = "#ef4444"
+actionDeleteHover = "#dc2626"
+
 # Status colors
 success = "#10b981"
 successBg = "#064e3b"
