@@ -30,7 +30,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         {children}
       </div>
       {visible && (
-        <div className={`absolute ${positionClasses[position]} z-50 px-3 py-2 text-xs bg-gray-900 text-gray-200 rounded-lg shadow-xl border border-gray-700 whitespace-nowrap`}>
+        <div className={`absolute ${positionClasses[position]} z-50 px-3 py-2 text-xs bg-gray-900 text-gray-200 rounded-lg shadow-xl border border-gray-700`}>
           {content}
         </div>
       )}
@@ -41,14 +41,15 @@ export const Tooltip: React.FC<TooltipProps> = ({
 export const CacheInfoTooltip: React.FC = () => (
   <Tooltip
     content={
-      <div className="space-y-2 max-w-xs whitespace-normal">
-        <div>
+      <div className="flex items-center gap-4 whitespace-nowrap">
+        <div className="flex items-center gap-1.5">
           <span className="text-green-400 font-medium">Cache Hits:</span>
-          <span className="text-gray-300"> Data served from local cache</span>
+          <span className="text-gray-300">Data served from local cache</span>
         </div>
-        <div>
+        <div className="w-px h-4 bg-gray-700"></div>
+        <div className="flex items-center gap-1.5">
           <span className="text-yellow-400 font-medium">Cache Misses:</span>
-          <span className="text-gray-300"> Data downloaded from internet</span>
+          <span className="text-gray-300">Data downloaded from internet</span>
         </div>
       </div>
     }

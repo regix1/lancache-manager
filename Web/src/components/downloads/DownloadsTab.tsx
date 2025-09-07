@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   ChevronRight, 
+  ChevronDown,
   Gamepad2, 
   ExternalLink, 
   Database, 
@@ -32,6 +33,104 @@ const STORAGE_KEYS = {
   GROUP_GAMES: 'lancache_downloads_group',
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small'
+};
+
+// Custom Dropdown Component
+interface DropdownOption {
+  value: string;
+  label: string;
+}
+
+interface CustomDropdownProps {
+  options: DropdownOption[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+}
+
+const CustomDropdown: React.FC<CustomDropdownProps> = ({
+  options,
+  value,
+  onChange,
+  placeholder = "Select option",
+  className = ""
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedOption = options.find(opt => opt.value === value);
+
+  const handleSelect = (optionValue: string) => {
+    onChange(optionValue);
+    setIsOpen(false);
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.custom-dropdown')) {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  // Handle keyboard navigation
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setIsOpen(!isOpen);
+    } else if (event.key === 'Escape') {
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div className={`relative custom-dropdown ${className}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={handleKeyDown}
+        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-left focus:outline-none focus:border-blue-500 hover:bg-gray-600 transition-colors flex items-center justify-between"
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+      >
+        <span className="truncate">
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronDown 
+          size={16} 
+          className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+      
+      {isOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
+          <div className="absolute right-0 top-12 z-20 bg-gray-800 border border-gray-700 rounded-lg shadow-lg min-w-full max-h-60 overflow-y-auto">
+            <div className="py-1">
+              {options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleSelect(option.value)}
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors ${
+                    option.value === value ? 'bg-gray-700 text-blue-400' : 'text-gray-300'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
 };
 
 const DownloadsTab: React.FC = () => {
@@ -79,6 +178,22 @@ const DownloadsTab: React.FC = () => {
     const services = new Set(latestDownloads.map(d => d.service.toLowerCase()));
     return Array.from(services).sort();
   }, [latestDownloads]);
+  
+  const serviceOptions = useMemo(() => [
+    { value: 'all', label: 'All Services' },
+    ...availableServices.map(s => ({ 
+      value: s, 
+      label: s.charAt(0).toUpperCase() + s.slice(1) 
+    }))
+  ], [availableServices]);
+
+  const itemsPerPageOptions = useMemo(() => [
+    { value: '20', label: '20 items' },
+    { value: '50', label: '50 items' },
+    { value: '100', label: '100 items' },
+    { value: '200', label: '200 items' },
+    { value: 'unlimited', label: 'Load All' }
+  ], []);
   
   const filteredDownloads = useMemo(() => {
     let filtered = [...latestDownloads];
@@ -430,29 +545,37 @@ const DownloadsTab: React.FC = () => {
                   <Loader className="w-6 h-6 animate-spin" />
                 </div>
               ) : (
-                <div className="grid grid-cols-12 gap-4">
+                <div className="flex gap-4 items-start">
                   {game.headerImage && (
-                    <div className="col-span-12 md:col-span-6">
-                      <img src={game.headerImage} alt={game.gameName} className="rounded-lg w-full" />
+                    <div className="flex-shrink-0">
+                      <img 
+                        src={game.headerImage} 
+                        alt={game.gameName} 
+                        className="rounded w-32 h-15 object-cover"
+                        style={{ height: '60px' }}
+                      />
                     </div>
                   )}
-                  <div className={`col-span-12 ${game.headerImage ? 'md:col-span-6' : ''}`}>
-                    <div className="space-y-3">
-                      <h3 className="text-lg font-semibold">{game.gameName}</h3>
-                      {game.description && (
-                        <p className="text-sm text-gray-400">{game.description}</p>
-                      )}
-                      {game.appId && (
-                        <a 
-                          href={`https://store.steampowered.com/app/${game.appId}`} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300"
-                        >
-                          View on Steam <ExternalLink size={14} />
-                        </a>
-                      )}
-                    </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-semibold text-white mb-2 truncate">{game.gameName}</h3>
+                    {game.description && (
+                      <p className="text-sm text-gray-400 mb-3 line-clamp-3">
+                        {game.description.length > 150 
+                          ? `${game.description.substring(0, 150)}...` 
+                          : game.description
+                        }
+                      </p>
+                    )}
+                    {game.appId && (
+                      <a 
+                        href={`https://store.steampowered.com/app/${game.appId}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        View on Steam <ExternalLink size={14} />
+                      </a>
+                    )}
                   </div>
                 </div>
               )}
@@ -472,32 +595,21 @@ const DownloadsTab: React.FC = () => {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold">Downloads</h2>
         <div className="flex items-center gap-3">
-          <select
+          <CustomDropdown
+            options={serviceOptions}
             value={settings.selectedService}
-            onChange={(e) => updateSettings({ selectedService: e.target.value })}
-            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:border-blue-500"
-          >
-            <option value="all">All Services</option>
-            {availableServices.map(s => (
-              <option key={s} value={s}>
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => updateSettings({ selectedService: value })}
+            className="min-w-[140px]"
+          />
           
-          <select
+          <CustomDropdown
+            options={itemsPerPageOptions}
             value={settings.itemsPerPage.toString()}
-            onChange={(e) => updateSettings({ 
-              itemsPerPage: e.target.value === 'unlimited' ? 'unlimited' : parseInt(e.target.value) 
+            onChange={(value) => updateSettings({ 
+              itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value) 
             })}
-            className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:border-blue-500"
-          >
-            <option value="20">20 items</option>
-            <option value="50">50 items</option>
-            <option value="100">100 items</option>
-            <option value="200">200 items</option>
-            <option value="unlimited">Load All</option>
-          </select>
+            className="min-w-[120px]"
+          />
           
           <div className="relative">
             <button
