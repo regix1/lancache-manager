@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Gamepad2 } from "lucide-react";
-import { 
-  Palette, Upload, Trash2, Check, Download, Eye, RefreshCw, 
+import {
+  Palette, Upload, Trash2, Check, Download, Eye, RefreshCw,
   Lock, Plus, EyeOff, ChevronDown, ChevronRight, Info, Save, Copy,
-  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component
+  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component, Sparkles
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
+import { API_BASE } from '../../utils/constants';
 
 interface Theme {
   meta: {
@@ -53,36 +54,36 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['core', 'backgrounds']);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
-  
+
   const [newTheme, setNewTheme] = useState<any>({
     name: '',
     description: '',
     author: '',
     version: '1.0.0',
     isDark: true,
-    
+
     // Core colors
     primaryColor: '#3b82f6',
     secondaryColor: '#8b5cf6',
     accentColor: '#06b6d4',
-    
+
     // Backgrounds
     bgPrimary: '#111827',
     bgSecondary: '#1f2937',
     bgTertiary: '#374151',
     bgHover: '#4b5563',
-    
+
     // Text
     textPrimary: '#ffffff',
     textSecondary: '#d1d5db',
     textMuted: '#9ca3af',
     textAccent: '#60a5fa',
-    
+
     // Borders
     borderPrimary: '#374151',
     borderSecondary: '#4b5563',
     borderFocus: '#3b82f6',
-    
+
     // Status colors with backgrounds and text
     success: '#10b981',
     successBg: '#064e3b',
@@ -96,7 +97,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     info: '#3b82f6',
     infoBg: '#1e3a8a',
     infoText: '#93c5fd',
-    
+
     // Service colors
     steamColor: '#1e40af',
     epicColor: '#7c3aed',
@@ -104,7 +105,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     blizzardColor: '#0891b2',
     wsusColor: '#16a34a',
     riotColor: '#dc2626',
-    
+
     // Components
     cardBg: '#1f2937',
     cardBorder: '#374151',
@@ -118,7 +119,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     badgeText: '#ffffff',
     progressBar: '#3b82f6',
     progressBg: '#374151',
-    
+
     // Icon backgrounds (solid colors)
     iconBgBlue: '#3b82f6',
     iconBgGreen: '#10b981',
@@ -129,7 +130,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     iconBgYellow: '#eab308',
     iconBgCyan: '#06b6d4',
     iconBgRed: '#ef4444',
-    
+
     customCSS: ''
   });
 
@@ -570,8 +571,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const toggleGroup = (groupName: string) => {
-    setExpandedGroups(prev => 
-      prev.includes(groupName) 
+    setExpandedGroups(prev =>
+      prev.includes(groupName)
         ? prev.filter(g => g !== groupName)
         : [...prev, groupName]
     );
@@ -636,7 +637,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   const handleDelete = async (themeId: string, themeName: string) => {
     const isSystemTheme = ['dark-default', 'light-default'].includes(themeId);
-    
+
     if (isSystemTheme) {
       setUploadError('System themes cannot be deleted');
       setTimeout(() => setUploadError(null), 5000);
@@ -663,7 +664,75 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setUploadSuccess(`Theme "${themeName}" deleted successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
     } catch (error: any) {
-      setUploadError(error.message);
+      // Handle 404 specifically - remove from local list
+      if (error.message?.includes('404') || error.message?.includes('not found') || error.message?.includes('Not Found')) {
+        // Remove the theme from local state since it doesn't exist on server
+        setThemes(prev => prev.filter(t => t.meta.id !== themeId));
+        setUploadSuccess(`Theme "${themeName}" removed from list (file not found on server)`);
+        setTimeout(() => setUploadSuccess(null), 5000);
+
+        if (currentTheme === themeId) {
+          handleThemeChange('dark-default');
+        }
+      } else {
+        setUploadError(error.message);
+        setTimeout(() => setUploadError(null), 5000);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cleanupThemes = async () => {
+    if (!isAuthenticated) {
+      setUploadError('Authentication required to clean up themes');
+      setTimeout(() => setUploadError(null), 5000);
+      return;
+    }
+
+    setLoading(true);
+    let cleaned = 0;
+
+    try {
+      const validThemes: Theme[] = [];
+
+      for (const theme of themes) {
+        // Skip built-in themes
+        if (['dark-default', 'light-default'].includes(theme.meta.id)) {
+          validThemes.push(theme);
+          continue;
+        }
+
+        // Try to fetch the theme
+        try {
+          const response = await fetch(`${API_BASE}/theme/${theme.meta.id}`);
+          if (response.ok) {
+            validThemes.push(theme);
+          } else if (response.status === 404) {
+            cleaned++;
+            console.log(`Removing orphaned theme: ${theme.meta.id}`);
+          } else {
+            // Keep themes with other errors (might be temporary)
+            validThemes.push(theme);
+          }
+        } catch {
+          // Keep themes with network errors (might be temporary)
+          validThemes.push(theme);
+        }
+      }
+
+      setThemes(validThemes);
+
+      if (cleaned > 0) {
+        setUploadSuccess(`Cleaned up ${cleaned} orphaned theme(s)`);
+        setTimeout(() => setUploadSuccess(null), 5000);
+      } else {
+        setUploadSuccess('No orphaned themes found');
+        setTimeout(() => setUploadSuccess(null), 5000);
+      }
+    } catch (error: any) {
+      setUploadError('Failed to cleanup themes');
+      setTimeout(() => setUploadError(null), 5000);
     } finally {
       setLoading(false);
     }
@@ -675,9 +744,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       return;
     }
 
+    if (!newTheme.name.trim()) {
+      setUploadError('Theme name is required');
+      setTimeout(() => setUploadError(null), 5000);
+      return;
+    }
+
     const theme: Theme = {
       meta: {
-        id: newTheme.name.toLowerCase().replace(/\s+/g, '-'),
+        id: newTheme.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
         name: newTheme.name,
         description: newTheme.description,
         author: newTheme.author,
@@ -687,7 +762,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       colors: { ...newTheme },
       css: newTheme.customCSS ? { content: newTheme.customCSS } : undefined
     };
-    
+
     // Remove non-color properties from colors object
     delete theme.colors.name;
     delete theme.colors.description;
@@ -699,16 +774,16 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     const tomlContent = themeService.exportTheme(theme);
     const blob = new Blob([tomlContent], { type: 'text/plain' });
     const file = new File([blob], `${theme.meta.id}.toml`, { type: 'text/plain' });
-    
+
     setLoading(true);
     try {
       await themeService.uploadTheme(file);
       await loadThemes();
-      
+
       themeService.applyTheme(theme);
       setCurrentTheme(theme.meta.id);
       setCreateModalOpen(false);
-      
+
       // Reset form
       setNewTheme({
         name: '',
@@ -771,7 +846,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         iconBgRed: '#ef4444',
         customCSS: ''
       });
-      
+
       setUploadSuccess(`Theme "${theme.meta.name}" created successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
     } catch (error: any) {
@@ -944,7 +1019,7 @@ content = """
     URL.revokeObjectURL(url);
   };
 
-  const isSystemTheme = (themeId: string) => 
+  const isSystemTheme = (themeId: string) =>
     ['dark-default', 'light-default'].includes(themeId);
 
   return (
@@ -959,24 +1034,40 @@ content = """
           </div>
           <div className="flex items-center space-x-2">
             {isAuthenticated ? (
-              <button
-                onClick={() => setCreateModalOpen(true)}
-                className="p-2 rounded-lg transition-colors"
-                style={{ 
-                  color: 'var(--theme-text-muted)',
-                  backgroundColor: 'transparent'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                title="Create new theme"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+              <>
+                <button
+                  onClick={() => setCreateModalOpen(true)}
+                  className="p-2 rounded-lg transition-colors"
+                  style={{
+                    color: 'var(--theme-text-muted)',
+                    backgroundColor: 'transparent'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  title="Create new theme"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={cleanupThemes}
+                  disabled={loading}
+                  className="p-2 rounded-lg transition-colors"
+                  style={{
+                    color: 'var(--theme-text-muted)',
+                    backgroundColor: 'transparent'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  title="Clean up orphaned themes"
+                >
+                  <Sparkles className="w-4 h-4" />
+                </button>
+              </>
             ) : (
               <button
                 disabled
                 className="p-2 rounded-lg transition-colors opacity-50 cursor-not-allowed"
-                style={{ 
+                style={{
                   color: 'var(--theme-text-muted)',
                   backgroundColor: 'transparent'
                 }}
@@ -989,7 +1080,7 @@ content = """
               onClick={loadThemes}
               disabled={loading}
               className="p-2 rounded-lg transition-colors"
-              style={{ 
+              style={{
                 color: 'var(--theme-text-muted)',
                 backgroundColor: 'transparent'
               }}
@@ -1040,16 +1131,16 @@ content = """
           </h4>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {themes.map(theme => (
-              <div 
-                key={theme.meta.id} 
+              <div
+                key={theme.meta.id}
                 className="rounded p-3 flex items-center justify-between border-2 transition-colors"
                 style={{
                   backgroundColor: 'var(--theme-card-bg)',
-                  borderColor: currentTheme === theme.meta.id && !previewTheme 
-                    ? 'var(--theme-primary)' 
-                    : previewTheme === theme.meta.id 
-                    ? 'var(--theme-warning)' 
-                    : 'transparent'
+                  borderColor: currentTheme === theme.meta.id && !previewTheme
+                    ? 'var(--theme-primary)'
+                    : previewTheme === theme.meta.id
+                      ? 'var(--theme-warning)'
+                      : 'transparent'
                 }}
               >
                 <div className="flex-1">
@@ -1063,8 +1154,8 @@ content = """
                       <Sun className="w-3 h-3" style={{ color: 'var(--theme-warning)' }} />
                     )}
                     {currentTheme === theme.meta.id && !previewTheme && (
-                      <span className="px-2 py-0.5 text-xs rounded" 
-                        style={{ 
+                      <span className="px-2 py-0.5 text-xs rounded"
+                        style={{
                           backgroundColor: 'var(--theme-primary)',
                           color: 'var(--theme-button-text)'
                         }}>
@@ -1073,7 +1164,7 @@ content = """
                     )}
                     {previewTheme === theme.meta.id && (
                       <span className="px-2 py-0.5 text-xs rounded"
-                        style={{ 
+                        style={{
                           backgroundColor: 'var(--theme-warning)',
                           color: 'var(--theme-bg-primary)'
                         }}>
@@ -1082,7 +1173,7 @@ content = """
                     )}
                     {isSystemTheme(theme.meta.id) && (
                       <span className="px-2 py-0.5 text-xs rounded"
-                        style={{ 
+                        style={{
                           backgroundColor: 'var(--theme-bg-hover)',
                           color: 'var(--theme-text-muted)'
                         }}>
@@ -1161,11 +1252,10 @@ content = """
                 Upload Custom Theme
               </h4>
               <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
                     ? 'border-purple-500 bg-purple-900 bg-opacity-20'
                     : 'border-gray-600 hover:border-gray-500'
-                }`}
+                  }`}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
@@ -1216,8 +1306,8 @@ content = """
         )}
 
         {uploadError && (
-          <Alert 
-            color="red" 
+          <Alert
+            color="red"
             withCloseButton
             onClose={() => setUploadError(null)}
           >
@@ -1226,8 +1316,8 @@ content = """
         )}
 
         {uploadSuccess && (
-          <Alert 
-            color="green" 
+          <Alert
+            color="green"
             withCloseButton
             onClose={() => setUploadSuccess(null)}
           >
@@ -1350,9 +1440,9 @@ content = """
             {colorGroups.map((group) => {
               const Icon = group.icon;
               const isExpanded = expandedGroups.includes(group.name);
-              
+
               return (
-                <div key={group.name} className="border rounded-lg" 
+                <div key={group.name} className="border rounded-lg"
                   style={{ borderColor: 'var(--theme-border-primary)' }}>
                   <button
                     onClick={() => toggleGroup(group.name)}
@@ -1372,7 +1462,7 @@ content = """
                     </div>
                     {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   </button>
-                  
+
                   {isExpanded && (
                     <div className="p-4 border-t space-y-4" style={{ borderColor: 'var(--theme-border-primary)' }}>
                       {group.colors.map((color) => (
@@ -1388,7 +1478,7 @@ content = """
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {color.affects.map((item, idx) => (
                                   <span key={idx} className="text-xs px-1.5 py-0.5 rounded"
-                                    style={{ 
+                                    style={{
                                       backgroundColor: 'var(--theme-bg-hover)',
                                       color: 'var(--theme-text-secondary)'
                                     }}>
