@@ -1,0 +1,56 @@
+import React from 'react';
+import { AlertCircle, CheckCircle } from 'lucide-react';
+import { Alert } from '../ui/Alert';
+
+interface AlertItem {
+  id: number;
+  message: string;
+}
+
+interface AlertsManagerProps {
+  alerts: {
+    errors?: AlertItem[];
+    success?: string | null;
+  };
+  onClearError: (id: number) => void;
+  onClearSuccess?: () => void;
+}
+
+const AlertsManager: React.FC<AlertsManagerProps> = ({ 
+  alerts, 
+  onClearError, 
+  onClearSuccess 
+}) => {
+  if (!alerts || (!alerts.errors?.length && !alerts.success)) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-4">
+      {alerts.errors?.map(error => (
+        <Alert
+          key={error.id}
+          color="red"
+          icon={<AlertCircle className="w-5 h-5" />}
+          withCloseButton
+          onClose={() => onClearError(error.id)}
+        >
+          {error.message}
+        </Alert>
+      ))}
+
+      {alerts.success && (
+        <Alert
+          color="green"
+          icon={<CheckCircle className="w-5 h-5" />}
+          withCloseButton={!!onClearSuccess}
+          onClose={onClearSuccess}
+        >
+          {alerts.success}
+        </Alert>
+      )}
+    </div>
+  );
+};
+
+export default AlertsManager;
