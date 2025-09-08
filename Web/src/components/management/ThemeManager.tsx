@@ -1295,8 +1295,8 @@ content = """
       <Card>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
-            <Palette className="w-5 h-5 text-purple-400" />
-            <h3 className="text-lg font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+            <Palette className="w-5 h-5 text-themed-accent" />
+            <h3 className="text-lg font-semibold text-themed-primary">
               Theme Management
             </h3>
           </div>
@@ -1362,20 +1362,13 @@ content = """
         </div>
 
         <div className="mb-6">
-          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--theme-text-secondary)' }}>
+          <label className="block text-sm font-medium mb-2 text-themed-secondary">
             Active Theme
           </label>
           <select
             value={previewTheme || currentTheme}
             onChange={(e) => handleThemeChange(e.target.value)}
-            className="w-full rounded px-3 py-2 focus:outline-none"
-            style={{
-              backgroundColor: 'var(--theme-input-bg)',
-              color: 'var(--theme-text-primary)',
-              borderWidth: '1px',
-              borderStyle: 'solid',
-              borderColor: 'var(--theme-input-border)'
-            }}
+            className="w-full rounded px-3 py-2 focus:outline-none themed-input"
             disabled={loading}
           >
             {themes.map(theme => (
@@ -1394,16 +1387,15 @@ content = """
         </div>
 
         <div className="mb-6">
-          <h4 className="text-sm font-medium mb-3" style={{ color: 'var(--theme-text-secondary)' }}>
+          <h4 className="text-sm font-medium mb-3 text-themed-secondary">
             Installed Themes ({themes.length})
           </h4>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {themes.map(theme => (
               <div
                 key={theme.meta.id}
-                className="rounded p-3 flex items-center justify-between border-2 transition-colors"
+                className="rounded p-3 flex items-center justify-between border-2 transition-colors themed-card"
                 style={{
-                  backgroundColor: 'var(--theme-card-bg)',
                   borderColor: currentTheme === theme.meta.id && !previewTheme
                     ? 'var(--theme-primary)'
                     : previewTheme === theme.meta.id
@@ -1413,20 +1405,16 @@ content = """
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                    <span className="font-medium text-themed-primary">
                       {theme.meta.name}
                     </span>
                     {theme.meta.isDark ? (
-                      <Moon className="w-3 h-3" style={{ color: 'var(--theme-text-muted)' }} />
+                      <Moon className="w-3 h-3 text-themed-muted" />
                     ) : (
                       <Sun className="w-3 h-3" style={{ color: 'var(--theme-warning)' }} />
                     )}
                     {currentTheme === theme.meta.id && !previewTheme && (
-                      <span className="px-2 py-0.5 text-xs rounded"
-                        style={{
-                          backgroundColor: 'var(--theme-primary)',
-                          color: 'var(--theme-button-text)'
-                        }}>
+                      <span className="px-2 py-0.5 text-xs rounded themed-button-primary">
                         Active
                       </span>
                     )}
@@ -1450,18 +1438,18 @@ content = """
                     )}
                   </div>
                   {theme.meta.description && (
-                    <p className="text-xs mt-1" style={{ color: 'var(--theme-text-muted)' }}>
+                    <p className="text-xs mt-1 text-themed-muted">
                       {theme.meta.description}
                     </p>
                   )}
                   <div className="flex items-center gap-3 mt-1">
                     {theme.meta.author && (
-                      <p className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                      <p className="text-xs text-themed-muted">
                         by {theme.meta.author}
                       </p>
                     )}
                     {theme.meta.version && (
-                      <p className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                      <p className="text-xs text-themed-muted">
                         v{theme.meta.version}
                       </p>
                     )}
@@ -1470,8 +1458,7 @@ content = """
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => exportTheme(theme)}
-                    className="p-2 transition-colors"
-                    style={{ color: 'var(--theme-text-muted)' }}
+                    className="p-2 transition-colors text-themed-muted"
                     title="Export theme"
                   >
                     <Download className="w-4 h-4" />
@@ -1489,8 +1476,7 @@ content = """
                   {currentTheme !== theme.meta.id && (
                     <button
                       onClick={() => handleThemeChange(theme.meta.id)}
-                      className="p-2 transition-colors"
-                      style={{ color: 'var(--theme-primary)' }}
+                      className="p-2 transition-colors text-themed-accent"
                       title="Apply theme"
                     >
                       <Check className="w-4 h-4" />
@@ -1516,24 +1502,27 @@ content = """
         {isAuthenticated && (
           <>
             <div className="mb-4">
-              <h4 className="text-sm font-medium mb-3" style={{ color: 'var(--theme-text-secondary)' }}>
+              <h4 className="text-sm font-medium mb-3 text-themed-secondary">
                 Upload Custom Theme
               </h4>
               <div
                 className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
                   ? 'border-purple-500 bg-purple-900 bg-opacity-20'
-                  : 'border-gray-600 hover:border-gray-500'
+                  : ''
                   }`}
+                style={{
+                  borderColor: dragActive ? 'var(--theme-secondary)' : 'var(--theme-border-secondary)'
+                }}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
               >
-                <Upload className="w-12 h-12 mx-auto mb-3" style={{ color: 'var(--theme-text-muted)' }} />
-                <p className="mb-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                <Upload className="w-12 h-12 mx-auto mb-3 text-themed-muted" />
+                <p className="mb-2 text-themed-secondary">
                   Drag and drop a theme file here, or click to browse
                 </p>
-                <p className="text-xs mb-3" style={{ color: 'var(--theme-text-muted)' }}>
+                <p className="text-xs mb-3 text-themed-muted">
                   TOML format, max 1MB
                 </p>
                 <input
@@ -1603,13 +1592,13 @@ content = """
         <div className="space-y-6">
           {/* Theme Metadata */}
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--theme-text-primary)' }}>
+            <h4 className="text-sm font-semibold flex items-center gap-2 text-themed-primary">
               <Info className="w-4 h-4" />
               Theme Information
             </h4>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--theme-text-secondary)' }}>
+                <label className="block text-sm font-medium mb-1 text-themed-secondary">
                   Theme Name *
                 </label>
                 <input
@@ -1617,18 +1606,11 @@ content = """
                   value={newTheme.name}
                   onChange={(e) => setNewTheme({ ...newTheme, name: e.target.value })}
                   placeholder="My Custom Theme"
-                  className="w-full px-3 py-2 rounded focus:outline-none"
-                  style={{
-                    backgroundColor: 'var(--theme-input-bg)',
-                    borderWidth: '1px',
-                    borderStyle: 'solid',
-                    borderColor: 'var(--theme-input-border)',
-                    color: 'var(--theme-text-primary)'
-                  }}
+                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1" style={{ color: 'var(--theme-text-secondary)' }}>
+                <label className="block text-sm font-medium mb-1 text-themed-secondary">
                   Author
                 </label>
                 <input
@@ -1636,19 +1618,12 @@ content = """
                   value={newTheme.author}
                   onChange={(e) => setNewTheme({ ...newTheme, author: e.target.value })}
                   placeholder="Your Name"
-                  className="w-full px-3 py-2 rounded focus:outline-none"
-                  style={{
-                    backgroundColor: 'var(--theme-input-bg)',
-                    borderWidth: '1px',
-                    borderStyle: 'solid',
-                    borderColor: 'var(--theme-input-border)',
-                    color: 'var(--theme-text-primary)'
-                  }}
+                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1" style={{ color: 'var(--theme-text-secondary)' }}>
+              <label className="block text-sm font-medium mb-1 text-themed-secondary">
                 Description
               </label>
               <input
@@ -1656,14 +1631,7 @@ content = """
                 value={newTheme.description}
                 onChange={(e) => setNewTheme({ ...newTheme, description: e.target.value })}
                 placeholder="A beautiful custom theme"
-                className="w-full px-3 py-2 rounded focus:outline-none"
-                style={{
-                  backgroundColor: 'var(--theme-input-bg)',
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: 'var(--theme-input-border)',
-                  color: 'var(--theme-text-primary)'
-                }}
+                className="w-full px-3 py-2 rounded focus:outline-none themed-input"
               />
             </div>
             <div className="flex items-center gap-4">
@@ -1674,7 +1642,7 @@ content = """
                   onChange={(e) => setNewTheme({ ...newTheme, isDark: e.target.checked })}
                   className="rounded"
                 />
-                <span className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                <span className="text-sm text-themed-secondary">
                   Dark Theme
                 </span>
               </label>
@@ -1718,12 +1686,12 @@ content = """
                     style={{ backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent' }}
                   >
                     <div className="flex items-center gap-3">
-                      <Icon className="w-4 h-4" style={{ color: 'var(--theme-primary)' }} />
+                      <Icon className="w-4 h-4 text-themed-accent" />
                       <div className="text-left">
-                        <h5 className="text-sm font-semibold capitalize" style={{ color: 'var(--theme-text-primary)' }}>
+                        <h5 className="text-sm font-semibold capitalize text-themed-primary">
                           {group.name.replace(/([A-Z])/g, ' $1').trim()}
                         </h5>
-                        <p className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                        <p className="text-xs text-themed-muted">
                           {group.description}
                         </p>
                       </div>
@@ -1737,10 +1705,10 @@ content = """
                         <div key={color.key} className="space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
-                              <label className="block text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                              <label className="block text-sm font-medium text-themed-primary">
                                 {color.label}
                               </label>
-                              <p className="text-xs" style={{ color: 'var(--theme-text-muted)' }}>
+                              <p className="text-xs text-themed-muted">
                                 {color.description}
                               </p>
                               <div className="flex flex-wrap gap-1 mt-1">
@@ -1769,14 +1737,7 @@ content = """
                                 type="text"
                                 value={newTheme[color.key]}
                                 onChange={(e) => handleColorChange(color.key, e.target.value)}
-                                className="w-24 px-2 py-1 text-xs rounded font-mono"
-                                style={{
-                                  backgroundColor: 'var(--theme-input-bg)',
-                                  borderWidth: '1px',
-                                  borderStyle: 'solid',
-                                  borderColor: 'var(--theme-input-border)',
-                                  color: 'var(--theme-text-primary)'
-                                }}
+                                className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
                               />
                               <button
                                 onClick={() => copyColor(newTheme[color.key])}
@@ -1787,7 +1748,7 @@ content = """
                                 {copiedColor === newTheme[color.key] ? (
                                   <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
                                 ) : (
-                                  <Copy className="w-3 h-3" style={{ color: 'var(--theme-text-muted)' }} />
+                                  <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
                               </button>
                             </div>
@@ -1803,7 +1764,7 @@ content = """
 
           {/* Custom CSS */}
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: 'var(--theme-text-secondary)' }}>
+            <label className="block text-sm font-medium mb-1 text-themed-secondary">
               Custom CSS (Optional)
             </label>
             <textarea
@@ -1811,14 +1772,7 @@ content = """
               onChange={(e) => setNewTheme({ ...newTheme, customCSS: e.target.value })}
               placeholder="/* Add any custom CSS here */"
               rows={4}
-              className="w-full px-3 py-2 rounded font-mono text-xs focus:outline-none"
-              style={{
-                backgroundColor: 'var(--theme-input-bg)',
-                borderWidth: '1px',
-                borderStyle: 'solid',
-                borderColor: 'var(--theme-input-border)',
-                color: 'var(--theme-text-primary)'
-              }}
+              className="w-full px-3 py-2 rounded font-mono text-xs focus:outline-none themed-input"
             />
           </div>
 
@@ -1835,10 +1789,7 @@ content = """
               leftSection={<Save className="w-4 h-4" />}
               onClick={handleCreateTheme}
               disabled={!newTheme.name || !isAuthenticated}
-              style={{
-                backgroundColor: 'var(--theme-button-bg)',
-                color: 'var(--theme-button-text)'
-              }}
+              className="themed-button-primary"
             >
               Create Theme
             </Button>

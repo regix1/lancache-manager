@@ -7,24 +7,24 @@ interface ThemeColors {
   primaryColor?: string;
   secondaryColor?: string;
   accentColor?: string;
-  
+
   // Background colors
   bgPrimary?: string;
   bgSecondary?: string;
   bgTertiary?: string;
   bgHover?: string;
-  
+
   // Text colors
   textPrimary?: string;
   textSecondary?: string;
   textMuted?: string;
   textAccent?: string;
-  
+
   // Border colors
   borderPrimary?: string;
   borderSecondary?: string;
   borderFocus?: string;
-  
+
   // Navigation specific colors
   navBg?: string;
   navBorder?: string;
@@ -34,7 +34,7 @@ interface ThemeColors {
   navTabActiveBorder?: string;
   navMobileMenuBg?: string;
   navMobileItemHover?: string;
-  
+
   // Status colors
   success?: string;
   successBg?: string;
@@ -48,7 +48,7 @@ interface ThemeColors {
   info?: string;
   infoBg?: string;
   infoText?: string;
-  
+
   // Service colors
   steamColor?: string;
   epicColor?: string;
@@ -56,7 +56,7 @@ interface ThemeColors {
   blizzardColor?: string;
   wsusColor?: string;
   riotColor?: string;
-  
+
   // Component colors
   cardBg?: string;
   cardBorder?: string;
@@ -70,7 +70,25 @@ interface ThemeColors {
   badgeText?: string;
   progressBar?: string;
   progressBg?: string;
-  
+
+  // Hit rate specific colors
+  hitRateHighBg?: string;
+  hitRateHighText?: string;
+  hitRateMediumBg?: string;
+  hitRateMediumText?: string;
+  hitRateLowBg?: string;
+  hitRateLowText?: string;
+  hitRateWarningBg?: string;
+  hitRateWarningText?: string;
+
+  // Action button colors
+  actionResetBg?: string;
+  actionResetHover?: string;
+  actionProcessBg?: string;
+  actionProcessHover?: string;
+  actionDeleteBg?: string;
+  actionDeleteHover?: string;
+
   // Icon backgrounds
   iconBgBlue?: string;
   iconBgGreen?: string;
@@ -81,7 +99,7 @@ interface ThemeColors {
   iconBgYellow?: string;
   iconBgCyan?: string;
   iconBgRed?: string;
-  
+
   // Chart colors
   chartColor1?: string;
   chartColor2?: string;
@@ -121,28 +139,26 @@ class ThemeService {
 
   async loadThemes(): Promise<Theme[]> {
     const builtInThemes = this.getBuiltInThemes();
-    
+
     let apiThemes: Theme[] = [];
-    const deletedThemeIds: string[] = []; // Track themes that don't exist
-    
+    const deletedThemeIds: string[] = [];
+
     try {
       const response = await fetch(`${API_BASE}/theme`);
       if (response.ok) {
         const themeList = await response.json();
-        
-        // Parse TOML themes from API
+
         for (const themeInfo of themeList) {
           if (themeInfo.format === 'toml') {
             try {
               const themeResponse = await fetch(`${API_BASE}/theme/${themeInfo.id}`);
-              
+
               if (themeResponse.status === 404) {
-                // Theme file doesn't exist, mark for removal
                 deletedThemeIds.push(themeInfo.id);
                 console.log(`Theme ${themeInfo.id} no longer exists on server`);
                 continue;
               }
-              
+
               if (themeResponse.ok) {
                 const tomlContent = await themeResponse.text();
                 const theme = this.parseTomlTheme(tomlContent);
@@ -152,19 +168,16 @@ class ThemeService {
               }
             } catch (error) {
               console.error(`Failed to load theme ${themeInfo.id}:`, error);
-              // Don't add themes that fail to load
             }
           }
         }
-        
-        // Clean up deleted themes from localStorage if they were the active theme
+
         if (deletedThemeIds.length > 0) {
           const currentThemeId = localStorage.getItem('lancache_theme');
           if (currentThemeId && deletedThemeIds.includes(currentThemeId)) {
             console.log(`Current theme ${currentThemeId} was deleted, resetting to default`);
             localStorage.removeItem('lancache_theme');
             localStorage.removeItem('lancache_theme_applied');
-            // Apply default theme
             const darkDefault = builtInThemes.find(t => t.meta.id === 'dark-default');
             if (darkDefault) {
               this.applyTheme(darkDefault);
@@ -175,18 +188,17 @@ class ThemeService {
     } catch (error) {
       console.error('Failed to load themes from server:', error);
     }
-    
-    // Combine built-in and server themes
+
     const allThemes = [...builtInThemes];
     const themeIds = new Set(allThemes.map(t => t.meta.id));
-    
+
     apiThemes.forEach(theme => {
       if (!themeIds.has(theme.meta.id)) {
         allThemes.push(theme);
         themeIds.add(theme.meta.id);
       }
     });
-    
+
     this.themes = allThemes;
     return this.themes;
   }
@@ -207,24 +219,24 @@ class ThemeService {
           primaryColor: '#3b82f6',
           secondaryColor: '#8b5cf6',
           accentColor: '#06b6d4',
-          
+
           // Backgrounds
           bgPrimary: '#111827',
           bgSecondary: '#1f2937',
           bgTertiary: '#374151',
           bgHover: '#4b5563',
-          
+
           // Text
           textPrimary: '#ffffff',
           textSecondary: '#d1d5db',
           textMuted: '#9ca3af',
           textAccent: '#60a5fa',
-          
+
           // Borders
           borderPrimary: '#374151',
           borderSecondary: '#4b5563',
           borderFocus: '#3b82f6',
-          
+
           // Navigation
           navBg: '#1f2937',
           navBorder: '#374151',
@@ -234,21 +246,21 @@ class ThemeService {
           navTabActiveBorder: '#3b82f6',
           navMobileMenuBg: '#1f2937',
           navMobileItemHover: '#374151',
-          
+
           // Status colors
           success: '#10b981',
           successBg: '#064e3b',
           successText: '#34d399',
-          warning: '#f59e0b',
-          warningBg: '#78350f',
-          warningText: '#fbbf24',
+          warning: '#fb923c',
+          warningBg: '#44403c',     // Softer warm grey-brown
+          warningText: '#fcd34d',    // Bright golden yellow
           error: '#ef4444',
           errorBg: '#7f1d1d',
           errorText: '#fca5a5',
           info: '#3b82f6',
           infoBg: '#1e3a8a',
           infoText: '#93c5fd',
-          
+
           // Service colors
           steamColor: '#3b82f6',
           epicColor: '#8b5cf6',
@@ -256,7 +268,7 @@ class ThemeService {
           blizzardColor: '#ef4444',
           wsusColor: '#06b6d4',
           riotColor: '#f59e0b',
-          
+
           // Components
           cardBg: '#1f2937',
           cardBorder: '#374151',
@@ -270,7 +282,25 @@ class ThemeService {
           badgeText: '#ffffff',
           progressBar: '#3b82f6',
           progressBg: '#374151',
-          
+
+          // Hit rate specific - MUCH PRETTIER COLORS
+          hitRateHighBg: '#064e3b',
+          hitRateHighText: '#34d399',
+          hitRateMediumBg: '#1e3a8a',
+          hitRateMediumText: '#93c5fd',
+          hitRateLowBg: '#44403c',       // Warm neutral grey-brown
+          hitRateLowText: '#fbbf24',     // Bright amber
+          hitRateWarningBg: '#44403c',   // Same warm neutral background
+          hitRateWarningText: '#fcd34d', // Golden yellow (prettier!)
+
+          // Action buttons
+          actionResetBg: '#f59e0b',
+          actionResetHover: '#d97706',
+          actionProcessBg: '#10b981',
+          actionProcessHover: '#059669',
+          actionDeleteBg: '#ef4444',
+          actionDeleteHover: '#dc2626',
+
           // Icon backgrounds
           iconBgBlue: '#3b82f6',
           iconBgGreen: '#10b981',
@@ -281,7 +311,7 @@ class ThemeService {
           iconBgYellow: '#eab308',
           iconBgCyan: '#06b6d4',
           iconBgRed: '#ef4444',
-          
+
           // Chart colors
           chartColor1: '#3b82f6',
           chartColor2: '#10b981',
@@ -298,95 +328,131 @@ class ThemeService {
           chartCacheMissColor: '#f59e0b'
         }
       },
-      {
-        meta: {
-          id: 'light-default',
-          name: 'Light Default',
-          description: 'Default light theme with blue accents',
-          author: 'System',
-          version: '1.0.0',
-          isDark: false
-        },
-        colors: {
-          primaryColor: '#3b82f6',
-          secondaryColor: '#8b5cf6',
-          accentColor: '#06b6d4',
-          bgPrimary: '#ffffff',
-          bgSecondary: '#f9fafb',
-          bgTertiary: '#f3f4f6',
-          bgHover: '#e5e7eb',
-          textPrimary: '#111827',
-          textSecondary: '#374151',
-          textMuted: '#6b7280',
-          textAccent: '#2563eb',
-          borderPrimary: '#e5e7eb',
-          borderSecondary: '#d1d5db',
-          borderFocus: '#3b82f6',
-          
-          // Navigation (light theme)
-          navBg: '#f9fafb',
-          navBorder: '#e5e7eb',
-          navTabActive: '#3b82f6',
-          navTabInactive: '#6b7280',
-          navTabHover: '#111827',
-          navTabActiveBorder: '#3b82f6',
-          navMobileMenuBg: '#f9fafb',
-          navMobileItemHover: '#e5e7eb',
-          
-          success: '#10b981',
-          successBg: '#d1fae5',
-          successText: '#065f46',
-          warning: '#f59e0b',
-          warningBg: '#fef3c7',
-          warningText: '#92400e',
-          error: '#ef4444',
-          errorBg: '#fee2e2',
-          errorText: '#991b1b',
-          info: '#3b82f6',
-          infoBg: '#dbeafe',
-          infoText: '#1e40af',
-          steamColor: '#3b82f6',
-          epicColor: '#8b5cf6',
-          originColor: '#10b981',
-          blizzardColor: '#ef4444',
-          wsusColor: '#06b6d4',
-          riotColor: '#f59e0b',
-          cardBg: '#ffffff',
-          cardBorder: '#e5e7eb',
-          buttonBg: '#3b82f6',
-          buttonHover: '#2563eb',
-          buttonText: '#ffffff',
-          inputBg: '#ffffff',
-          inputBorder: '#d1d5db',
-          inputFocus: '#3b82f6',
-          badgeBg: '#3b82f6',
-          badgeText: '#ffffff',
-          progressBar: '#3b82f6',
-          progressBg: '#e5e7eb',
-          iconBgBlue: '#3b82f6',
-          iconBgGreen: '#10b981',
-          iconBgEmerald: '#10b981',
-          iconBgPurple: '#8b5cf6',
-          iconBgIndigo: '#6366f1',
-          iconBgOrange: '#f97316',
-          iconBgYellow: '#eab308',
-          iconBgCyan: '#06b6d4',
-          iconBgRed: '#ef4444',
-          chartColor1: '#3b82f6',
-          chartColor2: '#10b981',
-          chartColor3: '#f59e0b',
-          chartColor4: '#ef4444',
-          chartColor5: '#8b5cf6',
-          chartColor6: '#06b6d4',
-          chartColor7: '#f97316',
-          chartColor8: '#ec4899',
-          chartBorderColor: '#e5e7eb',
-          chartGridColor: '#d1d5db',
-          chartTextColor: '#6b7280',
-          chartCacheHitColor: '#10b981',
-          chartCacheMissColor: '#f59e0b'
-        }
-      }
+// In theme.service.ts, update the light-default theme:
+
+{
+  meta: {
+    id: 'light-default',
+    name: 'Light Default',
+    description: 'Default light theme with blue accents',
+    author: 'System',
+    version: '1.0.0',
+    isDark: false
+  },
+  colors: {
+    // Core colors
+    primaryColor: '#3b82f6',
+    secondaryColor: '#8b5cf6',
+    accentColor: '#06b6d4',
+
+    // Backgrounds - LIGHT GREY INSTEAD OF WHITE
+    bgPrimary: '#f8f9fa',
+    bgSecondary: '#ffffff',
+    bgTertiary: '#f3f4f6',
+    bgHover: '#e5e7eb',
+
+    // Text
+    textPrimary: '#111827',
+    textSecondary: '#374151',
+    textMuted: '#6b7280',
+    textAccent: '#2563eb',
+
+    // Borders
+    borderPrimary: '#e5e7eb',
+    borderSecondary: '#d1d5db',
+    borderFocus: '#3b82f6',
+
+    // Navigation
+    navBg: '#ffffff',
+    navBorder: '#e5e7eb',
+    navTabActive: '#3b82f6',
+    navTabInactive: '#6b7280',
+    navTabHover: '#111827',
+    navTabActiveBorder: '#3b82f6',
+    navMobileMenuBg: '#ffffff',
+    navMobileItemHover: '#f3f4f6',
+
+    // Status colors - FIXED FOR BETTER CONTRAST ON LIGHT BACKGROUNDS
+    success: '#10b981',
+    successBg: '#d1fae5',
+    successText: '#047857',      // Changed from '#065f46' - darker green for better contrast
+    warning: '#f97316',
+    warningBg: '#fef3c7',
+    warningText: '#b45309',      // Changed from '#92400e' - darker amber for better contrast
+    error: '#ef4444',
+    errorBg: '#fee2e2',
+    errorText: '#991b1b',
+    info: '#3b82f6',
+    infoBg: '#dbeafe',
+    infoText: '#1e40af',
+
+    // Service colors
+    steamColor: '#3b82f6',
+    epicColor: '#8b5cf6',
+    originColor: '#10b981',
+    blizzardColor: '#ef4444',
+    wsusColor: '#06b6d4',
+    riotColor: '#f59e0b',
+
+    // Components
+    cardBg: '#ffffff',
+    cardBorder: '#e5e7eb',
+    buttonBg: '#3b82f6',
+    buttonHover: '#2563eb',
+    buttonText: '#ffffff',
+    inputBg: '#ffffff',
+    inputBorder: '#d1d5db',
+    inputFocus: '#3b82f6',
+    badgeBg: '#3b82f6',
+    badgeText: '#ffffff',
+    progressBar: '#3b82f6',
+    progressBg: '#e5e7eb',
+
+    // Hit rate specific - MUCH PRETTIER COLORS
+    hitRateHighBg: '#d1fae5',
+    hitRateHighText: '#047857',     // Changed to match successText for consistency
+    hitRateMediumBg: '#dbeafe',
+    hitRateMediumText: '#1e40af',
+    hitRateLowBg: '#fef3c7',
+    hitRateLowText: '#92400e',
+    hitRateWarningBg: '#fef3c7',
+    hitRateWarningText: '#92400e',
+
+    // Action buttons
+    actionResetBg: '#f59e0b',
+    actionResetHover: '#d97706',
+    actionProcessBg: '#10b981',
+    actionProcessHover: '#059669',
+    actionDeleteBg: '#ef4444',
+    actionDeleteHover: '#dc2626',
+
+    // Icon backgrounds
+    iconBgBlue: '#3b82f6',
+    iconBgGreen: '#10b981',
+    iconBgEmerald: '#10b981',
+    iconBgPurple: '#8b5cf6',
+    iconBgIndigo: '#6366f1',
+    iconBgOrange: '#f97316',
+    iconBgYellow: '#eab308',
+    iconBgCyan: '#06b6d4',
+    iconBgRed: '#ef4444',
+
+    // Chart colors
+    chartColor1: '#3b82f6',
+    chartColor2: '#10b981',
+    chartColor3: '#f59e0b',
+    chartColor4: '#ef4444',
+    chartColor5: '#8b5cf6',
+    chartColor6: '#06b6d4',
+    chartColor7: '#f97316',
+    chartColor8: '#ec4899',
+    chartBorderColor: '#e5e7eb',
+    chartGridColor: '#d1d5db',
+    chartTextColor: '#6b7280',
+    chartCacheHitColor: '#047857',    // Changed to darker green for better contrast
+    chartCacheMissColor: '#b45309'    // Changed to darker amber for better contrast
+  }
+}
     ];
   }
 
@@ -400,7 +466,7 @@ class ThemeService {
     try {
       const response = await fetch(`${API_BASE}/theme/${themeId}`);
       if (!response.ok) return null;
-      
+
       const tomlText = await response.text();
       return this.parseTomlTheme(tomlText);
     } catch (error) {
@@ -412,7 +478,7 @@ class ThemeService {
   parseTomlTheme(tomlText: string): Theme | null {
     try {
       const parsed = TOML.parse(tomlText);
-      
+
       if (!parsed.meta || !parsed.meta.id || !parsed.meta.name) {
         console.error('Invalid theme: missing meta.id or meta.name');
         return null;
@@ -433,15 +499,14 @@ class ThemeService {
   async uploadTheme(file: File): Promise<Theme> {
     const text = await file.text();
     const theme = this.parseTomlTheme(text);
-    
+
     if (!theme) {
       throw new Error('Invalid TOML theme format');
     }
 
-    // Upload to server
     const formData = new FormData();
     formData.append('file', file);
-    
+
     const response = await fetch(`${API_BASE}/theme/upload`, {
       method: 'POST',
       headers: authService.getAuthHeaders(),
@@ -453,9 +518,7 @@ class ThemeService {
       throw new Error(error.error || 'Failed to upload theme');
     }
 
-    // Reload themes from server
     await this.loadThemes();
-    
     return theme;
   }
 
@@ -470,14 +533,11 @@ class ThemeService {
       throw new Error(error.error || 'Failed to delete theme');
     }
 
-    // Reload themes from server
     await this.loadThemes();
   }
 
   private applyDefaultVariables(): void {
-    // Create default CSS variables that match Tailwind dark theme
     const defaultStyles = `
-      /* Default CSS Variables for Tailwind Dark Theme */
       :root {
         --theme-primary: #3b82f6;
         --theme-secondary: #8b5cf6;
@@ -493,8 +553,6 @@ class ThemeService {
         --theme-border-primary: #374151;
         --theme-border-secondary: #4b5563;
         --theme-border-focus: #3b82f6;
-        
-        /* Navigation Variables */
         --theme-nav-bg: #1f2937;
         --theme-nav-border: #374151;
         --theme-nav-tab-active: #3b82f6;
@@ -503,7 +561,6 @@ class ThemeService {
         --theme-nav-tab-active-border: #3b82f6;
         --theme-nav-mobile-menu-bg: #1f2937;
         --theme-nav-mobile-item-hover: #374151;
-        
         --theme-success: #10b981;
         --theme-success-bg: #064e3b;
         --theme-success-text: #34d399;
@@ -534,6 +591,20 @@ class ThemeService {
         --theme-badge-text: #ffffff;
         --theme-progress-bar: #3b82f6;
         --theme-progress-bg: #374151;
+        --theme-hit-rate-high-bg: #064e3b;
+        --theme-hit-rate-high-text: #34d399;
+        --theme-hit-rate-medium-bg: #1e3a8a;
+        --theme-hit-rate-medium-text: #93c5fd;
+        --theme-hit-rate-low-bg: #ea580c;
+        --theme-hit-rate-low-text: #fb923c;
+        --theme-hit-rate-warning-bg: #78350f;
+        --theme-hit-rate-warning-text: #fbbf24;
+        --theme-action-reset-bg: #f59e0b;
+        --theme-action-reset-hover: #d97706;
+        --theme-action-process-bg: #10b981;
+        --theme-action-process-hover: #059669;
+        --theme-action-delete-bg: #ef4444;
+        --theme-action-delete-hover: #dc2626;
         --theme-icon-blue: #3b82f6;
         --theme-icon-green: #10b981;
         --theme-icon-emerald: #10b981;
@@ -559,7 +630,6 @@ class ThemeService {
       }
     `;
 
-    // Check if default variables style element exists
     let defaultStyleElement = document.getElementById('lancache-default-vars');
     if (!defaultStyleElement) {
       defaultStyleElement = document.createElement('style');
@@ -574,16 +644,15 @@ class ThemeService {
       this.styleElement.remove();
       this.styleElement = null;
     }
-    
+
     const root = document.documentElement;
     root.removeAttribute('data-theme');
     root.removeAttribute('data-theme-id');
-    
+
     localStorage.removeItem('lancache_theme');
     localStorage.removeItem('lancache_theme_applied');
     this.currentTheme = null;
-    
-    // Reapply default variables
+
     this.applyDefaultVariables();
   }
 
@@ -597,365 +666,129 @@ class ThemeService {
 
     const colors = theme.colors;
 
-    // Create comprehensive theme styles
+    // Create clean theme styles with only CSS variables - no Tailwind overrides
     const themeStyles = `
-      /* CSS Variables */
-      :root {
-        --theme-primary: ${colors.primaryColor || '#3b82f6'};
-        --theme-secondary: ${colors.secondaryColor || '#8b5cf6'};
-        --theme-accent: ${colors.accentColor || '#06b6d4'};
-        --theme-bg-primary: ${colors.bgPrimary || '#111827'};
-        --theme-bg-secondary: ${colors.bgSecondary || '#1f2937'};
-        --theme-bg-tertiary: ${colors.bgTertiary || '#374151'};
-        --theme-bg-hover: ${colors.bgHover || '#4b5563'};
-        --theme-text-primary: ${colors.textPrimary || '#ffffff'};
-        --theme-text-secondary: ${colors.textSecondary || '#d1d5db'};
-        --theme-text-muted: ${colors.textMuted || '#9ca3af'};
-        --theme-text-accent: ${colors.textAccent || '#60a5fa'};
-        --theme-border-primary: ${colors.borderPrimary || '#374151'};
-        --theme-border-secondary: ${colors.borderSecondary || '#4b5563'};
-        --theme-border-focus: ${colors.borderFocus || '#3b82f6'};
-        
-        /* Navigation CSS Variables */
-        --theme-nav-bg: ${colors.navBg || colors.bgSecondary || '#1f2937'};
-        --theme-nav-border: ${colors.navBorder || colors.borderPrimary || '#374151'};
-        --theme-nav-tab-active: ${colors.navTabActive || colors.primaryColor || '#3b82f6'};
-        --theme-nav-tab-inactive: ${colors.navTabInactive || colors.textMuted || '#9ca3af'};
-        --theme-nav-tab-hover: ${colors.navTabHover || colors.textPrimary || '#ffffff'};
-        --theme-nav-tab-active-border: ${colors.navTabActiveBorder || colors.primaryColor || '#3b82f6'};
-        --theme-nav-mobile-menu-bg: ${colors.navMobileMenuBg || colors.bgSecondary || '#1f2937'};
-        --theme-nav-mobile-item-hover: ${colors.navMobileItemHover || colors.bgTertiary || '#374151'};
-        
-        --theme-success: ${colors.success || '#10b981'};
-        --theme-success-bg: ${colors.successBg || '#064e3b'};
-        --theme-success-text: ${colors.successText || '#34d399'};
-        --theme-warning: ${colors.warning || '#f59e0b'};
-        --theme-warning-bg: ${colors.warningBg || '#78350f'};
-        --theme-warning-text: ${colors.warningText || '#fbbf24'};
-        --theme-error: ${colors.error || '#ef4444'};
-        --theme-error-bg: ${colors.errorBg || '#7f1d1d'};
-        --theme-error-text: ${colors.errorText || '#fca5a5'};
-        --theme-info: ${colors.info || '#3b82f6'};
-        --theme-info-bg: ${colors.infoBg || '#1e3a8a'};
-        --theme-info-text: ${colors.infoText || '#93c5fd'};
-        --theme-steam: ${colors.steamColor || '#3b82f6'};
-        --theme-epic: ${colors.epicColor || '#8b5cf6'};
-        --theme-origin: ${colors.originColor || '#10b981'};
-        --theme-blizzard: ${colors.blizzardColor || '#ef4444'};
-        --theme-wsus: ${colors.wsusColor || '#06b6d4'};
-        --theme-riot: ${colors.riotColor || '#f59e0b'};
-        --theme-card-bg: ${colors.cardBg || colors.bgSecondary || '#1f2937'};
-        --theme-card-border: ${colors.cardBorder || colors.borderPrimary || '#374151'};
-        --theme-button-bg: ${colors.buttonBg || colors.primaryColor || '#3b82f6'};
-        --theme-button-hover: ${colors.buttonHover || '#2563eb'};
-        --theme-button-text: ${colors.buttonText || '#ffffff'};
-        --theme-input-bg: ${colors.inputBg || colors.bgTertiary || '#374151'};
-        --theme-input-border: ${colors.inputBorder || colors.borderSecondary || '#4b5563'};
-        --theme-input-focus: ${colors.inputFocus || colors.primaryColor || '#3b82f6'};
-        --theme-badge-bg: ${colors.badgeBg || colors.primaryColor || '#3b82f6'};
-        --theme-badge-text: ${colors.badgeText || '#ffffff'};
-        --theme-progress-bar: ${colors.progressBar || colors.primaryColor || '#3b82f6'};
-        --theme-progress-bg: ${colors.progressBg || colors.bgTertiary || '#374151'};
-        --theme-icon-blue: ${colors.iconBgBlue || '#3b82f6'};
-        --theme-icon-green: ${colors.iconBgGreen || '#10b981'};
-        --theme-icon-emerald: ${colors.iconBgEmerald || '#10b981'};
-        --theme-icon-purple: ${colors.iconBgPurple || '#8b5cf6'};
-        --theme-icon-indigo: ${colors.iconBgIndigo || '#6366f1'};
-        --theme-icon-orange: ${colors.iconBgOrange || '#f97316'};
-        --theme-icon-yellow: ${colors.iconBgYellow || '#eab308'};
-        --theme-icon-cyan: ${colors.iconBgCyan || '#06b6d4'};
-        --theme-icon-red: ${colors.iconBgRed || '#ef4444'};
-        
-        /* Chart colors */
-        --theme-chart-1: ${colors.chartColor1 || '#3b82f6'};
-        --theme-chart-2: ${colors.chartColor2 || '#10b981'};
-        --theme-chart-3: ${colors.chartColor3 || '#f59e0b'};
-        --theme-chart-4: ${colors.chartColor4 || '#ef4444'};
-        --theme-chart-5: ${colors.chartColor5 || '#8b5cf6'};
-        --theme-chart-6: ${colors.chartColor6 || '#06b6d4'};
-        --theme-chart-7: ${colors.chartColor7 || '#f97316'};
-        --theme-chart-8: ${colors.chartColor8 || '#ec4899'};
-        --theme-chart-border: ${colors.chartBorderColor || '#1f2937'};
-        --theme-chart-grid: ${colors.chartGridColor || '#374151'};
-        --theme-chart-text: ${colors.chartTextColor || '#9ca3af'};
-        --theme-chart-cache-hit: ${colors.chartCacheHitColor || '#10b981'};
-        --theme-chart-cache-miss: ${colors.chartCacheMissColor || '#f59e0b'};
-      }
-
-      /* Apply theme styles with proper specificity */
-      body * {
-        transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
-      }
-
-      /* Global body styles */
-      body {
-        background-color: var(--theme-bg-primary) !important;
-        color: var(--theme-text-primary) !important;
-      }
-
-      /* COMPREHENSIVE TAILWIND CLASS OVERRIDES */
+    :root {
+      --theme-primary: ${colors.primaryColor || '#3b82f6'};
+      --theme-secondary: ${colors.secondaryColor || '#8b5cf6'};
+      --theme-accent: ${colors.accentColor || '#06b6d4'};
+      --theme-bg-primary: ${colors.bgPrimary || '#111827'};
+      --theme-bg-secondary: ${colors.bgSecondary || '#1f2937'};
+      --theme-bg-tertiary: ${colors.bgTertiary || '#374151'};
+      --theme-bg-hover: ${colors.bgHover || '#4b5563'};
+      --theme-text-primary: ${colors.textPrimary || '#ffffff'};
+      --theme-text-secondary: ${colors.textSecondary || '#d1d5db'};
+      --theme-text-muted: ${colors.textMuted || '#9ca3af'};
+      --theme-text-accent: ${colors.textAccent || '#60a5fa'};
+      --theme-border-primary: ${colors.borderPrimary || '#374151'};
+      --theme-border-secondary: ${colors.borderSecondary || '#4b5563'};
+      --theme-border-focus: ${colors.borderFocus || '#3b82f6'};
       
-      /* Hit Rate Badge Combinations - Specific targeting */
-      .bg-green-900.text-green-300,
-      span.bg-green-900.text-green-300 {
-        background-color: var(--theme-hit-rate-high-bg) !important;
-        color: var(--theme-hit-rate-high-text) !important;
-      }
+      /* Navigation Variables */
+      --theme-nav-bg: ${colors.navBg || colors.bgSecondary || '#1f2937'};
+      --theme-nav-border: ${colors.navBorder || colors.borderPrimary || '#374151'};
+      --theme-nav-tab-active: ${colors.navTabActive || colors.primaryColor || '#3b82f6'};
+      --theme-nav-tab-inactive: ${colors.navTabInactive || colors.textMuted || '#9ca3af'};
+      --theme-nav-tab-hover: ${colors.navTabHover || colors.textPrimary || '#ffffff'};
+      --theme-nav-tab-active-border: ${colors.navTabActiveBorder || colors.primaryColor || '#3b82f6'};
+      --theme-nav-mobile-menu-bg: ${colors.navMobileMenuBg || colors.bgSecondary || '#1f2937'};
+      --theme-nav-mobile-item-hover: ${colors.navMobileItemHover || colors.bgTertiary || '#374151'};
+      
+      /* Status Colors */
+      --theme-success: ${colors.success || '#10b981'};
+      --theme-success-bg: ${colors.successBg || '#064e3b'};
+      --theme-success-text: ${colors.successText || '#34d399'};
+      --theme-warning: ${colors.warning || '#f59e0b'};
+      --theme-warning-bg: ${colors.warningBg || '#78350f'};
+      --theme-warning-text: ${colors.warningText || '#fbbf24'};
+      --theme-error: ${colors.error || '#ef4444'};
+      --theme-error-bg: ${colors.errorBg || '#7f1d1d'};
+      --theme-error-text: ${colors.errorText || '#fca5a5'};
+      --theme-info: ${colors.info || '#3b82f6'};
+      --theme-info-bg: ${colors.infoBg || '#1e3a8a'};
+      --theme-info-text: ${colors.infoText || '#93c5fd'};
+      
+      /* Service Colors */
+      --theme-steam: ${colors.steamColor || '#3b82f6'};
+      --theme-epic: ${colors.epicColor || '#8b5cf6'};
+      --theme-origin: ${colors.originColor || '#10b981'};
+      --theme-blizzard: ${colors.blizzardColor || '#ef4444'};
+      --theme-wsus: ${colors.wsusColor || '#06b6d4'};
+      --theme-riot: ${colors.riotColor || '#f59e0b'};
+      
+      /* Component Colors */
+      --theme-card-bg: ${colors.cardBg || colors.bgSecondary || '#1f2937'};
+      --theme-card-border: ${colors.cardBorder || colors.borderPrimary || '#374151'};
+      --theme-button-bg: ${colors.buttonBg || colors.primaryColor || '#3b82f6'};
+      --theme-button-hover: ${colors.buttonHover || '#2563eb'};
+      --theme-button-text: ${colors.buttonText || '#ffffff'};
+      --theme-input-bg: ${colors.inputBg || colors.bgTertiary || '#374151'};
+      --theme-input-border: ${colors.inputBorder || colors.borderSecondary || '#4b5563'};
+      --theme-input-focus: ${colors.inputFocus || colors.primaryColor || '#3b82f6'};
+      --theme-badge-bg: ${colors.badgeBg || colors.primaryColor || '#3b82f6'};
+      --theme-badge-text: ${colors.badgeText || '#ffffff'};
+      --theme-progress-bar: ${colors.progressBar || colors.primaryColor || '#3b82f6'};
+      --theme-progress-bg: ${colors.progressBg || colors.bgTertiary || '#374151'};
+      
+      /* Hit Rate Colors - FIXED WITH PRETTIER COLORS */
+      --theme-hit-rate-high-bg: ${colors.hitRateHighBg || '#064e3b'};
+      --theme-hit-rate-high-text: ${colors.hitRateHighText || '#34d399'};
+      --theme-hit-rate-medium-bg: ${colors.hitRateMediumBg || '#1e3a8a'};
+      --theme-hit-rate-medium-text: ${colors.hitRateMediumText || '#93c5fd'};
+      --theme-hit-rate-low-bg: ${colors.hitRateLowBg || '#44403c'};
+      --theme-hit-rate-low-text: ${colors.hitRateLowText || '#fbbf24'};
+      --theme-hit-rate-warning-bg: ${colors.hitRateWarningBg || '#44403c'};
+      --theme-hit-rate-warning-text: ${colors.hitRateWarningText || '#fcd34d'};
+      
+      /* Action Button Colors */
+      --theme-action-reset-bg: ${colors.actionResetBg || '#f59e0b'};
+      --theme-action-reset-hover: ${colors.actionResetHover || '#d97706'};
+      --theme-action-process-bg: ${colors.actionProcessBg || '#10b981'};
+      --theme-action-process-hover: ${colors.actionProcessHover || '#059669'};
+      --theme-action-delete-bg: ${colors.actionDeleteBg || '#ef4444'};
+      --theme-action-delete-hover: ${colors.actionDeleteHover || '#dc2626'};
+      
+      /* Icon Colors */
+      --theme-icon-blue: ${colors.iconBgBlue || '#3b82f6'};
+      --theme-icon-green: ${colors.iconBgGreen || '#10b981'};
+      --theme-icon-emerald: ${colors.iconBgEmerald || '#10b981'};
+      --theme-icon-purple: ${colors.iconBgPurple || '#8b5cf6'};
+      --theme-icon-indigo: ${colors.iconBgIndigo || '#6366f1'};
+      --theme-icon-orange: ${colors.iconBgOrange || '#f97316'};
+      --theme-icon-yellow: ${colors.iconBgYellow || '#eab308'};
+      --theme-icon-cyan: ${colors.iconBgCyan || '#06b6d4'};
+      --theme-icon-red: ${colors.iconBgRed || '#ef4444'};
+      
+      /* Chart Colors */
+      --theme-chart-1: ${colors.chartColor1 || '#3b82f6'};
+      --theme-chart-2: ${colors.chartColor2 || '#10b981'};
+      --theme-chart-3: ${colors.chartColor3 || '#f59e0b'};
+      --theme-chart-4: ${colors.chartColor4 || '#ef4444'};
+      --theme-chart-5: ${colors.chartColor5 || '#8b5cf6'};
+      --theme-chart-6: ${colors.chartColor6 || '#06b6d4'};
+      --theme-chart-7: ${colors.chartColor7 || '#f97316'};
+      --theme-chart-8: ${colors.chartColor8 || '#ec4899'};
+      --theme-chart-border: ${colors.chartBorderColor || '#1f2937'};
+      --theme-chart-grid: ${colors.chartGridColor || '#374151'};
+      --theme-chart-text: ${colors.chartTextColor || '#9ca3af'};
+      --theme-chart-cache-hit: ${colors.chartCacheHitColor || '#10b981'};
+      --theme-chart-cache-miss: ${colors.chartCacheMissColor || '#f59e0b'};
+    }
 
-      .bg-blue-900.text-blue-300,
-      span.bg-blue-900.text-blue-300 {
-        background-color: var(--theme-hit-rate-medium-bg) !important;
-        color: var(--theme-hit-rate-medium-text) !important;
-      }
+    /* Global Transitions */
+    body * {
+      transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    }
 
-      .bg-orange-900.text-orange-300,
-      span.bg-orange-900.text-orange-300 {
-        background-color: var(--theme-hit-rate-low-bg) !important;
-        color: var(--theme-hit-rate-low-text) !important;
-      }
+    /* Global Body Style */
+    body {
+      background-color: var(--theme-bg-primary) !important;
+      color: var(--theme-text-primary) !important;
+    }
 
-      /* Status Warning Badge Combinations */
-      .bg-yellow-900.text-yellow-300,
-      span.bg-yellow-900.text-yellow-300 {
-        background-color: var(--theme-status-warning-bg) !important;
-        color: var(--theme-status-warning-text) !important;
-      }
-
-      /* Action Button Combinations */
-      .bg-yellow-600,
-      button.bg-yellow-600 {
-        background-color: var(--theme-action-reset-bg) !important;
-      }
-
-      .bg-yellow-600:hover,
-      .hover\\:bg-yellow-700:hover,
-      button.bg-yellow-600:hover {
-        background-color: var(--theme-action-reset-hover) !important;
-      }
-
-      .bg-green-600,
-      button.bg-green-600 {
-        background-color: var(--theme-action-process-bg) !important;
-      }
-
-      .bg-green-600:hover,
-      .hover\\:bg-green-700:hover,
-      button.bg-green-600:hover {
-        background-color: var(--theme-action-process-hover) !important;
-      }
-
-      /* Progress Bar Fills */
-      .bg-yellow-500 {
-        background-color: var(--theme-action-reset-bg) !important;
-      }
-
-      /* Background Colors */
-      .bg-gray-900, body { 
-        background-color: var(--theme-bg-primary) !important; 
-      }
-
-      .bg-gray-800:not(header):not(nav *):not(.bg-gray-800 nav) { 
-        background-color: var(--theme-bg-secondary) !important; 
-      }
-
-      .bg-gray-700 { 
-        background-color: var(--theme-progress-bg) !important; 
-      }
-
-      .bg-gray-600 { 
-        background-color: var(--theme-bg-hover) !important; 
-      }
-
-      /* Success/Green colors for hit rates and progress */
-      .bg-green-500 { 
-        background-color: var(--theme-chart-cache-hit) !important; 
-      }
-
-      .bg-green-900 { 
-        background-color: var(--theme-success-bg) !important; 
-      }
-
-      .text-green-300 { 
-        color: var(--theme-success-text) !important; 
-      }
-
-      .text-green-400, .text-green-500 { 
-        color: var(--theme-success-text) !important; 
-      }
-
-      /* Info/Blue colors for active states and primary elements */
-      .bg-blue-500:not([role="progressbar"]) {
-        background-color: var(--theme-primary) !important;
-      }
-
-      .bg-blue-600:not([role="progressbar"]) {
-        background-color: var(--theme-button-bg) !important;
-      }
-
-      .text-blue-400:not(nav *), .text-blue-500:not(nav *) { 
-        color: var(--theme-info-text) !important; 
-      }
-
-      /* Purple/Secondary colors */
-      .bg-purple-600 {
-        background-color: var(--theme-secondary) !important;
-      }
-
-      .bg-purple-700, .hover\\:bg-purple-700:hover {
-        background-color: var(--theme-icon-purple) !important;
-      }
-
-      /* Warning/Orange colors */
-      .text-yellow-400, .text-yellow-500 { 
-        color: var(--theme-warning-text) !important; 
-      }
-
-      .bg-orange-500 {
-        background-color: var(--theme-icon-orange) !important;
-      }
-
-      /* Error/Red colors */
-      .text-red-400, .text-red-500 { 
-        color: var(--theme-error-text) !important; 
-      }
-
-      .bg-red-500, .bg-red-600 {
-        background-color: var(--theme-error) !important;
-      }
-
-      /* Navigation Specific Styles */
-      .bg-gray-800 {
-        background-color: var(--theme-nav-bg) !important;
-      }
-
-      .border-gray-700 {
-        border-color: var(--theme-nav-border) !important;
-      }
-
-      /* Navigation tabs - active state */
-      .border-blue-500 {
-        border-color: var(--theme-nav-tab-active-border) !important;
-      }
-
-      .text-blue-500 {
-        color: var(--theme-nav-tab-active) !important;
-      }
-
-      /* Navigation tabs - inactive state */
-      .text-gray-400 {
-        color: var(--theme-nav-tab-inactive) !important;
-      }
-
-      /* Navigation tabs - hover state */
-      .hover\\:text-white:hover {
-        color: var(--theme-nav-tab-hover) !important;
-      }
-
-      /* Mobile navigation background */
-      .md\\:hidden .bg-gray-800 {
-        background-color: var(--theme-nav-mobile-menu-bg) !important;
-      }
-
-      /* Mobile navigation item hover */
-      .hover\\:bg-gray-700:hover {
-        background-color: var(--theme-nav-mobile-item-hover) !important;
-      }
-
-      .hover\\:bg-gray-600:hover { 
-        background-color: var(--theme-bg-hover) !important; 
-        opacity: 0.8; 
-      }
-
-      /* Text color overrides */
-      .text-white, .text-gray-100, .text-gray-200 { 
-        color: var(--theme-text-primary) !important; 
-      }
-
-      .text-gray-300:not(nav *) { 
-        color: var(--theme-text-secondary) !important; 
-      }
-
-      .text-gray-500, .text-gray-600 { 
-        color: var(--theme-text-muted) !important; 
-      }
-
-      /* Border overrides */
-      .border-gray-600:not(nav *) { 
-        border-color: var(--theme-border-secondary) !important; 
-      }
-
-      /* Button hover states */
-      .hover\\:bg-blue-700:hover {
-        background-color: var(--theme-button-hover) !important;
-      }
-
-      /* Cards */
-      .bg-gray-800.rounded-lg:not(nav *) {
-        background-color: var(--theme-card-bg) !important;
-      }
-
-      .border.border-gray-700:not(nav *) {
-        border-color: var(--theme-card-border) !important;
-      }
-
-      /* Inputs */
-      input, select, textarea {
-        background-color: var(--theme-input-bg) !important;
-        border-color: var(--theme-input-border) !important;
-        color: var(--theme-text-primary) !important;
-      }
-
-      input:focus, select:focus, textarea:focus {
-        border-color: var(--theme-input-focus) !important;
-        outline-color: var(--theme-input-focus) !important;
-      }
-
-      /* Progress bars - high priority for hit rate displays */
-      .bg-green-500 {
-        background-color: var(--theme-chart-cache-hit) !important;
-      }
-
-      /* Tab/pagination indicators */
-      .bg-blue-500 {
-        background-color: var(--theme-primary) !important;
-      }
-
-      /* Badge combinations for hit rates */
-      .bg-green-900.text-green-300 {
-        background-color: var(--theme-success-bg) !important;
-        color: var(--theme-success-text) !important;
-      }
-
-      /* Inline badges and spans */
-      span.bg-green-900 {
-        background-color: var(--theme-success-bg) !important;
-      }
-
-      span.text-green-300 {
-        color: var(--theme-success-text) !important;
-      }
-
-      /* Progress bar containers and fills */
-      .bg-gray-700 {
-        background-color: var(--theme-progress-bg) !important;
-      }
-
-      .bg-green-500 {
-        background-color: var(--theme-chart-cache-hit) !important;
-      }
-
-      /* Management buttons and specific UI elements */
-      .bg-red-600, .hover\\:bg-red-700:hover {
-        background-color: var(--theme-error) !important;
-      }
-
-      .bg-yellow-600, .hover\\:bg-yellow-700:hover {
-        background-color: var(--theme-warning) !important;
-      }
-
-      /* Custom CSS if provided */
-      ${theme.css?.content || ''}
-    `;
+    /* Custom CSS from theme */
+    ${theme.css?.content || ''}
+  `;
 
     // Create and inject the style element
     this.styleElement = document.createElement('style');
@@ -978,23 +811,17 @@ class ThemeService {
   }
 
   async loadSavedTheme(): Promise<void> {
-    // Always apply default CSS variables first
     this.applyDefaultVariables();
-    
-    // Load themes from server
     await this.loadThemes();
-    
-    // Check if user has a saved theme preference
+
     const themeApplied = localStorage.getItem('lancache_theme_applied') === 'true';
     const savedThemeId = localStorage.getItem('lancache_theme');
-    
+
     if (themeApplied && savedThemeId) {
-      // User has a saved theme - apply it
       const theme = await this.getTheme(savedThemeId);
       if (theme) {
         this.applyTheme(theme);
       } else {
-        // Theme doesn't exist anymore, reset to default
         console.log(`Saved theme ${savedThemeId} not found, resetting to default`);
         localStorage.removeItem('lancache_theme');
         localStorage.removeItem('lancache_theme_applied');
@@ -1004,7 +831,6 @@ class ThemeService {
         }
       }
     } else if (!themeApplied) {
-      // First time user - apply dark-default theme automatically
       const darkDefault = await this.getTheme('dark-default');
       if (darkDefault) {
         this.applyTheme(darkDefault);
@@ -1032,7 +858,7 @@ class ThemeService {
 
   exportTheme(theme: Theme): string {
     let toml = '';
-    
+
     toml += '[meta]\n';
     toml += `name = "${theme.meta.name}"\n`;
     toml += `id = "${theme.meta.id}"\n`;
@@ -1041,7 +867,7 @@ class ThemeService {
     if (theme.meta.version) toml += `version = "${theme.meta.version}"\n`;
     if (theme.meta.isDark !== undefined) toml += `isDark = ${theme.meta.isDark}\n`;
     toml += '\n';
-    
+
     toml += '[colors]\n';
     if (theme.colors) {
       Object.entries(theme.colors).forEach(([key, value]) => {
@@ -1049,7 +875,7 @@ class ThemeService {
       });
     }
     toml += '\n';
-    
+
     if (theme.custom && Object.keys(theme.custom).length > 0) {
       toml += '[custom]\n';
       Object.entries(theme.custom).forEach(([key, value]) => {
@@ -1057,12 +883,12 @@ class ThemeService {
       });
       toml += '\n';
     }
-    
+
     if (theme.css?.content) {
       toml += '[css]\n';
       toml += `content = """\n${theme.css.content}\n"""\n`;
     }
-    
+
     return toml;
   }
 }

@@ -167,18 +167,18 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         }}
         title={
           <div className="flex items-center space-x-3">
-            <Key className="w-6 h-6 text-yellow-500" />
+            <Key className="w-6 h-6 text-themed-warning" />
             <span>Authentication Required</span>
           </div>
         }
       >
         <div className="space-y-4">
-          <p className="text-gray-300">
+          <p className="text-themed-secondary">
             Management operations require authentication. Please enter your API key to continue.
           </p>
           
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-themed-secondary mb-2">
               API Key
             </label>
             <input
@@ -187,7 +187,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               onChange={(e) => setApiKey(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleAuthenticate()}
               placeholder="lm_xxxxxxxxxxxxxxxxxxxxx"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+              className="w-full px-3 py-2 themed-input text-themed-primary placeholder-themed-muted focus:outline-none"
               disabled={authLoading}
             />
           </div>
@@ -203,13 +203,13 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               <p className="font-medium mb-2">To find your API key:</p>
               <ol className="list-decimal list-inside text-xs space-y-1">
                 <li>SSH into your server</li>
-                <li>Check the file: <code className="bg-gray-700 px-1 rounded">/data/api_key.txt</code></li>
+                <li>Check the file: <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code></li>
                 <li>Or check the API container logs on startup</li>
               </ol>
             </div>
           </Alert>
           
-          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
+          <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
             <Button
               variant="default"
               onClick={() => {

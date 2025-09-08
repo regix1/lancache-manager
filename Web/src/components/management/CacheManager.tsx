@@ -198,11 +198,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
       <Card>
         <div className="flex items-center space-x-2 mb-4">
-          <HardDrive className="w-5 h-5 text-blue-400" />
-          <h3 className="text-lg font-semibold text-white">Disk Cache Management</h3>
+          <HardDrive className="w-5 h-5 text-themed-primary" />
+          <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
         </div>
-        <p className="text-gray-400 text-sm mb-4">
-          Manage cached game files in <code className="bg-gray-700 px-2 py-1 rounded">{config.cachePath}</code>
+        <p className="text-themed-muted text-sm mb-4">
+          Manage cached game files in <code className="bg-themed-tertiary px-2 py-1 rounded">{config.cachePath}</code>
         </p>
         <Button
           fullWidth
@@ -215,7 +215,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         >
           {isCacheClearingInBackground ? 'Cache Clearing in Progress...' : 'Clear All Cached Files'}
         </Button>
-        <p className="text-xs text-gray-500 mt-2">
+        <p className="text-xs text-themed-muted mt-2">
           ⚠️ This deletes ALL cached game files from disk
         </p>
       </Card>
@@ -234,41 +234,41 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <div className="space-y-4">
           <div className="flex items-center space-x-2">
             {cacheClearProgress?.status === 'Completed' ? (
-              <CheckCircle className="w-5 h-5 text-green-500" />
+              <CheckCircle className="w-5 h-5 cache-hit" />
             ) : cacheClearProgress?.status === 'Failed' ? (
-              <AlertCircle className="w-5 h-5 text-red-500" />
+              <AlertCircle className="w-5 h-5 text-themed-error" />
             ) : (
-              <Loader className="w-5 h-5 text-blue-500 animate-spin" />
+              <Loader className="w-5 h-5 text-themed-primary animate-spin" />
             )}
             <div className="flex-1">
-              <span className="text-white font-medium">{cacheClearProgress?.status}</span>
+              <span className="text-themed-primary font-medium">{cacheClearProgress?.status}</span>
               {(cacheClearProgress?.statusMessage || cacheClearProgress?.message) && (
-                <p className="text-sm text-gray-400">{cacheClearProgress?.statusMessage || cacheClearProgress?.message}</p>
+                <p className="text-sm text-themed-muted">{cacheClearProgress?.statusMessage || cacheClearProgress?.message}</p>
               )}
             </div>
           </div>
           
           {cacheClearProgress && ['Running', 'Preparing'].includes(cacheClearProgress.status) && (
             <>
-              <div className="w-full bg-gray-700 rounded-full h-4 relative overflow-hidden">
+              <div className="w-full progress-track rounded-full h-4 relative overflow-hidden">
                 <div 
-                  className="bg-gradient-to-r from-blue-500 to-blue-600 h-4 rounded-full transition-all duration-500"
+                  className="progress-bar-medium h-4 rounded-full smooth-transition"
                   style={{ width: `${Math.min(100, progressPercent)}%` }}
                 />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-xs text-white font-medium">
+                  <span className="text-xs text-themed-primary font-medium">
                     {progressPercent.toFixed(0)}%
                   </span>
                 </div>
               </div>
               
               {cacheClearProgress.bytesDeleted !== undefined && cacheClearProgress.totalBytesToDelete && cacheClearProgress.totalBytesToDelete > 0 && (
-                <div className="text-sm text-gray-400 text-center">
-                  <span className="text-green-400 font-semibold">
+                <div className="text-sm text-themed-muted text-center">
+                  <span className="cache-hit font-semibold">
                     {formatBytes(cacheClearProgress.bytesDeleted || 0)}
                   </span>
                   {' / '}
-                  <span className="text-white">
+                  <span className="text-themed-primary">
                     {formatBytes(cacheClearProgress.totalBytesToDelete)}
                   </span>
                   {' cleared'}
@@ -283,7 +283,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             </Alert>
           )}
           
-          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
+          <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
             {cacheClearProgress && ['Running', 'Preparing'].includes(cacheClearProgress.status) ? (
               <>
                 <Button

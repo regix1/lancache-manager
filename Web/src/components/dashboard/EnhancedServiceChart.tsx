@@ -294,40 +294,52 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab((prev) => (prev - 1 + tabs.length) % tabs.length)}
-              className="p-1 hover:bg-gray-700 rounded transition-colors mr-2"
+              className="p-1 rounded transition-colors mr-2"
+              style={{ color: 'var(--theme-text-muted)' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <ChevronLeft className="w-4 h-4 text-gray-400" />
+              <ChevronLeft className="w-4 h-4" />
             </button>
             
             <div className="w-48 text-center">
-              <h3 className="text-lg font-semibold text-white truncate">
+              <h3 className="text-lg font-semibold text-themed-primary truncate">
                 {tabs[activeTab]?.name}
               </h3>
             </div>
             
             <button
               onClick={() => setActiveTab((prev) => (prev + 1) % tabs.length)}
-              className="p-1 hover:bg-gray-700 rounded transition-colors ml-2"
+              className="p-1 rounded transition-colors ml-2"
+              style={{ color: 'var(--theme-text-muted)' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <ChevronRight className="w-4 h-4 text-gray-400" />
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setChartSize(Math.max(60, chartSize - 10))}
-              className="p-1 hover:bg-gray-700 rounded transition-colors"
+              className="p-1 rounded transition-colors"
+              style={{ color: 'var(--theme-text-muted)' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <Minimize2 className="w-4 h-4 text-gray-400" />
+              <Minimize2 className="w-4 h-4" />
             </button>
             
-            <span className="text-xs text-gray-500">{chartSize}%</span>
+            <span className="text-xs text-themed-muted">{chartSize}%</span>
             
             <button
               onClick={() => setChartSize(Math.min(140, chartSize + 10))}
-              className="p-1 hover:bg-gray-700 rounded transition-colors"
+              className="p-1 rounded transition-colors"
+              style={{ color: 'var(--theme-text-muted)' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <Maximize2 className="w-4 h-4 text-gray-400" />
+              <Maximize2 className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -337,9 +349,12 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
             <button
               key={index}
               onClick={() => setActiveTab(index)}
-              className={`h-1 flex-1 rounded-full transition-colors ${
-                index === activeTab ? 'bg-blue-500' : 'bg-gray-700'
-              }`}
+              className="h-1 flex-1 rounded-full transition-colors"
+              style={{
+                backgroundColor: index === activeTab 
+                  ? 'var(--theme-primary)' 
+                  : 'var(--theme-bg-hover)'
+              }}
             />
           ))}
         </div>
@@ -381,22 +396,22 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
                       className="w-3 h-3 rounded"
                       style={{ backgroundColor: chartData.colors[index] }}
                     />
-                    <span className="text-xs text-gray-400">{label}:</span>
-                    <span className="text-xs text-white font-medium">{percentage}%</span>
+                    <span className="text-xs text-themed-muted">{label}:</span>
+                    <span className="text-xs text-themed-primary font-medium">{percentage}%</span>
                   </div>
                 );
               })}
             </div>
 
             {/* Chart description and stats */}
-            <div className="mt-6 pt-4 border-t border-gray-700">
+            <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
               <div className="flex items-start gap-2 mb-3">
-                <Info className="w-4 h-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                <Info className="w-4 h-4 text-themed-muted mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
-                  <h4 className="text-sm font-medium text-gray-200 mb-1">
+                  <h4 className="text-sm font-medium text-themed-secondary mb-1">
                     {getChartInfo.title}
                   </h4>
-                  <p className="text-xs text-gray-400 leading-relaxed">
+                  <p className="text-xs text-themed-muted leading-relaxed">
                     {getChartInfo.description}
                   </p>
                 </div>
@@ -406,8 +421,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
                 <div className="grid grid-cols-3 gap-4 mt-4">
                   {getChartInfo.stats.map((stat, index) => (
                     <div key={index} className="text-center">
-                      <div className="text-xs text-gray-500 mb-0.5">{stat.label}</div>
-                      <div className="text-sm font-semibold text-gray-200">{stat.value}</div>
+                      <div className="text-xs text-themed-muted mb-0.5">{stat.label}</div>
+                      <div className="text-sm font-semibold text-themed-secondary">{stat.value}</div>
                     </div>
                   ))}
                 </div>
@@ -416,7 +431,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
           </>
         ) : (
           <div className="flex items-center justify-center h-48">
-            <p className="text-gray-500">No data available</p>
+            <p className="text-themed-muted">No data available</p>
           </div>
         )}
       </div>

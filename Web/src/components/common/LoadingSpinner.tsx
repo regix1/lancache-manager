@@ -22,16 +22,16 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
 
   const content = (
     <div className="flex flex-col items-center justify-center space-y-4">
-      <Loader className={`${sizeClasses[size]} text-blue-500 animate-spin`} />
+      <Loader className={`${sizeClasses[size]} text-themed-primary animate-spin`} />
       {message && (
-        <p className="text-sm text-gray-400">{message}</p>
+        <p className="text-sm text-themed-muted">{message}</p>
       )}
     </div>
   );
 
   if (fullScreen) {
     return (
-      <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-themed-primary bg-opacity-50 flex items-center justify-center z-50">
         {content}
       </div>
     );

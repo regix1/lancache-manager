@@ -23,7 +23,7 @@ export const Modal: React.FC<ModalProps> = ({
     xl: 'max-w-4xl'
   };
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (opened) {
       document.body.style.overflow = 'hidden';
     } else {
@@ -38,15 +38,15 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className={`bg-gray-800 rounded-lg ${sizes[size]} w-full mx-4 border border-gray-700 max-h-[90vh] overflow-y-auto`}>
+      <div className={`themed-card rounded-lg ${sizes[size]} w-full mx-4 max-h-[90vh] overflow-y-auto custom-scrollbar`}>
         {title && (
-          <div className="flex items-center justify-between p-6 border-b border-gray-700">
-            <div className="text-lg font-semibold text-white">{title}</div>
+          <div className="flex items-center justify-between p-6 border-b border-themed-secondary">
+            <div className="text-lg font-semibold text-themed-primary">{title}</div>
             <button
               onClick={onClose}
-              className="p-1 hover:bg-gray-700 rounded transition-colors"
+              className="p-1 hover:bg-themed-hover rounded smooth-transition"
             >
-              <X className="w-5 h-5 text-gray-400" />
+              <X className="w-5 h-5 text-themed-muted" />
             </button>
           </div>
         )}

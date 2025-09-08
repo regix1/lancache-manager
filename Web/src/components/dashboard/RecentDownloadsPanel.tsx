@@ -46,23 +46,23 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(({
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white">Recent Downloads</h3>
+        <h3 className="text-lg font-semibold text-themed-primary">Recent Downloads</h3>
         <div className="flex items-center gap-3">
           {downloads.length > 0 && (
             <>
-              <span className="text-xs text-gray-400">
+              <span className="text-xs text-themed-muted">
                 {stats.totalDownloads} total
               </span>
               <span className={`text-xs px-2 py-0.5 rounded ${
                 stats.overallHitRate > 50 
-                  ? 'bg-green-900/50 text-green-400' 
-                  : 'bg-yellow-900/50 text-yellow-400'
+                  ? 'hit-rate-high' 
+                  : 'hit-rate-warning'
               }`}>
                 {formatPercent(stats.overallHitRate)} hit
               </span>
             </>
           )}
-          <span className="text-xs text-gray-500">{getTimeRangeLabel}</span>
+          <span className="text-xs text-themed-muted">{getTimeRangeLabel}</span>
         </div>
       </div>
       
@@ -71,40 +71,46 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(({
           displayDownloads.map((download, idx) => (
             <div 
               key={download.id || idx} 
-              className="bg-gray-900 rounded-lg p-3 border border-gray-700 hover:border-gray-600 transition-all duration-200"
+              className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
+              style={{
+                backgroundColor: 'var(--theme-bg-primary)',
+                borderColor: 'var(--theme-border-primary)'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--theme-border-secondary)'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--theme-border-primary)'}
             >
               <div className="flex justify-between items-start mb-1">
-                <span className="font-medium text-blue-400 text-sm">
+                <span className="font-medium text-sm text-themed-accent">
                   {download.service}
                 </span>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-themed-muted">
                   {formatDateTime(download.startTime)}
                 </span>
               </div>
-              <div className="text-xs text-gray-400">{download.clientIp}</div>
+              <div className="text-xs text-themed-muted">{download.clientIp}</div>
               {download.gameName && (
-                <div className="text-xs text-gray-500 mt-1 truncate">
+                <div className="text-xs text-themed-muted mt-1 truncate">
                   {download.gameName}
                 </div>
               )}
               <div className="flex justify-between items-center mt-2">
                 <div className="flex items-center gap-3">
-                  <span className="text-white text-sm">
+                  <span className="text-themed-primary text-sm">
                     {formatBytes(download.totalBytes)}
                   </span>
                   <div className="flex gap-2 text-xs">
-                    <span className="text-green-400">↓ {formatBytes(download.cacheHitBytes)}</span>
-                    <span className="text-yellow-400">→ {formatBytes(download.cacheMissBytes)}</span>
+                    <span className="cache-hit">↓ {formatBytes(download.cacheHitBytes)}</span>
+                    <span className="cache-miss">↑ {formatBytes(download.cacheMissBytes)}</span>
                   </div>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded ${
+                <span className={`text-xs px-2 py-1 rounded hit-rate-badge ${
                   download.cacheHitPercent > 75 
-                    ? 'bg-green-900 text-green-300' 
+                    ? 'high' 
                     : download.cacheHitPercent > 50
-                    ? 'bg-blue-900 text-blue-300'
+                    ? 'medium'
                     : download.cacheHitPercent > 25
-                    ? 'bg-yellow-900 text-yellow-300'
-                    : 'bg-orange-900 text-orange-300'
+                    ? 'low'
+                    : 'warning'
                 }`}>
                   {formatPercent(download.cacheHitPercent)} Hit
                 </span>
@@ -112,15 +118,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(({
             </div>
           ))
         ) : (
-          <div className="flex items-center justify-center h-32 text-gray-500">
+          <div className="flex items-center justify-center h-32 text-themed-muted">
             No downloads in the {getTimeRangeLabel.toLowerCase()}
           </div>
         )}
       </div>
       
       {downloads.length > displayCount && (
-        <div className="mt-3 pt-3 border-t border-gray-700 text-center">
-          <span className="text-xs text-gray-500">
+        <div className="mt-3 pt-3 border-t text-center" style={{ borderColor: 'var(--theme-border-primary)' }}>
+          <span className="text-xs text-themed-muted">
             Showing {displayCount} of {downloads.length} downloads
           </span>
         </div>

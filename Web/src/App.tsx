@@ -32,7 +32,13 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <DataProvider>
-        <div className="min-h-screen bg-gray-900 text-gray-100">
+        <div 
+          className="min-h-screen"
+          style={{
+            backgroundColor: 'var(--theme-bg-primary)',
+            color: 'var(--theme-text-primary)'
+          }}
+        >
           <Header />
           <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
           <main className="container mx-auto px-4 py-6">

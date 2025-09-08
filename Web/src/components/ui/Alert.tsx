@@ -20,11 +20,11 @@ export const Alert: React.FC<AlertProps> = ({
 }) => {
   const getColorClasses = () => {
     const colors = {
-      blue: 'bg-blue-900 bg-opacity-30 border-blue-700 text-blue-400',
-      green: 'bg-green-900 bg-opacity-30 border-green-700 text-green-400',
-      yellow: 'bg-yellow-900 bg-opacity-30 border-yellow-700 text-yellow-400',
-      red: 'bg-red-900 bg-opacity-30 border-red-700 text-red-400',
-      orange: 'bg-orange-900 bg-opacity-30 border-orange-700 text-orange-400'
+      blue: 'alert-info',
+      green: 'alert-success',
+      yellow: 'alert-warning',
+      red: 'alert-error',
+      orange: 'alert-warning'
     };
     return colors[color];
   };

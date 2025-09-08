@@ -11,6 +11,9 @@ import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
+import { Card } from '../ui/Card';
+import { Button } from '../ui/Button';
+import { Alert } from '../ui/Alert';
 
 // Mock Mode Manager Component
 const MockModeManager: React.FC<{
@@ -19,33 +22,36 @@ const MockModeManager: React.FC<{
   disabled: boolean;
 }> = ({ mockMode, onToggle, disabled }) => {
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-      <h3 className="text-lg font-semibold text-white mb-4">Mock Mode</h3>
+    <Card>
+      <h3 className="text-lg font-semibold text-themed-primary mb-4">Mock Mode</h3>
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-gray-300">Enable mock data for demonstration</p>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-themed-secondary">Enable mock data for demonstration</p>
+          <p className="text-sm text-themed-muted mt-1">
             Simulates realistic cache data and download activity
           </p>
         </div>
-        <button
+        <Button
           onClick={onToggle}
           disabled={disabled}
-          className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          variant="filled"
+          color="blue"
+          leftSection={mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
         >
-          {mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-          <span>{mockMode ? 'Enabled' : 'Disabled'}</span>
-        </button>
+          {mockMode ? 'Enabled' : 'Disabled'}
+        </Button>
       </div>
       {mockMode && (
-        <div className="mt-4 p-3 bg-blue-900 bg-opacity-30 rounded-lg border border-blue-700">
-          <div className="flex items-center space-x-2 text-blue-400">
-            <AlertCircle className="w-4 h-4" />
-            <span className="text-sm">Mock mode active - API actions disabled</span>
-          </div>
+        <div className="mt-4">
+          <Alert color="blue">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4" />
+              <span className="text-sm">Mock mode active - API actions disabled</span>
+            </div>
+          </Alert>
         </div>
       )}
-    </div>
+    </Card>
   );
 };
 
@@ -82,26 +88,29 @@ const DatabaseManager: React.FC<{
   };
 
   return (
-    <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+    <Card>
       <div className="flex items-center space-x-2 mb-4">
-        <Database className="w-5 h-5 text-purple-400" />
-        <h3 className="text-lg font-semibold text-white">Database Management</h3>
+        <Database className="w-5 h-5 text-themed-accent" />
+        <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
       </div>
-      <p className="text-gray-400 text-sm mb-4">
+      <p className="text-themed-muted text-sm mb-4">
         Manage download history and statistics
       </p>
-      <button
+      <Button
         onClick={handleResetDatabase}
         disabled={loading || mockMode || !isAuthenticated}
-        className="flex items-center justify-center space-x-2 px-4 py-3 w-full rounded-lg bg-red-600 hover:bg-red-700 disabled:opacity-50 transition-colors"
+        loading={loading}
+        variant="filled"
+        color="red"
+        leftSection={<Database className="w-4 h-4" />}
+        fullWidth
       >
-        {loading ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-        <span>Reset Database</span>
-      </button>
-      <p className="text-xs text-gray-500 mt-2">
+        Reset Database
+      </Button>
+      <p className="text-xs text-themed-muted mt-2">
         Clears all download history (does not affect cached files)
       </p>
-    </div>
+    </Card>
   );
 };
 
@@ -199,75 +208,71 @@ const LogFileManager: React.FC<{
   return (
     <>
       {activeServiceRemoval && (
-        <div className="bg-orange-900 bg-opacity-30 rounded-lg p-4 border border-orange-700">
+        <Alert color="orange">
           <div className="flex items-center space-x-3">
-            <Loader className="w-5 h-5 text-orange-500 animate-spin" />
+            <Loader className="w-5 h-5 animate-spin" />
             <div>
-              <p className="font-medium text-orange-400">
+              <p className="font-medium">
                 Removing {activeServiceRemoval} entries from logs...
               </p>
-              <p className="text-sm text-gray-300 mt-1">
+              <p className="text-sm mt-1">
                 This may take several minutes for large log files
               </p>
             </div>
           </div>
-        </div>
+        </Alert>
       )}
 
-      <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
+      <Card>
         <div className="flex items-center space-x-2 mb-4">
-          <FileText className="w-5 h-5 text-orange-400" />
-          <h3 className="text-lg font-semibold text-white">Log File Management</h3>
+          <FileText className="w-5 h-5 text-themed-accent" />
+          <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
         </div>
-        <p className="text-gray-400 text-sm mb-4">
-          Remove service entries from <code className="bg-gray-700 px-2 py-1 rounded">{config.logPath}</code>
+        <p className="text-themed-muted text-sm mb-4">
+          Remove service entries from <code className="bg-themed-tertiary px-2 py-1 rounded">{config.logPath}</code>
         </p>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {services.map(service => {
             const isRemoving = activeServiceRemoval === service;
             return (
-              <button
+              <Button
                 key={service}
                 onClick={() => handleRemoveServiceLogs(service)}
                 disabled={mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || !isAuthenticated}
-                className={`px-4 py-3 rounded-lg transition-colors flex flex-col items-center ${
-                  isRemoving 
-                    ? 'bg-orange-700 cursor-not-allowed opacity-75' 
-                    : 'bg-gray-700 hover:bg-gray-600 disabled:opacity-50'
-                }`}
+                variant="default"
+                loading={isRemoving || serviceRemovalOp.loading}
+                className="flex flex-col items-center"
+                fullWidth
               >
-                {isRemoving || serviceRemovalOp.loading ? (
-                  <>
-                    <Loader className="w-4 h-4 animate-spin mb-1" />
-                    <span className="capitalize font-medium">Removing...</span>
-                  </>
-                ) : (
+                {!isRemoving && !serviceRemovalOp.loading ? (
                   <>
                     <span className="capitalize font-medium">Clear {service}</span>
                     {serviceCounts[service] !== undefined && (
-                      <span className="text-xs text-gray-400 mt-1">
+                      <span className="text-xs text-themed-muted mt-1">
                         ({serviceCounts[service].toLocaleString()} entries)
                       </span>
                     )}
                   </>
+                ) : (
+                  <span className="capitalize font-medium">Removing...</span>
                 )}
-              </button>
+              </Button>
             );
           })}
         </div>
-        <div className="mt-4 p-3 bg-yellow-900 bg-opacity-30 rounded-lg border border-yellow-700">
-          <p className="text-xs text-yellow-400">
-            <strong>Warning:</strong> Requires write permissions to logs directory
-          </p>
+        <div className="mt-4">
+          <Alert color="yellow">
+            <p className="text-xs">
+              <strong>Warning:</strong> Requires write permissions to logs directory
+            </p>
+          </Alert>
         </div>
-      </div>
+      </Card>
 
       {serviceRemovalOp.error && (
-        <div className="bg-orange-900 bg-opacity-30 rounded-lg p-4 border border-orange-700">
-          <p className="text-sm text-orange-400">
-            Backend storage error: {serviceRemovalOp.error}
-          </p>
-        </div>
+        <Alert color="orange">
+          Backend storage error: {serviceRemovalOp.error}
+        </Alert>
       )}
     </>
   );

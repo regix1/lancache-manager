@@ -1,29 +1,69 @@
 import React from 'react';
-import { Server, Activity } from 'lucide-react';
-import { useData } from '../../contexts/DataContext';
+import { Monitor, Wifi } from 'lucide-react';
 
-const Header: React.FC = () => {
-  const { loading, mockMode } = useData();
+interface HeaderProps {
+  title?: string;
+  subtitle?: string;
+  connectionStatus?: 'connected' | 'disconnected' | 'reconnecting';
+}
+
+const Header: React.FC<HeaderProps> = ({ 
+  title = "LANCache Manager", 
+  subtitle = "High-performance cache monitoring & management",
+  connectionStatus = 'connected' 
+}) => {
+  const getStatusInfo = () => {
+    switch (connectionStatus) {
+      case 'connected':
+        return {
+          color: 'cache-hit',
+          text: 'Connected',
+          icon: <Wifi className="w-4 h-4" />
+        };
+      case 'disconnected':
+        return {
+          color: 'text-themed-error',
+          text: 'Disconnected',
+          icon: <Wifi className="w-4 h-4" />
+        };
+      case 'reconnecting':
+        return {
+          color: 'cache-miss',
+          text: 'Reconnecting...',
+          icon: <Wifi className="w-4 h-4 animate-pulse" />
+        };
+      default:
+        return {
+          color: 'text-themed-muted',
+          text: 'Unknown',
+          icon: <Wifi className="w-4 h-4" />
+        };
+    }
+  };
+
+  const status = getStatusInfo();
 
   return (
-    <header className="bg-gray-800 border-b border-gray-700">
-      <div className="container mx-auto px-4 py-4">
-        <div className="flex items-center justify-between">
+    <header className="border-b" style={{ 
+      backgroundColor: 'var(--theme-nav-bg)', 
+      borderColor: 'var(--theme-nav-border)' 
+    }}>
+      <div className="container mx-auto px-4">
+        <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-3">
-            <Server className="w-8 h-8 text-blue-500" />
-            <h1 className="text-2xl font-bold">LanCache Monitor</h1>
+            <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--theme-icon-blue)' }}>
+              <Monitor className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-themed-primary">{title}</h1>
+              <p className="text-sm text-themed-muted">{subtitle}</p>
+            </div>
           </div>
-          <div className="flex items-center space-x-4">
-            {mockMode && (
-              <span className="px-3 py-1 bg-blue-900 text-blue-300 rounded-lg text-sm">
-                Mock Mode
-              </span>
-            )}
-            <div className="flex items-center space-x-2">
-              <Activity className={`w-4 h-4 ${loading ? 'text-yellow-500 animate-pulse' : 'text-green-500'}`} />
-              <span className="text-sm text-gray-400">
-                {loading ? 'Updating...' : 'Connected'}
-              </span>
+          
+          <div className="flex items-center space-x-2">
+            <div className={`flex items-center space-x-1 ${status.color}`}>
+              {status.icon}
+              <span className="text-sm font-medium">{status.text}</span>
             </div>
           </div>
         </div>

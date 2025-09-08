@@ -9,7 +9,6 @@ interface TopClientsTableProps {
   timeRange?: string;
 }
 
-
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(({ 
   clientStats = [], 
   timeRange = '24h' 
@@ -35,11 +34,11 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(({
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+        <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
           Top Clients
           <CacheInfoTooltip />
         </h3>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-themed-muted">
           {timeRangeLabel}
         </span>
       </div>
@@ -48,7 +47,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(({
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
-              <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
+              <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
                 <th className="pb-3">Client IP</th>
                 <th className="pb-3">Total Downloaded</th>
                 <th className="pb-3">Cache Hits</th>
@@ -59,21 +58,19 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(({
             </thead>
             <tbody className="text-sm">
               {displayClients.map((client, idx) => (
-                <tr key={`${client.clientIp}-${idx}`} className="border-t border-gray-700">
-                  <td className="py-3 text-white">{client.clientIp}</td>
-                  <td className="py-3 text-gray-300">{formatBytes(client.totalBytes)}</td>
-                  <td className="py-3 text-green-400">{formatBytes(client.totalCacheHitBytes)}</td>
-                  <td className="py-3 text-yellow-400">{formatBytes(client.totalCacheMissBytes)}</td>
+                <tr key={`${client.clientIp}-${idx}`} className="hover:bg-themed-hover transition-colors">
+                  <td className="py-3 text-themed-primary">{client.clientIp}</td>
+                  <td className="py-3 text-themed-secondary">{formatBytes(client.totalBytes)}</td>
+                  <td className="py-3 cache-hit">{formatBytes(client.totalCacheHitBytes)}</td>
+                  <td className="py-3 cache-miss">{formatBytes(client.totalCacheMissBytes)}</td>
                   <td className="py-3">
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      client.cacheHitPercent > 50 
-                        ? 'bg-green-900 text-green-300' 
-                        : 'bg-yellow-900 text-yellow-300'
+                    <span className={`px-2 py-1 rounded text-xs hit-rate-badge ${
+                      client.cacheHitPercent > 50 ? 'high' : 'warning'
                     }`}>
                       {formatPercent(client.cacheHitPercent)}
                     </span>
                   </td>
-                  <td className="py-3 text-gray-400">
+                  <td className="py-3 text-themed-muted">
                     {formatDateTime(client.lastSeen)}
                   </td>
                 </tr>
@@ -82,7 +79,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(({
           </table>
         </div>
       ) : (
-        <div className="flex items-center justify-center h-32 text-gray-500">
+        <div className="flex items-center justify-center h-32 text-themed-muted">
           No client data available for selected time range
         </div>
       )}

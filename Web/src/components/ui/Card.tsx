@@ -1,5 +1,3 @@
-import React from 'react';
-
 interface CardProps {
   children: React.ReactNode;
   className?: string;
@@ -19,7 +17,7 @@ export const Card: React.FC<CardProps> = ({
   };
 
   return (
-    <div className={`bg-gray-800 rounded-lg border border-gray-700 ${paddings[padding]} ${className}`}>
+    <div className={`themed-card rounded-lg ${paddings[padding]} ${className}`}>
       {children}
     </div>
   );

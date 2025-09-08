@@ -9,19 +9,19 @@ const ServicesTab: React.FC = () => {
 
   const getServiceColor = (service: string): string => {
     const colors: Record<string, string> = {
-      steam: 'text-blue-400',
-      epic: 'text-purple-400',
-      origin: 'text-orange-400',
-      blizzard: 'text-cyan-400',
-      wsus: 'text-green-400',
-      riot: 'text-red-400'
+      steam: 'service-steam',
+      epic: 'service-epic',
+      origin: 'service-origin',
+      blizzard: 'service-blizzard',
+      wsus: 'service-wsus',
+      riot: 'service-riot'
     };
-    return colors[service.toLowerCase()] || 'text-gray-400';
+    return colors[service.toLowerCase()] || 'text-themed-muted';
   };
 
   return (
     <Card>
-      <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+      <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-themed-primary">
         Service Statistics
         <CacheInfoTooltip />
       </h2>
@@ -29,7 +29,7 @@ const ServicesTab: React.FC = () => {
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="text-left text-xs text-gray-400 uppercase tracking-wider border-b border-gray-700">
+            <tr className="text-left text-xs text-themed-muted uppercase tracking-wider border-b border-themed-secondary">
               <th className="pb-3">Service</th>
               <th className="pb-3">Total Downloads</th>
               <th className="pb-3">Total Data</th>
@@ -42,33 +42,33 @@ const ServicesTab: React.FC = () => {
           <tbody className="text-sm">
             {serviceStats.length > 0 ? (
               serviceStats.map((service, idx) => (
-                <tr key={idx} className="border-t border-gray-700">
+                <tr key={idx} className="border-t border-themed-secondary">
                   <td className={`py-3 font-medium ${getServiceColor(service.service)}`}>
                     {service.service}
                   </td>
-                  <td className="py-3">{service.totalDownloads}</td>
-                  <td className="py-3">{formatBytes(service.totalBytes)}</td>
-                  <td className="py-3 text-green-400">{formatBytes(service.totalCacheHitBytes)}</td>
-                  <td className="py-3 text-yellow-400">{formatBytes(service.totalCacheMissBytes)}</td>
+                  <td className="py-3 text-themed-secondary">{service.totalDownloads}</td>
+                  <td className="py-3 text-themed-secondary">{formatBytes(service.totalBytes)}</td>
+                  <td className="py-3 cache-hit">{formatBytes(service.totalCacheHitBytes)}</td>
+                  <td className="py-3 cache-miss">{formatBytes(service.totalCacheMissBytes)}</td>
                   <td className="py-3">
                     <div className="flex items-center space-x-2">
-                      <div className="w-24 bg-gray-700 rounded-full h-2">
+                      <div className="w-24 progress-track rounded-full h-2">
                         <div 
-                          className="bg-green-500 h-2 rounded-full"
+                          className="progress-bar-high h-2 rounded-full"
                           style={{ width: `${service.cacheHitPercent}%` }}
                         />
                       </div>
-                      <span className="text-xs">{formatPercent(service.cacheHitPercent)}</span>
+                      <span className="text-xs text-themed-secondary">{formatPercent(service.cacheHitPercent)}</span>
                     </div>
                   </td>
-                  <td className="py-3 text-gray-400">
+                  <td className="py-3 text-themed-muted">
                     {formatDateTime(service.lastActivity)}
                   </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-gray-500">
+                <td colSpan={7} className="py-8 text-center text-themed-muted">
                   No service data available
                 </td>
               </tr>

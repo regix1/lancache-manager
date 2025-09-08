@@ -312,9 +312,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               )}
               {processingStatus.progress > 0 && processingStatus.status !== 'complete' && (
                 <div className="mt-2">
-                  <div className="w-full bg-gray-700 rounded-full h-2">
+                  <div className="w-full progress-track rounded-full h-2">
                     <div 
-                      className="bg-yellow-500 h-2 rounded-full transition-all duration-500"
+                      className="progress-bar-low h-2 rounded-full smooth-transition"
                       style={{ width: `${Math.min(processingStatus.progress, 100)}%` }}
                     />
                   </div>
@@ -343,10 +343,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
       <Card>
         <div className="flex items-center space-x-2 mb-4">
-          <FileText className="w-5 h-5 text-green-400" />
-          <h3 className="text-lg font-semibold text-white">Log Processing</h3>
+          <FileText className="w-5 h-5 cache-hit" />
+          <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
         </div>
-        <p className="text-gray-400 text-sm mb-4">
+        <p className="text-themed-muted text-sm mb-4">
           Control how access.log is processed for statistics
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -372,8 +372,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             Process All Logs
           </Button>
         </div>
-        <div className="mt-4 p-3 bg-gray-700 rounded-lg">
-          <p className="text-xs text-gray-400">
+        <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
+          <p className="text-xs text-themed-muted">
             <strong>Reset:</strong> Start from current end of log<br/>
             <strong>Process All:</strong> Import entire log history
           </p>

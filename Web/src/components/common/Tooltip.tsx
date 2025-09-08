@@ -8,7 +8,7 @@ interface TooltipProps {
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({ 
-  children = <Info className="w-4 h-4 text-gray-400 cursor-help" />, 
+  children = <Info className="w-4 h-4 text-themed-muted cursor-help" />, 
   content,
   position = 'top' 
 }) => {
@@ -30,7 +30,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         {children}
       </div>
       {visible && (
-        <div className={`absolute ${positionClasses[position]} z-50 px-3 py-2 text-xs bg-gray-900 text-gray-200 rounded-lg shadow-xl border border-gray-700`}>
+        <div className={`absolute ${positionClasses[position]} z-50 px-3 py-2 text-xs themed-card text-themed-secondary rounded-lg shadow-xl`}>
           {content}
         </div>
       )}
@@ -43,13 +43,13 @@ export const CacheInfoTooltip: React.FC = () => (
     content={
       <div className="flex items-center gap-4 whitespace-nowrap">
         <div className="flex items-center gap-1.5">
-          <span className="text-green-400 font-medium">Cache Hits:</span>
-          <span className="text-gray-300">Data served from local cache</span>
+          <span className="cache-hit font-medium">Cache Hits:</span>
+          <span className="text-themed-secondary">Data served from local cache</span>
         </div>
-        <div className="w-px h-4 bg-gray-700"></div>
+        <div className="w-px h-4 bg-themed-secondary"></div>
         <div className="flex items-center gap-1.5">
-          <span className="text-yellow-400 font-medium">Cache Misses:</span>
-          <span className="text-gray-300">Data downloaded from internet</span>
+          <span className="cache-miss font-medium">Cache Misses:</span>
+          <span className="text-themed-secondary">Data downloaded from internet</span>
         </div>
       </div>
     }

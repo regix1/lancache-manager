@@ -187,6 +187,265 @@
   .main-scrollbar::-webkit-scrollbar-corner {
     background: #1f2937;
   }
+
+  /* ==============================================
+   * CUSTOM THEME CLASSES - Semantic & Themeable
+   * ============================================== */
+
+  /* Hit Rate Badges - FIXED to use correct variable names */
+  .hit-rate-high {
+    background-color: var(--theme-hit-rate-high-bg, #064e3b);
+    color: var(--theme-hit-rate-high-text, #34d399);
+  }
+
+  .hit-rate-medium {
+    background-color: var(--theme-hit-rate-medium-bg, #1e3a8a);
+    color: var(--theme-hit-rate-medium-text, #93c5fd);
+  }
+
+  .hit-rate-low {
+    background-color: var(--theme-hit-rate-low-bg, #44403c);
+    color: var(--theme-hit-rate-low-text, #fbbf24);
+  }
+
+  .hit-rate-warning {
+    background-color: var(--theme-hit-rate-warning-bg, #44403c);
+    color: var(--theme-hit-rate-warning-text, #fcd34d);
+  }
+
+  /* Action Buttons */
+  .action-reset {
+    background-color: var(--theme-action-reset-bg, #f59e0b);
+    color: var(--theme-button-text, #ffffff);
+    transition: background-color 0.2s ease;
+  }
+
+  .action-reset:hover {
+    background-color: var(--theme-action-reset-hover, #d97706);
+  }
+
+  .action-process {
+    background-color: var(--theme-action-process-bg, #10b981);
+    color: var(--theme-button-text, #ffffff);
+    transition: background-color 0.2s ease;
+  }
+
+  .action-process:hover {
+    background-color: var(--theme-action-process-hover, #059669);
+  }
+
+  .action-delete {
+    background-color: var(--theme-action-delete-bg, #ef4444);
+    color: var(--theme-button-text, #ffffff);
+    transition: background-color 0.2s ease;
+  }
+
+  .action-delete:hover {
+    background-color: var(--theme-action-delete-hover, #dc2626);
+  }
+
+  /* Progress Bars */
+  .progress-bar-high {
+    background-color: var(--theme-chart-cache-hit, #10b981);
+  }
+
+  .progress-bar-medium {
+    background-color: var(--theme-primary, #3b82f6);
+  }
+
+  .progress-bar-low {
+    background-color: var(--theme-action-reset-bg, #f59e0b);
+  }
+
+  .progress-bar-critical {
+    background-color: var(--theme-error, #ef4444);
+  }
+
+  .progress-track {
+    background-color: var(--theme-progress-bg, #374151);
+  }
+
+  /* Service Colors */
+  .service-steam {
+    color: var(--theme-steam, #3b82f6);
+  }
+
+  .service-epic {
+    color: var(--theme-epic, #8b5cf6);
+  }
+
+  .service-origin {
+    color: var(--theme-origin, #10b981);
+  }
+
+  .service-blizzard {
+    color: var(--theme-blizzard, #ef4444);
+  }
+
+  .service-wsus {
+    color: var(--theme-wsus, #06b6d4);
+  }
+
+  .service-riot {
+    color: var(--theme-riot, #f59e0b);
+  }
+
+  /* Status Indicators */
+  .status-active {
+    background-color: var(--theme-success-bg, #064e3b);
+    color: var(--theme-success-text, #34d399);
+  }
+
+  .status-completed {
+    background-color: var(--theme-bg-hover, #4b5563);
+    color: var(--theme-text-muted, #9ca3af);
+  }
+
+  .status-error {
+    background-color: var(--theme-error-bg, #7f1d1d);
+    color: var(--theme-error-text, #fca5a5);
+  }
+
+  /* Cache Performance Indicators */
+  .cache-hit {
+    color: var(--theme-success-text, #34d399);
+  }
+
+  .cache-miss {
+    color: var(--theme-warning-text, #fbbf24);
+  }
+
+  /* Download Type Indicators */
+  .download-game {
+    background-color: var(--theme-success-bg, #064e3b);
+    color: var(--theme-success-text, #34d399);
+  }
+
+  .download-metadata {
+    background-color: var(--theme-bg-hover, #4b5563);
+    color: var(--theme-text-muted, #9ca3af);
+  }
+
+  .download-content {
+    background-color: var(--theme-info-bg, #1e3a8a);
+    color: var(--theme-info-text, #93c5fd);
+  }
+
+  /* Alert Variants */
+  .alert-success {
+    background-color: var(--theme-success-bg, #064e3b);
+    border-color: var(--theme-success, #10b981);
+    color: var(--theme-success-text, #34d399);
+  }
+
+  .alert-warning {
+    background-color: var(--theme-warning-bg, #78350f);
+    border-color: var(--theme-warning, #f59e0b);
+    color: var(--theme-warning-text, #fbbf24);
+  }
+
+  .alert-error {
+    background-color: var(--theme-error-bg, #7f1d1d);
+    border-color: var(--theme-error, #ef4444);
+    color: var(--theme-error-text, #fca5a5);
+  }
+
+  .alert-info {
+    background-color: var(--theme-info-bg, #1e3a8a);
+    border-color: var(--theme-info, #3b82f6);
+    color: var(--theme-info-text, #93c5fd);
+  }
+
+  /* Theme-aware Card */
+  .themed-card {
+    background-color: var(--theme-card-bg, #1f2937);
+    border-color: var(--theme-card-border, #374151);
+    color: var(--theme-text-primary, #ffffff);
+  }
+
+  /* Theme-aware Button */
+  .themed-button-primary {
+    background-color: var(--theme-button-bg, #3b82f6);
+    color: var(--theme-button-text, #ffffff);
+    border-color: var(--theme-button-bg, #3b82f6);
+    transition: background-color 0.2s ease;
+  }
+
+  .themed-button-primary:hover {
+    background-color: var(--theme-button-hover, #2563eb);
+    border-color: var(--theme-button-hover, #2563eb);
+  }
+
+  /* Theme-aware Input */
+  .themed-input {
+    background-color: var(--theme-input-bg, #374151);
+    border-color: var(--theme-input-border, #4b5563);
+    color: var(--theme-text-primary, #ffffff);
+  }
+
+  .themed-input:focus {
+    border-color: var(--theme-input-focus, #3b82f6);
+    outline-color: var(--theme-input-focus, #3b82f6);
+  }
+
+  /* Utility Classes */
+  .text-themed-primary {
+    color: var(--theme-text-primary, #ffffff);
+  }
+
+  .text-themed-secondary {
+    color: var(--theme-text-secondary, #d1d5db);
+  }
+
+  .text-themed-muted {
+    color: var(--theme-text-muted, #9ca3af);
+  }
+
+  .text-themed-accent {
+    color: var(--theme-accent, #06b6d4);
+  }
+
+  .bg-themed-primary {
+    background-color: var(--theme-bg-primary, #111827);
+  }
+
+  .bg-themed-secondary {
+    background-color: var(--theme-bg-secondary, #1f2937);
+  }
+
+  .bg-themed-tertiary {
+    background-color: var(--theme-bg-tertiary, #374151);
+  }
+
+  .bg-themed-hover {
+    background-color: var(--theme-bg-hover, #4b5563);
+  }
+
+  /* Badge Base Class */
+  .themed-badge {
+    @apply text-xs px-2 py-1 rounded font-medium;
+  }
+
+  /* Responsive Hit Rate Badge Helper */
+  .hit-rate-badge {
+    @apply themed-badge;
+  }
+
+  .hit-rate-badge.high {
+    @apply hit-rate-high;
+  }
+
+  .hit-rate-badge.medium {
+    @apply hit-rate-medium;
+  }
+
+  .hit-rate-badge.low {
+    @apply hit-rate-low;
+  }
+
+  .hit-rate-badge.warning {
+    @apply hit-rate-warning;
+  }
 }
 
 @keyframes shimmer {

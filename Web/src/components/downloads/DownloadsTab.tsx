@@ -35,7 +35,6 @@ const STORAGE_KEYS = {
   SHOW_SMALL_FILES: 'lancache_downloads_show_small'
 };
 
-// Custom Dropdown Component
 interface DropdownOption {
   value: string;
   label: string;
@@ -64,7 +63,6 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
     setIsOpen(false);
   };
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;
@@ -79,7 +77,6 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
     }
   }, [isOpen]);
 
-  // Handle keyboard navigation
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -95,7 +92,7 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
-        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-left focus:outline-none focus:border-blue-500 hover:bg-gray-600 transition-colors flex items-center justify-between"
+        className="w-full px-3 py-2 themed-input text-themed-primary text-left focus:outline-none hover:bg-themed-hover transition-colors flex items-center justify-between"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
@@ -111,15 +108,15 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
       {isOpen && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-12 z-20 bg-gray-800 border border-gray-700 rounded-lg shadow-lg min-w-full max-h-60 overflow-y-auto">
+          <div className="absolute right-0 top-12 z-20 themed-card rounded-lg shadow-lg min-w-full max-h-60 overflow-y-auto">
             <div className="py-1">
               {options.map((option) => (
                 <button
                   key={option.value}
                   type="button"
                   onClick={() => handleSelect(option.value)}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors ${
-                    option.value === value ? 'bg-gray-700 text-blue-400' : 'text-gray-300'
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-themed-hover transition-colors ${
+                    option.value === value ? 'bg-themed-hover text-themed-accent' : 'text-themed-secondary'
                   }`}
                 >
                   {option.label}
@@ -313,10 +310,10 @@ const DownloadsTab: React.FC = () => {
   };
   
   const getHitRateColor = (percent: number): string => {
-    if (percent >= 75) return 'bg-green-500';
-    if (percent >= 50) return 'bg-blue-500';
-    if (percent >= 25) return 'bg-yellow-500';
-    return 'bg-orange-500';
+    if (percent >= 75) return 'progress-bar-high';
+    if (percent >= 50) return 'progress-bar-medium';
+    if (percent >= 25) return 'progress-bar-low';
+    return 'progress-bar-critical';
   };
   
   const isDownloadGroup = (item: Download | DownloadGroup): item is DownloadGroup => {
@@ -380,29 +377,29 @@ const DownloadsTab: React.FC = () => {
         <div onClick={() => handleGroupClick(group.id)} className="cursor-pointer">
           <div className="grid grid-cols-12 gap-4">
             <div className="col-span-12 sm:col-span-4 md:col-span-3">
-              <p className="text-xs text-gray-400">Group</p>
+              <p className="text-xs text-themed-muted">Group</p>
               <div className="flex items-center gap-2">
                 <ChevronRight 
                   size={16} 
                   className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                 />
-                <div className="w-6 h-6 rounded bg-purple-500 bg-opacity-20 flex items-center justify-center">
-                  <Layers size={14} className="text-purple-400" />
+                <div className="w-6 h-6 rounded bg-themed-secondary flex items-center justify-center">
+                  <Layers size={14} className="text-themed-accent" />
                 </div>
-                <span className="text-sm font-medium text-purple-400">{group.name}</span>
+                <span className="text-sm font-medium text-themed-accent">{group.name}</span>
               </div>
-              <p className="text-xs text-gray-400">{group.count} items</p>
+              <p className="text-xs text-themed-muted">{group.count} items</p>
             </div>
             
             <div className="col-span-6 sm:col-span-4 md:col-span-3">
-              <p className="text-xs text-gray-400">Size</p>
+              <p className="text-xs text-themed-muted">Size</p>
               <p className="text-sm font-medium">
                 {group.totalBytes > 0 ? formatBytes(group.totalBytes) : 'Metadata'}
               </p>
             </div>
             
             <div className="col-span-6 sm:col-span-4 md:col-span-3">
-              <p className="text-xs text-gray-400">Clients</p>
+              <p className="text-xs text-themed-muted">Clients</p>
               <div className="flex items-center gap-1">
                 <Users size={14} />
                 <span className="text-sm">{group.clientCount || 0}</span>
@@ -410,10 +407,10 @@ const DownloadsTab: React.FC = () => {
             </div>
             
             <div className="col-span-12 md:col-span-3">
-              <p className="text-xs text-gray-400">Cache Hit</p>
+              <p className="text-xs text-themed-muted">Cache Hit</p>
               {group.totalBytes > 0 ? (
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                  <div className="flex-1 progress-track rounded-full h-2 overflow-hidden">
                     <div 
                       className={`h-full ${getHitRateColor(hitPercent)}`}
                       style={{ width: `${hitPercent}%` }}
@@ -422,7 +419,7 @@ const DownloadsTab: React.FC = () => {
                   <span className="text-sm">{formatPercent(hitPercent)}</span>
                 </div>
               ) : (
-                <p className="text-sm text-gray-400">N/A</p>
+                <p className="text-sm text-themed-muted">N/A</p>
               )}
             </div>
           </div>
@@ -430,11 +427,11 @@ const DownloadsTab: React.FC = () => {
         
         {isExpanded && (
           <>
-            <div className="border-t border-gray-700 my-4" />
+            <div className="border-t border-themed-secondary my-4" />
             <div className="max-h-72 overflow-y-auto">
               <div className="space-y-2">
                 {group.downloads.map(d => (
-                  <div key={d.id} className="p-2 bg-gray-700 rounded">
+                  <div key={d.id} className="p-2 bg-themed-tertiary rounded">
                     <div className="grid grid-cols-4 gap-2">
                       <span className="text-xs">{d.clientIp}</span>
                       <span className="text-xs">{formatBytes(d.totalBytes)}</span>
@@ -468,7 +465,7 @@ const DownloadsTab: React.FC = () => {
         <div onClick={() => isSteam && hasData ? handleDownloadClick(download) : undefined}>
           <div className="grid grid-cols-12 gap-4">
             <div className="col-span-12 sm:col-span-4 md:col-span-3">
-              <p className="text-xs text-gray-400">Service</p>
+              <p className="text-xs text-themed-muted">Service</p>
               <div className="flex items-center gap-2">
                 {isSteam && hasData && (
                   <ChevronRight 
@@ -476,39 +473,39 @@ const DownloadsTab: React.FC = () => {
                     className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                   />
                 )}
-                <span className="text-sm text-blue-400 font-medium">{download.service}</span>
+                <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>{download.service}</span>
                 <div className={`w-6 h-6 rounded flex items-center justify-center ${
-                  downloadType.type === 'game' ? 'bg-green-500 bg-opacity-20' : 
-                  downloadType.type === 'metadata' ? 'bg-gray-500 bg-opacity-20' : 'bg-blue-500 bg-opacity-20'
+                  downloadType.type === 'game' ? 'download-game' : 
+                  downloadType.type === 'metadata' ? 'download-metadata' : 'download-content'
                 }`}>
                   <IconComponent size={14} className={
-                    downloadType.type === 'game' ? 'text-green-400' : 
-                    downloadType.type === 'metadata' ? 'text-gray-400' : 'text-blue-400'
+                    downloadType.type === 'game' ? 'text-themed-primary' : 
+                    downloadType.type === 'metadata' ? 'text-themed-muted' : 'text-themed-primary'
                   } />
                 </div>
               </div>
               {downloadType.label && (
-                <p className="text-xs text-gray-400 truncate">{downloadType.label}</p>
+                <p className="text-xs text-themed-muted truncate">{downloadType.label}</p>
               )}
             </div>
             
             <div className="col-span-6 sm:col-span-4 md:col-span-2">
-              <p className="text-xs text-gray-400">Client</p>
+              <p className="text-xs text-themed-muted">Client</p>
               <p className="text-sm">{download.clientIp}</p>
             </div>
             
             <div className="col-span-6 sm:col-span-4 md:col-span-2">
-              <p className="text-xs text-gray-400">Size</p>
+              <p className="text-xs text-themed-muted">Size</p>
               <p className={`text-sm ${hasData ? 'font-medium' : ''}`}>
                 {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
               </p>
             </div>
             
             <div className="col-span-12 sm:col-span-6 md:col-span-3">
-              <p className="text-xs text-gray-400">Cache Hit</p>
+              <p className="text-xs text-themed-muted">Cache Hit</p>
               {hasData ? (
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                  <div className="flex-1 progress-track rounded-full h-2 overflow-hidden">
                     <div 
                       className={`h-full ${getHitRateColor(download.cacheHitPercent || 0)}`}
                       style={{ width: `${download.cacheHitPercent || 0}%` }}
@@ -517,19 +514,19 @@ const DownloadsTab: React.FC = () => {
                   <span className="text-sm">{formatPercent(download.cacheHitPercent || 0)}</span>
                 </div>
               ) : (
-                <p className="text-sm text-gray-400">N/A</p>
+                <p className="text-sm text-themed-muted">N/A</p>
               )}
             </div>
             
             <div className="col-span-12 sm:col-span-6 md:col-span-2">
-              <p className="text-xs text-gray-400">Status</p>
+              <p className="text-xs text-themed-muted">Status</p>
               {download.isActive ? (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-500 bg-opacity-20 text-green-400 text-xs rounded">
+                <span className="status-active inline-flex items-center gap-1 px-2 py-1 text-xs rounded">
                   <DownloadIcon size={12} />
                   Active
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-500 bg-opacity-20 text-gray-400 text-xs rounded">
+                <span className="status-completed inline-flex items-center gap-1 px-2 py-1 text-xs rounded">
                   <Check size={12} />
                   Done
                 </span>
@@ -539,7 +536,7 @@ const DownloadsTab: React.FC = () => {
           
           {isExpanded && game && (
             <>
-              <div className="border-t border-gray-700 my-4" />
+              <div className="border-t border-themed-secondary my-4" />
               {loadingGame === download.id ? (
                 <div className="flex justify-center py-4">
                   <Loader className="w-6 h-6 animate-spin" />
@@ -557,9 +554,9 @@ const DownloadsTab: React.FC = () => {
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-semibold text-white mb-3 truncate">{game.gameName}</h3>
+                    <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">{game.gameName}</h3>
                     {game.description && (
-                      <p className="text-sm text-gray-400 mb-4 line-clamp-3">
+                      <p className="text-sm text-themed-muted mb-4 line-clamp-3">
                         {game.description.length > 200 
                           ? `${game.description.substring(0, 200)}...` 
                           : game.description
@@ -571,7 +568,7 @@ const DownloadsTab: React.FC = () => {
                         href={`https://store.steampowered.com/app/${game.appId}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors font-medium"
+                        className="inline-flex items-center gap-2 text-sm text-themed-accent hover:text-themed-primary transition-colors font-medium"
                       >
                         View on Steam <ExternalLink size={16} />
                       </a>
@@ -593,7 +590,7 @@ const DownloadsTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Downloads</h2>
+        <h2 className="text-2xl font-semibold text-themed-primary">Downloads</h2>
         <div className="flex items-center gap-3">
           <CustomDropdown
             options={serviceOptions}
@@ -614,7 +611,7 @@ const DownloadsTab: React.FC = () => {
           <div className="relative">
             <button
               onClick={() => setSettingsOpened(!settingsOpened)}
-              className="p-2.5 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              className="p-2.5 themed-button-primary rounded transition-colors"
             >
               <Settings size={20} />
             </button>
@@ -625,7 +622,7 @@ const DownloadsTab: React.FC = () => {
                   className="fixed inset-0 z-10" 
                   onClick={() => setSettingsOpened(false)}
                 />
-                <div className="absolute right-0 top-12 z-20 bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-lg min-w-[200px]">
+                <div className="absolute right-0 top-12 z-20 themed-card rounded-lg p-4 shadow-lg min-w-[200px]">
                   <div className="space-y-3">
                     <p className="text-sm font-medium">Settings</p>
                     <label className="flex items-center gap-2">
@@ -633,7 +630,7 @@ const DownloadsTab: React.FC = () => {
                         type="checkbox"
                         checked={settings.groupGames}
                         onChange={(e) => updateSettings({ groupGames: e.target.checked })}
-                        className="rounded border-gray-600"
+                        className="rounded border-themed-secondary"
                       />
                       <span className="text-sm">Group similar items</span>
                     </label>
@@ -642,7 +639,7 @@ const DownloadsTab: React.FC = () => {
                         type="checkbox"
                         checked={settings.showZeroBytes}
                         onChange={(e) => updateSettings({ showZeroBytes: e.target.checked })}
-                        className="rounded border-gray-600"
+                        className="rounded border-themed-secondary"
                       />
                       <span className="text-sm">Show 0-byte requests</span>
                     </label>
@@ -651,7 +648,7 @@ const DownloadsTab: React.FC = () => {
                         type="checkbox"
                         checked={settings.showSmallFiles}
                         onChange={(e) => updateSettings({ showSmallFiles: e.target.checked })}
-                        className="rounded border-gray-600"
+                        className="rounded border-themed-secondary"
                       />
                       <span className="text-sm">Show small files</span>
                     </label>
@@ -665,10 +662,10 @@ const DownloadsTab: React.FC = () => {
       
       {itemsToDisplay.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12">
-          <div className="w-16 h-16 rounded-full bg-gray-700 flex items-center justify-center mb-4">
-            <CloudOff size={32} className="text-gray-500" />
+          <div className="w-16 h-16 rounded-full bg-themed-tertiary flex items-center justify-center mb-4">
+            <CloudOff size={32} className="text-themed-muted" />
           </div>
-          <p className="text-gray-400">No downloads found</p>
+          <p className="text-themed-muted">No downloads found</p>
         </div>
       )}
       
@@ -683,7 +680,7 @@ const DownloadsTab: React.FC = () => {
               overscan={3}
             />
           ) : (
-            <div className="space-y-3 max-h-[calc(100vh-250px)] overflow-y-auto">
+            <div className="space-y-3 max-h-[calc(100vh-250px)] overflow-y-auto custom-scrollbar">
               {itemsToDisplay.map((item) => 
                 isDownloadGroup(item) ? renderGroup(item) : renderDownload(item)
               )}
