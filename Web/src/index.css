@@ -36,81 +36,107 @@
   *::-webkit-scrollbar-corner {
     background: #374151;
   }
-
-  /* Also apply to common scrollable elements */
-  html, body, div, main, section, article, aside, nav, 
-  ul, ol, li, table, thead, tbody, tr, td, th,
-  .overflow-auto, .overflow-y-auto, .overflow-x-auto,
-  .overflow-scroll, .overflow-y-scroll, .overflow-x-scroll {
-    scrollbar-width: thin;
-    scrollbar-color: #6B7280 #374151;
-  }
-
-  html::-webkit-scrollbar, body::-webkit-scrollbar, div::-webkit-scrollbar, 
-  main::-webkit-scrollbar, section::-webkit-scrollbar, article::-webkit-scrollbar,
-  aside::-webkit-scrollbar, nav::-webkit-scrollbar, ul::-webkit-scrollbar, 
-  ol::-webkit-scrollbar, li::-webkit-scrollbar, table::-webkit-scrollbar,
-  thead::-webkit-scrollbar, tbody::-webkit-scrollbar, tr::-webkit-scrollbar,
-  td::-webkit-scrollbar, th::-webkit-scrollbar,
-  .overflow-auto::-webkit-scrollbar, .overflow-y-auto::-webkit-scrollbar,
-  .overflow-x-auto::-webkit-scrollbar, .overflow-scroll::-webkit-scrollbar,
-  .overflow-y-scroll::-webkit-scrollbar, .overflow-x-scroll::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-
-  html::-webkit-scrollbar-track, body::-webkit-scrollbar-track, div::-webkit-scrollbar-track,
-  main::-webkit-scrollbar-track, section::-webkit-scrollbar-track, article::-webkit-scrollbar-track,
-  aside::-webkit-scrollbar-track, nav::-webkit-scrollbar-track, ul::-webkit-scrollbar-track,
-  ol::-webkit-scrollbar-track, li::-webkit-scrollbar-track, table::-webkit-scrollbar-track,
-  thead::-webkit-scrollbar-track, tbody::-webkit-scrollbar-track, tr::-webkit-scrollbar-track,
-  td::-webkit-scrollbar-track, th::-webkit-scrollbar-track,
-  .overflow-auto::-webkit-scrollbar-track, .overflow-y-auto::-webkit-scrollbar-track,
-  .overflow-x-auto::-webkit-scrollbar-track, .overflow-scroll::-webkit-scrollbar-track,
-  .overflow-y-scroll::-webkit-scrollbar-track, .overflow-x-scroll::-webkit-scrollbar-track {
-    background: #374151;
-    border-radius: 4px;
-  }
-
-  html::-webkit-scrollbar-thumb, body::-webkit-scrollbar-thumb, div::-webkit-scrollbar-thumb,
-  main::-webkit-scrollbar-thumb, section::-webkit-scrollbar-thumb, article::-webkit-scrollbar-thumb,
-  aside::-webkit-scrollbar-thumb, nav::-webkit-scrollbar-thumb, ul::-webkit-scrollbar-thumb,
-  ol::-webkit-scrollbar-thumb, li::-webkit-scrollbar-thumb, table::-webkit-scrollbar-thumb,
-  thead::-webkit-scrollbar-thumb, tbody::-webkit-scrollbar-thumb, tr::-webkit-scrollbar-thumb,
-  td::-webkit-scrollbar-thumb, th::-webkit-scrollbar-thumb,
-  .overflow-auto::-webkit-scrollbar-thumb, .overflow-y-auto::-webkit-scrollbar-thumb,
-  .overflow-x-auto::-webkit-scrollbar-thumb, .overflow-scroll::-webkit-scrollbar-thumb,
-  .overflow-y-scroll::-webkit-scrollbar-thumb, .overflow-x-scroll::-webkit-scrollbar-thumb {
-    background: #6B7280;
-    border-radius: 4px;
-  }
-
-  html::-webkit-scrollbar-thumb:hover, body::-webkit-scrollbar-thumb:hover, div::-webkit-scrollbar-thumb:hover,
-  main::-webkit-scrollbar-thumb:hover, section::-webkit-scrollbar-thumb:hover, article::-webkit-scrollbar-thumb:hover,
-  aside::-webkit-scrollbar-thumb:hover, nav::-webkit-scrollbar-thumb:hover, ul::-webkit-scrollbar-thumb:hover,
-  ol::-webkit-scrollbar-thumb:hover, li::-webkit-scrollbar-thumb:hover, table::-webkit-scrollbar-thumb:hover,
-  thead::-webkit-scrollbar-thumb:hover, tbody::-webkit-scrollbar-thumb:hover, tr::-webkit-scrollbar-thumb:hover,
-  td::-webkit-scrollbar-thumb:hover, th::-webkit-scrollbar-thumb:hover,
-  .overflow-auto::-webkit-scrollbar-thumb:hover, .overflow-y-auto::-webkit-scrollbar-thumb:hover,
-  .overflow-x-auto::-webkit-scrollbar-thumb:hover, .overflow-scroll::-webkit-scrollbar-thumb:hover,
-  .overflow-y-scroll::-webkit-scrollbar-thumb:hover, .overflow-x-scroll::-webkit-scrollbar-thumb:hover {
-    background: #9CA3AF;
-  }
-
-  html::-webkit-scrollbar-corner, body::-webkit-scrollbar-corner, div::-webkit-scrollbar-corner,
-  main::-webkit-scrollbar-corner, section::-webkit-scrollbar-corner, article::-webkit-scrollbar-corner,
-  aside::-webkit-scrollbar-corner, nav::-webkit-scrollbar-corner, ul::-webkit-scrollbar-corner,
-  ol::-webkit-scrollbar-corner, li::-webkit-scrollbar-corner, table::-webkit-scrollbar-corner,
-  thead::-webkit-scrollbar-corner, tbody::-webkit-scrollbar-corner, tr::-webkit-scrollbar-corner,
-  td::-webkit-scrollbar-corner, th::-webkit-scrollbar-corner,
-  .overflow-auto::-webkit-scrollbar-corner, .overflow-y-auto::-webkit-scrollbar-corner,
-  .overflow-x-auto::-webkit-scrollbar-corner, .overflow-scroll::-webkit-scrollbar-corner,
-  .overflow-y-scroll::-webkit-scrollbar-corner, .overflow-x-scroll::-webkit-scrollbar-corner {
-    background: #374151;
-  }
 }
 
 @layer components {
+  /* ===== UNIVERSAL OVERLAY FIXES ===== */
+  
+  /* Fix ALL dropdown containers */
+  .custom-dropdown,
+  .relative:has(> .absolute),
+  .relative:has(.fixed + .absolute) {
+    position: relative !important;
+    z-index: auto !important;
+  }
+
+  /* Fix ALL absolute positioned overlays */
+  .absolute.z-20,
+  .absolute.z-10,
+  .absolute[class*="top-"],
+  .absolute[class*="right-"],
+  .absolute[class*="left-"],
+  .absolute[class*="bottom-"],
+  .custom-dropdown .absolute,
+  .relative > .absolute {
+    position: absolute !important;
+    z-index: 99999 !important;
+  }
+
+  /* Fix backdrop overlays */
+  .fixed.inset-0.z-10,
+  .fixed.inset-0.z-20,
+  .custom-dropdown .fixed,
+  .relative > .fixed {
+    position: fixed !important;
+    z-index: 99998 !important;
+    pointer-events: auto !important;
+  }
+
+  /* CRITICAL FIX: Ensure parent containers don't expand when dropdowns open */
+  .relative:has(> .fixed + .absolute),
+  .relative:has(> .absolute.z-20) {
+    position: relative !important;
+    overflow: visible !important;
+    display: inline-block !important;
+    vertical-align: top !important;
+  }
+
+  /* Settings button specific - prevent layout shift */
+  .relative:has(button svg.lucide-settings) {
+    position: relative !important;
+    display: inline-block !important;
+    vertical-align: top !important;
+  }
+
+  /* Ensure dropdown is positioned from button, not affecting layout */
+  .relative:has(button svg.lucide-settings) > .absolute {
+    position: absolute !important;
+    z-index: 99999 !important;
+    top: calc(100% + 0.5rem) !important;
+    right: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Prevent any layout reflow when dropdown opens */
+  .relative > .fixed + .absolute {
+    position: absolute !important;
+    top: calc(100% + 0.5rem) !important;
+    margin: 0 !important;
+  }
+
+  /* Info icon tooltip specific */
+  .relative.inline-block > div:not(:first-child) {
+    position: absolute !important;
+    z-index: 100000 !important;
+  }
+
+  /* Radix UI or similar library tooltips */
+  [data-radix-popper-content-wrapper],
+  [data-state="open"],
+  [data-state="closed"],
+  [role="tooltip"] {
+    position: absolute !important;
+    z-index: 100000 !important;
+  }
+
+  /* Ensure modals stay on top */
+  .fixed.inset-0.bg-black {
+    z-index: 100001 !important;
+  }
+
+  /* Prevent overflow issues on containers */
+  .relative:has(.absolute) {
+    overflow: visible !important;
+  }
+
+  /* Ensure dropdown content is absolute */
+  .absolute.themed-card {
+    position: absolute !important;
+    z-index: 99999 !important;
+  }
+
+  /* ===== END UNIVERSAL OVERLAY FIXES ===== */
+
   .animate-pulse-slow {
     animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
@@ -192,7 +218,7 @@
    * CUSTOM THEME CLASSES - Semantic & Themeable
    * ============================================== */
 
-  /* Hit Rate Badges - FIXED to use correct variable names */
+  /* Hit Rate Badges */
   .hit-rate-high {
     background-color: var(--theme-hit-rate-high-bg, #064e3b);
     color: var(--theme-hit-rate-high-text, #34d399);
