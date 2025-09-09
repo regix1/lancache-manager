@@ -1,3 +1,5 @@
+import React from 'react';
+
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'filled' | 'subtle' | 'outline' | 'default';
   color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange';

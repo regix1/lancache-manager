@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ToggleLeft, ToggleRight, AlertCircle, Database, Loader, FileText } from 'lucide-react';
-import { useData } from '../../contexts/DataContext';
-import ApiService from '../../services/api.service';
-import { useBackendOperation } from '../../hooks/useBackendOperation';
-import operationStateService from '../../services/operationState.service';
+import { useData } from '@contexts/DataContext';
+import ApiService from '@services/api.service';
+import { useBackendOperation } from '@hooks/useBackendOperation';
+import operationStateService from '@services/operationState.service';
 
 // Import manager components
 import AuthenticationManager from './AuthenticationManager';
@@ -11,9 +11,9 @@ import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
-import { Card } from '../ui/Card';
-import { Button } from '../ui/Button';
-import { Alert } from '../ui/Alert';
+import { Card } from '@components/ui/Card';
+import { Button } from '@components/ui/Button';
+import { Alert } from '@components/ui/Alert';
 
 // Mock Mode Manager Component
 const MockModeManager: React.FC<{
@@ -286,7 +286,9 @@ const ManagementTab: React.FC = () => {
     errors: Array<{ id: number; message: string }>;
     success: string | null;
   }>({ errors: [], success: null });
-  const [hasMigrated, setHasMigrated] = useState(false);
+  
+  // Use ref to ensure migration only happens once
+  const hasMigratedRef = useRef(false);
 
   // Alert management
   const addError = useCallback((message: string) => {
@@ -315,17 +317,17 @@ const ManagementTab: React.FC = () => {
   // Initialize with migration
   useEffect(() => {
     const initialize = async () => {
-      if (!hasMigrated) {
+      if (!hasMigratedRef.current) {
         const migrated = await operationStateService.migrateFromLocalStorage();
         if (migrated > 0) {
           setSuccess(`Migrated ${migrated} operations from local storage to server`);
         }
-        setHasMigrated(true);
+        hasMigratedRef.current = true;
       }
     };
     
     initialize();
-  }, [hasMigrated, setSuccess]);
+  }, [setSuccess]);
 
   return (
     <div className="space-y-6">

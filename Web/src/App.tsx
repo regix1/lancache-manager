@@ -1,32 +1,43 @@
-import React, { useState } from 'react';
-import { DataProvider } from './contexts/DataContext';
-import Header from './components/layout/Header';
-import Navigation from './components/layout/Navigation';
-import Dashboard from './components/dashboard/Dashboard';
-import DownloadsTab from './components/downloads/DownloadsTab';
-import ClientsTab from './components/clients/ClientsTab';
-import ServicesTab from './components/services/ServicesTab';
-import ManagementTab from './components/management/ManagementTab';
-import ErrorBoundary from './components/common/ErrorBoundary';
+import React, { useState, Suspense, lazy } from 'react';
+import { DataProvider } from '@contexts/DataContext';
+import Header from '@components/layout/Header';
+import Navigation from '@components/layout/Navigation';
+import ErrorBoundary from '@components/common/ErrorBoundary';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+
+// Lazy load heavy components
+const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
+const DownloadsTab = lazy(() => import('@components/downloads/DownloadsTab'));
+const ClientsTab = lazy(() => import('@components/clients/ClientsTab'));
+const ServicesTab = lazy(() => import('@components/services/ServicesTab'));
+const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'downloads':
-        return <DownloadsTab />;
-      case 'clients':
-        return <ClientsTab />;
-      case 'services':
-        return <ServicesTab />;
-      case 'management':
-        return <ManagementTab />;
-      default:
-        return <Dashboard />;
-    }
+    const TabComponent = (() => {
+      switch (activeTab) {
+        case 'dashboard':
+          return Dashboard;
+        case 'downloads':
+          return DownloadsTab;
+        case 'clients':
+          return ClientsTab;
+        case 'services':
+          return ServicesTab;
+        case 'management':
+          return ManagementTab;
+        default:
+          return Dashboard;
+      }
+    })();
+
+    return (
+      <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading..." />}>
+        <TabComponent />
+      </Suspense>
+    );
   };
 
   return (

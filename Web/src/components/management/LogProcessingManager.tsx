@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FileText, RefreshCw, PlayCircle, StopCircle, Loader, CheckCircle } from 'lucide-react';
-import ApiService from '../../services/api.service';
-import { useBackendOperation } from '../../hooks/useBackendOperation';
+import ApiService from '@services/api.service';
+import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
-import { Alert } from '../ui/Alert';
-import { Button } from '../ui/Button';
-import { Card } from '../ui/Card';
+import { Alert } from '@components/ui/Alert';
+import { Button } from '@components/ui/Button';
+import { Card } from '@components/ui/Card';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../types';
 
 interface LogProcessingManagerProps {
@@ -34,10 +34,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [signalRConnected, setSignalRConnected] = useState(false);
   
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     restoreLogProcessing();
@@ -46,6 +48,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     return () => {
       if (pollingInterval.current) {
         clearInterval(pollingInterval.current);
+      }
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current);
       }
       if (signalRConnection.current) {
         signalRConnection.current.stop();
@@ -131,15 +136,53 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         }, 10000);
       });
 
+      connection.onreconnecting((error) => {
+        console.log('SignalR reconnecting:', error);
+        setSignalRConnected(false);
+      });
+
+      connection.onreconnected((connectionId) => {
+        console.log('SignalR reconnected:', connectionId);
+        setSignalRConnected(true);
+      });
+
+      connection.onclose((error) => {
+        console.error('SignalR disconnected:', error);
+        setSignalRConnected(false);
+        
+        // Fallback to polling if disconnected during processing
+        if (isProcessingLogs) {
+          console.log('SignalR disconnected during processing, falling back to polling');
+          startProcessingPolling();
+        }
+        
+        // Attempt to reconnect after 5 seconds
+        reconnectTimeout.current = setTimeout(() => {
+          setupSignalR();
+        }, 5000);
+      });
+
       await connection.start();
       signalRConnection.current = connection;
+      setSignalRConnected(true);
       console.log('SignalR connected');
     } catch (err) {
       console.error('SignalR connection failed, falling back to polling:', err);
+      setSignalRConnected(false);
+      
+      // Fallback to polling
+      if (isProcessingLogs) {
+        startProcessingPolling();
+      }
     }
   };
 
   const startProcessingPolling = () => {
+    // Clear any existing polling interval
+    if (pollingInterval.current) {
+      clearInterval(pollingInterval.current);
+    }
+    
     const checkStatus = async () => {
       try {
         const currentStatus = processingStatus;
@@ -250,7 +293,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             estimatedTime: `Estimated: ${result.estimatedTimeMinutes} minutes`,
             status: 'starting'
           });
-          setTimeout(() => startProcessingPolling(), 5000);
+          
+          // Use SignalR if connected, otherwise fallback to polling
+          if (!signalRConnected) {
+            setTimeout(() => startProcessingPolling(), 5000);
+          }
         } else {
           onError?.('Log file appears to be empty or invalid');
           await logProcessingOp.clear();
@@ -309,6 +356,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               <p className="font-medium">{processingStatus.message}</p>
               {processingStatus.detailMessage && (
                 <p className="text-sm mt-1 opacity-75">{processingStatus.detailMessage}</p>
+              )}
+              {!signalRConnected && (
+                <p className="text-xs mt-1 opacity-60">Using fallback polling (SignalR disconnected)</p>
               )}
               {processingStatus.progress > 0 && processingStatus.status !== 'complete' && (
                 <div className="mt-2">

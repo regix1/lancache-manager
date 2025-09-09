@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
-import ApiService from '../services/api.service';
-import MockDataService from '../services/mockData.service';
-import { REFRESH_INTERVAL } from '../utils/constants';
+import ApiService from '@services/api.service';
+import MockDataService from '@services/mockData.service';
+import { REFRESH_INTERVAL } from '@utils/constants';
 
 interface CacheInfo {
   totalCacheSize: number;
@@ -94,7 +94,7 @@ interface DataProviderProps {
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const [mockMode, setMockMode] = useState(false);
   const [mockDownloadCount, setMockDownloadCount] = useState<number | 'unlimited'>(20);
-  const [apiDownloadCount, setApiDownloadCount] = useState<number | 'unlimited'>(20); // Start with 20 for performance
+  const [apiDownloadCount, setApiDownloadCount] = useState<number | 'unlimited'>(20);
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
   const [activeDownloads, setActiveDownloads] = useState<Download[]>([]);
   const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
@@ -111,6 +111,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const hasData = useRef(false);
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -307,23 +308,30 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     if (!mockMode) {
       fetchData();
       
-      const interval = setInterval(
-        fetchData, 
-        getCurrentRefreshInterval()
-      );
+      const refreshInterval = getCurrentRefreshInterval();
+      intervalRef.current = setInterval(fetchData, refreshInterval);
       
       return () => {
-        clearInterval(interval);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
         if (abortControllerRef.current) {
           abortControllerRef.current.abort();
         }
       };
     }
-  }, [isProcessingLogs, mockMode]);
+  }, [isProcessingLogs, mockMode, apiDownloadCount]);
 
   // Mock mode changes
   useEffect(() => {
     if (mockMode) {
+      // Clear any existing interval
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      
       // Clear real data
       setCacheInfo(null);
       setActiveDownloads([]);
@@ -345,7 +353,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       
       // Set up mock update interval
       const updateInterval = 30000;
-      const interval = setInterval(() => {
+      intervalRef.current = setInterval(() => {
         const newDownload = MockDataService.generateRealtimeUpdate();
         setLatestDownloads(prev => {
           const maxCount = 100;
@@ -358,7 +366,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         });
       }, updateInterval);
       
-      return () => clearInterval(interval);
+      return () => {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      };
     } else {
       // Clear mock data and fetch real data
       setCacheInfo(null);
@@ -373,6 +386,18 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       fetchData();
     }
   }, [mockMode, mockDownloadCount]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const clearAllData = () => {
     setCacheInfo(null);
