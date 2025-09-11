@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HardDrive, Trash2, Loader, CheckCircle, AlertCircle, StopCircle, Eye } from 'lucide-react';
+import { HardDrive, Trash2, Loader, CheckCircle, AlertCircle, StopCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { formatBytes } from '@utils/formatters';

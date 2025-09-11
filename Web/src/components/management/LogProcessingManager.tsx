@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, StopCircle, Loader, CheckCircle } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
