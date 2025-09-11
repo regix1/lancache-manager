@@ -522,7 +522,7 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-1 text-xs text-themed-accent transition-colors px-2 py-1 rounded"
+                className="flex items-center gap-1 text-xs text-themed-accent transition-colors px-2 py-1 rounded-lg"
                 onMouseEnter={(e) =>
                   (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
                 }
@@ -535,7 +535,7 @@ const Dashboard: React.FC = () => {
               </button>
               <button
                 onClick={() => setCardVisibility(DEFAULT_CARD_VISIBILITY)}
-                className="text-xs text-themed-accent transition-colors px-2 py-1 rounded"
+                className="text-xs text-themed-accent transition-colors px-2 py-1 rounded-lg"
                 onMouseEnter={(e) =>
                   (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
                 }

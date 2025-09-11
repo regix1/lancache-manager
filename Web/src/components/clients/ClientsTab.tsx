@@ -9,7 +9,7 @@ const ClientsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-themed-primary tracking-tight">Clients</h2>
+      <h2 className="text-xl sm:text-2xl font-bold text-themed-primary tracking-tight">Clients</h2>
 
       <Card>
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-themed-primary">
@@ -18,30 +18,30 @@ const ClientsTab: React.FC = () => {
         </h3>
 
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full mobile-table">
             <thead>
               <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                <th className="pb-3">Client IP</th>
-                <th className="pb-3">Total Downloads</th>
-                <th className="pb-3">Total Data</th>
-                <th className="pb-3">Cache Hits</th>
-                <th className="pb-3">Cache Misses</th>
-                <th className="pb-3">Hit Rate</th>
-                <th className="pb-3">Last Activity</th>
+                <th className="pb-3 min-w-[120px]">Client IP</th>
+                <th className="pb-3 hidden sm:table-cell">Total Downloads</th>
+                <th className="pb-3 min-w-[80px]">Total Data</th>
+                <th className="pb-3 hidden md:table-cell">Cache Hits</th>
+                <th className="pb-3 hidden md:table-cell">Cache Misses</th>
+                <th className="pb-3 min-w-[100px]">Hit Rate</th>
+                <th className="pb-3 hidden lg:table-cell">Last Activity</th>
               </tr>
             </thead>
             <tbody className="text-sm">
               {clientStats.length > 0 ? (
                 clientStats.map((client, idx) => (
                   <tr key={idx} className="hover:bg-themed-hover transition-colors">
-                    <td className="py-3 text-themed-primary font-medium">{client.clientIp}</td>
-                    <td className="py-3 text-themed-secondary">{client.totalDownloads}</td>
-                    <td className="py-3 text-themed-secondary">{formatBytes(client.totalBytes)}</td>
-                    <td className="py-3 cache-hit">{formatBytes(client.totalCacheHitBytes)}</td>
-                    <td className="py-3 cache-miss">{formatBytes(client.totalCacheMissBytes)}</td>
+                    <td className="py-3 text-themed-primary font-medium text-sm">{client.clientIp}</td>
+                    <td className="py-3 text-themed-secondary hidden sm:table-cell">{client.totalDownloads}</td>
+                    <td className="py-3 text-themed-secondary text-sm">{formatBytes(client.totalBytes)}</td>
+                    <td className="py-3 cache-hit hidden md:table-cell text-sm">{formatBytes(client.totalCacheHitBytes)}</td>
+                    <td className="py-3 cache-miss hidden md:table-cell text-sm">{formatBytes(client.totalCacheMissBytes)}</td>
                     <td className="py-3">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-24 progress-track rounded-full h-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
+                        <div className="w-full sm:w-16 lg:w-24 progress-track rounded-full h-2">
                           <div
                             className="progress-bar-high h-2 rounded-full"
                             style={{ width: `${client.cacheHitPercent}%` }}
@@ -52,7 +52,7 @@ const ClientsTab: React.FC = () => {
                         </span>
                       </div>
                     </td>
-                    <td className="py-3 text-themed-muted">{formatDateTime(client.lastSeen)}</td>
+                    <td className="py-3 text-themed-muted text-xs hidden lg:table-cell">{formatDateTime(client.lastSeen)}</td>
                   </tr>
                 ))
               ) : (

@@ -39,6 +39,73 @@
 }
 
 @layer components {
+  /* ===== MOBILE RESPONSIVE UTILITIES ===== */
+  
+  /* Extra small screens (below 480px) */
+  @media (max-width: 479px) {
+    .xs\:block {
+      display: block;
+    }
+    .xs\:hidden {
+      display: none;
+    }
+    .xs\:flex {
+      display: flex;
+    }
+  }
+  
+  /* Small screens and up (480px+) */
+  @media (min-width: 480px) {
+    .xs\:block {
+      display: block;
+    }
+  }
+  
+  /* Mobile-first dropdown positioning */
+  .mobile-dropdown {
+    @apply absolute z-20 rounded-lg shadow-lg min-w-full max-h-60 overflow-y-auto;
+    /* Default to left positioning on mobile */
+    left: 0;
+    top: 100%;
+    width: 100%;
+    min-width: max-content;
+  }
+  
+  /* On larger screens, allow right positioning */
+  @media (min-width: 640px) {
+    .mobile-dropdown.sm\:right-0 {
+      left: auto;
+      right: 0;
+      width: auto;
+      min-width: 200px;
+    }
+  }
+
+  /* Mobile table improvements */
+  @media (max-width: 640px) {
+    .mobile-table th,
+    .mobile-table td {
+      @apply px-2 py-2 text-sm;
+    }
+    .mobile-table th:first-child,
+    .mobile-table td:first-child {
+      @apply pl-4;
+    }
+    .mobile-table th:last-child,
+    .mobile-table td:last-child {
+      @apply pr-4;
+    }
+  }
+
+  /* Improved button spacing on mobile */
+  .mobile-button-group {
+    @apply flex flex-col sm:flex-row gap-2 sm:gap-3;
+  }
+  
+  .mobile-button-group .mobile-button {
+    @apply w-full sm:w-auto;
+  }
+
   /* ===== UNIVERSAL OVERLAY FIXES ===== */
   
   /* Fix ALL dropdown containers */
@@ -391,6 +458,7 @@
 
   /* Theme-aware Button */
   .themed-button-primary {
+    @apply rounded-lg;
     background-color: var(--theme-button-bg, #3b82f6);
     color: var(--theme-button-text, #ffffff);
     border-color: var(--theme-button-bg, #3b82f6);
@@ -404,6 +472,7 @@
 
   /* Theme-aware Input */
   .themed-input {
+    @apply rounded-lg border;
     background-color: var(--theme-input-bg, #374151);
     border-color: var(--theme-input-border, #4b5563);
     color: var(--theme-text-primary, #ffffff);

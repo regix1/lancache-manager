@@ -303,7 +303,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
           <div className="flex items-center">
             <button
               onClick={() => setActiveTab((prev) => (prev - 1 + tabs.length) % tabs.length)}
-              className="p-1 rounded transition-colors mr-2"
+              className="p-1 rounded-lg transition-colors mr-2"
               style={{ color: 'var(--theme-text-muted)' }}
               onMouseEnter={(e) =>
                 (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
@@ -321,7 +321,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
 
             <button
               onClick={() => setActiveTab((prev) => (prev + 1) % tabs.length)}
-              className="p-1 rounded transition-colors ml-2"
+              className="p-1 rounded-lg transition-colors ml-2"
               style={{ color: 'var(--theme-text-muted)' }}
               onMouseEnter={(e) =>
                 (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
@@ -335,7 +335,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setChartSize(Math.max(60, chartSize - 10))}
-              className="p-1 rounded transition-colors"
+              className="p-1 rounded-lg transition-colors"
               style={{ color: 'var(--theme-text-muted)' }}
               onMouseEnter={(e) =>
                 (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
@@ -349,7 +349,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
 
             <button
               onClick={() => setChartSize(Math.min(140, chartSize + 10))}
-              className="p-1 rounded transition-colors"
+              className="p-1 rounded-lg transition-colors"
               style={{ color: 'var(--theme-text-muted)' }}
               onMouseEnter={(e) =>
                 (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')

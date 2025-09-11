@@ -40,7 +40,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
             <div className="text-lg font-semibold text-themed-primary">{title}</div>
             <button
               onClick={onClose}
-              className="p-1 hover:bg-themed-hover rounded smooth-transition"
+              className="p-1 hover:bg-themed-hover rounded-lg smooth-transition"
             >
               <X className="w-5 h-5 text-themed-muted" />
             </button>

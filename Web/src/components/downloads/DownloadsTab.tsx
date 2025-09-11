@@ -103,7 +103,7 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
       {isOpen && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className="absolute right-0 top-12 z-20 themed-card rounded-lg shadow-lg min-w-full max-h-60 overflow-y-auto">
+          <div className="mobile-dropdown sm:right-0 themed-card">
             <div className="py-1">
               {options.map((option) => (
                 <button
@@ -619,31 +619,33 @@ const DownloadsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-themed-primary">Downloads</h2>
-        <div className="flex items-center gap-3">
-          <CustomDropdown
-            options={serviceOptions}
-            value={settings.selectedService}
-            onChange={(value) => updateSettings({ selectedService: value })}
-            className="min-w-[140px]"
-          />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
+        <h2 className="text-xl sm:text-2xl font-semibold text-themed-primary">Downloads</h2>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2">
+            <CustomDropdown
+              options={serviceOptions}
+              value={settings.selectedService}
+              onChange={(value) => updateSettings({ selectedService: value })}
+              className="flex-1 sm:min-w-[140px]"
+            />
 
-          <CustomDropdown
-            options={itemsPerPageOptions}
-            value={settings.itemsPerPage.toString()}
-            onChange={(value) =>
-              updateSettings({
-                itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
-              })
-            }
-            className="min-w-[120px]"
-          />
+            <CustomDropdown
+              options={itemsPerPageOptions}
+              value={settings.itemsPerPage.toString()}
+              onChange={(value) =>
+                updateSettings({
+                  itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
+                })
+              }
+              className="flex-1 sm:min-w-[120px]"
+            />
+          </div>
 
-          <div className="relative">
+          <div className="relative flex-shrink-0 self-end sm:self-auto">
             <button
               onClick={() => setSettingsOpened(!settingsOpened)}
-              className="p-2.5 themed-button-primary rounded transition-colors"
+              className="p-2.5 themed-button-primary transition-colors w-full sm:w-auto"
             >
               <Settings size={20} />
             </button>
@@ -651,7 +653,7 @@ const DownloadsTab: React.FC = () => {
             {settingsOpened && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setSettingsOpened(false)} />
-                <div className="absolute right-0 top-12 z-20 themed-card rounded-lg p-4 shadow-lg min-w-[200px]">
+                <div className="mobile-dropdown sm:right-0 themed-card p-4">
                   <div className="space-y-3">
                     <p className="text-sm font-medium">Settings</p>
                     <label className="flex items-center gap-2">

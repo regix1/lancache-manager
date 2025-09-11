@@ -1532,7 +1532,7 @@ content = """
           <select
             value={previewTheme || currentTheme}
             onChange={(e) => handleThemeChange(e.target.value)}
-            className="w-full rounded px-3 py-2 focus:outline-none themed-input"
+            className="w-full px-3 py-2 focus:outline-none themed-input"
             disabled={loading}
           >
             {themes.map((theme) => (
@@ -1779,7 +1779,7 @@ content = """
                   value={newTheme.name}
                   onChange={(e) => setNewTheme({ ...newTheme, name: e.target.value })}
                   placeholder="My Custom Theme"
-                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+                  className="w-full px-3 py-2 focus:outline-none themed-input"
                 />
               </div>
               <div>
@@ -1791,7 +1791,7 @@ content = """
                   value={newTheme.author}
                   onChange={(e) => setNewTheme({ ...newTheme, author: e.target.value })}
                   placeholder="Your Name"
-                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+                  className="w-full px-3 py-2 focus:outline-none themed-input"
                 />
               </div>
             </div>
@@ -1819,7 +1819,7 @@ content = """
               </label>
               <button
                 onClick={() => loadPresetColors('dark')}
-                className="px-3 py-1 text-xs rounded flex items-center gap-1"
+                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1"
                 style={{
                   backgroundColor: 'var(--theme-bg-tertiary)',
                   color: 'var(--theme-text-secondary)'
@@ -1830,7 +1830,7 @@ content = """
               </button>
               <button
                 onClick={() => loadPresetColors('light')}
-                className="px-3 py-1 text-xs rounded flex items-center gap-1"
+                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1"
                 style={{
                   backgroundColor: 'var(--theme-bg-tertiary)',
                   color: 'var(--theme-text-secondary)'
@@ -1923,7 +1923,7 @@ content = """
                               />
                               <button
                                 onClick={() => copyColor(newTheme[color.key])}
-                                className="p-1 rounded hover:bg-opacity-50"
+                                className="p-1 rounded-lg hover:bg-opacity-50"
                                 style={{ backgroundColor: 'var(--theme-bg-hover)' }}
                                 title="Copy color"
                               >
@@ -2009,7 +2009,7 @@ content = """
                   value={editedTheme.name || ''}
                   onChange={(e) => setEditedTheme({ ...editedTheme, name: e.target.value })}
                   placeholder="My Custom Theme"
-                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+                  className="w-full px-3 py-2 focus:outline-none themed-input"
                 />
               </div>
               <div>
@@ -2021,7 +2021,7 @@ content = """
                   value={editedTheme.author || ''}
                   onChange={(e) => setEditedTheme({ ...editedTheme, author: e.target.value })}
                   placeholder="Your Name"
-                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+                  className="w-full px-3 py-2 focus:outline-none themed-input"
                 />
               </div>
             </div>
@@ -2132,7 +2132,7 @@ content = """
                               />
                               <button
                                 onClick={() => copyColor(editedTheme[color.key] || '')}
-                                className="p-1 rounded hover:bg-opacity-50"
+                                className="p-1 rounded-lg hover:bg-opacity-50"
                                 style={{ backgroundColor: 'var(--theme-bg-hover)' }}
                                 title="Copy color"
                               >
