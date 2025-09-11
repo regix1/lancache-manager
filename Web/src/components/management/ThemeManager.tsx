@@ -1,9 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Gamepad2 } from "lucide-react";
+import { Gamepad2 } from 'lucide-react';
 import {
-  Palette, Upload, Trash2, Check, Download, Eye, RefreshCw,
-  Lock, Plus, EyeOff, ChevronDown, ChevronRight, Info, Save, Copy,
-  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component, Sparkles, Activity, Edit
+  Palette,
+  Upload,
+  Trash2,
+  Check,
+  Download,
+  Eye,
+  RefreshCw,
+  Lock,
+  Plus,
+  EyeOff,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Save,
+  Copy,
+  Sun,
+  Moon,
+  Brush,
+  Layout,
+  Type,
+  Square,
+  AlertCircle,
+  Component,
+  Sparkles,
+  Activity,
+  Edit
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import authService from '../../services/auth.service';
@@ -55,7 +78,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(['core', 'backgrounds', 'navigation']);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([
+    'core',
+    'backgrounds',
+    'navigation'
+  ]);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
 
   const [editedTheme, setEditedTheme] = useState<any>({});
@@ -158,6 +185,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     chartTextColor: '#9ca3af',
     chartCacheHitColor: '#10b981',
     chartCacheMissColor: '#f59e0b',
+
+    // Scrollbar colors
+    scrollbarTrack: '#374151',
+    scrollbarThumb: '#6B7280',
+    scrollbarHover: '#9CA3AF',
 
     customCSS: ''
   });
@@ -595,6 +627,31 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       ]
     },
     {
+      name: 'scrollbar',
+      icon: Layout,
+      description: 'Scrollbar appearance customization',
+      colors: [
+        {
+          key: 'scrollbarTrack',
+          label: 'Scrollbar Track',
+          description: 'Background track for scrollbars',
+          affects: ['All scrollbar tracks', 'Scrollbar corners']
+        },
+        {
+          key: 'scrollbarThumb',
+          label: 'Scrollbar Thumb',
+          description: 'Scrollbar draggable thumb',
+          affects: ['Scrollbar handle', 'Firefox scrollbar color']
+        },
+        {
+          key: 'scrollbarHover',
+          label: 'Scrollbar Hover',
+          description: 'Scrollbar thumb on hover',
+          affects: ['Hover state of scrollbar thumb']
+        }
+      ]
+    },
+    {
       name: 'charts',
       icon: Activity,
       description: 'Colors for data visualization and charts',
@@ -739,10 +796,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const toggleGroup = (groupName: string) => {
-    setExpandedGroups(prev =>
-      prev.includes(groupName)
-        ? prev.filter(g => g !== groupName)
-        : [...prev, groupName]
+    setExpandedGroups((prev) =>
+      prev.includes(groupName) ? prev.filter((g) => g !== groupName) : [...prev, groupName]
     );
   };
 
@@ -763,9 +818,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
+    if (e.type === 'dragenter' || e.type === 'dragover') {
       setDragActive(true);
-    } else if (e.type === "dragleave") {
+    } else if (e.type === 'dragleave') {
       setDragActive(false);
     }
   };
@@ -846,7 +901,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       } else if (response.status === 404) {
         setUploadError(`Theme "${themeName}" not found on server. ${result.details || ''}`);
 
-        setThemes(prev => prev.filter(t => t.meta.id !== themeId));
+        setThemes((prev) => prev.filter((t) => t.meta.id !== themeId));
 
         if (currentTheme === themeId) {
           handleThemeChange('dark-default');
@@ -879,7 +934,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       return;
     }
 
-    if (!window.confirm('This will DELETE all custom themes (keeping only system themes). This cannot be undone. Continue?')) {
+    if (
+      !window.confirm(
+        'This will DELETE all custom themes (keeping only system themes). This cannot be undone. Continue?'
+      )
+    ) {
       return;
     }
 
@@ -902,7 +961,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
       await loadThemes();
 
-      const remainingThemeIds = themes.map(t => t.meta.id);
+      const remainingThemeIds = themes.map((t) => t.meta.id);
       if (!remainingThemeIds.includes(currentTheme)) {
         handleThemeChange('dark-default');
       }
@@ -1012,7 +1071,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     const theme: Theme = {
       meta: {
-        id: newTheme.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
+        id: newTheme.name
+          .toLowerCase()
+          .replace(/\s+/g, '-')
+          .replace(/[^a-z0-9-]/g, ''),
         name: newTheme.name,
         description: newTheme.description,
         author: newTheme.author,
@@ -1135,6 +1197,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         chartCacheHitColor: '#10b981',
         chartCacheMissColor: '#f59e0b',
 
+        // Scrollbar colors
+        scrollbarTrack: '#374151',
+        scrollbarThumb: '#6B7280',
+        scrollbarHover: '#9CA3AF',
+
         customCSS: ''
       });
 
@@ -1184,7 +1251,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         infoText: '#93c5fd',
         chartBorderColor: '#1f2937',
         chartGridColor: '#374151',
-        chartTextColor: '#9ca3af'
+        chartTextColor: '#9ca3af',
+        scrollbarTrack: '#374151',
+        scrollbarThumb: '#6B7280',
+        scrollbarHover: '#9CA3AF'
       }));
     } else {
       setNewTheme((prev: any) => ({
@@ -1222,7 +1292,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         infoText: '#1e40af',
         chartBorderColor: '#e5e7eb',
         chartGridColor: '#d1d5db',
-        chartTextColor: '#6b7280'
+        chartTextColor: '#6b7280',
+        scrollbarTrack: '#f3f4f6',
+        scrollbarThumb: '#9ca3af',
+        scrollbarHover: '#6b7280'
       }));
     }
   };
@@ -1375,8 +1448,7 @@ content = """
     URL.revokeObjectURL(url);
   };
 
-  const isSystemTheme = (themeId: string) =>
-    ['dark-default', 'light-default'].includes(themeId);
+  const isSystemTheme = (themeId: string) => ['dark-default', 'light-default'].includes(themeId);
 
   return (
     <>
@@ -1384,9 +1456,7 @@ content = """
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
             <Palette className="w-5 h-5 text-themed-accent" />
-            <h3 className="text-lg font-semibold text-themed-primary">
-              Theme Management
-            </h3>
+            <h3 className="text-lg font-semibold text-themed-primary">Theme Management</h3>
           </div>
           <div className="flex items-center space-x-2">
             {isAuthenticated ? (
@@ -1398,8 +1468,10 @@ content = """
                     color: 'var(--theme-text-muted)',
                     backgroundColor: 'transparent'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+                  }
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                   title="Create new theme"
                 >
                   <Plus className="w-4 h-4" />
@@ -1412,8 +1484,10 @@ content = """
                     color: 'var(--theme-text-muted)',
                     backgroundColor: 'transparent'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+                  }
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                   title="Delete all custom themes"
                 >
                   <Sparkles className="w-4 h-4" />
@@ -1440,8 +1514,10 @@ content = """
                 color: 'var(--theme-text-muted)',
                 backgroundColor: 'transparent'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               title="Refresh themes"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -1459,9 +1535,10 @@ content = """
             className="w-full rounded px-3 py-2 focus:outline-none themed-input"
             disabled={loading}
           >
-            {themes.map(theme => (
+            {themes.map((theme) => (
               <option key={theme.meta.id} value={theme.meta.id}>
-                {theme.meta.name} {theme.meta.author && theme.meta.author !== 'System' && `by ${theme.meta.author}`}
+                {theme.meta.name}{' '}
+                {theme.meta.author && theme.meta.author !== 'System' && `by ${theme.meta.author}`}
                 {isSystemTheme(theme.meta.id) && ' (System)'}
                 {previewTheme === theme.meta.id && ' (Preview)'}
               </option>
@@ -1479,23 +1556,22 @@ content = """
             Installed Themes ({themes.length})
           </h4>
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {themes.map(theme => (
+            {themes.map((theme) => (
               <div
                 key={theme.meta.id}
                 className="rounded p-3 flex items-center justify-between border-2 transition-colors themed-card"
                 style={{
-                  borderColor: currentTheme === theme.meta.id && !previewTheme
-                    ? 'var(--theme-primary)'
-                    : previewTheme === theme.meta.id
-                      ? 'var(--theme-warning)'
-                      : 'transparent'
+                  borderColor:
+                    currentTheme === theme.meta.id && !previewTheme
+                      ? 'var(--theme-primary)'
+                      : previewTheme === theme.meta.id
+                        ? 'var(--theme-warning)'
+                        : 'transparent'
                 }}
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium text-themed-primary">
-                      {theme.meta.name}
-                    </span>
+                    <span className="font-medium text-themed-primary">{theme.meta.name}</span>
                     {theme.meta.isDark ? (
                       <Moon className="w-3 h-3 text-themed-muted" />
                     ) : (
@@ -1507,39 +1583,37 @@ content = """
                       </span>
                     )}
                     {previewTheme === theme.meta.id && (
-                      <span className="px-2 py-0.5 text-xs rounded"
+                      <span
+                        className="px-2 py-0.5 text-xs rounded"
                         style={{
                           backgroundColor: 'var(--theme-warning)',
                           color: 'var(--theme-bg-primary)'
-                        }}>
+                        }}
+                      >
                         Preview
                       </span>
                     )}
                     {isSystemTheme(theme.meta.id) && (
-                      <span className="px-2 py-0.5 text-xs rounded"
+                      <span
+                        className="px-2 py-0.5 text-xs rounded"
                         style={{
                           backgroundColor: 'var(--theme-bg-hover)',
                           color: 'var(--theme-text-muted)'
-                        }}>
+                        }}
+                      >
                         System
                       </span>
                     )}
                   </div>
                   {theme.meta.description && (
-                    <p className="text-xs mt-1 text-themed-muted">
-                      {theme.meta.description}
-                    </p>
+                    <p className="text-xs mt-1 text-themed-muted">{theme.meta.description}</p>
                   )}
                   <div className="flex items-center gap-3 mt-1">
                     {theme.meta.author && (
-                      <p className="text-xs text-themed-muted">
-                        by {theme.meta.author}
-                      </p>
+                      <p className="text-xs text-themed-muted">by {theme.meta.author}</p>
                     )}
                     {theme.meta.version && (
-                      <p className="text-xs text-themed-muted">
-                        v{theme.meta.version}
-                      </p>
+                      <p className="text-xs text-themed-muted">v{theme.meta.version}</p>
                     )}
                   </div>
                 </div>
@@ -1555,10 +1629,19 @@ content = """
                     <button
                       onClick={() => handlePreview(theme.meta.id)}
                       className="p-2 transition-colors"
-                      style={{ color: previewTheme === theme.meta.id ? 'var(--theme-warning)' : 'var(--theme-text-muted)' }}
-                      title={previewTheme === theme.meta.id ? "Stop preview" : "Preview theme"}
+                      style={{
+                        color:
+                          previewTheme === theme.meta.id
+                            ? 'var(--theme-warning)'
+                            : 'var(--theme-text-muted)'
+                      }}
+                      title={previewTheme === theme.meta.id ? 'Stop preview' : 'Preview theme'}
                     >
-                      {previewTheme === theme.meta.id ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {previewTheme === theme.meta.id ? (
+                        <EyeOff className="w-4 h-4" />
+                      ) : (
+                        <Eye className="w-4 h-4" />
+                      )}
                     </button>
                   )}
                   {currentTheme !== theme.meta.id && (
@@ -1605,12 +1688,13 @@ content = """
                 Upload Custom Theme
               </h4>
               <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive
-                  ? 'border-purple-500 bg-purple-900 bg-opacity-20'
-                  : ''
-                  }`}
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                  dragActive ? 'border-purple-500 bg-purple-900 bg-opacity-20' : ''
+                }`}
                 style={{
-                  borderColor: dragActive ? 'var(--theme-secondary)' : 'var(--theme-border-secondary)'
+                  borderColor: dragActive
+                    ? 'var(--theme-secondary)'
+                    : 'var(--theme-border-secondary)'
                 }}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -1621,9 +1705,7 @@ content = """
                 <p className="mb-2 text-themed-secondary">
                   Drag and drop a theme file here, or click to browse
                 </p>
-                <p className="text-xs mb-3 text-themed-muted">
-                  TOML format, max 1MB
-                </p>
+                <p className="text-xs mb-3 text-themed-muted">TOML format, max 1MB</p>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1662,21 +1744,13 @@ content = """
         )}
 
         {uploadError && (
-          <Alert
-            color="red"
-            withCloseButton
-            onClose={() => setUploadError(null)}
-          >
+          <Alert color="red" withCloseButton onClose={() => setUploadError(null)}>
             {uploadError}
           </Alert>
         )}
 
         {uploadSuccess && (
-          <Alert
-            color="green"
-            withCloseButton
-            onClose={() => setUploadSuccess(null)}
-          >
+          <Alert color="green" withCloseButton onClose={() => setUploadSuccess(null)}>
             {uploadSuccess}
           </Alert>
         )}
@@ -1741,9 +1815,7 @@ content = """
                   onChange={(e) => setNewTheme({ ...newTheme, isDark: e.target.checked })}
                   className="rounded"
                 />
-                <span className="text-sm text-themed-secondary">
-                  Dark Theme
-                </span>
+                <span className="text-sm text-themed-secondary">Dark Theme</span>
               </label>
               <button
                 onClick={() => loadPresetColors('dark')}
@@ -1777,12 +1849,17 @@ content = """
               const isExpanded = expandedGroups.includes(group.name);
 
               return (
-                <div key={group.name} className="border rounded-lg"
-                  style={{ borderColor: 'var(--theme-border-primary)' }}>
+                <div
+                  key={group.name}
+                  className="border rounded-lg"
+                  style={{ borderColor: 'var(--theme-border-primary)' }}
+                >
                   <button
                     onClick={() => toggleGroup(group.name)}
                     className="w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50"
-                    style={{ backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent' }}
+                    style={{
+                      backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent'
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <Icon className="w-4 h-4 text-themed-accent" />
@@ -1790,16 +1867,21 @@ content = """
                         <h5 className="text-sm font-semibold capitalize text-themed-primary">
                           {group.name.replace(/([A-Z])/g, ' $1').trim()}
                         </h5>
-                        <p className="text-xs text-themed-muted">
-                          {group.description}
-                        </p>
+                        <p className="text-xs text-themed-muted">{group.description}</p>
                       </div>
                     </div>
-                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    {isExpanded ? (
+                      <ChevronDown className="w-4 h-4" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4" />
+                    )}
                   </button>
 
                   {isExpanded && (
-                    <div className="p-4 border-t space-y-4" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                    <div
+                      className="p-4 border-t space-y-4"
+                      style={{ borderColor: 'var(--theme-border-primary)' }}
+                    >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">
                           <div className="flex items-center justify-between">
@@ -1807,16 +1889,17 @@ content = """
                               <label className="block text-sm font-medium text-themed-primary">
                                 {color.label}
                               </label>
-                              <p className="text-xs text-themed-muted">
-                                {color.description}
-                              </p>
+                              <p className="text-xs text-themed-muted">{color.description}</p>
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {color.affects.map((item, idx) => (
-                                  <span key={idx} className="text-xs px-1.5 py-0.5 rounded"
+                                  <span
+                                    key={idx}
+                                    className="text-xs px-1.5 py-0.5 rounded"
                                     style={{
                                       backgroundColor: 'var(--theme-bg-hover)',
                                       color: 'var(--theme-text-secondary)'
-                                    }}>
+                                    }}
+                                  >
                                     {item}
                                   </span>
                                 ))}
@@ -1845,7 +1928,10 @@ content = """
                                 title="Copy color"
                               >
                                 {copiedColor === newTheme[color.key] ? (
-                                  <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+                                  <Check
+                                    className="w-3 h-3"
+                                    style={{ color: 'var(--theme-success)' }}
+                                  />
                                 ) : (
                                   <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
@@ -1876,11 +1962,11 @@ content = """
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
-            <Button
-              variant="default"
-              onClick={() => setCreateModalOpen(false)}
-            >
+          <div
+            className="flex justify-end space-x-3 pt-4 border-t"
+            style={{ borderColor: 'var(--theme-border-primary)' }}
+          >
+            <Button variant="default" onClick={() => setCreateModalOpen(false)}>
               Cancel
             </Button>
             <Button
@@ -1959,13 +2045,9 @@ content = """
                   onChange={(e) => setEditedTheme({ ...editedTheme, isDark: e.target.checked })}
                   className="rounded"
                 />
-                <span className="text-sm text-themed-secondary">
-                  Dark Theme
-                </span>
+                <span className="text-sm text-themed-secondary">Dark Theme</span>
               </label>
-              <span className="text-xs text-themed-muted">
-                Theme ID: {editingTheme?.meta.id}
-              </span>
+              <span className="text-xs text-themed-muted">Theme ID: {editingTheme?.meta.id}</span>
             </div>
           </div>
 
@@ -1976,12 +2058,17 @@ content = """
               const isExpanded = expandedGroups.includes(group.name);
 
               return (
-                <div key={group.name} className="border rounded-lg"
-                  style={{ borderColor: 'var(--theme-border-primary)' }}>
+                <div
+                  key={group.name}
+                  className="border rounded-lg"
+                  style={{ borderColor: 'var(--theme-border-primary)' }}
+                >
                   <button
                     onClick={() => toggleGroup(group.name)}
                     className="w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50"
-                    style={{ backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent' }}
+                    style={{
+                      backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent'
+                    }}
                   >
                     <div className="flex items-center gap-3">
                       <Icon className="w-4 h-4 text-themed-accent" />
@@ -1989,16 +2076,21 @@ content = """
                         <h5 className="text-sm font-semibold capitalize text-themed-primary">
                           {group.name.replace(/([A-Z])/g, ' $1').trim()}
                         </h5>
-                        <p className="text-xs text-themed-muted">
-                          {group.description}
-                        </p>
+                        <p className="text-xs text-themed-muted">{group.description}</p>
                       </div>
                     </div>
-                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    {isExpanded ? (
+                      <ChevronDown className="w-4 h-4" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4" />
+                    )}
                   </button>
 
                   {isExpanded && (
-                    <div className="p-4 border-t space-y-4" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                    <div
+                      className="p-4 border-t space-y-4"
+                      style={{ borderColor: 'var(--theme-border-primary)' }}
+                    >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">
                           <div className="flex items-center justify-between">
@@ -2006,16 +2098,17 @@ content = """
                               <label className="block text-sm font-medium text-themed-primary">
                                 {color.label}
                               </label>
-                              <p className="text-xs text-themed-muted">
-                                {color.description}
-                              </p>
+                              <p className="text-xs text-themed-muted">{color.description}</p>
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {color.affects.map((item, idx) => (
-                                  <span key={idx} className="text-xs px-1.5 py-0.5 rounded"
+                                  <span
+                                    key={idx}
+                                    className="text-xs px-1.5 py-0.5 rounded"
                                     style={{
                                       backgroundColor: 'var(--theme-bg-hover)',
                                       color: 'var(--theme-text-secondary)'
-                                    }}>
+                                    }}
+                                  >
                                     {item}
                                   </span>
                                 ))}
@@ -2044,7 +2137,10 @@ content = """
                                 title="Copy color"
                               >
                                 {copiedColor === editedTheme[color.key] ? (
-                                  <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+                                  <Check
+                                    className="w-3 h-3"
+                                    style={{ color: 'var(--theme-success)' }}
+                                  />
                                 ) : (
                                   <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
@@ -2075,7 +2171,10 @@ content = """
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+          <div
+            className="flex justify-end space-x-3 pt-4 border-t"
+            style={{ borderColor: 'var(--theme-border-primary)' }}
+          >
             <Button
               variant="default"
               onClick={() => {

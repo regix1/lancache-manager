@@ -1,13 +1,26 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { 
-  HardDrive, Download, Users, Database, TrendingUp, 
-  Zap, Server, Activity, Eye, EyeOff, ChevronDown, 
-  Clock, RotateCcw, Search, GripVertical, Loader
+import {
+  HardDrive,
+  Download,
+  Users,
+  Database,
+  TrendingUp,
+  Zap,
+  Server,
+  Activity,
+  Eye,
+  EyeOff,
+  ChevronDown,
+  Clock,
+  RotateCcw,
+  Search,
+  GripVertical,
+  Loader
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
-import { StatCardData, DashboardStats } from '../../types';
+import { type StatCardData, type DashboardStats } from '../../types';
 import StatCard from '../common/StatCard';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
@@ -39,10 +52,12 @@ const DEFAULT_CARD_ORDER: string[] = [
 ];
 
 const StatTooltips: Record<string, string> = {
-  bandwidthSaved: "Amount of internet bandwidth saved by serving files from local cache instead of downloading them again",
-  addedToCache: "New content downloaded and stored in cache for future use",
-  totalServed: "Total amount of data delivered to clients (cache hits + new downloads)",
-  cacheHitRatio: "Percentage of requests served from cache vs downloaded from internet. Higher is better!"
+  bandwidthSaved:
+    'Amount of internet bandwidth saved by serving files from local cache instead of downloading them again',
+  addedToCache: 'New content downloaded and stored in cache for future use',
+  totalServed: 'Total amount of data delivered to clients (cache hits + new downloads)',
+  cacheHitRatio:
+    'Percentage of requests served from cache vs downloaded from internet. Higher is better!'
 };
 
 const Dashboard: React.FC = () => {
@@ -65,7 +80,7 @@ const Dashboard: React.FC = () => {
     if (saved) {
       try {
         const order = JSON.parse(saved);
-        const hasAllCards = DEFAULT_CARD_ORDER.every(card => order.includes(card));
+        const hasAllCards = DEFAULT_CARD_ORDER.every((card) => order.includes(card));
         if (hasAllCards) {
           return order;
         }
@@ -94,7 +109,7 @@ const Dashboard: React.FC = () => {
   ];
 
   const getTimeRangeLabel = useCallback((value: string) => {
-    const range = timeRanges.find(r => r.value === value);
+    const range = timeRanges.find((r) => r.value === value);
     return range ? range.label : 'Last 24 hours';
   }, []);
 
@@ -130,29 +145,32 @@ const Dashboard: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const generateDashboardStats = useCallback((downloads: any[], services: any[]): DashboardStats => {
-    const totalHits = services.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
-    const totalMisses = services.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
-    const total = totalHits + totalMisses;
+  const generateDashboardStats = useCallback(
+    (downloads: any[], services: any[]): DashboardStats => {
+      const totalHits = services.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
+      const totalMisses = services.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
+      const total = totalHits + totalMisses;
 
-    return {
-      totalBandwidthSaved: totalHits,
-      totalAddedToCache: totalMisses,
-      totalServed: total,
-      cacheHitRatio: total > 0 ? (totalHits / total) : 0,
-      activeDownloads: activeDownloads.length,
-      uniqueClients: [...new Set(downloads.map(d => d.clientIp))].length,
-      topService: services[0]?.service || 'steam',
-      period: {
-        duration: selectedTimeRange,
-        bandwidthSaved: totalHits,
-        addedToCache: totalMisses,
+      return {
+        totalBandwidthSaved: totalHits,
+        totalAddedToCache: totalMisses,
         totalServed: total,
-        hitRatio: total > 0 ? (totalHits / total) : 0,
-        downloads: downloads.length
-      }
-    };
-  }, [selectedTimeRange, activeDownloads]);
+        cacheHitRatio: total > 0 ? totalHits / total : 0,
+        activeDownloads: activeDownloads.length,
+        uniqueClients: [...new Set(downloads.map((d) => d.clientIp))].length,
+        topService: services[0]?.service || 'steam',
+        period: {
+          duration: selectedTimeRange,
+          bandwidthSaved: totalHits,
+          addedToCache: totalMisses,
+          totalServed: total,
+          hitRatio: total > 0 ? totalHits / total : 0,
+          downloads: downloads.length
+        }
+      };
+    },
+    [selectedTimeRange, activeDownloads]
+  );
 
   // Generate dashboard stats whenever data changes
   useEffect(() => {
@@ -185,13 +203,16 @@ const Dashboard: React.FC = () => {
     e.dataTransfer.dropEffect = 'move';
   }, []);
 
-  const handleDragEnter = useCallback((e: React.DragEvent, cardKey: string) => {
-    e.preventDefault();
-    dragCounter.current++;
-    if (cardKey && cardKey !== draggedCard) {
-      setDragOverCard(cardKey);
-    }
-  }, [draggedCard]);
+  const handleDragEnter = useCallback(
+    (e: React.DragEvent, cardKey: string) => {
+      e.preventDefault();
+      dragCounter.current++;
+      if (cardKey && cardKey !== draggedCard) {
+        setDragOverCard(cardKey);
+      }
+    },
+    [draggedCard]
+  );
 
   const handleDragLeave = useCallback(() => {
     dragCounter.current--;
@@ -200,33 +221,39 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent, targetCardKey: string) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDrop = useCallback(
+    (e: React.DragEvent, targetCardKey: string) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    if (draggedCard && targetCardKey && draggedCard !== targetCardKey) {
-      setCardOrder((prevOrder: string[]) => {
-        const newOrder = [...prevOrder];
-        const draggedIndex = newOrder.indexOf(draggedCard);
-        const targetIndex = newOrder.indexOf(targetCardKey);
-        newOrder.splice(draggedIndex, 1);
-        newOrder.splice(targetIndex, 0, draggedCard);
-        return newOrder;
-      });
-    }
+      if (draggedCard && targetCardKey && draggedCard !== targetCardKey) {
+        setCardOrder((prevOrder: string[]) => {
+          const newOrder = [...prevOrder];
+          const draggedIndex = newOrder.indexOf(draggedCard);
+          const targetIndex = newOrder.indexOf(targetCardKey);
+          newOrder.splice(draggedIndex, 1);
+          newOrder.splice(targetIndex, 0, draggedCard);
+          return newOrder;
+        });
+      }
 
-    setDragOverCard(null);
-    dragCounter.current = 0;
-  }, [draggedCard]);
+      setDragOverCard(null);
+      dragCounter.current = 0;
+    },
+    [draggedCard]
+  );
 
   const resetCardOrder = useCallback(() => {
     setCardOrder(DEFAULT_CARD_ORDER);
   }, []);
 
   const stats = useMemo(() => {
-    const activeClients = [...new Set(activeDownloads.map(d => d.clientIp))].length;
+    const activeClients = [...new Set(activeDownloads.map((d) => d.clientIp))].length;
     const totalActiveDownloads = activeDownloads.length;
-    const totalDownloads = serviceStats.reduce((sum, service) => sum + (service.totalDownloads || 0), 0);
+    const totalDownloads = serviceStats.reduce(
+      (sum, service) => sum + (service.totalDownloads || 0),
+      0
+    );
 
     return {
       activeClients,
@@ -240,96 +267,122 @@ const Dashboard: React.FC = () => {
     };
   }, [activeDownloads, serviceStats, dashboardStats, clientStats]);
 
-  const allStatCards = useMemo<AllStatCards>(() => ({
-    totalCache: {
-      key: 'totalCache',
-      title: 'Total Cache',
-      value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B',
-      subtitle: 'Drive capacity',
-      icon: Database,
-      color: 'blue' as const,
-      visible: cardVisibility.totalCache
-    },
-    usedSpace: {
-      key: 'usedSpace',
-      title: 'Used Space',
-      value: cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B',
-      subtitle: cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%',
-      icon: HardDrive,
-      color: 'green' as const,
-      visible: cardVisibility.usedSpace
-    },
-    bandwidthSaved: {
-      key: 'bandwidthSaved',
-      title: 'Bandwidth Saved',
-      value: formatBytes(stats.bandwidthSaved),
-      subtitle: selectedTimeRange === 'all' ? 'All-time saved' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
-      icon: TrendingUp,
-      color: 'emerald' as const,
-      visible: cardVisibility.bandwidthSaved,
-      tooltip: StatTooltips.bandwidthSaved
-    },
-    addedToCache: {
-      key: 'addedToCache',
-      title: 'Added to Cache',
-      value: formatBytes(stats.addedToCache),
-      subtitle: selectedTimeRange === 'all' ? 'All-time cached' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
-      icon: Zap,
-      color: 'purple' as const,
-      visible: cardVisibility.addedToCache,
-      tooltip: StatTooltips.addedToCache
-    },
-    totalServed: {
-      key: 'totalServed',
-      title: 'Total Served',
-      value: formatBytes(stats.totalServed),
-      subtitle: selectedTimeRange === 'all' ? 'All-time served' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
-      icon: Server,
-      color: 'indigo' as const,
-      visible: cardVisibility.totalServed,
-      tooltip: StatTooltips.totalServed
-    },
-    activeDownloads: {
-      key: 'activeDownloads',
-      title: 'Active Downloads',
-      value: stats.totalActiveDownloads,
-      subtitle: `${dashboardStats?.period?.downloads || latestDownloads.length} in period`,
-      icon: Download,
-      color: 'orange' as const,
-      visible: cardVisibility.activeDownloads
-    },
-    activeClients: {
-      key: 'activeClients',
-      title: 'Active Clients',
-      value: stats.uniqueClients,
-      subtitle: `${stats.totalDownloads} downloads`,
-      icon: Users,
-      color: 'yellow' as const,
-      visible: cardVisibility.activeClients
-    },
-    cacheHitRatio: {
-      key: 'cacheHitRatio',
-      title: 'Cache Hit Ratio',
-      value: formatPercent(stats.cacheHitRatio * 100),
-      subtitle: selectedTimeRange === 'all' ? 'Overall' : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
-      icon: Activity,
-      color: 'cyan' as const,
-      visible: cardVisibility.cacheHitRatio,
-      tooltip: StatTooltips.cacheHitRatio
-    }
-  }), [cacheInfo, cardVisibility, stats, selectedTimeRange, getTimeRangeLabel, dashboardStats, latestDownloads]);
+  const allStatCards = useMemo<AllStatCards>(
+    () => ({
+      totalCache: {
+        key: 'totalCache',
+        title: 'Total Cache',
+        value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B',
+        subtitle: 'Drive capacity',
+        icon: Database,
+        color: 'blue' as const,
+        visible: cardVisibility.totalCache
+      },
+      usedSpace: {
+        key: 'usedSpace',
+        title: 'Used Space',
+        value: cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B',
+        subtitle: cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%',
+        icon: HardDrive,
+        color: 'green' as const,
+        visible: cardVisibility.usedSpace
+      },
+      bandwidthSaved: {
+        key: 'bandwidthSaved',
+        title: 'Bandwidth Saved',
+        value: formatBytes(stats.bandwidthSaved),
+        subtitle:
+          selectedTimeRange === 'all'
+            ? 'All-time saved'
+            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        icon: TrendingUp,
+        color: 'emerald' as const,
+        visible: cardVisibility.bandwidthSaved,
+        tooltip: StatTooltips.bandwidthSaved
+      },
+      addedToCache: {
+        key: 'addedToCache',
+        title: 'Added to Cache',
+        value: formatBytes(stats.addedToCache),
+        subtitle:
+          selectedTimeRange === 'all'
+            ? 'All-time cached'
+            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        icon: Zap,
+        color: 'purple' as const,
+        visible: cardVisibility.addedToCache,
+        tooltip: StatTooltips.addedToCache
+      },
+      totalServed: {
+        key: 'totalServed',
+        title: 'Total Served',
+        value: formatBytes(stats.totalServed),
+        subtitle:
+          selectedTimeRange === 'all'
+            ? 'All-time served'
+            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        icon: Server,
+        color: 'indigo' as const,
+        visible: cardVisibility.totalServed,
+        tooltip: StatTooltips.totalServed
+      },
+      activeDownloads: {
+        key: 'activeDownloads',
+        title: 'Active Downloads',
+        value: stats.totalActiveDownloads,
+        subtitle: `${dashboardStats?.period?.downloads || latestDownloads.length} in period`,
+        icon: Download,
+        color: 'orange' as const,
+        visible: cardVisibility.activeDownloads
+      },
+      activeClients: {
+        key: 'activeClients',
+        title: 'Active Clients',
+        value: stats.uniqueClients,
+        subtitle: `${stats.totalDownloads} downloads`,
+        icon: Users,
+        color: 'yellow' as const,
+        visible: cardVisibility.activeClients
+      },
+      cacheHitRatio: {
+        key: 'cacheHitRatio',
+        title: 'Cache Hit Ratio',
+        value: formatPercent(stats.cacheHitRatio * 100),
+        subtitle:
+          selectedTimeRange === 'all'
+            ? 'Overall'
+            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        icon: Activity,
+        color: 'cyan' as const,
+        visible: cardVisibility.cacheHitRatio,
+        tooltip: StatTooltips.cacheHitRatio
+      }
+    }),
+    [
+      cacheInfo,
+      cardVisibility,
+      stats,
+      selectedTimeRange,
+      getTimeRangeLabel,
+      dashboardStats,
+      latestDownloads
+    ]
+  );
 
   const orderedStatCards = useMemo(() => {
-    return cardOrder.map((key: string) => allStatCards[key]).filter((card: StatCardData | undefined): card is StatCardData => card !== undefined);
+    return cardOrder
+      .map((key: string) => allStatCards[key])
+      .filter((card: StatCardData | undefined): card is StatCardData => card !== undefined);
   }, [cardOrder, allStatCards]);
 
   const visibleCards = orderedStatCards.filter((card: StatCardData) => card.visible);
   const hiddenCards = orderedStatCards.filter((card: StatCardData) => !card.visible);
   const hiddenCardsCount = hiddenCards.length;
 
-  const filteredHiddenCards = hiddenCards.filter((card: StatCardData) =>
-    card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (card.subtitle && card.subtitle.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredHiddenCards = hiddenCards.filter(
+    (card: StatCardData) =>
+      card.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (card.subtitle && card.subtitle.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const getIconGradient = (color: string) => {
@@ -359,8 +412,8 @@ const Dashboard: React.FC = () => {
               color: 'var(--theme-text-muted)',
               backgroundColor: 'transparent'
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             title="Reset card layout to default"
           >
             <RotateCcw className="w-4 h-4" />
@@ -374,24 +427,36 @@ const Dashboard: React.FC = () => {
                 backgroundColor: 'var(--theme-bg-secondary)',
                 borderColor: 'var(--theme-border-primary)'
               }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)'}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
+              }
             >
               <Clock className="w-4 h-4" style={{ color: 'var(--theme-text-muted)' }} />
-              <span className="text-sm text-themed-secondary">{getTimeRangeLabel(selectedTimeRange)}</span>
-              <ChevronDown className={`w-4 h-4 transition-transform ${timeFilterOpen ? 'rotate-180' : ''}`} 
-                style={{ color: 'var(--theme-text-muted)' }} />
+              <span className="text-sm text-themed-secondary">
+                {getTimeRangeLabel(selectedTimeRange)}
+              </span>
+              <ChevronDown
+                className={`w-4 h-4 transition-transform ${timeFilterOpen ? 'rotate-180' : ''}`}
+                style={{ color: 'var(--theme-text-muted)' }}
+              />
             </button>
 
             {timeFilterOpen && (
-              <div className="absolute right-0 mt-2 w-56 rounded-lg border shadow-xl z-50"
+              <div
+                className="absolute right-0 mt-2 w-56 rounded-lg border shadow-xl z-50"
                 style={{
                   backgroundColor: 'var(--theme-bg-secondary)',
                   borderColor: 'var(--theme-border-primary)'
-                }}>
+                }}
+              >
                 <div className="p-2">
-                  <div className="text-xs font-semibold px-2 py-1.5 text-themed-muted">Time Range</div>
-                  {timeRanges.map(range => (
+                  <div className="text-xs font-semibold px-2 py-1.5 text-themed-muted">
+                    Time Range
+                  </div>
+                  {timeRanges.map((range) => (
                     <button
                       key={range.value}
                       onClick={() => {
@@ -404,9 +469,10 @@ const Dashboard: React.FC = () => {
                           : 'text-themed-secondary'
                       }`}
                       style={{
-                        backgroundColor: selectedTimeRange === range.value 
-                          ? 'var(--theme-bg-hover)' 
-                          : 'transparent'
+                        backgroundColor:
+                          selectedTimeRange === range.value
+                            ? 'var(--theme-bg-hover)'
+                            : 'transparent'
                       }}
                       onMouseEnter={(e) => {
                         if (selectedTimeRange !== range.value) {
@@ -423,7 +489,11 @@ const Dashboard: React.FC = () => {
                         <span>{range.label}</span>
                         {selectedTimeRange === range.value && (
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            <path
+                              fillRule="evenodd"
+                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                              clipRule="evenodd"
+                            />
                           </svg>
                         )}
                       </div>
@@ -439,11 +509,13 @@ const Dashboard: React.FC = () => {
       {/* Hidden Cards Dropdown */}
       {hiddenCardsCount > 0 && (
         <div className="relative" ref={dropdownRef}>
-          <div className="rounded-lg px-4 py-2 border flex items-center justify-between"
+          <div
+            className="rounded-lg px-4 py-2 border flex items-center justify-between"
             style={{
               backgroundColor: 'var(--theme-bg-secondary)',
               borderColor: 'var(--theme-border-primary)'
-            }}>
+            }}
+          >
             <span className="text-sm text-themed-muted">
               {hiddenCardsCount} stat card{hiddenCardsCount !== 1 ? 's' : ''} hidden
             </span>
@@ -451,17 +523,23 @@ const Dashboard: React.FC = () => {
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 className="flex items-center gap-1 text-xs text-themed-accent transition-colors px-2 py-1 rounded"
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+                }
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 Add cards
-                <ChevronDown className={`w-3 h-3 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-3 h-3 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
+                />
               </button>
               <button
                 onClick={() => setCardVisibility(DEFAULT_CARD_VISIBILITY)}
                 className="text-xs text-themed-accent transition-colors px-2 py-1 rounded"
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+                }
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               >
                 Show all
               </button>
@@ -469,11 +547,13 @@ const Dashboard: React.FC = () => {
           </div>
 
           {dropdownOpen && (
-            <div className="absolute right-0 mt-2 w-80 rounded-lg border shadow-xl z-50"
+            <div
+              className="absolute right-0 mt-2 w-80 rounded-lg border shadow-xl z-50"
               style={{
                 backgroundColor: 'var(--theme-bg-secondary)',
                 borderColor: 'var(--theme-border-primary)'
-              }}>
+              }}
+            >
               <div className="p-3 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
@@ -508,14 +588,22 @@ const Dashboard: React.FC = () => {
                           }
                         }}
                         className="w-full p-3 rounded-lg transition-colors flex items-center gap-3 group"
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.backgroundColor = 'transparent')
+                        }
                       >
-                        <div className={`p-2 rounded-lg bg-gradient-to-br ${getIconGradient(card.color)} group-hover:scale-110 transition-transform`}>
+                        <div
+                          className={`p-2 rounded-lg bg-gradient-to-br ${getIconGradient(card.color)} group-hover:scale-110 transition-transform`}
+                        >
                           <Icon className="w-5 h-5 text-white" />
                         </div>
                         <div className="flex-1 text-left">
-                          <div className="text-sm text-themed-secondary font-medium">{card.title}</div>
+                          <div className="text-sm text-themed-secondary font-medium">
+                            {card.title}
+                          </div>
                           <div className="text-xs text-themed-muted">{card.subtitle}</div>
                         </div>
                         <Eye className="w-4 h-4 text-themed-muted group-hover:text-themed-accent transition-colors" />
@@ -550,9 +638,7 @@ const Dashboard: React.FC = () => {
             key={card.key}
             className="relative group"
             style={{
-              boxShadow: dragOverCard === card.key 
-                ? `0 0 0 2px var(--theme-primary)` 
-                : 'none'
+              boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none'
             }}
             draggable
             onDragStart={(e) => handleDragStart(e, card.key)}
@@ -596,7 +682,11 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Top Clients - Pass the actual data arrays */}
-      <TopClientsTable clientStats={clientStats || []} downloads={latestDownloads || []} timeRange={selectedTimeRange} />
+      <TopClientsTable
+        clientStats={clientStats || []}
+        downloads={latestDownloads || []}
+        timeRange={selectedTimeRange}
+      />
     </div>
   );
 };

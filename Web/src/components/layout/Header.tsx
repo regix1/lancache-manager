@@ -7,10 +7,10 @@ interface HeaderProps {
   connectionStatus?: 'connected' | 'disconnected' | 'reconnecting';
 }
 
-const Header: React.FC<HeaderProps> = ({ 
-  title = "LANCache Manager", 
-  subtitle = "High-performance cache monitoring & management",
-  connectionStatus = 'connected' 
+const Header: React.FC<HeaderProps> = ({
+  title = 'LANCache Manager',
+  subtitle = 'High-performance cache monitoring & management',
+  connectionStatus = 'connected'
 }) => {
   const getStatusInfo = () => {
     switch (connectionStatus) {
@@ -44,10 +44,13 @@ const Header: React.FC<HeaderProps> = ({
   const status = getStatusInfo();
 
   return (
-    <header className="border-b" style={{ 
-      backgroundColor: 'var(--theme-nav-bg)', 
-      borderColor: 'var(--theme-nav-border)' 
-    }}>
+    <header
+      className="border-b"
+      style={{
+        backgroundColor: 'var(--theme-nav-bg)',
+        borderColor: 'var(--theme-nav-border)'
+      }}
+    >
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center space-x-3">
@@ -59,7 +62,7 @@ const Header: React.FC<HeaderProps> = ({
               <p className="text-sm text-themed-muted">{subtitle}</p>
             </div>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <div className={`flex items-center space-x-1 ${status.color}`}>
               {status.icon}

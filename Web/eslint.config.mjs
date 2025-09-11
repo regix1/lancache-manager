@@ -21,14 +21,14 @@ export default tseslint.config(
       'postcss.config.js'
     ]
   },
-  
+
   // Base JavaScript config
   js.configs.recommended,
-  
+
   // TypeScript configs
   ...tseslint.configs.recommended,
   ...tseslint.configs.stylistic,
-  
+
   // React config
   {
     files: ['**/*.{ts,tsx,js,jsx}'],
@@ -62,16 +62,13 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',
-      'react-refresh/only-export-components': [
-        'warn',
-        { allowConstantExport: true }
-      ],
-      
+      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+
       // TypeScript rules
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'warn',
-        { 
+        {
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_'
         }
@@ -83,7 +80,7 @@ export default tseslint.config(
           fixStyle: 'inline-type-imports'
         }
       ],
-      
+
       // General rules
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'prefer-const': 'warn',
@@ -91,7 +88,7 @@ export default tseslint.config(
       'no-duplicate-imports': 'error'
     }
   },
-  
+
   // Prettier config (must be last)
   prettierConfig,
   {

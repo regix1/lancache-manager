@@ -16,13 +16,25 @@ interface GameInfo {
 class MockDataService {
   static generateMockData(downloadCount: number | 'unlimited' = 50): MockData {
     const clients = [
-      '192.168.1.100', '192.168.1.101', '192.168.1.102', '192.168.1.103', 
-      '192.168.1.104', '192.168.1.105', '192.168.1.106', '192.168.1.107',
-      '192.168.1.108', '192.168.1.109', '192.168.1.110', '192.168.1.111',
-      '10.0.0.50', '10.0.0.51', '10.0.0.52', '10.0.0.53',
+      '192.168.1.100',
+      '192.168.1.101',
+      '192.168.1.102',
+      '192.168.1.103',
+      '192.168.1.104',
+      '192.168.1.105',
+      '192.168.1.106',
+      '192.168.1.107',
+      '192.168.1.108',
+      '192.168.1.109',
+      '192.168.1.110',
+      '192.168.1.111',
+      '10.0.0.50',
+      '10.0.0.51',
+      '10.0.0.52',
+      '10.0.0.53',
       '127.0.0.1'
     ];
-    
+
     const steamGames: GameInfo[] = [
       { name: 'Counter-Strike 2', size: 30 * 1024 * 1024 * 1024 },
       { name: 'Dota 2', size: 35 * 1024 * 1024 * 1024 },
@@ -38,7 +50,7 @@ class MockDataService {
       { name: 'Valheim', size: 1 * 1024 * 1024 * 1024 },
       { name: 'Unknown Steam Game', size: 15 * 1024 * 1024 * 1024 }
     ];
-    
+
     // Generate cache info
     const cacheInfo = {
       totalCacheSize: 2000000000000, // 2TB
@@ -59,27 +71,29 @@ class MockDataService {
     // Generate downloads with realistic patterns
     const downloads: any[] = [];
     const now = new Date();
-    
+
     // Calculate the actual count - if "unlimited", generate a large dataset
     const actualCount = downloadCount === 'unlimited' ? 500 : downloadCount;
-    
+
     // Track client activity for accurate stats
     const clientActivity: Record<string, any> = {};
-    
+
     for (let i = 0; i < actualCount; i++) {
       const service = SERVICES[Math.floor(Math.random() * SERVICES.length)];
       const client = clients[Math.floor(Math.random() * clients.length)];
-      
+
       // 30% chance of metadata/zero-byte download
       const isMetadata = Math.random() < 0.3;
-      
+
       // Time distribution - more recent downloads at the top
       // Spread over 90 days instead of just 7 for better "all time" data
       const hoursAgo = Math.pow(i / actualCount, 2) * 2160; // Up to 90 days ago, exponentially distributed
-      const startTime = new Date(now.getTime() - hoursAgo * 60 * 60 * 1000 - Math.random() * 3600000);
-      
+      const startTime = new Date(
+        now.getTime() - hoursAgo * 60 * 60 * 1000 - Math.random() * 3600000
+      );
+
       let download: any;
-      
+
       if (isMetadata) {
         // Metadata download
         const endTime = new Date(startTime.getTime() + Math.random() * 5000); // 0-5 seconds
@@ -100,7 +114,7 @@ class MockDataService {
         // Regular download
         let gameName = null;
         let totalBytes: number;
-        
+
         if (service === 'steam' && Math.random() < 0.7) {
           // 70% chance of identifiable Steam game
           const game = steamGames[Math.floor(Math.random() * steamGames.length)];
@@ -111,17 +125,17 @@ class MockDataService {
           // Generic content
           totalBytes = Math.floor(Math.random() * 50 * 1024 * 1024 * 1024); // Up to 50GB
         }
-        
+
         // Cache hit ratio varies by age - older downloads have better cache hit
         const cacheHitRatio = Math.min(0.95, 0.1 + (hoursAgo / 2160) * 0.85);
         const cacheHitBytes = Math.floor(totalBytes * cacheHitRatio);
         const cacheMissBytes = totalBytes - cacheHitBytes;
-        
+
         // Duration based on size and whether it's cached
         const downloadSpeed = cacheHitRatio > 0.8 ? 500 * 1024 * 1024 : 50 * 1024 * 1024; // 500MB/s cached, 50MB/s uncached
         const durationMs = (totalBytes / downloadSpeed) * 1000;
         const endTime = new Date(startTime.getTime() + durationMs);
-        
+
         download = {
           id: i + 1,
           service,
@@ -134,11 +148,13 @@ class MockDataService {
           cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
           isActive: i < 3 && hoursAgo < 0.5, // First 3 recent downloads are active
           gameName,
-          gameAppId: gameName && gameName !== 'Unknown Steam Game' ? 
-            200000 + Math.floor(Math.random() * 2000000) : null
+          gameAppId:
+            gameName && gameName !== 'Unknown Steam Game'
+              ? 200000 + Math.floor(Math.random() * 2000000)
+              : null
         };
       }
-      
+
       // Track client activity
       if (!clientActivity[client]) {
         clientActivity[client] = {
@@ -148,58 +164,60 @@ class MockDataService {
           lastSeen: startTime
         };
       }
-      
+
       clientActivity[client].totalCacheHitBytes += download.cacheHitBytes || 0;
       clientActivity[client].totalCacheMissBytes += download.cacheMissBytes || 0;
       clientActivity[client].totalDownloads += 1;
-      
+
       // Update last seen if this is more recent
       if (startTime > clientActivity[client].lastSeen) {
         clientActivity[client].lastSeen = startTime;
       }
-      
+
       downloads.push(download);
     }
-    
+
     // Sort by start time (most recent first)
     downloads.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
 
     // Generate client stats based on actual download activity
-    const clientStats = clients.map(ip => {
-      const activity = clientActivity[ip];
-      
-      if (activity) {
-        // Use actual data from downloads
-        const totalBytes = activity.totalCacheHitBytes + activity.totalCacheMissBytes;
-        return {
-          clientIp: ip,
-          totalCacheHitBytes: activity.totalCacheHitBytes,
-          totalCacheMissBytes: activity.totalCacheMissBytes,
-          totalBytes: totalBytes,
-          cacheHitPercent: totalBytes > 0 ? (activity.totalCacheHitBytes / totalBytes) * 100 : 0,
-          totalDownloads: activity.totalDownloads,
-          lastSeen: activity.lastSeen.toISOString()
-        };
-      } else {
-        // Client had no downloads - return zeros
-        return {
-          clientIp: ip,
-          totalCacheHitBytes: 0,
-          totalCacheMissBytes: 0,
-          totalBytes: 0,
-          cacheHitPercent: 0,
-          totalDownloads: 0,
-          lastSeen: null
-        };
-      }
-    }).filter(client => client.totalBytes > 0); // Only include clients with activity
+    const clientStats = clients
+      .map((ip) => {
+        const activity = clientActivity[ip];
+
+        if (activity) {
+          // Use actual data from downloads
+          const totalBytes = activity.totalCacheHitBytes + activity.totalCacheMissBytes;
+          return {
+            clientIp: ip,
+            totalCacheHitBytes: activity.totalCacheHitBytes,
+            totalCacheMissBytes: activity.totalCacheMissBytes,
+            totalBytes: totalBytes,
+            cacheHitPercent: totalBytes > 0 ? (activity.totalCacheHitBytes / totalBytes) * 100 : 0,
+            totalDownloads: activity.totalDownloads,
+            lastSeen: activity.lastSeen.toISOString()
+          };
+        } else {
+          // Client had no downloads - return zeros
+          return {
+            clientIp: ip,
+            totalCacheHitBytes: 0,
+            totalCacheMissBytes: 0,
+            totalBytes: 0,
+            cacheHitPercent: 0,
+            totalDownloads: 0,
+            lastSeen: null
+          };
+        }
+      })
+      .filter((client) => client.totalBytes > 0); // Only include clients with activity
 
     // Generate service stats
-    const serviceStats = SERVICES.map(service => {
-      const serviceDownloads = downloads.filter(d => d.service === service);
+    const serviceStats = SERVICES.map((service) => {
+      const serviceDownloads = downloads.filter((d) => d.service === service);
       const hitBytes = serviceDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
       const missBytes = serviceDownloads.reduce((sum, d) => sum + d.cacheMissBytes, 0);
-      
+
       return {
         service,
         totalCacheHitBytes: hitBytes || cacheInfo.serviceSizes[service] * 0.8,
@@ -207,13 +225,15 @@ class MockDataService {
         totalBytes: hitBytes + missBytes || cacheInfo.serviceSizes[service],
         cacheHitPercent: hitBytes + missBytes > 0 ? (hitBytes / (hitBytes + missBytes)) * 100 : 80,
         totalDownloads: serviceDownloads.length,
-        lastActivity: serviceDownloads[0]?.startTime || new Date(now.getTime() - Math.random() * 7200000).toISOString()
+        lastActivity:
+          serviceDownloads[0]?.startTime ||
+          new Date(now.getTime() - Math.random() * 7200000).toISOString()
       };
     });
 
     return {
       cacheInfo,
-      activeDownloads: downloads.filter(d => d.isActive),
+      activeDownloads: downloads.filter((d) => d.isActive),
       latestDownloads: downloads,
       clientStats,
       serviceStats
@@ -222,12 +242,18 @@ class MockDataService {
 
   static generateRealtimeUpdate(): any {
     const clients = [
-      '192.168.1.100', '192.168.1.101', '192.168.1.102', '192.168.1.103', 
-      '192.168.1.104', '192.168.1.105', '192.168.1.106', '192.168.1.107'
+      '192.168.1.100',
+      '192.168.1.101',
+      '192.168.1.102',
+      '192.168.1.103',
+      '192.168.1.104',
+      '192.168.1.105',
+      '192.168.1.106',
+      '192.168.1.107'
     ];
-    
+
     const isMetadata = Math.random() < 0.2;
-    
+
     if (isMetadata) {
       return {
         id: Date.now(),
@@ -242,10 +268,10 @@ class MockDataService {
         isActive: false
       };
     }
-    
+
     const cacheHitBytes = Math.floor(Math.random() * 500000000);
     const cacheMissBytes = Math.floor(Math.random() * 100000000);
-    
+
     return {
       id: Date.now(),
       service: SERVICES[Math.floor(Math.random() * SERVICES.length)],

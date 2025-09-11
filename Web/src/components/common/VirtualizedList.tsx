@@ -10,10 +10,10 @@ interface VirtualizedListProps<T> {
   className?: string;
 }
 
-function VirtualizedList<T>({ 
-  items, 
-  height, 
-  itemHeight, 
+function VirtualizedList<T>({
+  items,
+  height,
+  itemHeight,
   renderItem,
   overscan = 5,
   className = ''
@@ -24,20 +24,16 @@ function VirtualizedList<T>({
     count: items.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => itemHeight,
-    overscan,
+    overscan
   });
 
   return (
-    <div
-      ref={parentRef}
-      className={`overflow-auto ${className}`}
-      style={{ height: `${height}px` }}
-    >
+    <div ref={parentRef} className={`overflow-auto ${className}`} style={{ height: `${height}px` }}>
       <div
         style={{
           height: `${virtualizer.getTotalSize()}px`,
           width: '100%',
-          position: 'relative',
+          position: 'relative'
         }}
       >
         {virtualizer.getVirtualItems().map((virtualItem) => (
@@ -49,7 +45,7 @@ function VirtualizedList<T>({
               left: 0,
               width: '100%',
               height: `${virtualItem.size}px`,
-              transform: `translateY(${virtualItem.start}px)`,
+              transform: `translateY(${virtualItem.start}px)`
             }}
           >
             {renderItem(items[virtualItem.index], virtualItem.index)}

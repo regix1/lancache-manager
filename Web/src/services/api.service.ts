@@ -20,7 +20,7 @@ class ApiService {
       const error = await response.text().catch(() => '');
       throw new Error(`Authentication required: ${error || 'Please provide API key'}`);
     }
-    
+
     if (!response.ok) {
       const error = await response.text().catch(() => '');
       throw new Error(`HTTP ${response.status}: ${error || response.statusText}`);
@@ -38,7 +38,7 @@ class ApiService {
 
   static async getCacheInfo(signal?: AbortSignal): Promise<CacheInfo> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache`, { 
+      const res = await fetch(`${API_BASE}/management/cache`, {
         signal,
         headers: this.getHeaders()
       });
@@ -55,7 +55,7 @@ class ApiService {
 
   static async getActiveDownloads(signal?: AbortSignal): Promise<Download[]> {
     try {
-      const res = await fetch(`${API_BASE}/downloads/active`, { 
+      const res = await fetch(`${API_BASE}/downloads/active`, {
         signal,
         headers: this.getHeaders()
       });
@@ -70,10 +70,13 @@ class ApiService {
     }
   }
 
-  static async getLatestDownloads(signal?: AbortSignal, count: number | 'unlimited' = 50): Promise<Download[]> {
+  static async getLatestDownloads(
+    signal?: AbortSignal,
+    count: number | 'unlimited' = 50
+  ): Promise<Download[]> {
     try {
       const actualCount = count === 'unlimited' ? 9999 : count;
-      const res = await fetch(`${API_BASE}/downloads/latest?count=${actualCount}`, { 
+      const res = await fetch(`${API_BASE}/downloads/latest?count=${actualCount}`, {
         signal,
         headers: this.getHeaders()
       });
@@ -90,7 +93,7 @@ class ApiService {
 
   static async getClientStats(signal?: AbortSignal): Promise<ClientStat[]> {
     try {
-      const res = await fetch(`${API_BASE}/stats/clients`, { 
+      const res = await fetch(`${API_BASE}/stats/clients`, {
         signal,
         headers: this.getHeaders()
       });
@@ -105,12 +108,15 @@ class ApiService {
     }
   }
 
-  static async getServiceStats(signal?: AbortSignal, since: string | null = null): Promise<ServiceStat[]> {
+  static async getServiceStats(
+    signal?: AbortSignal,
+    since: string | null = null
+  ): Promise<ServiceStat[]> {
     try {
-      const url = since 
+      const url = since
         ? `${API_BASE}/stats/services?since=${since}`
         : `${API_BASE}/stats/services`;
-      const res = await fetch(url, { 
+      const res = await fetch(url, {
         signal,
         headers: this.getHeaders()
       });
@@ -126,9 +132,9 @@ class ApiService {
   }
 
   // NEW: Dashboard aggregated stats
-  static async getDashboardStats(period: string = '24h', signal?: AbortSignal): Promise<DashboardStats> {
+  static async getDashboardStats(period = '24h', signal?: AbortSignal): Promise<DashboardStats> {
     try {
-      const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, { 
+      const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, {
         signal,
         headers: this.getHeaders()
       });
@@ -144,9 +150,9 @@ class ApiService {
   }
 
   // NEW: Cache effectiveness stats
-  static async getCacheEffectiveness(period: string = '24h', signal?: AbortSignal): Promise<any> {
+  static async getCacheEffectiveness(period = '24h', signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/stats/cache-effectiveness?period=${period}`, { 
+      const res = await fetch(`${API_BASE}/stats/cache-effectiveness?period=${period}`, {
         signal,
         headers: this.getHeaders()
       });
@@ -162,9 +168,13 @@ class ApiService {
   }
 
   // NEW: Timeline stats
-  static async getTimelineStats(period: string = '24h', interval: string = 'hourly', signal?: AbortSignal): Promise<any> {
+  static async getTimelineStats(
+    period = '24h',
+    interval = 'hourly',
+    signal?: AbortSignal
+  ): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/stats/timeline?period=${period}&interval=${interval}`, { 
+      const res = await fetch(`${API_BASE}/stats/timeline?period=${period}&interval=${interval}`, {
         signal,
         headers: this.getHeaders()
       });
@@ -180,9 +190,9 @@ class ApiService {
   }
 
   // NEW: Bandwidth saved stats
-  static async getBandwidthSaved(period: string = 'all', signal?: AbortSignal): Promise<any> {
+  static async getBandwidthSaved(period = 'all', signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/stats/bandwidth-saved?period=${period}`, { 
+      const res = await fetch(`${API_BASE}/stats/bandwidth-saved?period=${period}`, {
         signal,
         headers: this.getHeaders()
       });
@@ -198,9 +208,9 @@ class ApiService {
   }
 
   // NEW: Top games stats
-  static async getTopGames(limit: number = 10, period: string = '7d', signal?: AbortSignal): Promise<any> {
+  static async getTopGames(limit = 10, period = '7d', signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/stats/top-games?limit=${limit}&period=${period}`, { 
+      const res = await fetch(`${API_BASE}/stats/top-games?limit=${limit}&period=${period}`, {
         signal,
         headers: this.getHeaders()
       });
@@ -218,7 +228,7 @@ class ApiService {
   // Start async cache clearing operation (requires auth)
   static async clearAllCache(): Promise<ClearCacheResponse> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/clear-all`, { 
+      const res = await fetch(`${API_BASE}/management/cache/clear-all`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(10000)
@@ -233,7 +243,7 @@ class ApiService {
   // Get status of cache clearing operation
   static async getCacheClearStatus(operationId: string): Promise<CacheClearStatus> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/clear-status/${operationId}`, { 
+      const res = await fetch(`${API_BASE}/management/cache/clear-status/${operationId}`, {
         signal: AbortSignal.timeout(5000),
         headers: this.getHeaders()
       });
@@ -247,7 +257,7 @@ class ApiService {
   // Cancel cache clearing operation (requires auth)
   static async cancelCacheClear(operationId: string): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/clear-cancel/${operationId}`, { 
+      const res = await fetch(`${API_BASE}/management/cache/clear-cancel/${operationId}`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(5000)
@@ -262,7 +272,7 @@ class ApiService {
   // Get all active cache clear operations
   static async getActiveCacheOperations(): Promise<any[]> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/active-operations`, { 
+      const res = await fetch(`${API_BASE}/management/cache/active-operations`, {
         signal: AbortSignal.timeout(5000),
         headers: this.getHeaders()
       });
@@ -285,7 +295,7 @@ class ApiService {
   // Reset database (requires auth)
   static async resetDatabase(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/database`, { 
+      const res = await fetch(`${API_BASE}/management/database`, {
         method: 'DELETE',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(60000)
@@ -300,7 +310,7 @@ class ApiService {
   // Reset log position (requires auth)
   static async resetLogPosition(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/reset-logs`, { 
+      const res = await fetch(`${API_BASE}/management/reset-logs`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(60000)
@@ -315,7 +325,7 @@ class ApiService {
   // Process all logs (requires auth)
   static async processAllLogs(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/process-all-logs`, { 
+      const res = await fetch(`${API_BASE}/management/process-all-logs`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(120000)
@@ -330,7 +340,7 @@ class ApiService {
   // Cancel processing (requires auth)
   static async cancelProcessing(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/cancel-processing`, { 
+      const res = await fetch(`${API_BASE}/management/cancel-processing`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(10000)
@@ -344,7 +354,7 @@ class ApiService {
 
   static async getProcessingStatus(): Promise<ProcessingStatus> {
     try {
-      const res = await fetch(`${API_BASE}/management/processing-status`, { 
+      const res = await fetch(`${API_BASE}/management/processing-status`, {
         signal: AbortSignal.timeout(5000),
         headers: this.getHeaders()
       });
@@ -358,7 +368,7 @@ class ApiService {
   // Remove specific service entries from log file (requires auth)
   static async removeServiceFromLogs(service: string): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/logs/remove-service`, { 
+      const res = await fetch(`${API_BASE}/management/logs/remove-service`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ service }),
@@ -374,7 +384,7 @@ class ApiService {
   // Get counts of log entries per service
   static async getServiceLogCounts(): Promise<Record<string, number>> {
     try {
-      const res = await fetch(`${API_BASE}/management/logs/service-counts`, { 
+      const res = await fetch(`${API_BASE}/management/logs/service-counts`, {
         signal: AbortSignal.timeout(30000),
         headers: this.getHeaders()
       });
@@ -388,7 +398,7 @@ class ApiService {
   // Get configuration info
   static async getConfig(): Promise<Config> {
     try {
-      const res = await fetch(`${API_BASE}/management/config`, { 
+      const res = await fetch(`${API_BASE}/management/config`, {
         signal: AbortSignal.timeout(5000),
         headers: this.getHeaders()
       });

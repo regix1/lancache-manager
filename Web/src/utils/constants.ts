@@ -1,10 +1,10 @@
-export const API_BASE = import.meta.env.VITE_API_URL 
+export const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api';
 
 // Services
 export const SERVICES = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'] as const;
-export type ServiceType = typeof SERVICES[number];
+export type ServiceType = (typeof SERVICES)[number];
 
 // Refresh intervals (in milliseconds)
 export const REFRESH_INTERVAL = 5000; // 5 seconds
@@ -63,5 +63,5 @@ export const CHART_COLORS: readonly string[] = [
   '#f97316', // orange
   '#ec4899', // pink
   '#14b8a6', // teal
-  '#84cc16'  // lime
+  '#84cc16' // lime
 ] as const;

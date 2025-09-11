@@ -114,6 +114,11 @@ interface ThemeColors {
   chartTextColor?: string;
   chartCacheHitColor?: string;
   chartCacheMissColor?: string;
+
+  // Scrollbar colors
+  scrollbarTrack?: string;
+  scrollbarThumb?: string;
+  scrollbarHover?: string;
 }
 
 interface ThemeMeta {
@@ -140,7 +145,7 @@ class ThemeService {
   async loadThemes(): Promise<Theme[]> {
     const builtInThemes = this.getBuiltInThemes();
 
-    let apiThemes: Theme[] = [];
+    const apiThemes: Theme[] = [];
     const deletedThemeIds: string[] = [];
 
     try {
@@ -178,7 +183,7 @@ class ThemeService {
             console.log(`Current theme ${currentThemeId} was deleted, resetting to default`);
             localStorage.removeItem('lancache_theme');
             localStorage.removeItem('lancache_theme_applied');
-            const darkDefault = builtInThemes.find(t => t.meta.id === 'dark-default');
+            const darkDefault = builtInThemes.find((t) => t.meta.id === 'dark-default');
             if (darkDefault) {
               this.applyTheme(darkDefault);
             }
@@ -190,9 +195,9 @@ class ThemeService {
     }
 
     const allThemes = [...builtInThemes];
-    const themeIds = new Set(allThemes.map(t => t.meta.id));
+    const themeIds = new Set(allThemes.map((t) => t.meta.id));
 
-    apiThemes.forEach(theme => {
+    apiThemes.forEach((theme) => {
       if (!themeIds.has(theme.meta.id)) {
         allThemes.push(theme);
         themeIds.add(theme.meta.id);
@@ -252,8 +257,8 @@ class ThemeService {
           successBg: '#064e3b',
           successText: '#34d399',
           warning: '#fb923c',
-          warningBg: '#44403c',     // Softer warm grey-brown
-          warningText: '#fcd34d',    // Bright golden yellow
+          warningBg: '#44403c', // Softer warm grey-brown
+          warningText: '#fcd34d', // Bright golden yellow
           error: '#ef4444',
           errorBg: '#7f1d1d',
           errorText: '#fca5a5',
@@ -288,9 +293,9 @@ class ThemeService {
           hitRateHighText: '#34d399',
           hitRateMediumBg: '#1e3a8a',
           hitRateMediumText: '#93c5fd',
-          hitRateLowBg: '#44403c',       // Warm neutral grey-brown
-          hitRateLowText: '#fbbf24',     // Bright amber
-          hitRateWarningBg: '#44403c',   // Same warm neutral background
+          hitRateLowBg: '#44403c', // Warm neutral grey-brown
+          hitRateLowText: '#fbbf24', // Bright amber
+          hitRateWarningBg: '#44403c', // Same warm neutral background
           hitRateWarningText: '#fcd34d', // Golden yellow (prettier!)
 
           // Action buttons
@@ -325,142 +330,152 @@ class ThemeService {
           chartGridColor: '#374151',
           chartTextColor: '#9ca3af',
           chartCacheHitColor: '#10b981',
-          chartCacheMissColor: '#f59e0b'
+          chartCacheMissColor: '#f59e0b',
+
+          // Scrollbar colors
+          scrollbarTrack: '#374151',
+          scrollbarThumb: '#6B7280',
+          scrollbarHover: '#9CA3AF'
         }
       },
-// In theme.service.ts, update the light-default theme:
+      // In theme.service.ts, update the light-default theme:
 
-{
-  meta: {
-    id: 'light-default',
-    name: 'Light Default',
-    description: 'Default light theme with blue accents',
-    author: 'System',
-    version: '1.0.0',
-    isDark: false
-  },
-  colors: {
-    // Core colors
-    primaryColor: '#3b82f6',
-    secondaryColor: '#8b5cf6',
-    accentColor: '#06b6d4',
+      {
+        meta: {
+          id: 'light-default',
+          name: 'Light Default',
+          description: 'Default light theme with blue accents',
+          author: 'System',
+          version: '1.0.0',
+          isDark: false
+        },
+        colors: {
+          // Core colors
+          primaryColor: '#3b82f6',
+          secondaryColor: '#8b5cf6',
+          accentColor: '#06b6d4',
 
-    // Backgrounds - LIGHT GREY INSTEAD OF WHITE
-    bgPrimary: '#f8f9fa',
-    bgSecondary: '#ffffff',
-    bgTertiary: '#f3f4f6',
-    bgHover: '#e5e7eb',
+          // Backgrounds - LIGHT GREY INSTEAD OF WHITE
+          bgPrimary: '#f8f9fa',
+          bgSecondary: '#ffffff',
+          bgTertiary: '#f3f4f6',
+          bgHover: '#e5e7eb',
 
-    // Text
-    textPrimary: '#111827',
-    textSecondary: '#374151',
-    textMuted: '#6b7280',
-    textAccent: '#2563eb',
+          // Text
+          textPrimary: '#111827',
+          textSecondary: '#374151',
+          textMuted: '#6b7280',
+          textAccent: '#2563eb',
 
-    // Borders
-    borderPrimary: '#e5e7eb',
-    borderSecondary: '#d1d5db',
-    borderFocus: '#3b82f6',
+          // Borders
+          borderPrimary: '#e5e7eb',
+          borderSecondary: '#d1d5db',
+          borderFocus: '#3b82f6',
 
-    // Navigation
-    navBg: '#ffffff',
-    navBorder: '#e5e7eb',
-    navTabActive: '#3b82f6',
-    navTabInactive: '#6b7280',
-    navTabHover: '#111827',
-    navTabActiveBorder: '#3b82f6',
-    navMobileMenuBg: '#ffffff',
-    navMobileItemHover: '#f3f4f6',
+          // Navigation
+          navBg: '#ffffff',
+          navBorder: '#e5e7eb',
+          navTabActive: '#3b82f6',
+          navTabInactive: '#6b7280',
+          navTabHover: '#111827',
+          navTabActiveBorder: '#3b82f6',
+          navMobileMenuBg: '#ffffff',
+          navMobileItemHover: '#f3f4f6',
 
-    // Status colors - FIXED FOR BETTER CONTRAST ON LIGHT BACKGROUNDS
-    success: '#10b981',
-    successBg: '#d1fae5',
-    successText: '#047857',      // Changed from '#065f46' - darker green for better contrast
-    warning: '#f97316',
-    warningBg: '#fef3c7',
-    warningText: '#b45309',      // Changed from '#92400e' - darker amber for better contrast
-    error: '#ef4444',
-    errorBg: '#fee2e2',
-    errorText: '#991b1b',
-    info: '#3b82f6',
-    infoBg: '#dbeafe',
-    infoText: '#1e40af',
+          // Status colors - FIXED FOR BETTER CONTRAST ON LIGHT BACKGROUNDS
+          success: '#10b981',
+          successBg: '#d1fae5',
+          successText: '#047857', // Changed from '#065f46' - darker green for better contrast
+          warning: '#f97316',
+          warningBg: '#fef3c7',
+          warningText: '#b45309', // Changed from '#92400e' - darker amber for better contrast
+          error: '#ef4444',
+          errorBg: '#fee2e2',
+          errorText: '#991b1b',
+          info: '#3b82f6',
+          infoBg: '#dbeafe',
+          infoText: '#1e40af',
 
-    // Service colors
-    steamColor: '#3b82f6',
-    epicColor: '#8b5cf6',
-    originColor: '#10b981',
-    blizzardColor: '#ef4444',
-    wsusColor: '#06b6d4',
-    riotColor: '#f59e0b',
+          // Service colors
+          steamColor: '#3b82f6',
+          epicColor: '#8b5cf6',
+          originColor: '#10b981',
+          blizzardColor: '#ef4444',
+          wsusColor: '#06b6d4',
+          riotColor: '#f59e0b',
 
-    // Components
-    cardBg: '#ffffff',
-    cardBorder: '#e5e7eb',
-    buttonBg: '#3b82f6',
-    buttonHover: '#2563eb',
-    buttonText: '#ffffff',
-    inputBg: '#ffffff',
-    inputBorder: '#d1d5db',
-    inputFocus: '#3b82f6',
-    badgeBg: '#3b82f6',
-    badgeText: '#ffffff',
-    progressBar: '#3b82f6',
-    progressBg: '#e5e7eb',
+          // Components
+          cardBg: '#ffffff',
+          cardBorder: '#e5e7eb',
+          buttonBg: '#3b82f6',
+          buttonHover: '#2563eb',
+          buttonText: '#ffffff',
+          inputBg: '#ffffff',
+          inputBorder: '#d1d5db',
+          inputFocus: '#3b82f6',
+          badgeBg: '#3b82f6',
+          badgeText: '#ffffff',
+          progressBar: '#3b82f6',
+          progressBg: '#e5e7eb',
 
-    // Hit rate specific - MUCH PRETTIER COLORS
-    hitRateHighBg: '#d1fae5',
-    hitRateHighText: '#047857',     // Changed to match successText for consistency
-    hitRateMediumBg: '#dbeafe',
-    hitRateMediumText: '#1e40af',
-    hitRateLowBg: '#fef3c7',
-    hitRateLowText: '#92400e',
-    hitRateWarningBg: '#fef3c7',
-    hitRateWarningText: '#92400e',
+          // Hit rate specific - MUCH PRETTIER COLORS
+          hitRateHighBg: '#d1fae5',
+          hitRateHighText: '#047857', // Changed to match successText for consistency
+          hitRateMediumBg: '#dbeafe',
+          hitRateMediumText: '#1e40af',
+          hitRateLowBg: '#fef3c7',
+          hitRateLowText: '#92400e',
+          hitRateWarningBg: '#fef3c7',
+          hitRateWarningText: '#92400e',
 
-    // Action buttons
-    actionResetBg: '#f59e0b',
-    actionResetHover: '#d97706',
-    actionProcessBg: '#10b981',
-    actionProcessHover: '#059669',
-    actionDeleteBg: '#ef4444',
-    actionDeleteHover: '#dc2626',
+          // Action buttons
+          actionResetBg: '#f59e0b',
+          actionResetHover: '#d97706',
+          actionProcessBg: '#10b981',
+          actionProcessHover: '#059669',
+          actionDeleteBg: '#ef4444',
+          actionDeleteHover: '#dc2626',
 
-    // Icon backgrounds
-    iconBgBlue: '#3b82f6',
-    iconBgGreen: '#10b981',
-    iconBgEmerald: '#10b981',
-    iconBgPurple: '#8b5cf6',
-    iconBgIndigo: '#6366f1',
-    iconBgOrange: '#f97316',
-    iconBgYellow: '#eab308',
-    iconBgCyan: '#06b6d4',
-    iconBgRed: '#ef4444',
+          // Icon backgrounds
+          iconBgBlue: '#3b82f6',
+          iconBgGreen: '#10b981',
+          iconBgEmerald: '#10b981',
+          iconBgPurple: '#8b5cf6',
+          iconBgIndigo: '#6366f1',
+          iconBgOrange: '#f97316',
+          iconBgYellow: '#eab308',
+          iconBgCyan: '#06b6d4',
+          iconBgRed: '#ef4444',
 
-    // Chart colors
-    chartColor1: '#3b82f6',
-    chartColor2: '#10b981',
-    chartColor3: '#f59e0b',
-    chartColor4: '#ef4444',
-    chartColor5: '#8b5cf6',
-    chartColor6: '#06b6d4',
-    chartColor7: '#f97316',
-    chartColor8: '#ec4899',
-    chartBorderColor: '#e5e7eb',
-    chartGridColor: '#d1d5db',
-    chartTextColor: '#6b7280',
-    chartCacheHitColor: '#047857',    // Changed to darker green for better contrast
-    chartCacheMissColor: '#b45309'    // Changed to darker amber for better contrast
-  }
-}
+          // Chart colors
+          chartColor1: '#3b82f6',
+          chartColor2: '#10b981',
+          chartColor3: '#f59e0b',
+          chartColor4: '#ef4444',
+          chartColor5: '#8b5cf6',
+          chartColor6: '#06b6d4',
+          chartColor7: '#f97316',
+          chartColor8: '#ec4899',
+          chartBorderColor: '#e5e7eb',
+          chartGridColor: '#d1d5db',
+          chartTextColor: '#6b7280',
+          chartCacheHitColor: '#047857', // Changed to darker green for better contrast
+          chartCacheMissColor: '#b45309', // Changed to darker amber for better contrast
+
+          // Scrollbar colors - Light theme appropriate
+          scrollbarTrack: '#e5e7eb',
+          scrollbarThumb: '#9ca3af',
+          scrollbarHover: '#6b7280'
+        }
+      }
     ];
   }
 
   async getTheme(themeId: string): Promise<Theme | null> {
-    const builtIn = this.getBuiltInThemes().find(t => t.meta.id === themeId);
+    const builtIn = this.getBuiltInThemes().find((t) => t.meta.id === themeId);
     if (builtIn) return builtIn;
 
-    const loaded = this.themes.find(t => t.meta.id === themeId);
+    const loaded = this.themes.find((t) => t.meta.id === themeId);
     if (loaded) return loaded;
 
     try {
@@ -773,6 +788,11 @@ class ThemeService {
       --theme-chart-text: ${colors.chartTextColor || '#9ca3af'};
       --theme-chart-cache-hit: ${colors.chartCacheHitColor || '#10b981'};
       --theme-chart-cache-miss: ${colors.chartCacheMissColor || '#f59e0b'};
+      
+      /* Scrollbar Colors */
+      --theme-scrollbar-track: ${colors.scrollbarTrack || colors.bgTertiary || '#374151'};
+      --theme-scrollbar-thumb: ${colors.scrollbarThumb || colors.textMuted || '#6B7280'};
+      --theme-scrollbar-hover: ${colors.scrollbarHover || colors.textSecondary || '#9CA3AF'};
     }
 
     /* Global Transitions */
@@ -847,7 +867,7 @@ class ThemeService {
   getCurrentTheme(): Theme | null {
     const applied = localStorage.getItem('lancache_theme_applied') === 'true';
     if (!applied) {
-      return this.getBuiltInThemes().find(t => t.meta.id === 'dark-default') || null;
+      return this.getBuiltInThemes().find((t) => t.meta.id === 'dark-default') || null;
     }
     return this.currentTheme;
   }

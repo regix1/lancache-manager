@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ToggleLeft, ToggleRight, AlertCircle, Database, Loader, FileText, Eye, CheckCircle, StopCircle } from 'lucide-react';
+import {
+  ToggleLeft,
+  ToggleRight,
+  AlertCircle,
+  Database,
+  Loader,
+  FileText,
+  Eye,
+  CheckCircle,
+  StopCircle
+} from 'lucide-react';
 import { useData } from '@contexts/DataContext';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
@@ -37,7 +47,9 @@ const MockModeManager: React.FC<{
           disabled={disabled}
           variant="filled"
           color="blue"
-          leftSection={mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+          leftSection={
+            mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />
+          }
         >
           {mockMode ? 'Enabled' : 'Disabled'}
         </Button>
@@ -94,9 +106,7 @@ const DatabaseManager: React.FC<{
         <Database className="w-5 h-5 text-themed-accent" />
         <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
       </div>
-      <p className="text-themed-muted text-sm mb-4">
-        Manage download history and statistics
-      </p>
+      <p className="text-themed-muted text-sm mb-4">Manage download history and statistics</p>
       <Button
         onClick={handleResetDatabase}
         disabled={loading || mockMode || !isAuthenticated}
@@ -125,12 +135,12 @@ const LogFileManager: React.FC<{
   onBackgroundOperation?: (service: string | null) => void;
 }> = ({ isAuthenticated, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
-  const [config, setConfig] = useState({ 
+  const [config, setConfig] = useState({
     logPath: '/logs/access.log',
     services: [] as string[]
   });
   const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
-  
+
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
 
   useEffect(() => {
@@ -185,11 +195,11 @@ const LogFileManager: React.FC<{
       setActiveServiceRemoval(serviceName);
       await serviceRemovalOp.save({ service: serviceName });
       const result = await ApiService.removeServiceFromLogs(serviceName);
-      
+
       if (result) {
         onSuccess?.(result.message || `${serviceName} entries removed successfully`);
       }
-      
+
       await serviceRemovalOp.clear();
       setTimeout(() => {
         setActiveServiceRemoval(null);
@@ -199,17 +209,18 @@ const LogFileManager: React.FC<{
     } catch (err: any) {
       await serviceRemovalOp.clear();
       setActiveServiceRemoval(null);
-      
-      const errorMessage = err.message?.includes('read-only') 
+
+      const errorMessage = err.message?.includes('read-only')
         ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
         : err.message || 'Action failed';
       onError?.(errorMessage);
     }
   };
 
-  const services = config.services.length > 0 
-    ? config.services 
-    : ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'];
+  const services =
+    config.services.length > 0
+      ? config.services
+      : ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'];
 
   return (
     <Card>
@@ -218,16 +229,19 @@ const LogFileManager: React.FC<{
         <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
       </div>
       <p className="text-themed-muted text-sm mb-4">
-        Remove service entries from <code className="bg-themed-tertiary px-2 py-1 rounded">{config.logPath}</code>
+        Remove service entries from{' '}
+        <code className="bg-themed-tertiary px-2 py-1 rounded">{config.logPath}</code>
       </p>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {services.map(service => {
+        {services.map((service) => {
           const isRemoving = activeServiceRemoval === service;
           return (
             <Button
               key={service}
               onClick={() => handleRemoveServiceLogs(service)}
-              disabled={mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || !isAuthenticated}
+              disabled={
+                mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || !isAuthenticated
+              }
               variant="default"
               loading={isRemoving || serviceRemovalOp.loading}
               className="flex flex-col items-center"
@@ -265,42 +279,42 @@ const ManagementTab: React.FC = () => {
   const { mockMode, setMockMode, fetchData } = useData();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [alerts, setAlerts] = useState<{
-    errors: Array<{ id: number; message: string }>;
+    errors: { id: number; message: string }[];
     success: string | null;
   }>({ errors: [], success: null });
-  
+
   // State for background operations from child components
   const [backgroundOperations, setBackgroundOperations] = useState<{
     cacheClearing?: any;
     logProcessing?: any;
     serviceRemoval?: string | null;
   }>({});
-  
+
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
 
   // Alert management
   const addError = useCallback((message: string) => {
-    setAlerts(prev => ({
+    setAlerts((prev) => ({
       ...prev,
       errors: [...prev.errors, { id: Date.now(), message }]
     }));
   }, []);
 
   const setSuccess = useCallback((message: string) => {
-    setAlerts(prev => ({ ...prev, success: message }));
-    setTimeout(() => setAlerts(prev => ({ ...prev, success: null })), 10000);
+    setAlerts((prev) => ({ ...prev, success: message }));
+    setTimeout(() => setAlerts((prev) => ({ ...prev, success: null })), 10000);
   }, []);
 
   const clearError = useCallback((id: number) => {
-    setAlerts(prev => ({
+    setAlerts((prev) => ({
       ...prev,
-      errors: prev.errors.filter(e => e.id !== id)
+      errors: prev.errors.filter((e) => e.id !== id)
     }));
   }, []);
 
   const clearSuccess = useCallback(() => {
-    setAlerts(prev => ({ ...prev, success: null }));
+    setAlerts((prev) => ({ ...prev, success: null }));
   }, []);
 
   // Initialize with migration
@@ -314,14 +328,14 @@ const ManagementTab: React.FC = () => {
         hasMigratedRef.current = true;
       }
     };
-    
+
     initialize();
   }, [setSuccess]);
 
   return (
     <div className="space-y-6">
       {/* Authentication - Always at top */}
-      <AuthenticationManager 
+      <AuthenticationManager
         onAuthChange={setIsAuthenticated}
         onError={addError}
         onSuccess={setSuccess}
@@ -330,11 +344,7 @@ const ManagementTab: React.FC = () => {
       {/* All Notifications Consolidated Here */}
       <div className="space-y-4">
         {/* Regular Alerts */}
-        <AlertsManager 
-          alerts={alerts}
-          onClearError={clearError}
-          onClearSuccess={clearSuccess}
-        />
+        <AlertsManager alerts={alerts} onClearError={clearError} onClearSuccess={clearSuccess} />
 
         {/* Cache Clearing Background Operation */}
         {backgroundOperations.cacheClearing && (
@@ -368,43 +378,53 @@ const ManagementTab: React.FC = () => {
         {backgroundOperations.logProcessing && (
           <Alert
             color={backgroundOperations.logProcessing.status === 'complete' ? 'green' : 'yellow'}
-            icon={backgroundOperations.logProcessing.status === 'complete' ? 
-              <CheckCircle className="w-5 h-5" /> : 
-              <Loader className="w-5 h-5 animate-spin" />
+            icon={
+              backgroundOperations.logProcessing.status === 'complete' ? (
+                <CheckCircle className="w-5 h-5" />
+              ) : (
+                <Loader className="w-5 h-5 animate-spin" />
+              )
             }
           >
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <p className="font-medium">{backgroundOperations.logProcessing.message}</p>
                 {backgroundOperations.logProcessing.detailMessage && (
-                  <p className="text-sm mt-1 opacity-75">{backgroundOperations.logProcessing.detailMessage}</p>
+                  <p className="text-sm mt-1 opacity-75">
+                    {backgroundOperations.logProcessing.detailMessage}
+                  </p>
                 )}
-                {backgroundOperations.logProcessing.progress > 0 && backgroundOperations.logProcessing.status !== 'complete' && (
-                  <div className="mt-2">
-                    <div className="w-full progress-track rounded-full h-2">
-                      <div 
-                        className="progress-bar-low h-2 rounded-full smooth-transition"
-                        style={{ width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%` }}
-                      />
+                {backgroundOperations.logProcessing.progress > 0 &&
+                  backgroundOperations.logProcessing.status !== 'complete' && (
+                    <div className="mt-2">
+                      <div className="w-full progress-track rounded-full h-2">
+                        <div
+                          className="progress-bar-low h-2 rounded-full smooth-transition"
+                          style={{
+                            width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs opacity-75 mt-1">
+                        {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
+                        {backgroundOperations.logProcessing.estimatedTime &&
+                          ` • ${backgroundOperations.logProcessing.estimatedTime} remaining`}
+                      </p>
                     </div>
-                    <p className="text-xs opacity-75 mt-1">
-                      {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
-                      {backgroundOperations.logProcessing.estimatedTime && ` • ${backgroundOperations.logProcessing.estimatedTime} remaining`}
-                    </p>
-                  </div>
-                )}
+                  )}
               </div>
-              {backgroundOperations.logProcessing.status !== 'complete' && backgroundOperations.logProcessing.onCancel && (
-                <Button
-                  variant="filled"
-                  color="red"
-                  size="sm"
-                  leftSection={<StopCircle className="w-4 h-4" />}
-                  onClick={backgroundOperations.logProcessing.onCancel}
-                >
-                  Cancel
-                </Button>
-              )}
+              {backgroundOperations.logProcessing.status !== 'complete' &&
+                backgroundOperations.logProcessing.onCancel && (
+                  <Button
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                    leftSection={<StopCircle className="w-4 h-4" />}
+                    onClick={backgroundOperations.logProcessing.onCancel}
+                  >
+                    Cancel
+                  </Button>
+                )}
             </div>
           </Alert>
         )}
@@ -418,9 +438,7 @@ const ManagementTab: React.FC = () => {
                 <p className="font-medium">
                   Removing {backgroundOperations.serviceRemoval} entries from logs...
                 </p>
-                <p className="text-sm mt-1">
-                  This may take several minutes for large log files
-                </p>
+                <p className="text-sm mt-1">This may take several minutes for large log files</p>
               </div>
             </div>
           </Alert>
@@ -449,7 +467,9 @@ const ManagementTab: React.FC = () => {
         mockMode={mockMode}
         onError={addError}
         onSuccess={setSuccess}
-        onBackgroundOperation={(op) => setBackgroundOperations(prev => ({ ...prev, cacheClearing: op }))}
+        onBackgroundOperation={(op) =>
+          setBackgroundOperations((prev) => ({ ...prev, cacheClearing: op }))
+        }
       />
 
       {/* Log Processing Manager - Pass notification callback */}
@@ -459,7 +479,9 @@ const ManagementTab: React.FC = () => {
         onError={addError}
         onSuccess={setSuccess}
         onDataRefresh={fetchData}
-        onBackgroundOperation={(op) => setBackgroundOperations(prev => ({ ...prev, logProcessing: op }))}
+        onBackgroundOperation={(op) =>
+          setBackgroundOperations((prev) => ({ ...prev, logProcessing: op }))
+        }
       />
 
       {/* Log File Manager - Pass notification callback */}
@@ -469,7 +491,9 @@ const ManagementTab: React.FC = () => {
         onError={addError}
         onSuccess={setSuccess}
         onDataRefresh={fetchData}
-        onBackgroundOperation={(service) => setBackgroundOperations(prev => ({ ...prev, serviceRemoval: service }))}
+        onBackgroundOperation={(service) =>
+          setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
+        }
       />
 
       {/* Theme Manager */}

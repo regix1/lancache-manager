@@ -33,7 +33,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       const result = await authService.checkAuth();
       setIsAuthenticated(result.isAuthenticated);
       onAuthChange?.(result.isAuthenticated);
-      
+
       if (!result.isAuthenticated && authService.isRegistered()) {
         authService.clearAuth();
       }
@@ -57,7 +57,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
     try {
       const result = await authService.register(apiKey);
-      
+
       if (result.success) {
         setIsAuthenticated(true);
         onAuthChange?.(true);
@@ -76,28 +76,29 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   };
 
   const handleRegenerateKey = async () => {
-    const message = 'WARNING: This will:\n\n' +
+    const message =
+      'WARNING: This will:\n\n' +
       '1. Generate a NEW API key on the server\n' +
       '2. Revoke ALL existing device registrations\n' +
       '3. Require ALL users to re-authenticate\n' +
       '4. You must check the container logs for the new key\n\n' +
       'This cannot be undone. Continue?';
-    
+
     if (!window.confirm(message)) return;
-    
+
     setAuthLoading(true);
-    
+
     try {
       const result = await authService.regenerateApiKey();
-      
+
       if (result.success) {
         setIsAuthenticated(false);
         onAuthChange?.(false);
         setShowAuthModal(false);
-        
+
         onError?.('API KEY REGENERATED - Check container logs for new key!');
         onSuccess?.(result.message);
-        
+
         setTimeout(() => {
           setShowAuthModal(true);
         }, 3000);
@@ -128,12 +129,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               {isAuthenticated ? 'Authenticated' : 'Not Authenticated'}
             </span>
             <p className="text-xs mt-1 opacity-75">
-              {isAuthenticated 
-                ? 'Management features enabled' 
+              {isAuthenticated
+                ? 'Management features enabled'
                 : 'Management features require API key'}
             </p>
           </div>
-          
+
           {isAuthenticated ? (
             <Button
               variant="filled"
@@ -176,11 +177,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
           <p className="text-themed-secondary">
             Management operations require authentication. Please enter your API key to continue.
           </p>
-          
+
           <div>
-            <label className="block text-sm font-medium text-themed-secondary mb-2">
-              API Key
-            </label>
+            <label className="block text-sm font-medium text-themed-secondary mb-2">API Key</label>
             <input
               type="password"
               value={apiKey}
@@ -191,24 +190,23 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               disabled={authLoading}
             />
           </div>
-          
-          {authError && (
-            <Alert color="red">
-              {authError}
-            </Alert>
-          )}
-          
+
+          {authError && <Alert color="red">{authError}</Alert>}
+
           <Alert color="blue">
             <div>
               <p className="font-medium mb-2">To find your API key:</p>
               <ol className="list-decimal list-inside text-xs space-y-1">
                 <li>SSH into your server</li>
-                <li>Check the file: <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code></li>
+                <li>
+                  Check the file:{' '}
+                  <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>
+                </li>
                 <li>Or check the API container logs on startup</li>
               </ol>
             </div>
           </Alert>
-          
+
           <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
             <Button
               variant="default"

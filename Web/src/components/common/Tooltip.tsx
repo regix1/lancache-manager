@@ -7,10 +7,10 @@ interface TooltipProps {
   position?: 'top' | 'bottom' | 'left' | 'right';
 }
 
-export const Tooltip: React.FC<TooltipProps> = ({ 
-  children = <Info className="w-4 h-4 text-themed-muted cursor-help" />, 
+export const Tooltip: React.FC<TooltipProps> = ({
+  children = <Info className="w-4 h-4 text-themed-muted cursor-help" />,
   content,
-  position = 'top' 
+  position = 'top'
 }) => {
   const [visible, setVisible] = useState(false);
 
@@ -23,14 +23,13 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
   return (
     <div className="relative inline-block">
-      <div
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
-      >
+      <div onMouseEnter={() => setVisible(true)} onMouseLeave={() => setVisible(false)}>
         {children}
       </div>
       {visible && (
-        <div className={`absolute ${positionClasses[position]} z-50 px-3 py-2 text-xs themed-card text-themed-secondary rounded-lg shadow-xl`}>
+        <div
+          className={`absolute ${positionClasses[position]} z-50 px-3 py-2 text-xs themed-card text-themed-secondary rounded-lg shadow-xl`}
+        >
           {content}
         </div>
       )}
@@ -57,9 +56,7 @@ export const CacheInfoTooltip: React.FC = () => (
 );
 
 export const CachePerformanceTooltip: React.FC = () => (
-  <Tooltip
-    content="Higher cache hit rates mean better performance and bandwidth savings"
-  />
+  <Tooltip content="Higher cache hit rates mean better performance and bandwidth savings" />
 );
 
 export const TimestampTooltip: React.FC<{

@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  type ReactNode
+} from 'react';
 import ApiService from '@services/api.service';
 import MockDataService from '@services/mockData.service';
 import { REFRESH_INTERVAL } from '@utils/constants';
@@ -102,11 +109,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
-  
+
   const isInitialLoad = useRef(true);
   const hasData = useRef(false);
   const fetchInProgress = useRef(false);
@@ -142,23 +149,24 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     if (fetchInProgress.current && !isInitialLoad.current) {
       return;
     }
-    
+
     fetchInProgress.current = true;
-    
+
     // Cancel any previous request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     abortControllerRef.current = new AbortController();
-    
+
     try {
       if (isInitialLoad.current) {
         setLoading(true);
       }
-      
+
       if (mockMode) {
         // Cap mock data at 100 for performance
-        const actualCount = mockDownloadCount === 'unlimited' ? 100 : Math.min(Number(mockDownloadCount), 100);
+        const actualCount =
+          mockDownloadCount === 'unlimited' ? 100 : Math.min(Number(mockDownloadCount), 100);
         const mockData = MockDataService.generateMockData(actualCount);
         setCacheInfo(mockData.cacheInfo);
         setActiveDownloads(mockData.activeDownloads);
@@ -170,33 +178,36 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         hasData.current = true;
       } else {
         const isConnected = await checkConnectionStatus();
-        
+
         if (isConnected) {
           try {
             const timeout = isProcessingLogs ? 30000 : 10000;
             const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
-            
+
             if (isInitialLoad.current) {
               // Phase 1: Critical data for initial display
               const [cache, active] = await Promise.all([
                 ApiService.getCacheInfo(abortControllerRef.current.signal),
                 ApiService.getActiveDownloads(abortControllerRef.current.signal)
               ]);
-              
+
               if (cache) setCacheInfo(cache);
               if (active) setActiveDownloads(active);
-              
+
               // Phase 2: Limited downloads for initial display (cap at 20)
-              const latest = await ApiService.getLatestDownloads(abortControllerRef.current.signal, 20);
+              const latest = await ApiService.getLatestDownloads(
+                abortControllerRef.current.signal,
+                20
+              );
               if (latest) {
                 setLatestDownloads(latest);
                 hasData.current = true;
               }
-              
+
               // Phase 3: Defer stats loading after initial render
               setTimeout(async () => {
                 if (abortControllerRef.current?.signal.aborted) return;
-                
+
                 try {
                   const [clients, services] = await Promise.all([
                     ApiService.getClientStats(abortControllerRef.current!.signal),
@@ -208,11 +219,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                   console.log('Deferred stats fetch error:', err);
                 }
               }, 100);
-              
             } else {
               // Regular updates - use user-specified count but cap at 100 for unlimited
               const cappedCount = apiDownloadCount === 'unlimited' ? 100 : apiDownloadCount;
-              
+
               const [cache, active, latest, clients, services] = await Promise.allSettled([
                 ApiService.getCacheInfo(abortControllerRef.current.signal),
                 ApiService.getActiveDownloads(abortControllerRef.current.signal),
@@ -220,40 +230,39 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                 ApiService.getClientStats(abortControllerRef.current.signal),
                 ApiService.getServiceStats(abortControllerRef.current.signal)
               ]);
-              
+
               if (cache.status === 'fulfilled' && cache.value !== undefined) {
                 setCacheInfo(cache.value);
               }
-              
+
               if (active.status === 'fulfilled' && active.value !== undefined) {
                 setActiveDownloads(active.value);
               }
-              
+
               if (latest.status === 'fulfilled' && latest.value !== undefined) {
                 setLatestDownloads(latest.value);
                 hasData.current = true;
-                
+
                 if (isProcessingLogs && latest.value.length > 0) {
-                  setProcessingStatus(prev => ({
+                  setProcessingStatus((prev) => ({
                     ...prev!,
                     message: `Processing logs... Found ${latest.value.length} downloads`,
                     downloadCount: latest.value.length
                   }));
                 }
               }
-              
+
               if (clients.status === 'fulfilled' && clients.value !== undefined) {
                 setClientStats(clients.value);
               }
-              
+
               if (services.status === 'fulfilled' && services.value !== undefined) {
                 setServiceStats(services.value);
               }
             }
-            
+
             clearTimeout(timeoutId);
             setError(null);
-            
           } catch (err: any) {
             if (!hasData.current) {
               if (err.name === 'AbortError') {
@@ -307,10 +316,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   useEffect(() => {
     if (!mockMode) {
       fetchData();
-      
+
       const refreshInterval = getCurrentRefreshInterval();
       intervalRef.current = setInterval(fetchData, refreshInterval);
-      
+
       return () => {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
@@ -331,16 +340,17 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      
+
       // Clear real data
       setCacheInfo(null);
       setActiveDownloads([]);
       setLatestDownloads([]);
       setClientStats([]);
       setServiceStats([]);
-      
+
       // Generate mock data (capped at 100)
-      const actualCount = mockDownloadCount === 'unlimited' ? 100 : Math.min(Number(mockDownloadCount), 100);
+      const actualCount =
+        mockDownloadCount === 'unlimited' ? 100 : Math.min(Number(mockDownloadCount), 100);
       const mockData = MockDataService.generateMockData(actualCount);
       setCacheInfo(mockData.cacheInfo);
       setActiveDownloads(mockData.activeDownloads);
@@ -350,22 +360,22 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       setError(null);
       setConnectionStatus('connected');
       hasData.current = true;
-      
+
       // Set up mock update interval
       const updateInterval = 30000;
       intervalRef.current = setInterval(() => {
         const newDownload = MockDataService.generateRealtimeUpdate();
-        setLatestDownloads(prev => {
+        setLatestDownloads((prev) => {
           const maxCount = 100;
           return [newDownload, ...prev.slice(0, maxCount - 1)];
         });
-        
-        setActiveDownloads(prev => {
-          const updated = [newDownload, ...prev.filter(d => d.id !== newDownload.id)];
+
+        setActiveDownloads((prev) => {
+          const updated = [newDownload, ...prev.filter((d) => d.id !== newDownload.id)];
           return updated.slice(0, 5);
         });
       }, updateInterval);
-      
+
       return () => {
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
@@ -382,7 +392,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       setError(null);
       hasData.current = false;
       isInitialLoad.current = true;
-      
+
       fetchData();
     }
   }, [mockMode, mockDownloadCount]);

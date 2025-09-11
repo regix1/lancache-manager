@@ -1,6 +1,6 @@
 // StatCard.tsx - Updated component without gradient backgrounds
 import React from 'react';
-import { LucideIcon } from 'lucide-react';
+import { type LucideIcon } from 'lucide-react';
 
 interface StatCardProps {
   title: string;
@@ -11,13 +11,13 @@ interface StatCardProps {
   tooltip?: string;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ 
-  title, 
-  value, 
-  subtitle, 
-  icon: Icon, 
-  color, 
-  tooltip 
+const StatCard: React.FC<StatCardProps> = ({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  color,
+  tooltip
 }) => {
   // Map color names to CSS variables
   const getIconBackground = (color: string): string => {
@@ -36,7 +36,7 @@ const StatCard: React.FC<StatCardProps> = ({
   };
 
   return (
-    <div 
+    <div
       className="rounded-lg p-4 border transition-all hover:shadow-lg"
       style={{
         backgroundColor: 'var(--theme-card-bg)',
@@ -59,7 +59,7 @@ const StatCard: React.FC<StatCardProps> = ({
             </p>
           )}
         </div>
-        <div 
+        <div
           className="p-3 rounded-lg"
           style={{
             backgroundColor: getIconBackground(color)

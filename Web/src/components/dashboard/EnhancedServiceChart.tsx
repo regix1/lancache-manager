@@ -9,9 +9,7 @@ interface EnhancedServiceChartProps {
   timeRange?: string;
 }
 
-const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ 
-  serviceStats
-}) => {
+const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStats }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100);
   const chartRef = useRef<HTMLCanvasElement>(null);
@@ -41,40 +39,41 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
 
   const getServiceDistributionData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
-    
+
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
     if (totalBytes === 0) return { labels: [], data: [], colors: [] };
-    
+
     const chartColors = getChartColors();
-    
+
     const sorted = serviceStats
-      .map(s => ({
+      .map((s) => ({
         name: s.service,
         value: s.totalBytes,
         percentage: (s.totalBytes / totalBytes) * 100
       }))
       .sort((a, b) => b.value - a.value);
-    
+
     return {
-      labels: sorted.map(s => s.name),
-      data: sorted.map(s => s.value),
+      labels: sorted.map((s) => s.name),
+      data: sorted.map((s) => s.value),
       colors: sorted.map((_, i) => chartColors[i % chartColors.length])
     };
   }, [serviceStats]);
 
   const getCacheHitRatioData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
-    
+
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
     const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
     const total = totalHits + totalMisses;
-    
+
     if (total === 0) return { labels: [], data: [], colors: [] };
-    
+
     const computedStyle = getComputedStyle(document.documentElement);
     const hitColor = computedStyle.getPropertyValue('--theme-chart-cache-hit').trim() || '#10b981';
-    const missColor = computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#f59e0b';
-    
+    const missColor =
+      computedStyle.getPropertyValue('--theme-chart-cache-miss').trim() || '#f59e0b';
+
     return {
       labels: ['Cache Hits', 'Cache Misses'],
       data: [totalHits, totalMisses],
@@ -84,37 +83,37 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
 
   const getBandwidthSavedData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
-    
+
     // Calculate bandwidth saved per service (cache hits only)
     const servicesWithSavings = serviceStats
-      .map(s => ({
+      .map((s) => ({
         name: s.service,
         value: s.totalCacheHitBytes || 0,
         percentage: 0
       }))
-      .filter(s => s.value > 0)
+      .filter((s) => s.value > 0)
       .sort((a, b) => b.value - a.value);
-    
+
     const totalSaved = servicesWithSavings.reduce((sum, s) => sum + s.value, 0);
-    
+
     if (totalSaved === 0) return { labels: [], data: [], colors: [] };
-    
+
     // Update percentages
-    servicesWithSavings.forEach(s => {
+    servicesWithSavings.forEach((s) => {
       s.percentage = (s.value / totalSaved) * 100;
     });
-    
+
     const chartColors = getChartColors();
-    
+
     return {
-      labels: servicesWithSavings.map(s => s.name),
-      data: servicesWithSavings.map(s => s.value),
+      labels: servicesWithSavings.map((s) => s.name),
+      data: servicesWithSavings.map((s) => s.value),
       colors: servicesWithSavings.map((_, i) => chartColors[i % chartColors.length])
     };
   }, [serviceStats]);
 
   const chartData = useMemo(() => {
-    switch(tabs[activeTab]?.id) {
+    switch (tabs[activeTab]?.id) {
       case 'service':
         return getServiceDistributionData;
       case 'hit-ratio':
@@ -133,12 +132,13 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
     const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
     const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
     const hitRatio = totalBytes > 0 ? ((totalHits / totalBytes) * 100).toFixed(1) : '0';
-    
-    switch(tabId) {
+
+    switch (tabId) {
       case 'service':
         return {
           title: 'Total Data by Service',
-          description: 'Shows the distribution of all data transferred across different gaming services',
+          description:
+            'Shows the distribution of all data transferred across different gaming services',
           stats: [
             { label: 'Total Data', value: formatBytes(totalBytes) },
             { label: 'Services', value: serviceStats.length },
@@ -148,7 +148,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
       case 'hit-ratio':
         return {
           title: 'Cache Performance',
-          description: 'Ratio of data served from cache (hits) vs downloaded from internet (misses)',
+          description:
+            'Ratio of data served from cache (hits) vs downloaded from internet (misses)',
           stats: [
             { label: 'Cache Hits', value: formatBytes(totalHits) },
             { label: 'Cache Misses', value: formatBytes(totalMisses) },
@@ -161,7 +162,10 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
           description: 'Amount of internet bandwidth saved by serving cached content locally',
           stats: [
             { label: 'Total Saved', value: formatBytes(totalHits) },
-            { label: 'Downloads Avoided', value: Math.round(totalHits / (50 * 1024 * 1024 * 1024)) || '0' }, // Rough estimate assuming 50GB average game size
+            {
+              label: 'Downloads Avoided',
+              value: Math.round(totalHits / (50 * 1024 * 1024 * 1024)) || '0'
+            }, // Rough estimate assuming 50GB average game size
             { label: 'Cache Efficiency', value: `${hitRatio}%` }
           ]
         };
@@ -192,11 +196,11 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
     if (!chartRef.current || chartData.labels.length === 0) return;
 
     // Check if data actually changed to prevent unnecessary animations
-    const currentDataString = JSON.stringify({ 
-      labels: chartData.labels, 
-      data: chartData.data 
+    const currentDataString = JSON.stringify({
+      labels: chartData.labels,
+      data: chartData.data
     });
-    
+
     const dataChanged = currentDataString !== prevDataRef.current;
     prevDataRef.current = currentDataString;
 
@@ -218,14 +222,16 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
       type: 'doughnut',
       data: {
         labels: chartData.labels,
-        datasets: [{
-          data: chartData.data,
-          backgroundColor: chartData.colors,
-          borderColor: borderColor,
-          borderWidth: 2,
-          borderRadius: 0,
-          spacing: 0
-        }]
+        datasets: [
+          {
+            data: chartData.data,
+            backgroundColor: chartData.colors,
+            borderColor: borderColor,
+            borderWidth: 2,
+            borderRadius: 0,
+            spacing: 0
+          }
+        ]
       },
       options: {
         responsive: true,
@@ -256,9 +262,12 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
             callbacks: {
               label: (context) => {
                 const value = context.raw as number;
-                const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number;
+                const total = context.dataset.data.reduce(
+                  (a, b) => (a as number) + (b as number),
+                  0
+                ) as number;
                 const percentage = ((value / total) * 100).toFixed(1);
-                
+
                 // Different labels based on the chart type
                 const tabId = tabs[activeTab]?.id;
                 if (tabId === 'bandwidth') {
@@ -296,24 +305,28 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
               onClick={() => setActiveTab((prev) => (prev - 1 + tabs.length) % tabs.length)}
               className="p-1 rounded transition-colors mr-2"
               style={{ color: 'var(--theme-text-muted)' }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            
+
             <div className="w-48 text-center">
               <h3 className="text-lg font-semibold text-themed-primary truncate">
                 {tabs[activeTab]?.name}
               </h3>
             </div>
-            
+
             <button
               onClick={() => setActiveTab((prev) => (prev + 1) % tabs.length)}
               className="p-1 rounded transition-colors ml-2"
               style={{ color: 'var(--theme-text-muted)' }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -324,20 +337,24 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
               onClick={() => setChartSize(Math.max(60, chartSize - 10))}
               className="p-1 rounded transition-colors"
               style={{ color: 'var(--theme-text-muted)' }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             >
               <Minimize2 className="w-4 h-4" />
             </button>
-            
+
             <span className="text-xs text-themed-muted">{chartSize}%</span>
-            
+
             <button
               onClick={() => setChartSize(Math.min(140, chartSize + 10))}
               className="p-1 rounded transition-colors"
               style={{ color: 'var(--theme-text-muted)' }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              }
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             >
               <Maximize2 className="w-4 h-4" />
             </button>
@@ -351,9 +368,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
               onClick={() => setActiveTab(index)}
               className="h-1 flex-1 rounded-full transition-colors"
               style={{
-                backgroundColor: index === activeTab 
-                  ? 'var(--theme-primary)' 
-                  : 'var(--theme-bg-hover)'
+                backgroundColor:
+                  index === activeTab ? 'var(--theme-primary)' : 'var(--theme-bg-hover)'
               }}
             />
           ))}
@@ -363,20 +379,22 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
       <div className="px-6 pb-6">
         {chartData.labels.length > 0 ? (
           <>
-            <div 
+            <div
               className="flex justify-center items-center"
-              style={{ 
+              style={{
                 height: `${chartContainerHeight}px`,
                 width: '100%'
               }}
             >
-              <div style={{ 
-                width: `${Math.min(chartContainerHeight, 400)}px`,
-                height: `${Math.min(chartContainerHeight, 400)}px`
-              }}>
-                <canvas 
+              <div
+                style={{
+                  width: `${Math.min(chartContainerHeight, 400)}px`,
+                  height: `${Math.min(chartContainerHeight, 400)}px`
+                }}
+              >
+                <canvas
                   ref={chartRef}
-                  style={{ 
+                  style={{
                     maxHeight: '100%',
                     maxWidth: '100%'
                   }}
@@ -389,10 +407,10 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
                 const value = chartData.data[index];
                 const total = chartData.data.reduce((a, b) => a + b, 0);
                 const percentage = ((value / total) * 100).toFixed(1);
-                
+
                 return (
                   <div key={label} className="flex items-center space-x-1">
-                    <div 
+                    <div
                       className="w-3 h-3 rounded"
                       style={{ backgroundColor: chartData.colors[index] }}
                     />
@@ -404,7 +422,10 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
             </div>
 
             {/* Chart description and stats */}
-            <div className="mt-6 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+            <div
+              className="mt-6 pt-4 border-t"
+              style={{ borderColor: 'var(--theme-border-primary)' }}
+            >
               <div className="flex items-start gap-2 mb-3">
                 <Info className="w-4 h-4 text-themed-muted mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
@@ -416,13 +437,15 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({
                   </p>
                 </div>
               </div>
-              
+
               {getChartInfo.stats.length > 0 && (
                 <div className="grid grid-cols-3 gap-4 mt-4">
                   {getChartInfo.stats.map((stat, index) => (
                     <div key={index} className="text-center">
                       <div className="text-xs text-themed-muted mb-0.5">{stat.label}</div>
-                      <div className="text-sm font-semibold text-themed-secondary">{stat.value}</div>
+                      <div className="text-sm font-semibold text-themed-secondary">
+                        {stat.value}
+                      </div>
                     </div>
                   ))}
                 </div>

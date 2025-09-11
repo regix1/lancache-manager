@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Download, 
-  Users, 
-  Settings, 
-  Menu, 
-  X 
-} from 'lucide-react';
+import { LayoutDashboard, Download, Users, Settings, Menu, X } from 'lucide-react';
 
 interface NavigationProps {
   activeTab: string;
@@ -23,22 +16,20 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
     { id: 'management', label: 'Management', icon: Settings }
   ];
 
-  const TabButton: React.FC<{ 
-    tab: typeof tabs[0]; 
-    isActive: boolean; 
+  const TabButton: React.FC<{
+    tab: (typeof tabs)[0];
+    isActive: boolean;
     onClick: () => void;
     className?: string;
   }> = ({ tab, isActive, onClick, className = '' }) => {
     const Icon = tab.icon;
-    
+
     return (
       <button
         onClick={onClick}
         className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 ${className}`}
         style={{
-          color: isActive 
-            ? 'var(--theme-nav-tab-active)' 
-            : 'var(--theme-nav-tab-inactive)',
+          color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)',
           backgroundColor: 'transparent'
         }}
         onMouseEnter={(e) => {
@@ -57,7 +48,7 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
         <Icon className="w-5 h-5" />
         <span>{tab.label}</span>
         {isActive && (
-          <div 
+          <div
             className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
             style={{ backgroundColor: 'var(--theme-nav-tab-active-border)' }}
           />
@@ -67,10 +58,13 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
   };
 
   return (
-    <nav className="border-b" style={{ 
-      backgroundColor: 'var(--theme-nav-bg)', 
-      borderColor: 'var(--theme-nav-border)' 
-    }}>
+    <nav
+      className="border-b"
+      style={{
+        backgroundColor: 'var(--theme-nav-bg)',
+        borderColor: 'var(--theme-nav-border)'
+      }}
+    >
       <div className="container mx-auto px-4">
         {/* Desktop Navigation */}
         <div className="hidden md:flex space-x-1 h-12 items-center">
@@ -90,13 +84,13 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
           <div className="flex items-center justify-between h-12">
             <div className="flex items-center space-x-2">
               <span className="font-medium text-themed-primary">
-                {tabs.find(t => t.id === activeTab)?.label || 'Dashboard'}
+                {tabs.find((t) => t.id === activeTab)?.label || 'Dashboard'}
               </span>
             </div>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 rounded-lg transition-colors"
-              style={{ 
+              style={{
                 color: 'var(--theme-nav-tab-inactive)',
                 backgroundColor: 'transparent'
               }}
@@ -113,9 +107,9 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
 
           {/* Mobile Menu */}
           {mobileMenuOpen && (
-            <div 
+            <div
               className="border-t py-2 space-y-1"
-              style={{ 
+              style={{
                 backgroundColor: 'var(--theme-nav-mobile-menu-bg)',
                 borderColor: 'var(--theme-nav-border)'
               }}

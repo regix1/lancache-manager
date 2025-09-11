@@ -31,10 +31,10 @@ class OperationStateService {
   }
 
   async saveState(
-    key: string, 
-    type: string, 
-    data: any, 
-    expirationMinutes: number = 30
+    key: string,
+    type: string,
+    data: any,
+    expirationMinutes = 30
   ): Promise<OperationState> {
     try {
       const response = await fetch(`${API_URL}/api/operationstate`, {
@@ -50,12 +50,12 @@ class OperationStateService {
           expirationMinutes
         })
       });
-      
+
       if (!response.ok) {
         const error = await response.text();
         throw new Error(`Failed to save state: ${error}`);
       }
-      
+
       return await response.json();
     } catch (error: any) {
       console.error('Error saving state:', error);
@@ -67,7 +67,7 @@ class OperationStateService {
     try {
       const url = `${API_URL}/api/operationstate/${encodeURIComponent(key)}`;
       console.log('Updating state at:', url);
-      
+
       const response = await fetch(url, {
         method: 'PATCH',
         headers: {
@@ -78,13 +78,13 @@ class OperationStateService {
           updates: updates || {}
         })
       });
-      
+
       if (!response.ok) {
         const error = await response.text();
         console.error('Update state response:', response.status, error);
         throw new Error(`Failed to update state: ${response.status} - ${error}`);
       }
-      
+
       return await response.json();
     } catch (error: any) {
       console.error('Error updating state:', error);
@@ -98,11 +98,11 @@ class OperationStateService {
         method: 'DELETE',
         headers: authService.getAuthHeaders()
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to remove state');
       }
-      
+
       return await response.json();
     } catch (error: any) {
       console.error('Error removing state:', error);
@@ -112,18 +112,18 @@ class OperationStateService {
 
   async getAllStates(type: string | null = null): Promise<OperationState[]> {
     try {
-      const url = type 
+      const url = type
         ? `${API_URL}/api/operationstate?type=${type}`
         : `${API_URL}/api/operationstate`;
-        
+
       const response = await fetch(url, {
         headers: authService.getAuthHeaders()
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to get states');
       }
-      
+
       return await response.json();
     } catch (error: any) {
       console.error('Error getting all states:', error);
@@ -134,18 +134,18 @@ class OperationStateService {
   async migrateFromLocalStorage(): Promise<number> {
     const keys = ['activeCacheClearOperation', 'activeLogProcessing', 'activeServiceRemoval'];
     let migrated = 0;
-    
+
     for (const key of keys) {
       try {
         const localData = localStorage.getItem(key);
         if (localData) {
           const parsed = JSON.parse(localData);
-          
+
           let type = 'general';
           if (key.includes('CacheClear')) type = 'cacheClearing';
           else if (key.includes('LogProcessing')) type = 'logProcessing';
           else if (key.includes('ServiceRemoval')) type = 'serviceRemoval';
-          
+
           await this.saveState(key, type, parsed, 120);
           localStorage.removeItem(key);
           migrated++;
@@ -155,11 +155,11 @@ class OperationStateService {
         console.error(`Failed to migrate ${key}:`, err);
       }
     }
-    
+
     if (migrated > 0) {
       console.log(`Successfully migrated ${migrated} operations to backend storage`);
     }
-    
+
     return migrated;
   }
 }

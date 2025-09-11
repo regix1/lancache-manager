@@ -1,14 +1,12 @@
+import React from 'react';
+
 interface CardProps {
   children: React.ReactNode;
   className?: string;
   padding?: 'none' | 'sm' | 'md' | 'lg';
 }
 
-export const Card: React.FC<CardProps> = ({ 
-  children, 
-  className = '', 
-  padding = 'lg' 
-}) => {
+export const Card: React.FC<CardProps> = ({ children, className = '', padding = 'lg' }) => {
   const paddings = {
     none: '',
     sm: 'p-3',
@@ -17,8 +15,6 @@ export const Card: React.FC<CardProps> = ({
   };
 
   return (
-    <div className={`themed-card rounded-lg ${paddings[padding]} ${className}`}>
-      {children}
-    </div>
+    <div className={`themed-card rounded-lg ${paddings[padding]} ${className}`}>{children}</div>
   );
 };

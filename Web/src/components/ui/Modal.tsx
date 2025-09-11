@@ -9,13 +9,7 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-export const Modal: React.FC<ModalProps> = ({
-  opened,
-  onClose,
-  title,
-  children,
-  size = 'md'
-}) => {
+export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, size = 'md' }) => {
   const sizes = {
     sm: 'max-w-md',
     md: 'max-w-lg',
@@ -38,7 +32,9 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className={`themed-card rounded-lg ${sizes[size]} w-full mx-4 max-h-[90vh] overflow-y-auto custom-scrollbar`}>
+      <div
+        className={`themed-card rounded-lg ${sizes[size]} w-full mx-4 max-h-[90vh] overflow-y-auto custom-scrollbar`}
+      >
         {title && (
           <div className="flex items-center justify-between p-6 border-b border-themed-secondary">
             <div className="text-lg font-semibold text-themed-primary">{title}</div>
@@ -50,9 +46,7 @@ export const Modal: React.FC<ModalProps> = ({
             </button>
           </div>
         )}
-        <div className="p-6">
-          {children}
-        </div>
+        <div className="p-6">{children}</div>
       </div>
     </div>
   );

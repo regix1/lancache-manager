@@ -43,7 +43,7 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <DataProvider>
-        <div 
+        <div
           className="min-h-screen"
           style={{
             backgroundColor: 'var(--theme-bg-primary)',
@@ -52,9 +52,7 @@ const App: React.FC = () => {
         >
           <Header />
           <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
-          <main className="container mx-auto px-4 py-6">
-            {renderContent()}
-          </main>
+          <main className="container mx-auto px-4 py-6">{renderContent()}</main>
         </div>
       </DataProvider>
     </ErrorBoundary>

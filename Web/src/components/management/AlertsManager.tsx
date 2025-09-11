@@ -16,18 +16,14 @@ interface AlertsManagerProps {
   onClearSuccess?: () => void;
 }
 
-const AlertsManager: React.FC<AlertsManagerProps> = ({ 
-  alerts, 
-  onClearError, 
-  onClearSuccess 
-}) => {
+const AlertsManager: React.FC<AlertsManagerProps> = ({ alerts, onClearError, onClearSuccess }) => {
   if (!alerts || (!alerts.errors?.length && !alerts.success)) {
     return null;
   }
 
   return (
     <div className="space-y-4">
-      {alerts.errors?.map(error => (
+      {alerts.errors?.map((error) => (
         <Alert
           key={error.id}
           color="red"

@@ -37,7 +37,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [signalRConnected, setSignalRConnected] = useState(false);
-  
+
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
@@ -62,7 +62,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   useEffect(() => {
     restoreLogProcessing();
     setupSignalR();
-    
+
     return () => {
       if (pollingInterval.current) {
         clearInterval(pollingInterval.current);
@@ -84,7 +84,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         setIsProcessingLogs(true);
         setProcessingStatus({
           message: `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`,
-          detailMessage: status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : '',
+          detailMessage: status.processingRate
+            ? `Speed: ${status.processingRate.toFixed(1)} MB/s`
+            : '',
           progress: status.percentComplete || status.progress || 0,
           estimatedTime: status.estimatedTime,
           status: status.status || 'processing'
@@ -105,12 +107,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
       connection.on('ProcessingProgress', async (progress: any) => {
         console.log('Processing progress received:', progress);
-        
-        setProcessingStatus(prev => {
+
+        setProcessingStatus((prev) => {
           if (prev?.status === 'complete') {
             return prev;
           }
-          
+
           return {
             message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
             detailMessage: `${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
@@ -118,10 +120,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             status: 'processing'
           };
         });
-        
+
         setIsProcessingLogs(true);
-        
-        await logProcessingOp.update({ 
+
+        await logProcessingOp.update({
           lastProgress: progress.percentComplete || progress.progress || 0,
           mbProcessed: progress.mbProcessed,
           mbTotal: progress.mbTotal,
@@ -132,21 +134,21 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
       connection.on('BulkProcessingComplete', async (result: any) => {
         console.log('Bulk processing complete:', result);
-        
+
         if (pollingInterval.current) {
           clearInterval(pollingInterval.current);
         }
-        
+
         setProcessingStatus({
           message: 'Processing Complete!',
           detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes`,
           progress: 100,
           status: 'complete'
         });
-        
+
         setIsProcessingLogs(true);
         await logProcessingOp.clear();
-        
+
         setTimeout(async () => {
           setIsProcessingLogs(false);
           setProcessingStatus(null);
@@ -167,12 +169,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       connection.onclose((error) => {
         console.error('SignalR disconnected:', error);
         setSignalRConnected(false);
-        
+
         if (isProcessingLogs) {
           console.log('SignalR disconnected during processing, falling back to polling');
           startProcessingPolling();
         }
-        
+
         reconnectTimeout.current = setTimeout(() => {
           setupSignalR();
         }, 5000);
@@ -185,7 +187,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     } catch (err) {
       console.error('SignalR connection failed, falling back to polling:', err);
       setSignalRConnected(false);
-      
+
       if (isProcessingLogs) {
         startProcessingPolling();
       }
@@ -196,25 +198,27 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     if (pollingInterval.current) {
       clearInterval(pollingInterval.current);
     }
-    
+
     const checkStatus = async () => {
       try {
         const currentStatus = processingStatus;
         if (currentStatus?.status === 'complete') {
           return;
         }
-        
+
         const status: ApiProcessingStatus = await ApiService.getProcessingStatus();
         if (status?.isProcessing) {
           setIsProcessingLogs(true);
           setProcessingStatus({
             message: `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`,
-            detailMessage: status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : '',
+            detailMessage: status.processingRate
+              ? `Speed: ${status.processingRate.toFixed(1)} MB/s`
+              : '',
             progress: status.percentComplete || status.progress || 0,
             estimatedTime: status.estimatedTime,
             status: status.status || 'processing'
           });
-          await logProcessingOp.update({ 
+          await logProcessingOp.update({
             lastProgress: status.percentComplete || status.progress || 0,
             mbProcessed: status.mbProcessed,
             mbTotal: status.mbTotal
@@ -225,17 +229,17 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             if (pollingInterval.current) {
               clearInterval(pollingInterval.current);
             }
-            
+
             setProcessingStatus({
               message: 'Processing Complete!',
               detailMessage: `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
               progress: 100,
               status: 'complete'
             });
-            
+
             setIsProcessingLogs(true);
             await logProcessingOp.clear();
-            
+
             setTimeout(() => {
               setIsProcessingLogs(false);
               setProcessingStatus(null);
@@ -253,7 +257,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         console.error('Error checking processing status:', err);
       }
     };
-    
+
     checkStatus();
     pollingInterval.current = setInterval(checkStatus, 3000);
   };
@@ -289,14 +293,18 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     setActionLoading(true);
     try {
       const result = await ApiService.processAllLogs();
-      
+
       if (result) {
-        if (result.status === 'empty_file' || result.status === 'no_log_file' || result.status === 'insufficient_data') {
+        if (
+          result.status === 'empty_file' ||
+          result.status === 'no_log_file' ||
+          result.status === 'insufficient_data'
+        ) {
           onError?.(result.message);
           setActionLoading(false);
           return;
         }
-        
+
         if (result.logSizeMB > 0) {
           await logProcessingOp.save({ type: 'processAll' });
           setIsProcessingLogs(true);
@@ -307,7 +315,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             estimatedTime: `Estimated: ${result.estimatedTimeMinutes} minutes`,
             status: 'starting'
           });
-          
+
           if (!signalRConnected) {
             setTimeout(() => startProcessingPolling(), 5000);
           }
@@ -333,7 +341,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
 
     if (!window.confirm('Cancel log processing?')) return;
-    
+
     setActionLoading(true);
     try {
       await ApiService.cancelProcessing();
@@ -369,7 +377,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           color="yellow"
           leftSection={<RefreshCw className="w-4 h-4" />}
           onClick={handleResetLogs}
-          disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
+          disabled={
+            actionLoading ||
+            isProcessingLogs ||
+            mockMode ||
+            logProcessingOp.loading ||
+            !isAuthenticated
+          }
           fullWidth
         >
           Reset Log Position
@@ -379,7 +393,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           color="green"
           leftSection={<PlayCircle className="w-4 h-4" />}
           onClick={handleProcessAllLogs}
-          disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
+          disabled={
+            actionLoading ||
+            isProcessingLogs ||
+            mockMode ||
+            logProcessingOp.loading ||
+            !isAuthenticated
+          }
           loading={logProcessingOp.loading}
           fullWidth
         >
@@ -388,15 +408,14 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       </div>
       <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
         <p className="text-xs text-themed-muted">
-          <strong>Reset:</strong> Start from current end of log<br/>
+          <strong>Reset:</strong> Start from current end of log
+          <br />
           <strong>Process All:</strong> Import entire log history
         </p>
       </div>
 
       {logProcessingOp.error && (
-        <Alert color="orange">
-          Backend storage error: {logProcessingOp.error}
-        </Alert>
+        <Alert color="orange">Backend storage error: {logProcessingOp.error}</Alert>
       )}
     </Card>
   );

@@ -38,9 +38,9 @@ class AuthService {
   private getOrCreateDeviceId(): string {
     let deviceId = localStorage.getItem('lancache_device_id');
     if (!deviceId) {
-      deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
       localStorage.setItem('lancache_device_id', deviceId);
@@ -62,7 +62,7 @@ class AuthService {
         this.authChecked = true;
         return result;
       }
-      
+
       this.isAuthenticated = false;
       this.authChecked = true;
       return { requiresAuth: true, isAuthenticated: false };
@@ -88,22 +88,22 @@ class AuthService {
       });
 
       const result = await response.json();
-      
+
       if (response.ok && result.success) {
         this.isAuthenticated = true;
         localStorage.setItem('lancache_auth_registered', 'true');
         return { success: true, message: result.message };
       }
 
-      return { 
-        success: false, 
-        message: result.message || 'Registration failed' 
+      return {
+        success: false,
+        message: result.message || 'Registration failed'
       };
     } catch (error: any) {
       console.error('Registration failed:', error);
-      return { 
-        success: false, 
-        message: error.message || 'Network error during registration' 
+      return {
+        success: false,
+        message: error.message || 'Network error during registration'
       };
     }
   }
@@ -119,27 +119,27 @@ class AuthService {
       });
 
       const result = await response.json();
-      
+
       if (response.ok && result.success) {
         this.clearAuth();
         this.isAuthenticated = false;
-        
-        return { 
-          success: true, 
+
+        return {
+          success: true,
           message: result.message,
           warning: result.warning
         };
       }
 
-      return { 
-        success: false, 
-        message: result.message || 'Failed to regenerate API key' 
+      return {
+        success: false,
+        message: result.message || 'Failed to regenerate API key'
       };
     } catch (error: any) {
       console.error('Failed to regenerate API key:', error);
-      return { 
-        success: false, 
-        message: error.message || 'Network error while regenerating API key' 
+      return {
+        success: false,
+        message: error.message || 'Network error while regenerating API key'
       };
     }
   }

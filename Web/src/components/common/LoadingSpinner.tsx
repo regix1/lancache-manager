@@ -7,10 +7,10 @@ interface LoadingSpinnerProps {
   fullScreen?: boolean;
 }
 
-const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ 
-  message, 
+const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
+  message,
   size = 'md',
-  fullScreen = false 
+  fullScreen = false
 }) => {
   const sizeClasses = {
     xs: 'w-4 h-4',
@@ -23,9 +23,7 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
   const content = (
     <div className="flex flex-col items-center justify-center space-y-4">
       <Loader className={`${sizeClasses[size]} text-themed-primary animate-spin`} />
-      {message && (
-        <p className="text-sm text-themed-muted">{message}</p>
-      )}
+      {message && <p className="text-sm text-themed-muted">{message}</p>}
     </div>
   );
 
@@ -37,11 +35,7 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
     );
   }
 
-  return (
-    <div className="flex items-center justify-center min-h-[200px]">
-      {content}
-    </div>
-  );
+  return <div className="flex items-center justify-center min-h-[200px]">{content}</div>;
 };
 
 export default LoadingSpinner;

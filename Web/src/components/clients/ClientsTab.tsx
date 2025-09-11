@@ -10,13 +10,13 @@ const ClientsTab: React.FC = () => {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-themed-primary tracking-tight">Clients</h2>
-      
+
       <Card>
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-themed-primary">
           Client Statistics
           <CacheInfoTooltip />
         </h3>
-        
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -42,17 +42,17 @@ const ClientsTab: React.FC = () => {
                     <td className="py-3">
                       <div className="flex items-center space-x-2">
                         <div className="w-24 progress-track rounded-full h-2">
-                          <div 
+                          <div
                             className="progress-bar-high h-2 rounded-full"
                             style={{ width: `${client.cacheHitPercent}%` }}
                           />
                         </div>
-                        <span className="text-xs text-themed-secondary">{formatPercent(client.cacheHitPercent)}</span>
+                        <span className="text-xs text-themed-secondary">
+                          {formatPercent(client.cacheHitPercent)}
+                        </span>
                       </div>
                     </td>
-                    <td className="py-3 text-themed-muted">
-                      {formatDateTime(client.lastSeen)}
-                    </td>
+                    <td className="py-3 text-themed-muted">{formatDateTime(client.lastSeen)}</td>
                   </tr>
                 ))
               ) : (

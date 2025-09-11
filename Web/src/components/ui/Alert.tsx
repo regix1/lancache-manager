@@ -41,9 +41,7 @@ export const Alert: React.FC<AlertProps> = ({
     <div className={`rounded-lg p-4 border ${getColorClasses()}`}>
       <div className="flex items-start">
         {(icon || defaultIcons[color]) && (
-          <div className="flex-shrink-0 mr-3">
-            {icon || defaultIcons[color]}
-          </div>
+          <div className="flex-shrink-0 mr-3">{icon || defaultIcons[color]}</div>
         )}
         <div className="flex-1">
           {title && <div className="font-medium mb-1">{title}</div>}

@@ -25,12 +25,12 @@ const ProcessingStatus: React.FC = () => {
           <X className="w-4 h-4" />
         </button>
       </div>
-      
+
       <p className="text-xs text-themed-muted mb-3">{processingStatus.message}</p>
-      
+
       {processingStatus.progress !== undefined && (
         <div className="w-full progress-track rounded-full h-2 overflow-hidden">
-          <div 
+          <div
             className="progress-bar-medium h-2 rounded-full smooth-transition relative"
             style={{ width: `${Math.min(100, Math.max(0, processingStatus.progress))}%` }}
           >
@@ -38,7 +38,7 @@ const ProcessingStatus: React.FC = () => {
           </div>
         </div>
       )}
-      
+
       {processingStatus.progress !== undefined && (
         <p className="text-xs text-themed-muted mt-1 text-right">
           {Math.round(processingStatus.progress)}%

@@ -149,14 +149,14 @@ export interface Config {
   services: string[];
 }
 
-export type CardKey = 
-  | 'totalCache' 
-  | 'usedSpace' 
-  | 'bandwidthSaved' 
+export type CardKey =
+  | 'totalCache'
+  | 'usedSpace'
+  | 'bandwidthSaved'
   | 'addedToCache'
-  | 'totalServed' 
-  | 'activeDownloads' 
-  | 'activeClients' 
+  | 'totalServed'
+  | 'activeDownloads'
+  | 'activeClients'
   | 'cacheHitRatio';
 
 export interface StatCardData {
