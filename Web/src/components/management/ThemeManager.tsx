@@ -3,7 +3,7 @@ import { Gamepad2 } from "lucide-react";
 import {
   Palette, Upload, Trash2, Check, Download, Eye, RefreshCw,
   Lock, Plus, EyeOff, ChevronDown, ChevronRight, Info, Save, Copy,
-  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component, Sparkles, Activity
+  Sun, Moon, Brush, Layout, Type, Square, AlertCircle, Component, Sparkles, Activity, Edit
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import authService from '../../services/auth.service';
@@ -53,9 +53,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['core', 'backgrounds', 'navigation']);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
 
+  const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
     name: '',
     description: '',
@@ -747,6 +750,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setNewTheme((prev: any) => ({ ...prev, [key]: value }));
   };
 
+  const handleEditColorChange = (key: string, value: string) => {
+    setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
+  };
+
   const copyColor = (color: string) => {
     navigator.clipboard.writeText(color);
     setCopiedColor(color);
@@ -905,6 +912,87 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     } catch (error: any) {
       setUploadError('Failed to cleanup themes: ' + error.message);
       setTimeout(() => setUploadError(null), 5000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditTheme = (theme: Theme) => {
+    if (!isAuthenticated) {
+      setUploadError('Authentication required to edit themes');
+      setTimeout(() => setUploadError(null), 5000);
+      return;
+    }
+
+    if (isSystemTheme(theme.meta.id)) {
+      setUploadError('System themes cannot be edited');
+      setTimeout(() => setUploadError(null), 5000);
+      return;
+    }
+
+    setEditingTheme(theme);
+    setEditedTheme({
+      name: theme.meta.name,
+      description: theme.meta.description || '',
+      author: theme.meta.author || '',
+      version: theme.meta.version || '1.0.0',
+      isDark: theme.meta.isDark !== false,
+      ...theme.colors,
+      customCSS: theme.css?.content || ''
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleSaveEditedTheme = async () => {
+    if (!isAuthenticated || !editingTheme) return;
+
+    if (!editedTheme.name.trim()) {
+      setUploadError('Theme name is required');
+      setTimeout(() => setUploadError(null), 5000);
+      return;
+    }
+
+    const updatedTheme: Theme = {
+      meta: {
+        id: editingTheme.meta.id,
+        name: editedTheme.name,
+        description: editedTheme.description,
+        author: editedTheme.author,
+        version: editedTheme.version,
+        isDark: editedTheme.isDark
+      },
+      colors: { ...editedTheme },
+      css: editedTheme.customCSS ? { content: editedTheme.customCSS } : undefined
+    };
+
+    delete updatedTheme.colors.name;
+    delete updatedTheme.colors.description;
+    delete updatedTheme.colors.author;
+    delete updatedTheme.colors.version;
+    delete updatedTheme.colors.isDark;
+    delete updatedTheme.colors.customCSS;
+
+    const tomlContent = themeService.exportTheme(updatedTheme);
+    const blob = new Blob([tomlContent], { type: 'text/plain' });
+    const file = new File([blob], `${updatedTheme.meta.id}.toml`, { type: 'text/plain' });
+
+    setLoading(true);
+    try {
+      await themeService.uploadTheme(file);
+      await loadThemes();
+
+      if (currentTheme === editingTheme.meta.id) {
+        themeService.applyTheme(updatedTheme);
+      }
+
+      setEditModalOpen(false);
+      setEditingTheme(null);
+      setEditedTheme({});
+
+      setUploadSuccess(`Theme "${updatedTheme.meta.name}" updated successfully`);
+      setTimeout(() => setUploadSuccess(null), 5000);
+    } catch (error: any) {
+      setUploadError(error.message || 'Failed to update theme');
     } finally {
       setLoading(false);
     }
@@ -1484,6 +1572,17 @@ content = """
                   )}
                   {!isSystemTheme(theme.meta.id) && isAuthenticated && (
                     <button
+                      onClick={() => handleEditTheme(theme)}
+                      disabled={loading}
+                      className="p-2 transition-colors"
+                      style={{ color: 'var(--theme-text-secondary)' }}
+                      title="Edit theme"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                  )}
+                  {!isSystemTheme(theme.meta.id) && isAuthenticated && (
+                    <button
                       onClick={() => handleDelete(theme.meta.id, theme.meta.name)}
                       disabled={loading}
                       className="p-2 transition-colors disabled:opacity-50"
@@ -1792,6 +1891,209 @@ content = """
               className="themed-button-primary"
             >
               Create Theme
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        opened={editModalOpen}
+        onClose={() => {
+          setEditModalOpen(false);
+          setEditingTheme(null);
+          setEditedTheme({});
+        }}
+        title={`Edit Theme: ${editingTheme?.meta.name || ''}`}
+        size="xl"
+      >
+        <div className="space-y-6">
+          {/* Theme Metadata */}
+          <div className="space-y-4">
+            <h4 className="text-sm font-semibold flex items-center gap-2 text-themed-primary">
+              <Info className="w-4 h-4" />
+              Theme Information
+            </h4>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-themed-secondary">
+                  Theme Name *
+                </label>
+                <input
+                  type="text"
+                  value={editedTheme.name || ''}
+                  onChange={(e) => setEditedTheme({ ...editedTheme, name: e.target.value })}
+                  placeholder="My Custom Theme"
+                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-themed-secondary">
+                  Author
+                </label>
+                <input
+                  type="text"
+                  value={editedTheme.author || ''}
+                  onChange={(e) => setEditedTheme({ ...editedTheme, author: e.target.value })}
+                  placeholder="Your Name"
+                  className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1 text-themed-secondary">
+                Description
+              </label>
+              <input
+                type="text"
+                value={editedTheme.description || ''}
+                onChange={(e) => setEditedTheme({ ...editedTheme, description: e.target.value })}
+                placeholder="A beautiful custom theme"
+                className="w-full px-3 py-2 rounded focus:outline-none themed-input"
+              />
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editedTheme.isDark || false}
+                  onChange={(e) => setEditedTheme({ ...editedTheme, isDark: e.target.checked })}
+                  className="rounded"
+                />
+                <span className="text-sm text-themed-secondary">
+                  Dark Theme
+                </span>
+              </label>
+              <span className="text-xs text-themed-muted">
+                Theme ID: {editingTheme?.meta.id}
+              </span>
+            </div>
+          </div>
+
+          {/* Color Groups */}
+          <div className="space-y-4 max-h-96 overflow-y-auto">
+            {colorGroups.map((group) => {
+              const Icon = group.icon;
+              const isExpanded = expandedGroups.includes(group.name);
+
+              return (
+                <div key={group.name} className="border rounded-lg"
+                  style={{ borderColor: 'var(--theme-border-primary)' }}>
+                  <button
+                    onClick={() => toggleGroup(group.name)}
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50"
+                    style={{ backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent' }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon className="w-4 h-4 text-themed-accent" />
+                      <div className="text-left">
+                        <h5 className="text-sm font-semibold capitalize text-themed-primary">
+                          {group.name.replace(/([A-Z])/g, ' $1').trim()}
+                        </h5>
+                        <p className="text-xs text-themed-muted">
+                          {group.description}
+                        </p>
+                      </div>
+                    </div>
+                    {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  </button>
+
+                  {isExpanded && (
+                    <div className="p-4 border-t space-y-4" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                      {group.colors.map((color) => (
+                        <div key={color.key} className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <label className="block text-sm font-medium text-themed-primary">
+                                {color.label}
+                              </label>
+                              <p className="text-xs text-themed-muted">
+                                {color.description}
+                              </p>
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {color.affects.map((item, idx) => (
+                                  <span key={idx} className="text-xs px-1.5 py-0.5 rounded"
+                                    style={{
+                                      backgroundColor: 'var(--theme-bg-hover)',
+                                      color: 'var(--theme-text-secondary)'
+                                    }}>
+                                    {item}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="relative">
+                                <input
+                                  type="color"
+                                  value={editedTheme[color.key] || '#000000'}
+                                  onChange={(e) => handleEditColorChange(color.key, e.target.value)}
+                                  className="w-12 h-8 rounded cursor-pointer"
+                                  style={{ backgroundColor: editedTheme[color.key] || '#000000' }}
+                                />
+                              </div>
+                              <input
+                                type="text"
+                                value={editedTheme[color.key] || ''}
+                                onChange={(e) => handleEditColorChange(color.key, e.target.value)}
+                                className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
+                              />
+                              <button
+                                onClick={() => copyColor(editedTheme[color.key] || '')}
+                                className="p-1 rounded hover:bg-opacity-50"
+                                style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                title="Copy color"
+                              >
+                                {copiedColor === editedTheme[color.key] ? (
+                                  <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+                                ) : (
+                                  <Copy className="w-3 h-3 text-themed-muted" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Custom CSS */}
+          <div>
+            <label className="block text-sm font-medium mb-1 text-themed-secondary">
+              Custom CSS (Optional)
+            </label>
+            <textarea
+              value={editedTheme.customCSS || ''}
+              onChange={(e) => setEditedTheme({ ...editedTheme, customCSS: e.target.value })}
+              placeholder="/* Add any custom CSS here */"
+              rows={4}
+              className="w-full px-3 py-2 rounded font-mono text-xs focus:outline-none themed-input"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+            <Button
+              variant="default"
+              onClick={() => {
+                setEditModalOpen(false);
+                setEditingTheme(null);
+                setEditedTheme({});
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              leftSection={<Save className="w-4 h-4" />}
+              onClick={handleSaveEditedTheme}
+              disabled={!editedTheme.name || !isAuthenticated || loading}
+              className="themed-button-primary"
+            >
+              Save Changes
             </Button>
           </div>
         </div>

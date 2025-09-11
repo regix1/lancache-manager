@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { HardDrive, Trash2, Loader, CheckCircle, AlertCircle, StopCircle, Eye } from 'lucide-react';
-import ApiService from '../../services/api.service';
-import { useBackendOperation } from '../../hooks/useBackendOperation';
-import { formatBytes } from '../../utils/formatters';
-import { Alert } from '../ui/Alert';
-import { Button } from '../ui/Button';
-import { Card } from '../ui/Card';
-import { Modal } from '../ui/Modal';
+import ApiService from '@services/api.service';
+import { useBackendOperation } from '@hooks/useBackendOperation';
+import { formatBytes } from '@utils/formatters';
+import { Alert } from '@components/ui/Alert';
+import { Button } from '@components/ui/Button';
+import { Card } from '@components/ui/Card';
+import { Modal } from '@components/ui/Modal';
 import type { CacheClearStatus, Config } from '../../types';
 
 interface CacheManagerProps {
@@ -14,13 +14,15 @@ interface CacheManagerProps {
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
+  onBackgroundOperation?: (operation: any) => void;
 }
 
 const CacheManager: React.FC<CacheManagerProps> = ({
   isAuthenticated,
   mockMode,
   onError,
-  onSuccess
+  onSuccess,
+  onBackgroundOperation
 }) => {
   const [cacheClearProgress, setCacheClearProgress] = useState<CacheClearStatus | null>(null);
   const [showCacheClearModal, setShowCacheClearModal] = useState(false);
@@ -28,6 +30,24 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [config, setConfig] = useState<Config>({ cachePath: '/cache', logPath: '/logs/access.log', services: [] });
   
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
+  
+  // Report cache clearing status to parent
+  useEffect(() => {
+    const isCacheClearingInBackground = (cacheOp.operation as any)?.data && 
+      !showCacheClearModal && 
+      cacheClearProgress && 
+      ['Running', 'Preparing'].includes(cacheClearProgress.status);
+      
+    if (isCacheClearingInBackground && onBackgroundOperation) {
+      onBackgroundOperation({
+        bytesDeleted: cacheClearProgress.bytesDeleted,
+        progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
+        showModal: () => setShowCacheClearModal(true)
+      });
+    } else if (onBackgroundOperation) {
+      onBackgroundOperation(null);
+    }
+  }, [cacheOp.operation, showCacheClearModal, cacheClearProgress, onBackgroundOperation]);
   
   useEffect(() => {
     loadConfig();
@@ -169,33 +189,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   return (
     <>
-      {isCacheClearingInBackground && (
-        <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin" />}>
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="font-medium">Cache clearing in progress...</p>
-              {cacheClearProgress.bytesDeleted && cacheClearProgress.bytesDeleted > 0 && (
-                <p className="text-sm mt-1 opacity-75">
-                  {formatBytes(cacheClearProgress.bytesDeleted)} cleared
-                </p>
-              )}
-              <p className="text-sm mt-1 opacity-75">
-                {progressPercent.toFixed(0)}% complete
-              </p>
-            </div>
-            <Button
-              variant="filled"
-              color="blue"
-              size="sm"
-              leftSection={<Eye className="w-4 h-4" />}
-              onClick={() => setShowCacheClearModal(true)}
-            >
-              View Details
-            </Button>
-          </div>
-        </Alert>
-      )}
-
       <Card>
         <div className="flex items-center space-x-2 mb-4">
           <HardDrive className="w-5 h-5 text-themed-primary" />

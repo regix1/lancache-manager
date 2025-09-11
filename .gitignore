@@ -82,3 +82,9 @@ NGEzMDgyOWMtMGViMC00ZjgyLTg4NzUtOTcyNWMyMzlkMTA1.json
 operation_states.json
 steam_depot_mappings.json
 steam_applist.json
+
+# Claude files
+CLAUDE.md
+.claude/
+*.claude
+.claude.json

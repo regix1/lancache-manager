@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ToggleLeft, ToggleRight, AlertCircle, Database, Loader, FileText } from 'lucide-react';
+import { ToggleLeft, ToggleRight, AlertCircle, Database, Loader, FileText, Eye, CheckCircle, StopCircle } from 'lucide-react';
 import { useData } from '@contexts/DataContext';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import operationStateService from '@services/operationState.service';
+import { formatBytes } from '@utils/formatters';
 
 // Import manager components
 import AuthenticationManager from './AuthenticationManager';
@@ -121,7 +122,8 @@ const LogFileManager: React.FC<{
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-}> = ({ isAuthenticated, mockMode, onError, onSuccess, onDataRefresh }) => {
+  onBackgroundOperation?: (service: string | null) => void;
+}> = ({ isAuthenticated, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
   const [config, setConfig] = useState({ 
     logPath: '/logs/access.log',
@@ -135,6 +137,10 @@ const LogFileManager: React.FC<{
     loadConfig();
     restoreServiceRemoval();
   }, []);
+
+  useEffect(() => {
+    onBackgroundOperation?.(activeServiceRemoval);
+  }, [activeServiceRemoval, onBackgroundOperation]);
 
   const loadConfig = async () => {
     try {
@@ -206,75 +212,51 @@ const LogFileManager: React.FC<{
     : ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'];
 
   return (
-    <>
-      {activeServiceRemoval && (
-        <Alert color="orange">
-          <div className="flex items-center space-x-3">
-            <Loader className="w-5 h-5 animate-spin" />
-            <div>
-              <p className="font-medium">
-                Removing {activeServiceRemoval} entries from logs...
-              </p>
-              <p className="text-sm mt-1">
-                This may take several minutes for large log files
-              </p>
-            </div>
-          </div>
+    <Card>
+      <div className="flex items-center space-x-2 mb-4">
+        <FileText className="w-5 h-5 text-themed-accent" />
+        <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
+      </div>
+      <p className="text-themed-muted text-sm mb-4">
+        Remove service entries from <code className="bg-themed-tertiary px-2 py-1 rounded">{config.logPath}</code>
+      </p>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {services.map(service => {
+          const isRemoving = activeServiceRemoval === service;
+          return (
+            <Button
+              key={service}
+              onClick={() => handleRemoveServiceLogs(service)}
+              disabled={mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || !isAuthenticated}
+              variant="default"
+              loading={isRemoving || serviceRemovalOp.loading}
+              className="flex flex-col items-center"
+              fullWidth
+            >
+              {!isRemoving && !serviceRemovalOp.loading ? (
+                <>
+                  <span className="capitalize font-medium">Clear {service}</span>
+                  {serviceCounts[service] !== undefined && (
+                    <span className="text-xs text-themed-muted mt-1">
+                      ({serviceCounts[service].toLocaleString()} entries)
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="capitalize font-medium">Removing...</span>
+              )}
+            </Button>
+          );
+        })}
+      </div>
+      <div className="mt-4">
+        <Alert color="yellow">
+          <p className="text-xs">
+            <strong>Warning:</strong> Requires write permissions to logs directory
+          </p>
         </Alert>
-      )}
-
-      <Card>
-        <div className="flex items-center space-x-2 mb-4">
-          <FileText className="w-5 h-5 text-themed-accent" />
-          <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
-        </div>
-        <p className="text-themed-muted text-sm mb-4">
-          Remove service entries from <code className="bg-themed-tertiary px-2 py-1 rounded">{config.logPath}</code>
-        </p>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {services.map(service => {
-            const isRemoving = activeServiceRemoval === service;
-            return (
-              <Button
-                key={service}
-                onClick={() => handleRemoveServiceLogs(service)}
-                disabled={mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || !isAuthenticated}
-                variant="default"
-                loading={isRemoving || serviceRemovalOp.loading}
-                className="flex flex-col items-center"
-                fullWidth
-              >
-                {!isRemoving && !serviceRemovalOp.loading ? (
-                  <>
-                    <span className="capitalize font-medium">Clear {service}</span>
-                    {serviceCounts[service] !== undefined && (
-                      <span className="text-xs text-themed-muted mt-1">
-                        ({serviceCounts[service].toLocaleString()} entries)
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <span className="capitalize font-medium">Removing...</span>
-                )}
-              </Button>
-            );
-          })}
-        </div>
-        <div className="mt-4">
-          <Alert color="yellow">
-            <p className="text-xs">
-              <strong>Warning:</strong> Requires write permissions to logs directory
-            </p>
-          </Alert>
-        </div>
-      </Card>
-
-      {serviceRemovalOp.error && (
-        <Alert color="orange">
-          Backend storage error: {serviceRemovalOp.error}
-        </Alert>
-      )}
-    </>
+      </div>
+    </Card>
   );
 };
 
@@ -286,6 +268,13 @@ const ManagementTab: React.FC = () => {
     errors: Array<{ id: number; message: string }>;
     success: string | null;
   }>({ errors: [], success: null });
+  
+  // State for background operations from child components
+  const [backgroundOperations, setBackgroundOperations] = useState<{
+    cacheClearing?: any;
+    logProcessing?: any;
+    serviceRemoval?: string | null;
+  }>({});
   
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
@@ -331,19 +320,112 @@ const ManagementTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Authentication */}
+      {/* Authentication - Always at top */}
       <AuthenticationManager 
         onAuthChange={setIsAuthenticated}
         onError={addError}
         onSuccess={setSuccess}
       />
 
-      {/* Alerts */}
-      <AlertsManager 
-        alerts={alerts}
-        onClearError={clearError}
-        onClearSuccess={clearSuccess}
-      />
+      {/* All Notifications Consolidated Here */}
+      <div className="space-y-4">
+        {/* Regular Alerts */}
+        <AlertsManager 
+          alerts={alerts}
+          onClearError={clearError}
+          onClearSuccess={clearSuccess}
+        />
+
+        {/* Cache Clearing Background Operation */}
+        {backgroundOperations.cacheClearing && (
+          <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin" />}>
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="font-medium">Cache clearing in progress...</p>
+                {backgroundOperations.cacheClearing.bytesDeleted > 0 && (
+                  <p className="text-sm mt-1 opacity-75">
+                    {formatBytes(backgroundOperations.cacheClearing.bytesDeleted)} cleared
+                  </p>
+                )}
+                <p className="text-sm mt-1 opacity-75">
+                  {(backgroundOperations.cacheClearing.progress || 0).toFixed(0)}% complete
+                </p>
+              </div>
+              <Button
+                variant="filled"
+                color="blue"
+                size="sm"
+                leftSection={<Eye className="w-4 h-4" />}
+                onClick={backgroundOperations.cacheClearing.showModal}
+              >
+                View Details
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        {/* Log Processing Background Operation */}
+        {backgroundOperations.logProcessing && (
+          <Alert
+            color={backgroundOperations.logProcessing.status === 'complete' ? 'green' : 'yellow'}
+            icon={backgroundOperations.logProcessing.status === 'complete' ? 
+              <CheckCircle className="w-5 h-5" /> : 
+              <Loader className="w-5 h-5 animate-spin" />
+            }
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="font-medium">{backgroundOperations.logProcessing.message}</p>
+                {backgroundOperations.logProcessing.detailMessage && (
+                  <p className="text-sm mt-1 opacity-75">{backgroundOperations.logProcessing.detailMessage}</p>
+                )}
+                {backgroundOperations.logProcessing.progress > 0 && backgroundOperations.logProcessing.status !== 'complete' && (
+                  <div className="mt-2">
+                    <div className="w-full progress-track rounded-full h-2">
+                      <div 
+                        className="progress-bar-low h-2 rounded-full smooth-transition"
+                        style={{ width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs opacity-75 mt-1">
+                      {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
+                      {backgroundOperations.logProcessing.estimatedTime && ` • ${backgroundOperations.logProcessing.estimatedTime} remaining`}
+                    </p>
+                  </div>
+                )}
+              </div>
+              {backgroundOperations.logProcessing.status !== 'complete' && backgroundOperations.logProcessing.onCancel && (
+                <Button
+                  variant="filled"
+                  color="red"
+                  size="sm"
+                  leftSection={<StopCircle className="w-4 h-4" />}
+                  onClick={backgroundOperations.logProcessing.onCancel}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </Alert>
+        )}
+
+        {/* Service Removal Background Operation */}
+        {backgroundOperations.serviceRemoval && (
+          <Alert color="orange">
+            <div className="flex items-center space-x-3">
+              <Loader className="w-5 h-5 animate-spin" />
+              <div>
+                <p className="font-medium">
+                  Removing {backgroundOperations.serviceRemoval} entries from logs...
+                </p>
+                <p className="text-sm mt-1">
+                  This may take several minutes for large log files
+                </p>
+              </div>
+            </div>
+          </Alert>
+        )}
+      </div>
 
       {/* Mock Mode */}
       <MockModeManager
@@ -361,30 +443,33 @@ const ManagementTab: React.FC = () => {
         onDataRefresh={fetchData}
       />
 
-      {/* Cache Manager */}
+      {/* Cache Manager - Pass notification callback */}
       <CacheManager
         isAuthenticated={isAuthenticated}
         mockMode={mockMode}
         onError={addError}
         onSuccess={setSuccess}
+        onBackgroundOperation={(op) => setBackgroundOperations(prev => ({ ...prev, cacheClearing: op }))}
       />
 
-      {/* Log Processing Manager */}
+      {/* Log Processing Manager - Pass notification callback */}
       <LogProcessingManager
         isAuthenticated={isAuthenticated}
         mockMode={mockMode}
         onError={addError}
         onSuccess={setSuccess}
         onDataRefresh={fetchData}
+        onBackgroundOperation={(op) => setBackgroundOperations(prev => ({ ...prev, logProcessing: op }))}
       />
 
-      {/* Log File Manager */}
+      {/* Log File Manager - Pass notification callback */}
       <LogFileManager
         isAuthenticated={isAuthenticated}
         mockMode={mockMode}
         onError={addError}
         onSuccess={setSuccess}
         onDataRefresh={fetchData}
+        onBackgroundOperation={(service) => setBackgroundOperations(prev => ({ ...prev, serviceRemoval: service }))}
       />
 
       {/* Theme Manager */}

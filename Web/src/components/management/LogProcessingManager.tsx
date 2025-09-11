@@ -14,6 +14,7 @@ interface LogProcessingManagerProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
+  onBackgroundOperation?: (operation: any) => void;
 }
 
 interface ProcessingUIStatus {
@@ -29,7 +30,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   mockMode,
   onError,
   onSuccess,
-  onDataRefresh
+  onDataRefresh,
+  onBackgroundOperation
 }) => {
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
@@ -40,6 +42,22 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // Report processing status to parent
+  useEffect(() => {
+    if (isProcessingLogs && processingStatus && onBackgroundOperation) {
+      onBackgroundOperation({
+        message: processingStatus.message,
+        detailMessage: processingStatus.detailMessage,
+        progress: processingStatus.progress,
+        estimatedTime: processingStatus.estimatedTime,
+        status: processingStatus.status,
+        onCancel: handleCancelProcessing
+      });
+    } else if (onBackgroundOperation) {
+      onBackgroundOperation(null);
+    }
+  }, [isProcessingLogs, processingStatus, onBackgroundOperation]);
 
   useEffect(() => {
     restoreLogProcessing();
@@ -150,13 +168,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         console.error('SignalR disconnected:', error);
         setSignalRConnected(false);
         
-        // Fallback to polling if disconnected during processing
         if (isProcessingLogs) {
           console.log('SignalR disconnected during processing, falling back to polling');
           startProcessingPolling();
         }
         
-        // Attempt to reconnect after 5 seconds
         reconnectTimeout.current = setTimeout(() => {
           setupSignalR();
         }, 5000);
@@ -170,7 +186,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       console.error('SignalR connection failed, falling back to polling:', err);
       setSignalRConnected(false);
       
-      // Fallback to polling
       if (isProcessingLogs) {
         startProcessingPolling();
       }
@@ -178,7 +193,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   };
 
   const startProcessingPolling = () => {
-    // Clear any existing polling interval
     if (pollingInterval.current) {
       clearInterval(pollingInterval.current);
     }
@@ -294,7 +308,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             status: 'starting'
           });
           
-          // Use SignalR if connected, otherwise fallback to polling
           if (!signalRConnected) {
             setTimeout(() => startProcessingPolling(), 5000);
           }
@@ -342,100 +355,50 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   };
 
   return (
-    <>
-      {isProcessingLogs && processingStatus && (
-        <Alert
-          color={processingStatus.status === 'complete' ? 'green' : 'yellow'}
-          icon={processingStatus.status === 'complete' ? 
-            <CheckCircle className="w-5 h-5" /> : 
-            <Loader className="w-5 h-5 animate-spin" />
-          }
+    <Card>
+      <div className="flex items-center space-x-2 mb-4">
+        <FileText className="w-5 h-5 cache-hit" />
+        <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
+      </div>
+      <p className="text-themed-muted text-sm mb-4">
+        Control how access.log is processed for statistics
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Button
+          variant="filled"
+          color="yellow"
+          leftSection={<RefreshCw className="w-4 h-4" />}
+          onClick={handleResetLogs}
+          disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
+          fullWidth
         >
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="font-medium">{processingStatus.message}</p>
-              {processingStatus.detailMessage && (
-                <p className="text-sm mt-1 opacity-75">{processingStatus.detailMessage}</p>
-              )}
-              {!signalRConnected && (
-                <p className="text-xs mt-1 opacity-60">Using fallback polling (SignalR disconnected)</p>
-              )}
-              {processingStatus.progress > 0 && processingStatus.status !== 'complete' && (
-                <div className="mt-2">
-                  <div className="w-full progress-track rounded-full h-2">
-                    <div 
-                      className="progress-bar-low h-2 rounded-full smooth-transition"
-                      style={{ width: `${Math.min(processingStatus.progress, 100)}%` }}
-                    />
-                  </div>
-                  <p className="text-xs opacity-75 mt-1">
-                    {processingStatus.progress.toFixed(1)}% complete
-                    {processingStatus.estimatedTime && ` • ${processingStatus.estimatedTime} remaining`}
-                  </p>
-                </div>
-              )}
-            </div>
-            {processingStatus.status !== 'complete' && (
-              <Button
-                variant="filled"
-                color="red"
-                size="sm"
-                leftSection={<StopCircle className="w-4 h-4" />}
-                onClick={handleCancelProcessing}
-                disabled={actionLoading}
-              >
-                Cancel
-              </Button>
-            )}
-          </div>
-        </Alert>
-      )}
-
-      <Card>
-        <div className="flex items-center space-x-2 mb-4">
-          <FileText className="w-5 h-5 cache-hit" />
-          <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
-        </div>
-        <p className="text-themed-muted text-sm mb-4">
-          Control how access.log is processed for statistics
+          Reset Log Position
+        </Button>
+        <Button
+          variant="filled"
+          color="green"
+          leftSection={<PlayCircle className="w-4 h-4" />}
+          onClick={handleProcessAllLogs}
+          disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
+          loading={logProcessingOp.loading}
+          fullWidth
+        >
+          Process All Logs
+        </Button>
+      </div>
+      <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
+        <p className="text-xs text-themed-muted">
+          <strong>Reset:</strong> Start from current end of log<br/>
+          <strong>Process All:</strong> Import entire log history
         </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Button
-            variant="filled"
-            color="yellow"
-            leftSection={<RefreshCw className="w-4 h-4" />}
-            onClick={handleResetLogs}
-            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
-            fullWidth
-          >
-            Reset Log Position
-          </Button>
-          <Button
-            variant="filled"
-            color="green"
-            leftSection={<PlayCircle className="w-4 h-4" />}
-            onClick={handleProcessAllLogs}
-            disabled={actionLoading || isProcessingLogs || mockMode || logProcessingOp.loading || !isAuthenticated}
-            loading={logProcessingOp.loading}
-            fullWidth
-          >
-            Process All Logs
-          </Button>
-        </div>
-        <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
-          <p className="text-xs text-themed-muted">
-            <strong>Reset:</strong> Start from current end of log<br/>
-            <strong>Process All:</strong> Import entire log history
-          </p>
-        </div>
-      </Card>
+      </div>
 
       {logProcessingOp.error && (
         <Alert color="orange">
           Backend storage error: {logProcessingOp.error}
         </Alert>
       )}
-    </>
+    </Card>
   );
 };
 
