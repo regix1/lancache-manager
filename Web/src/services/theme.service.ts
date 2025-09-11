@@ -19,6 +19,10 @@ interface ThemeColors {
   textSecondary?: string;
   textMuted?: string;
   textAccent?: string;
+  
+  // Drag handle colors
+  dragHandleColor?: string;
+  dragHandleHover?: string;
 
   // Border colors
   borderPrimary?: string;
@@ -236,6 +240,10 @@ class ThemeService {
           textSecondary: '#d1d5db',
           textMuted: '#9ca3af',
           textAccent: '#60a5fa',
+          
+          // Drag handle
+          dragHandleColor: '#6b7280',
+          dragHandleHover: '#60a5fa',
 
           // Borders
           borderPrimary: '#374151',
@@ -366,6 +374,10 @@ class ThemeService {
           textSecondary: '#374151',
           textMuted: '#6b7280',
           textAccent: '#2563eb',
+          
+          // Drag handle
+          dragHandleColor: '#9ca3af',
+          dragHandleHover: '#2563eb',
 
           // Borders
           borderPrimary: '#e5e7eb',
@@ -565,6 +577,8 @@ class ThemeService {
         --theme-text-secondary: #d1d5db;
         --theme-text-muted: #9ca3af;
         --theme-text-accent: #60a5fa;
+        --theme-drag-handle: #6b7280;
+        --theme-drag-handle-hover: #60a5fa;
         --theme-border-primary: #374151;
         --theme-border-secondary: #4b5563;
         --theme-border-focus: #3b82f6;
@@ -695,6 +709,8 @@ class ThemeService {
       --theme-text-secondary: ${colors.textSecondary || '#d1d5db'};
       --theme-text-muted: ${colors.textMuted || '#9ca3af'};
       --theme-text-accent: ${colors.textAccent || '#60a5fa'};
+      --theme-drag-handle: ${colors.dragHandleColor || '#6b7280'};
+      --theme-drag-handle-hover: ${colors.dragHandleHover || '#60a5fa'};
       --theme-border-primary: ${colors.borderPrimary || '#374151'};
       --theme-border-secondary: ${colors.borderSecondary || '#4b5563'};
       --theme-border-focus: ${colors.borderFocus || '#3b82f6'};

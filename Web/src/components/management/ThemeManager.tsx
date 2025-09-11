@@ -109,6 +109,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     textSecondary: '#d1d5db',
     textMuted: '#9ca3af',
     textAccent: '#60a5fa',
+    dragHandleColor: '#6b7280',
+    dragHandleHover: '#60a5fa',
 
     // Borders
     borderPrimary: '#374151',
@@ -281,6 +283,18 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Accent Text',
           description: 'Highlighted or linked text',
           affects: ['Links', 'Highlighted values', 'Active menu items']
+        },
+        {
+          key: 'dragHandleColor',
+          label: 'Drag Handle',
+          description: 'Color for drag/reorder indicators',
+          affects: ['Drag grips', 'Reorder handles']
+        },
+        {
+          key: 'dragHandleHover',
+          label: 'Drag Handle Hover',
+          description: 'Color when hovering over drag handles',
+          affects: ['Drag grip hover state', 'Active dragging']
         }
       ]
     },
@@ -1125,6 +1139,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         textSecondary: '#d1d5db',
         textMuted: '#9ca3af',
         textAccent: '#60a5fa',
+        dragHandleColor: '#6b7280',
+        dragHandleHover: '#60a5fa',
 
         borderPrimary: '#374151',
         borderSecondary: '#4b5563',
@@ -1226,6 +1242,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         textPrimary: '#ffffff',
         textSecondary: '#d1d5db',
         textMuted: '#9ca3af',
+        dragHandleColor: '#6b7280',
+        dragHandleHover: '#00ff00',
         borderPrimary: '#374151',
         borderSecondary: '#4b5563',
         navBg: '#1f2937',
@@ -1267,6 +1285,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         textPrimary: '#111827',
         textSecondary: '#374151',
         textMuted: '#6b7280',
+        dragHandleColor: '#9ca3af',
+        dragHandleHover: '#2563eb',
         borderPrimary: '#e5e7eb',
         borderSecondary: '#d1d5db',
         navBg: '#f9fafb',
@@ -1338,6 +1358,8 @@ textPrimary = "#ffffff"
 textSecondary = "#d1d5db"
 textMuted = "#9ca3af"
 textAccent = "#60a5fa"
+dragHandleColor = "#6b7280"
+dragHandleHover = "#60a5fa"
 
 # Borders
 borderPrimary = "#374151"

@@ -127,6 +127,69 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
   );
 };
 
+// Game info cache utilities
+const GAME_INFO_CACHE_KEY = 'lancache_game_info_cache';
+const CACHE_EXPIRY_HOURS = 24;
+
+interface CachedGameInfo {
+  data: GameInfo;
+  timestamp: number;
+  expiresAt: number;
+}
+
+const gameInfoCache = {
+  get: (downloadId: number): GameInfo | null => {
+    try {
+      const cacheStr = localStorage.getItem(GAME_INFO_CACHE_KEY);
+      if (!cacheStr) return null;
+      
+      const cache: Record<string, CachedGameInfo> = JSON.parse(cacheStr);
+      const cached = cache[downloadId.toString()];
+      
+      if (!cached) return null;
+      
+      // Check if expired
+      if (Date.now() > cached.expiresAt) {
+        delete cache[downloadId.toString()];
+        localStorage.setItem(GAME_INFO_CACHE_KEY, JSON.stringify(cache));
+        return null;
+      }
+      
+      return cached.data;
+    } catch (err) {
+      console.error('Error reading game info cache:', err);
+      return null;
+    }
+  },
+  
+  set: (downloadId: number, gameInfo: GameInfo): void => {
+    try {
+      const cacheStr = localStorage.getItem(GAME_INFO_CACHE_KEY);
+      const cache: Record<string, CachedGameInfo> = cacheStr ? JSON.parse(cacheStr) : {};
+      
+      const expiresAt = Date.now() + (CACHE_EXPIRY_HOURS * 60 * 60 * 1000);
+      
+      cache[downloadId.toString()] = {
+        data: gameInfo,
+        timestamp: Date.now(),
+        expiresAt
+      };
+      
+      localStorage.setItem(GAME_INFO_CACHE_KEY, JSON.stringify(cache));
+    } catch (err) {
+      console.error('Error saving game info to cache:', err);
+    }
+  },
+  
+  clear: (): void => {
+    try {
+      localStorage.removeItem(GAME_INFO_CACHE_KEY);
+    } catch (err) {
+      console.error('Error clearing game info cache:', err);
+    }
+  }
+};
+
 const DownloadsTab: React.FC = () => {
   const { latestDownloads, mockMode, updateMockDataCount, updateApiDownloadCount } = useData();
 
@@ -158,6 +221,36 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
     localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
   }, [settings]);
+
+  // Preload cached game info when component mounts
+  useEffect(() => {
+    const loadCachedGameInfo = () => {
+      try {
+        const cacheStr = localStorage.getItem(GAME_INFO_CACHE_KEY);
+        if (!cacheStr) return;
+
+        const cache: Record<string, CachedGameInfo> = JSON.parse(cacheStr);
+        const cachedGameInfo: Record<number, GameInfo> = {};
+        let hasValidCache = false;
+
+        Object.entries(cache).forEach(([downloadId, cached]) => {
+          // Only load non-expired cache entries
+          if (Date.now() <= cached.expiresAt) {
+            cachedGameInfo[parseInt(downloadId)] = cached.data;
+            hasValidCache = true;
+          }
+        });
+
+        if (hasValidCache) {
+          setGameInfo(cachedGameInfo);
+        }
+      } catch (err) {
+        console.error('Error loading cached game info:', err);
+      }
+    };
+
+    loadCachedGameInfo();
+  }, []);
 
   useEffect(() => {
     const count = settings.itemsPerPage === 'unlimited' ? 100 : settings.itemsPerPage;
@@ -341,23 +434,30 @@ const DownloadsTab: React.FC = () => {
     setExpandedDownload(expandedDownload === download.id ? null : download.id);
 
     if (expandedDownload !== download.id && !gameInfo[download.id]) {
+      // Check cache first
+      const cachedGameInfo = gameInfoCache.get(download.id);
+      if (cachedGameInfo) {
+        setGameInfo((prev) => ({ ...prev, [download.id]: cachedGameInfo }));
+        return;
+      }
+
       if (mockMode) {
-        setGameInfo((prev) => ({
-          ...prev,
-          [download.id]: {
-            downloadId: download.id,
-            service: 'steam',
-            appId: 730,
-            gameName: 'Counter-Strike 2',
-            gameType: 'game',
-            headerImage: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
-            description: 'Counter-Strike 2 is a tactical shooter.',
-            totalBytes: download.totalBytes,
-            cacheHitBytes: download.cacheHitBytes,
-            cacheMissBytes: download.cacheMissBytes,
-            cacheHitPercent: download.cacheHitPercent
-          }
-        }));
+        const mockGameInfo = {
+          downloadId: download.id,
+          service: 'steam',
+          appId: 730,
+          gameName: 'Counter-Strike 2',
+          gameType: 'game',
+          headerImage: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
+          description: 'Counter-Strike 2 is a tactical shooter.',
+          totalBytes: download.totalBytes,
+          cacheHitBytes: download.cacheHitBytes,
+          cacheMissBytes: download.cacheMissBytes,
+          cacheHitPercent: download.cacheHitPercent
+        };
+        setGameInfo((prev) => ({ ...prev, [download.id]: mockGameInfo }));
+        // Cache mock data too
+        gameInfoCache.set(download.id, mockGameInfo);
       } else {
         try {
           setLoadingGame(download.id);
@@ -365,6 +465,8 @@ const DownloadsTab: React.FC = () => {
           if (response.ok) {
             const data = await response.json();
             setGameInfo((prev) => ({ ...prev, [download.id]: data }));
+            // Cache the fetched data
+            gameInfoCache.set(download.id, data);
           }
         } catch (err) {
           console.error('Error fetching game info:', err);
@@ -567,16 +669,30 @@ const DownloadsTab: React.FC = () => {
                   </div>
                 ) : (
                   <div className="flex gap-6 items-start">
-                    {game.headerImage && (
-                      <div className="flex-shrink-0">
+                    <div className="flex-shrink-0">
+                      {game.headerImage ? (
                         <img
                           src={game.headerImage}
                           alt={game.gameName}
                           className="rounded w-56 object-cover shadow-lg"
                           style={{ height: '107px' }}
                         />
-                      </div>
-                    )}
+                      ) : (
+                        <div 
+                          className="rounded w-56 flex items-center justify-center shadow-lg"
+                          style={{ 
+                            height: '107px',
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            border: '1px solid var(--theme-border-primary)'
+                          }}
+                        >
+                          <Gamepad2 
+                            className="w-12 h-12"
+                            style={{ color: 'var(--theme-text-muted)' }}
+                          />
+                        </div>
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
                         {game.gameName}

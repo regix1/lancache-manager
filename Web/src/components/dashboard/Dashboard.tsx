@@ -52,10 +52,14 @@ const DEFAULT_CARD_ORDER: string[] = [
 ];
 
 const StatTooltips: Record<string, string> = {
+  totalCache: 'Total storage capacity of your LANCache system',
+  usedSpace: 'Amount of storage currently occupied by cached content',
   bandwidthSaved:
     'Amount of internet bandwidth saved by serving files from local cache instead of downloading them again',
   addedToCache: 'New content downloaded and stored in cache for future use',
   totalServed: 'Total amount of data delivered to clients (cache hits + new downloads)',
+  activeDownloads: 'Number of downloads currently in progress',
+  activeClients: 'Number of unique client devices that have accessed the cache',
   cacheHitRatio:
     'Percentage of requests served from cache vs downloaded from internet. Higher is better!'
 };
@@ -276,7 +280,8 @@ const Dashboard: React.FC = () => {
         subtitle: 'Drive capacity',
         icon: Database,
         color: 'blue' as const,
-        visible: cardVisibility.totalCache
+        visible: cardVisibility.totalCache,
+        tooltip: StatTooltips.totalCache
       },
       usedSpace: {
         key: 'usedSpace',
@@ -285,7 +290,8 @@ const Dashboard: React.FC = () => {
         subtitle: cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%',
         icon: HardDrive,
         color: 'green' as const,
-        visible: cardVisibility.usedSpace
+        visible: cardVisibility.usedSpace,
+        tooltip: StatTooltips.usedSpace
       },
       bandwidthSaved: {
         key: 'bandwidthSaved',
@@ -333,7 +339,8 @@ const Dashboard: React.FC = () => {
         subtitle: `${dashboardStats?.period?.downloads || latestDownloads.length} in period`,
         icon: Download,
         color: 'orange' as const,
-        visible: cardVisibility.activeDownloads
+        visible: cardVisibility.activeDownloads,
+        tooltip: StatTooltips.activeDownloads
       },
       activeClients: {
         key: 'activeClients',
@@ -342,7 +349,8 @@ const Dashboard: React.FC = () => {
         subtitle: `${stats.totalDownloads} downloads`,
         icon: Users,
         color: 'yellow' as const,
-        visible: cardVisibility.activeClients
+        visible: cardVisibility.activeClients,
+        tooltip: StatTooltips.activeClients
       },
       cacheHitRatio: {
         key: 'cacheHitRatio',
@@ -638,7 +646,8 @@ const Dashboard: React.FC = () => {
             key={card.key}
             className="relative group"
             style={{
-              boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none'
+              boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
+              cursor: draggedCard === card.key ? 'grabbing' : 'default'
             }}
             draggable
             onDragStart={(e) => handleDragStart(e, card.key)}
@@ -648,8 +657,30 @@ const Dashboard: React.FC = () => {
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, card.key)}
           >
-            <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              <GripVertical className="w-4 h-4 text-themed-muted" />
+            <div 
+              className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all p-1 rounded"
+              style={{ 
+                cursor: 'grab',
+                zIndex: 10
+              }}
+              title="Drag to reorder"
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <GripVertical 
+                className="w-4 h-4 transition-colors" 
+                style={{ color: 'var(--theme-drag-handle)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--theme-drag-handle)';
+                }}
+              />
             </div>
 
             <StatCard
