@@ -1074,10 +1074,42 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       await themeService.uploadTheme(file);
       
       // Add a small delay to ensure the API has processed the file
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Force reload themes to get the updated version
-      await loadThemes();
+      // First update the local themes list with our known good version
+      setThemes(prevThemes => {
+        return prevThemes.map(t => {
+          if (t.meta.id === updatedTheme.meta.id) {
+            console.log('Pre-updating local theme cache with new colors');
+            return updatedTheme;
+          }
+          return t;
+        });
+      });
+      
+      // Then try to reload from server (but don't let it overwrite our good version)
+      try {
+        const themeList = await themeService.loadThemes();
+        // Only update if the server has the correct version
+        const serverTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
+        if (serverTheme) {
+          // Check if server has the updated colors
+          if (serverTheme.colors?.primaryColor === updatedTheme.colors.primaryColor) {
+            console.log('Server has updated theme, using server version');
+            setThemes(themeList);
+          } else {
+            console.log('Server has old theme, keeping local version');
+            // Keep our local version but update others from server
+            setThemes(prevThemes => {
+              const otherThemes = themeList.filter(t => t.meta.id !== updatedTheme.meta.id);
+              const ourTheme = prevThemes.find(t => t.meta.id === updatedTheme.meta.id) || updatedTheme;
+              return [...otherThemes, ourTheme];
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to reload themes from server, keeping local version', error);
+      }
 
       // Apply the updated theme directly if it's currently active
       if (currentTheme === editingTheme.meta.id) {
