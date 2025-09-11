@@ -1003,6 +1003,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       return;
     }
 
+    console.log('Editing theme:', theme);
+    console.log('Theme colors:', theme.colors);
+
     setEditingTheme(theme);
     
     // Start with all theme colors
@@ -1024,6 +1027,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       themeData.dragHandleHover = theme.meta.isDark ? '#60a5fa' : '#2563eb';
     }
     
+    console.log('Theme data for editing:', themeData);
     setEditedTheme(themeData);
     setEditModalOpen(true);
   };
@@ -1036,6 +1040,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setTimeout(() => setUploadError(null), 5000);
       return;
     }
+
+    console.log('Saving theme with colors:', editedTheme);
 
     const updatedTheme: Theme = {
       meta: {
@@ -1056,6 +1062,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     delete updatedTheme.colors.version;
     delete updatedTheme.colors.isDark;
     delete updatedTheme.colors.customCSS;
+    
+    console.log('Theme object to save:', updatedTheme);
 
     const tomlContent = themeService.exportTheme(updatedTheme);
     const blob = new Blob([tomlContent], { type: 'text/plain' });

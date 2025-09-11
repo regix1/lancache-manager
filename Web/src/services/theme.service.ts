@@ -911,6 +911,7 @@ class ThemeService {
   }
 
   exportTheme(theme: Theme): string {
+    console.log('Exporting theme to TOML:', theme);
     let toml = '';
 
     toml += '[meta]\n';
@@ -924,6 +925,7 @@ class ThemeService {
 
     toml += '[colors]\n';
     if (theme.colors) {
+      console.log('Exporting colors:', theme.colors);
       Object.entries(theme.colors).forEach(([key, value]) => {
         toml += `${key} = "${value}"\n`;
       });
