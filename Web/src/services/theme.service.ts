@@ -546,33 +546,15 @@ class ThemeService {
         throw new Error(error.error || 'Failed to upload theme');
       }
 
-      // Clear the cached version of this theme if it exists
+      // Update the cached version immediately
       const existingThemeIndex = this.themes.findIndex(t => t.meta.id === theme.meta.id);
       if (existingThemeIndex !== -1) {
-        // Update the existing theme in place
         this.themes[existingThemeIndex] = theme;
       } else {
-        // Add the new theme if it doesn't exist
         this.themes.push(theme);
       }
-
-      // Wait a bit for the API to finish writing
-      await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Then reload all themes from server to ensure consistency
-      // But keep our updated version if the server hasn't caught up yet
-      const previousTheme = theme;
-      await this.loadThemes();
-      
-      // If the server returned an old version, use our updated one
-      const serverTheme = this.themes.find(t => t.meta.id === theme.meta.id);
-      if (serverTheme && JSON.stringify(serverTheme.colors) !== JSON.stringify(previousTheme.colors)) {
-        console.log('Server returned old theme, using local updated version');
-        const index = this.themes.findIndex(t => t.meta.id === theme.meta.id);
-        if (index !== -1) {
-          this.themes[index] = previousTheme;
-        }
-      }
+      // Don't wait for server sync - return immediately for better UX
       return theme;
     } catch (error: any) {
       if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {

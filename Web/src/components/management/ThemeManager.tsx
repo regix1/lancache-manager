@@ -1071,63 +1071,53 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     setLoading(true);
     try {
+      // Upload and immediately update local state (no waiting)
       await themeService.uploadTheme(file);
       
-      // Add a small delay to ensure the API has processed the file
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // First update the local themes list with our known good version
+      // Immediately update the local themes list with our known good version
       setThemes(prevThemes => {
         return prevThemes.map(t => {
           if (t.meta.id === updatedTheme.meta.id) {
-            console.log('Pre-updating local theme cache with new colors');
             return updatedTheme;
           }
           return t;
         });
       });
       
-      // Then try to reload from server (but don't let it overwrite our good version)
-      try {
-        const themeList = await themeService.loadThemes();
-        // Only update if the server has the correct version
-        const serverTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
-        if (serverTheme) {
-          // Check if server has the updated colors
-          if (serverTheme.colors?.primaryColor === updatedTheme.colors.primaryColor) {
-            console.log('Server has updated theme, using server version');
-            setThemes(themeList);
-          } else {
-            console.log('Server has old theme, keeping local version');
-            // Keep our local version but update others from server
-            setThemes(prevThemes => {
-              const otherThemes = themeList.filter(t => t.meta.id !== updatedTheme.meta.id);
-              const ourTheme = prevThemes.find(t => t.meta.id === updatedTheme.meta.id) || updatedTheme;
-              return [...otherThemes, ourTheme];
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Failed to reload themes from server, keeping local version', error);
-      }
-
-      // Apply the updated theme directly if it's currently active
+      // Apply theme if currently active (immediate feedback)
       if (currentTheme === editingTheme.meta.id) {
-        // Use the updated theme object we just created
         themeService.applyTheme(updatedTheme);
       }
-
+      
+      // Close modal immediately for better UX
       setEditModalOpen(false);
       setEditingTheme(null);
       setEditedTheme({});
-
       setUploadSuccess(`Theme "${updatedTheme.meta.name}" updated successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
+      
+      // Reload from server in background (non-blocking)
+      setTimeout(async () => {
+        try {
+          const themeList = await themeService.loadThemes();
+          const serverTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
+          
+          // Only update if server has caught up
+          if (serverTheme && JSON.stringify(serverTheme.colors) === JSON.stringify(updatedTheme.colors)) {
+            setThemes(themeList);
+          }
+        } catch (error) {
+          console.error('Background theme reload failed:', error);
+        }
+      }, 2000); // Check server after 2 seconds in background
+      
     } catch (error: any) {
       setUploadError(error.message || 'Failed to update theme');
-    } finally {
       setLoading(false);
+      return; // Exit early on error
     }
+    
+    setLoading(false);
   };
 
   const handleCreateTheme = async () => {
