@@ -546,6 +546,17 @@ class ThemeService {
         throw new Error(error.error || 'Failed to upload theme');
       }
 
+      // Clear the cached version of this theme if it exists
+      const existingThemeIndex = this.themes.findIndex(t => t.meta.id === theme.meta.id);
+      if (existingThemeIndex !== -1) {
+        // Remove the old version from cache
+        this.themes.splice(existingThemeIndex, 1);
+      }
+      
+      // Add the new version to cache immediately
+      this.themes.push(theme);
+
+      // Then reload all themes from server to ensure consistency
       await this.loadThemes();
       return theme;
     } catch (error: any) {

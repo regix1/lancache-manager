@@ -1064,9 +1064,16 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
     try {
       await themeService.uploadTheme(file);
+      
+      // Add a small delay to ensure the API has processed the file
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Force reload themes to get the updated version
       await loadThemes();
 
+      // Apply the updated theme directly if it's currently active
       if (currentTheme === editingTheme.meta.id) {
+        // Use the updated theme object we just created
         themeService.applyTheme(updatedTheme);
       }
 
