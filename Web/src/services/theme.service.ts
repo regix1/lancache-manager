@@ -709,8 +709,8 @@ class ThemeService {
       --theme-text-secondary: ${colors.textSecondary || '#d1d5db'};
       --theme-text-muted: ${colors.textMuted || '#9ca3af'};
       --theme-text-accent: ${colors.textAccent || '#60a5fa'};
-      --theme-drag-handle: ${colors.dragHandleColor || '#6b7280'};
-      --theme-drag-handle-hover: ${colors.dragHandleHover || '#60a5fa'};
+      --theme-drag-handle: ${colors.dragHandleColor || colors.textMuted || '#6b7280'};
+      --theme-drag-handle-hover: ${colors.dragHandleHover || colors.textAccent || '#60a5fa'};
       --theme-border-primary: ${colors.borderPrimary || '#374151'};
       --theme-border-secondary: ${colors.borderSecondary || '#4b5563'};
       --theme-border-focus: ${colors.borderFocus || '#3b82f6'};

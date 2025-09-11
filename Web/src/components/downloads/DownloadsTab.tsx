@@ -198,6 +198,7 @@ const DownloadsTab: React.FC = () => {
   const [gameInfo, setGameInfo] = useState<Record<number, GameInfo>>({});
   const [loadingGame, setLoadingGame] = useState<number | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
+  const [brokenImages, setBrokenImages] = useState<Set<number>>(new Set());
 
   const [settings, setSettings] = useState<DownloadSettings>(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
@@ -670,12 +671,15 @@ const DownloadsTab: React.FC = () => {
                 ) : (
                   <div className="flex gap-6 items-start">
                     <div className="flex-shrink-0">
-                      {game.headerImage ? (
+                      {game.headerImage && !brokenImages.has(download.id!) ? (
                         <img
                           src={game.headerImage}
                           alt={game.gameName}
                           className="rounded w-56 object-cover shadow-lg"
                           style={{ height: '107px' }}
+                          onError={() => {
+                            setBrokenImages(prev => new Set(prev).add(download.id!));
+                          }}
                         />
                       ) : (
                         <div 

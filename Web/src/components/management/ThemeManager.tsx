@@ -1011,6 +1011,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       version: theme.meta.version || '1.0.0',
       isDark: theme.meta.isDark !== false,
       ...theme.colors,
+      // Ensure drag handle colors have defaults if not present
+      dragHandleColor: theme.colors.dragHandleColor || (theme.meta.isDark ? '#6b7280' : '#9ca3af'),
+      dragHandleHover: theme.colors.dragHandleHover || (theme.meta.isDark ? '#60a5fa' : '#2563eb'),
       customCSS: theme.css?.content || ''
     });
     setEditModalOpen(true);
