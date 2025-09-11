@@ -1004,18 +1004,27 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
 
     setEditingTheme(theme);
-    setEditedTheme({
+    
+    // Start with all theme colors
+    const themeData = {
       name: theme.meta.name,
       description: theme.meta.description || '',
       author: theme.meta.author || '',
       version: theme.meta.version || '1.0.0',
       isDark: theme.meta.isDark !== false,
       ...theme.colors,
-      // Ensure drag handle colors have defaults if not present
-      dragHandleColor: theme.colors.dragHandleColor || (theme.meta.isDark ? '#6b7280' : '#9ca3af'),
-      dragHandleHover: theme.colors.dragHandleHover || (theme.meta.isDark ? '#60a5fa' : '#2563eb'),
       customCSS: theme.css?.content || ''
-    });
+    };
+    
+    // Only add defaults if the properties don't exist
+    if (!theme.colors.dragHandleColor) {
+      themeData.dragHandleColor = theme.meta.isDark ? '#6b7280' : '#9ca3af';
+    }
+    if (!theme.colors.dragHandleHover) {
+      themeData.dragHandleHover = theme.meta.isDark ? '#60a5fa' : '#2563eb';
+    }
+    
+    setEditedTheme(themeData);
     setEditModalOpen(true);
   };
 

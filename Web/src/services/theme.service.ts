@@ -534,19 +534,26 @@ class ThemeService {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${API_BASE}/theme/upload`, {
-      method: 'POST',
-      headers: authService.getAuthHeaders(),
-      body: formData
-    });
+    try {
+      const response = await fetch(`${API_BASE}/theme/upload`, {
+        method: 'POST',
+        headers: authService.getAuthHeaders(),
+        body: formData
+      });
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Failed to upload theme' }));
-      throw new Error(error.error || 'Failed to upload theme');
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to upload theme' }));
+        throw new Error(error.error || 'Failed to upload theme');
+      }
+
+      await this.loadThemes();
+      return theme;
+    } catch (error: any) {
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        throw new Error('Cannot save theme: API server is not running. Please start the LANCache Manager API service.');
+      }
+      throw error;
     }
-
-    await this.loadThemes();
-    return theme;
   }
 
   async deleteTheme(themeId: string): Promise<void> {
