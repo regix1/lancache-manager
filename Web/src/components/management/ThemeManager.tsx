@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { RotateCcw } from 'lucide-react';
 import { Gamepad2 } from 'lucide-react';
 import {
   Palette,
@@ -84,6 +85,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     'navigation'
   ]);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
+  const [colorHistory, setColorHistory] = useState<Record<string, string>>({});
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -820,7 +822,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const handleEditColorChange = (key: string, value: string) => {
+    // Save the previous color to history before changing
+    if (editedTheme[key] && editedTheme[key] !== value) {
+      setColorHistory(prev => ({ ...prev, [key]: editedTheme[key] }));
+    }
     setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
+  };
+
+  const restorePreviousColor = (key: string) => {
+    const previousColor = colorHistory[key];
+    if (previousColor) {
+      // Swap current with history
+      const currentColor = editedTheme[key];
+      setEditedTheme((prev: any) => ({ ...prev, [key]: previousColor }));
+      setColorHistory(prev => ({ ...prev, [key]: currentColor }));
+    }
   };
 
   const copyColor = async (color: string) => {
@@ -1035,28 +1051,34 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       return;
     }
 
-    console.log('Editing theme:', theme);
-    console.log('Theme colors:', theme.colors);
+    // Always use the most recent version from the themes array
+    const latestTheme = themes.find(t => t.meta.id === theme.meta.id) || theme;
+    
+    console.log('Editing theme:', latestTheme);
+    console.log('Theme colors:', latestTheme.colors);
 
-    setEditingTheme(theme);
+    // Clear color history when opening a new theme
+    setColorHistory({});
+    
+    setEditingTheme(latestTheme);
     
     // Start with all theme colors
     const themeData = {
-      name: theme.meta.name,
-      description: theme.meta.description || '',
-      author: theme.meta.author || '',
-      version: theme.meta.version || '1.0.0',
-      isDark: theme.meta.isDark !== false,
-      ...theme.colors,
-      customCSS: theme.css?.content || ''
+      name: latestTheme.meta.name,
+      description: latestTheme.meta.description || '',
+      author: latestTheme.meta.author || '',
+      version: latestTheme.meta.version || '1.0.0',
+      isDark: latestTheme.meta.isDark !== false,
+      ...latestTheme.colors,
+      customCSS: latestTheme.css?.content || ''
     };
     
     // Only add defaults if the properties don't exist
-    if (!theme.colors.dragHandleColor) {
-      themeData.dragHandleColor = theme.meta.isDark ? '#6b7280' : '#9ca3af';
+    if (!latestTheme.colors.dragHandleColor) {
+      themeData.dragHandleColor = latestTheme.meta.isDark ? '#6b7280' : '#9ca3af';
     }
-    if (!theme.colors.dragHandleHover) {
-      themeData.dragHandleHover = theme.meta.isDark ? '#60a5fa' : '#2563eb';
+    if (!latestTheme.colors.dragHandleHover) {
+      themeData.dragHandleHover = latestTheme.meta.isDark ? '#60a5fa' : '#2563eb';
     }
     
     console.log('Theme data for editing:', themeData);
@@ -1117,6 +1139,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         });
         return newThemes;
       });
+      
+      // Clear color history after successful save
+      setColorHistory({});
       
       // Apply theme if currently active (immediate feedback)
       if (currentTheme === editingTheme.meta.id) {
@@ -2030,6 +2055,16 @@ content = """
                                   <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
                               </button>
+                              {createColorHistory[color.key] && (
+                                <button
+                                  onClick={() => restoreCreatePreviousColor(color.key)}
+                                  className="p-1 rounded-lg hover:bg-opacity-50"
+                                  style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                  title={`Restore previous color: ${createColorHistory[color.key]}`}
+                                >
+                                  <RotateCcw className="w-3 h-3 text-themed-muted" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -2239,6 +2274,16 @@ content = """
                                   <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
                               </button>
+                              {colorHistory[color.key] && (
+                                <button
+                                  onClick={() => restorePreviousColor(color.key)}
+                                  className="p-1 rounded-lg hover:bg-opacity-50"
+                                  style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                  title={`Restore previous color: ${colorHistory[color.key]}`}
+                                >
+                                  <RotateCcw className="w-3 h-3 text-themed-muted" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
