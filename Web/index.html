@@ -14,7 +14,7 @@
           const themeId = localStorage.getItem('lancache_theme');
           const themeApplied = localStorage.getItem('lancache_theme_applied') === 'true';
           
-          if (savedCSS && themeApplied) {
+          if (savedCSS && themeApplied && themeId) {
             // Create and inject the saved theme styles immediately
             const style = document.createElement('style');
             style.id = 'lancache-theme-preload';
@@ -22,12 +22,13 @@
             document.head.appendChild(style);
             
             // Set data attributes
-            if (themeId) {
-              document.documentElement.setAttribute('data-theme-id', themeId);
-              // Determine if dark or light based on theme ID or saved preference
-              const isDark = localStorage.getItem('lancache_theme_dark') !== 'false';
-              document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-            }
+            document.documentElement.setAttribute('data-theme-id', themeId);
+            // Determine if dark or light based on saved preference
+            const isDark = localStorage.getItem('lancache_theme_dark') !== 'false';
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            
+            // Also set body background immediately to prevent any flash
+            document.documentElement.style.backgroundColor = 'var(--theme-bg-primary)';
           } else {
             // Apply default dark theme immediately
             const defaultStyle = document.createElement('style');
@@ -41,12 +42,13 @@
                 --theme-text-muted: #9ca3af;
               }
               body {
-                background-color: var(--theme-bg-primary);
-                color: var(--theme-text-primary);
+                background-color: var(--theme-bg-primary) !important;
+                color: var(--theme-text-primary) !important;
               }
             `;
             document.head.appendChild(defaultStyle);
             document.documentElement.setAttribute('data-theme', 'dark');
+            document.documentElement.style.backgroundColor = '#111827';
           }
         } catch (e) {
           console.error('Failed to preload theme:', e);

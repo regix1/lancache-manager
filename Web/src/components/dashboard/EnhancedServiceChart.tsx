@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info, Loader } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import Chart from 'chart.js/auto';

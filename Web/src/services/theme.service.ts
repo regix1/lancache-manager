@@ -885,9 +885,7 @@ class ThemeService {
     
     // If preload style exists and matches saved theme, we're already good
     if (preloadStyle && themeApplied && savedThemeId) {
-      // Still need to set the current theme object and load themes list
-      this.applyDefaultVariables();
-      
+      // Don't apply default variables since we have preloaded theme
       // Load themes in background
       this.loadThemes().then(async () => {
         const theme = await this.getTheme(savedThemeId);
