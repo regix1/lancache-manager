@@ -12,11 +12,9 @@ interface EnhancedServiceChartProps {
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStats }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100);
-  const [isLoading, setIsLoading] = useState(true);
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
   const prevDataRef = useRef<string>('');
-  const hasInitialData = useRef(false);
 
   const tabs = [
     { name: 'Service Distribution', id: 'service' },
@@ -210,26 +208,8 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
     return () => window.removeEventListener('themechange', handleThemeChange);
   }, []);
 
-  // Track when we have initial data
   useEffect(() => {
-    if (serviceStats && serviceStats.length > 0) {
-      hasInitialData.current = true;
-      setIsLoading(false);
-    }
-  }, [serviceStats]);
-
-  useEffect(() => {
-    if (!chartRef.current) return;
-    
-    // Don't clear chart if we're just temporarily without data
-    if (chartData.labels.length === 0) {
-      // Only clear if we never had data
-      if (!hasInitialData.current && chartInstance.current) {
-        chartInstance.current.destroy();
-        chartInstance.current = null;
-      }
-      return;
-    }
+    if (!chartRef.current || chartData.labels.length === 0) return;
 
     // Check if data actually changed to prevent unnecessary animations
     const currentDataString = JSON.stringify({
@@ -413,11 +393,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
       </div>
 
       <div className="px-6 pb-6">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-48">
-            <Loader className="w-8 h-8 animate-spin text-themed-muted" />
-          </div>
-        ) : chartData.labels.length > 0 || hasInitialData.current ? (
+        {chartData.labels.length > 0 ? (
           <>
             <div
               className="flex justify-center items-center"
@@ -436,15 +412,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
                   ref={chartRef}
                   style={{
                     maxHeight: '100%',
-                    maxWidth: '100%',
-                    display: chartData.labels.length > 0 ? 'block' : 'none'
+                    maxWidth: '100%'
                   }}
                 />
-                {chartData.labels.length === 0 && hasInitialData.current && (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-themed-muted text-sm">Loading chart data...</p>
-                  </div>
-                )}
               </div>
             </div>
 
