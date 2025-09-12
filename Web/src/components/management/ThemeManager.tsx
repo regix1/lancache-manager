@@ -1099,8 +1099,24 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       // Update the theme service's cache
       themeService.updateCachedTheme(updatedTheme);
       
-      // Don't reload from server immediately - the cache is up to date
-      // Server sync will happen automatically on next forced reload
+      // Force reload from server after a delay to confirm persistence
+      setTimeout(async () => {
+        try {
+          const themeList = await themeService.loadThemes(true); // Force reload
+          const serverTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
+          
+          if (serverTheme) {
+            // Update with server version to confirm it was saved
+            setThemes(themeList);
+          } else {
+            // Theme wasn't found on server - something went wrong
+            setUploadError('Theme may not have been saved correctly. Please try again.');
+            setTimeout(() => setUploadError(null), 5000);
+          }
+        } catch (error) {
+          console.error('Failed to verify theme save:', error);
+        }
+      }, 1000); // Check after 1 second
       
     } catch (error: any) {
       setUploadError(error.message || 'Failed to update theme');
