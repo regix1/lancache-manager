@@ -143,31 +143,9 @@ interface Theme {
 
 class ThemeService {
   private currentTheme: Theme | null = null;
-  private themes: Theme[] = [];
   private styleElement: HTMLStyleElement | null = null;
-  private lastLoadTime: number = 0;
-  private CACHE_DURATION = 30000; // 30 seconds cache
 
-  getCachedThemes(): Theme[] {
-    return this.themes;
-  }
-
-  updateCachedTheme(theme: Theme): void {
-    const index = this.themes.findIndex(t => t.meta.id === theme.meta.id);
-    if (index !== -1) {
-      this.themes[index] = theme;
-    } else {
-      this.themes.push(theme);
-    }
-  }
-
-  async loadThemes(forceReload: boolean = false): Promise<Theme[]> {
-    // Use cache if available and not forcing reload
-    const now = Date.now();
-    if (!forceReload && this.themes.length > 0 && (now - this.lastLoadTime) < this.CACHE_DURATION) {
-      return this.themes;
-    }
-
+  async loadThemes(): Promise<Theme[]> {
     const builtInThemes = this.getBuiltInThemes();
 
     const apiThemes: Theme[] = [];
@@ -229,9 +207,7 @@ class ThemeService {
       }
     });
 
-    this.themes = allThemes;
-    this.lastLoadTime = Date.now();
-    return this.themes;
+    return allThemes;
   }
 
   private getBuiltInThemes(): Theme[] {
@@ -509,9 +485,6 @@ class ThemeService {
     const builtIn = this.getBuiltInThemes().find((t) => t.meta.id === themeId);
     if (builtIn) return builtIn;
 
-    const loaded = this.themes.find((t) => t.meta.id === themeId);
-    if (loaded) return loaded;
-
     try {
       const response = await fetch(`${API_BASE}/theme/${themeId}`);
       if (!response.ok) return null;
@@ -568,10 +541,6 @@ class ThemeService {
         throw new Error(error.error || 'Failed to upload theme');
       }
 
-      // Update the cached version immediately
-      this.updateCachedTheme(theme);
-      
-      // Don't wait for server sync - return immediately for better UX
       return theme;
     } catch (error: any) {
       if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
@@ -591,8 +560,6 @@ class ThemeService {
       const error = await response.json().catch(() => ({ error: 'Failed to delete theme' }));
       throw new Error(error.error || 'Failed to delete theme');
     }
-
-    await this.loadThemes();
   }
 
   private applyDefaultVariables(): void {
@@ -903,7 +870,7 @@ class ThemeService {
     // If preload style exists and matches saved theme, we're already good
     if (preloadStyle && themeApplied && savedThemeId) {
       // Don't apply default variables since we have preloaded theme
-      // Load themes in background
+      // Load themes
       this.loadThemes().then(async () => {
         const theme = await this.getTheme(savedThemeId);
         if (theme) {
@@ -916,7 +883,6 @@ class ThemeService {
     
     // Normal loading path if no preload
     this.applyDefaultVariables();
-    await this.loadThemes();
 
     if (themeApplied && savedThemeId) {
       const theme = await this.getTheme(savedThemeId);

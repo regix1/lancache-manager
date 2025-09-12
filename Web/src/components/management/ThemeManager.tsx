@@ -758,10 +758,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setCurrentTheme(currentThemeId);
   }, []);
 
-  const loadThemes = async (forceReload: boolean = false) => {
+  const loadThemes = async () => {
     setLoading(true);
     try {
-      const themeList = await themeService.loadThemes(forceReload);
+      const themeList = await themeService.loadThemes();
       setThemes(themeList);
     } catch (error) {
       console.error('Failed to load themes:', error);
@@ -1093,9 +1093,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       // Upload the theme file
       await themeService.uploadTheme(file);
       
-      // Update the theme service's cache immediately with our clean version
-      themeService.updateCachedTheme(updatedTheme);
-      
       // Immediately update the local themes list with our known good version
       setThemes(prevThemes => {
         const newThemes = prevThemes.map(t => {
@@ -1121,14 +1118,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setUploadSuccess(`Theme "${updatedTheme.meta.name}" updated successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
       
-      // Force reload from server after a short delay to confirm persistence
+      // Reload from server after a short delay to confirm persistence
       setTimeout(async () => {
         try {
-          const themeList = await themeService.loadThemes(true); // Force reload
+          const themeList = await themeService.loadThemes();
           const serverTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
           
           if (serverTheme) {
-            // Update with server version to confirm it was saved
+              // Update with server version to confirm it was saved
             setThemes(themeList);
             
             // Re-apply if it's the current theme to ensure consistency
@@ -1611,7 +1608,7 @@ content = """
               </button>
             )}
             <button
-              onClick={() => loadThemes(true)}
+              onClick={() => loadThemes()}
               disabled={loading}
               className="p-2 rounded-lg transition-colors"
               style={{
