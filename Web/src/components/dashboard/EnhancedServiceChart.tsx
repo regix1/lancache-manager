@@ -12,6 +12,7 @@ interface EnhancedServiceChartProps {
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStats }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100);
+  const [chartKey, setChartKey] = useState(0); // Force re-render key
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
   const prevDataRef = useRef<string>('');
@@ -198,14 +199,23 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
         if (chartInstance.current) {
           chartInstance.current.destroy();
           chartInstance.current = null;
-          // Force re-render by updating state
-          setChartSize(prev => prev);
+          // Force re-render by updating key
+          setChartKey(prev => prev + 1);
         }
       }, 50);
     };
 
     window.addEventListener('themechange', handleThemeChange);
     return () => window.removeEventListener('themechange', handleThemeChange);
+  }, []);
+  
+  // Force initial render after mount
+  useEffect(() => {
+    // Small delay to ensure DOM is ready and CSS variables are available
+    const timer = setTimeout(() => {
+      setChartKey(prev => prev + 1);
+    }, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -307,7 +317,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
         chartInstance.current.destroy();
       }
     };
-  }, [chartData, chartSize, activeTab]);
+  }, [chartData, chartSize, activeTab, chartKey]);
 
   // Calculate the actual chart container height
   const chartContainerHeight = 200 + (chartSize - 100) * 2;
@@ -409,6 +419,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
                 }}
               >
                 <canvas
+                  key={chartKey}
                   ref={chartRef}
                   style={{
                     maxHeight: '100%',
