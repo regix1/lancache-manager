@@ -823,10 +823,28 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
   };
 
-  const copyColor = (color: string) => {
-    navigator.clipboard.writeText(color);
-    setCopiedColor(color);
-    setTimeout(() => setCopiedColor(null), 2000);
+  const copyColor = async (color: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(color);
+      } else {
+        // Fallback for browsers without clipboard API
+        const textarea = document.createElement('textarea');
+        textarea.value = color;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-999999px';
+        textarea.style.top = '-999999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedColor(color);
+      setTimeout(() => setCopiedColor(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy color:', err);
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -1043,6 +1061,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     console.log('Saving theme with colors:', editedTheme);
 
+    // Create a clean colors object without meta properties
+    const cleanColors: any = {};
+    Object.entries(editedTheme).forEach(([key, value]) => {
+      if (!['name', 'description', 'author', 'version', 'isDark', 'customCSS'].includes(key)) {
+        cleanColors[key] = value;
+      }
+    });
+
     const updatedTheme: Theme = {
       meta: {
         id: editingTheme.meta.id,
@@ -1052,16 +1078,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         version: editedTheme.version,
         isDark: editedTheme.isDark
       },
-      colors: { ...editedTheme },
+      colors: cleanColors,
       css: editedTheme.customCSS ? { content: editedTheme.customCSS } : undefined
     };
-
-    delete updatedTheme.colors.name;
-    delete updatedTheme.colors.description;
-    delete updatedTheme.colors.author;
-    delete updatedTheme.colors.version;
-    delete updatedTheme.colors.isDark;
-    delete updatedTheme.colors.customCSS;
     
     console.log('Theme object to save:', updatedTheme);
 
@@ -1071,22 +1090,28 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     setLoading(true);
     try {
-      // Upload and immediately update local state (no waiting)
-      await themeService.uploadTheme(file);
+      // Upload the theme file
+      const uploadedTheme = await themeService.uploadTheme(file);
+      
+      // Update the theme service's cache immediately with our clean version
+      themeService.updateCachedTheme(updatedTheme);
       
       // Immediately update the local themes list with our known good version
       setThemes(prevThemes => {
-        return prevThemes.map(t => {
+        const newThemes = prevThemes.map(t => {
           if (t.meta.id === updatedTheme.meta.id) {
             return updatedTheme;
           }
           return t;
         });
+        return newThemes;
       });
       
       // Apply theme if currently active (immediate feedback)
       if (currentTheme === editingTheme.meta.id) {
         themeService.applyTheme(updatedTheme);
+        // Force a re-render of the theme by updating data-theme attribute
+        document.documentElement.setAttribute('data-theme', updatedTheme.meta.id);
       }
       
       // Close modal immediately for better UX
@@ -1096,10 +1121,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setUploadSuccess(`Theme "${updatedTheme.meta.name}" updated successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
       
-      // Update the theme service's cache
-      themeService.updateCachedTheme(updatedTheme);
-      
-      // Force reload from server after a delay to confirm persistence
+      // Force reload from server after a short delay to confirm persistence
       setTimeout(async () => {
         try {
           const themeList = await themeService.loadThemes(true); // Force reload
@@ -1108,15 +1130,19 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           if (serverTheme) {
             // Update with server version to confirm it was saved
             setThemes(themeList);
+            
+            // Re-apply if it's the current theme to ensure consistency
+            if (currentTheme === updatedTheme.meta.id) {
+              themeService.applyTheme(serverTheme);
+            }
           } else {
             // Theme wasn't found on server - something went wrong
-            setUploadError('Theme may not have been saved correctly. Please try again.');
-            setTimeout(() => setUploadError(null), 5000);
+            console.warn('Theme not found on server after save, but may still be updating');
           }
         } catch (error) {
           console.error('Failed to verify theme save:', error);
         }
-      }, 1000); // Check after 1 second
+      }, 500); // Check after 500ms for faster feedback
       
     } catch (error: any) {
       setUploadError(error.message || 'Failed to update theme');
