@@ -839,8 +839,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   const handleEditColorChange = (key: string, value: string) => {
     // Save the previous color to history before changing
-    if (editedTheme[key] && editedTheme[key] !== value) {
-      setColorHistory(prev => ({ ...prev, [key]: editedTheme[key] }));
+    const currentValue = editedTheme[key];
+    if (currentValue && currentValue !== value && currentValue !== '#000000') {
+      console.log(`Saving history for ${key}: ${currentValue} -> ${value}`);
+      setColorHistory(prev => ({ ...prev, [key]: currentValue }));
     }
     setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
   };
@@ -1091,6 +1093,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
     
     console.log('Theme data for editing:', themeData);
+    console.log('Color keys in theme data:', Object.keys(themeData).filter(k => !['name', 'description', 'author', 'version', 'isDark', 'customCSS'].includes(k)));
     setEditedTheme(themeData);
     setEditModalOpen(true);
   };
@@ -2284,6 +2287,7 @@ content = """
                                 value={editedTheme[color.key] || ''}
                                 onChange={(e) => handleEditColorChange(color.key, e.target.value)}
                                 className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
+                                placeholder={color.key}
                               />
                               <button
                                 onClick={() => copyColor(editedTheme[color.key] || '')}
@@ -2302,7 +2306,10 @@ content = """
                               </button>
                               {colorHistory[color.key] && (
                                 <button
-                                  onClick={() => restorePreviousColor(color.key)}
+                                  onClick={() => {
+                                    console.log(`Restoring ${color.key} from ${editedTheme[color.key]} to ${colorHistory[color.key]}`);
+                                    restorePreviousColor(color.key);
+                                  }}
                                   className="p-1 rounded-lg hover:bg-opacity-50"
                                   style={{ backgroundColor: 'var(--theme-bg-hover)' }}
                                   title={`Restore previous color: ${colorHistory[color.key]}`}
