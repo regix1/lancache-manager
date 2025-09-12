@@ -684,6 +684,12 @@ class ThemeService {
   }
 
   clearTheme(): void {
+    // Remove preload styles if they exist
+    const preloadStyle = document.getElementById('lancache-theme-preload');
+    if (preloadStyle) {
+      preloadStyle.remove();
+    }
+
     if (this.styleElement) {
       this.styleElement.remove();
       this.styleElement = null;
@@ -695,6 +701,8 @@ class ThemeService {
 
     localStorage.removeItem('lancache_theme');
     localStorage.removeItem('lancache_theme_applied');
+    localStorage.removeItem('lancache_theme_css');
+    localStorage.removeItem('lancache_theme_dark');
     this.currentTheme = null;
 
     this.applyDefaultVariables();
@@ -702,6 +710,12 @@ class ThemeService {
 
   applyTheme(theme: Theme): void {
     if (!theme || !theme.colors) return;
+
+    // Remove preload styles if they exist
+    const preloadStyle = document.getElementById('lancache-theme-preload');
+    if (preloadStyle) {
+      preloadStyle.remove();
+    }
 
     if (this.styleElement) {
       this.styleElement.remove();
@@ -852,9 +866,11 @@ class ThemeService {
     root.setAttribute('data-theme', theme.meta.isDark ? 'dark' : 'light');
     root.setAttribute('data-theme-id', theme.meta.id);
 
-    // Save to localStorage
+    // Save to localStorage including the CSS for instant load next time
     localStorage.setItem('lancache_theme', theme.meta.id);
     localStorage.setItem('lancache_theme_applied', 'true');
+    localStorage.setItem('lancache_theme_css', themeStyles);
+    localStorage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
     this.currentTheme = theme;
 
     // Force re-render

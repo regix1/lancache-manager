@@ -5,6 +5,54 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LANCache Manager</title>
+    <script>
+      // Apply theme immediately to prevent flash
+      (function() {
+        try {
+          // Get saved theme CSS from localStorage
+          const savedCSS = localStorage.getItem('lancache_theme_css');
+          const themeId = localStorage.getItem('lancache_theme');
+          const themeApplied = localStorage.getItem('lancache_theme_applied') === 'true';
+          
+          if (savedCSS && themeApplied) {
+            // Create and inject the saved theme styles immediately
+            const style = document.createElement('style');
+            style.id = 'lancache-theme-preload';
+            style.textContent = savedCSS;
+            document.head.appendChild(style);
+            
+            // Set data attributes
+            if (themeId) {
+              document.documentElement.setAttribute('data-theme-id', themeId);
+              // Determine if dark or light based on theme ID or saved preference
+              const isDark = localStorage.getItem('lancache_theme_dark') !== 'false';
+              document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            }
+          } else {
+            // Apply default dark theme immediately
+            const defaultStyle = document.createElement('style');
+            defaultStyle.id = 'lancache-theme-preload';
+            defaultStyle.textContent = `
+              :root {
+                --theme-bg-primary: #111827;
+                --theme-bg-secondary: #1f2937;
+                --theme-text-primary: #ffffff;
+                --theme-text-secondary: #d1d5db;
+                --theme-text-muted: #9ca3af;
+              }
+              body {
+                background-color: var(--theme-bg-primary);
+                color: var(--theme-text-primary);
+              }
+            `;
+            document.head.appendChild(defaultStyle);
+            document.documentElement.setAttribute('data-theme', 'dark');
+          }
+        } catch (e) {
+          console.error('Failed to preload theme:', e);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
