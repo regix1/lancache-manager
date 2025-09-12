@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info, Loader } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import Chart from 'chart.js/auto';
@@ -12,9 +12,11 @@ interface EnhancedServiceChartProps {
 const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStats }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100);
+  const [isLoading, setIsLoading] = useState(true);
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
   const prevDataRef = useRef<string>('');
+  const hasInitialData = useRef(false);
 
   const tabs = [
     { name: 'Service Distribution', id: 'service' },
@@ -22,23 +24,35 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
     { name: 'Bandwidth Saved', id: 'bandwidth' }
   ];
 
-  // Function to get chart colors from CSS variables
+  // Function to get chart colors from CSS variables with fallbacks
   const getChartColors = () => {
+    // Use requestAnimationFrame to ensure CSS variables are available
     const computedStyle = getComputedStyle(document.documentElement);
-    return [
-      computedStyle.getPropertyValue('--theme-chart-1').trim() || '#3b82f6',
-      computedStyle.getPropertyValue('--theme-chart-2').trim() || '#10b981',
-      computedStyle.getPropertyValue('--theme-chart-3').trim() || '#f59e0b',
-      computedStyle.getPropertyValue('--theme-chart-4').trim() || '#ef4444',
-      computedStyle.getPropertyValue('--theme-chart-5').trim() || '#8b5cf6',
-      computedStyle.getPropertyValue('--theme-chart-6').trim() || '#06b6d4',
-      computedStyle.getPropertyValue('--theme-chart-7').trim() || '#f97316',
-      computedStyle.getPropertyValue('--theme-chart-8').trim() || '#ec4899'
+    const colors = [
+      computedStyle.getPropertyValue('--theme-chart-1').trim(),
+      computedStyle.getPropertyValue('--theme-chart-2').trim(),
+      computedStyle.getPropertyValue('--theme-chart-3').trim(),
+      computedStyle.getPropertyValue('--theme-chart-4').trim(),
+      computedStyle.getPropertyValue('--theme-chart-5').trim(),
+      computedStyle.getPropertyValue('--theme-chart-6').trim(),
+      computedStyle.getPropertyValue('--theme-chart-7').trim(),
+      computedStyle.getPropertyValue('--theme-chart-8').trim()
     ];
+    
+    // Fallback colors if CSS variables aren't loaded yet
+    const fallbacks = [
+      '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+      '#8b5cf6', '#06b6d4', '#f97316', '#ec4899'
+    ];
+    
+    return colors.map((color, i) => color || fallbacks[i]);
   };
 
   const getServiceDistributionData = useMemo(() => {
-    if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
+    if (!serviceStats || serviceStats.length === 0) {
+      // Keep previous data if we had it before
+      return { labels: [], data: [], colors: [] };
+    }
 
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
     if (totalBytes === 0) return { labels: [], data: [], colors: [] };
@@ -181,19 +195,41 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
   // Listen for theme changes
   useEffect(() => {
     const handleThemeChange = () => {
-      // Force re-render of chart with new colors
-      if (chartInstance.current) {
-        chartInstance.current.destroy();
-        chartInstance.current = null;
-      }
+      // Delay chart recreation to ensure CSS variables are updated
+      setTimeout(() => {
+        if (chartInstance.current) {
+          chartInstance.current.destroy();
+          chartInstance.current = null;
+          // Force re-render by updating state
+          setChartSize(prev => prev);
+        }
+      }, 50);
     };
 
     window.addEventListener('themechange', handleThemeChange);
     return () => window.removeEventListener('themechange', handleThemeChange);
   }, []);
 
+  // Track when we have initial data
   useEffect(() => {
-    if (!chartRef.current || chartData.labels.length === 0) return;
+    if (serviceStats && serviceStats.length > 0) {
+      hasInitialData.current = true;
+      setIsLoading(false);
+    }
+  }, [serviceStats]);
+
+  useEffect(() => {
+    if (!chartRef.current) return;
+    
+    // Don't clear chart if we're just temporarily without data
+    if (chartData.labels.length === 0) {
+      // Only clear if we never had data
+      if (!hasInitialData.current && chartInstance.current) {
+        chartInstance.current.destroy();
+        chartInstance.current = null;
+      }
+      return;
+    }
 
     // Check if data actually changed to prevent unnecessary animations
     const currentDataString = JSON.stringify({
@@ -377,7 +413,11 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
       </div>
 
       <div className="px-6 pb-6">
-        {chartData.labels.length > 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center h-48">
+            <Loader className="w-8 h-8 animate-spin text-themed-muted" />
+          </div>
+        ) : chartData.labels.length > 0 || hasInitialData.current ? (
           <>
             <div
               className="flex justify-center items-center"
@@ -396,14 +436,21 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
                   ref={chartRef}
                   style={{
                     maxHeight: '100%',
-                    maxWidth: '100%'
+                    maxWidth: '100%',
+                    display: chartData.labels.length > 0 ? 'block' : 'none'
                   }}
                 />
+                {chartData.labels.length === 0 && hasInitialData.current && (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-themed-muted text-sm">Loading chart data...</p>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap justify-center gap-3">
-              {chartData.labels.map((label, index) => {
+            {chartData.labels.length > 0 && (
+              <div className="mt-4 flex flex-wrap justify-center gap-3">
+                {chartData.labels.map((label, index) => {
                 const value = chartData.data[index];
                 const total = chartData.data.reduce((a, b) => a + b, 0);
                 const percentage = ((value / total) * 100).toFixed(1);
@@ -418,8 +465,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
                     <span className="text-xs text-themed-primary font-medium">{percentage}%</span>
                   </div>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            )}
 
             {/* Chart description and stats */}
             <div

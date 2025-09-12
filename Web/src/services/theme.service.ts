@@ -878,11 +878,30 @@ class ThemeService {
   }
 
   async loadSavedTheme(): Promise<void> {
-    this.applyDefaultVariables();
-    await this.loadThemes();
-
+    // Check if preload already applied the theme
+    const preloadStyle = document.getElementById('lancache-theme-preload');
     const themeApplied = localStorage.getItem('lancache_theme_applied') === 'true';
     const savedThemeId = localStorage.getItem('lancache_theme');
+    
+    // If preload style exists and matches saved theme, we're already good
+    if (preloadStyle && themeApplied && savedThemeId) {
+      // Still need to set the current theme object and load themes list
+      this.applyDefaultVariables();
+      
+      // Load themes in background
+      this.loadThemes().then(async () => {
+        const theme = await this.getTheme(savedThemeId);
+        if (theme) {
+          // Apply the full theme (this will remove preload and apply proper styles)
+          this.applyTheme(theme);
+        }
+      });
+      return;
+    }
+    
+    // Normal loading path if no preload
+    this.applyDefaultVariables();
+    await this.loadThemes();
 
     if (themeApplied && savedThemeId) {
       const theme = await this.getTheme(savedThemeId);
@@ -892,6 +911,8 @@ class ThemeService {
         console.log(`Saved theme ${savedThemeId} not found, resetting to default`);
         localStorage.removeItem('lancache_theme');
         localStorage.removeItem('lancache_theme_applied');
+        localStorage.removeItem('lancache_theme_css');
+        localStorage.removeItem('lancache_theme_dark');
         const darkDefault = await this.getTheme('dark-default');
         if (darkDefault) {
           this.applyTheme(darkDefault);
