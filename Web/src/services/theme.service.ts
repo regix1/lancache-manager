@@ -676,8 +676,10 @@ class ThemeService {
     root.removeAttribute('data-theme-id');
     this.currentTheme = null;
     
-    // Clear the saved theme preference
+    // Clear all saved theme data
     localStorage.removeItem('lancache_selected_theme');
+    localStorage.removeItem('lancache_theme_css');
+    localStorage.removeItem('lancache_theme_dark');
 
     this.applyDefaultVariables();
   }
@@ -691,7 +693,12 @@ class ThemeService {
       this.styleElement = null;
     }
     
-    // Also remove default preload if it exists
+    // Remove preload styles since we're applying the real theme
+    const preloadStyle = document.getElementById('lancache-theme-preload');
+    if (preloadStyle) {
+      preloadStyle.remove();
+    }
+    
     const defaultPreload = document.getElementById('lancache-default-preload');
     if (defaultPreload) {
       defaultPreload.remove();
@@ -842,29 +849,45 @@ class ThemeService {
     root.setAttribute('data-theme-id', theme.meta.id);
     this.currentTheme = theme;
     
-    // Save only the theme ID to remember the selection (NOT the content)
+    // Save the theme ID and CSS for instant loading on next page load
     localStorage.setItem('lancache_selected_theme', theme.meta.id);
+    localStorage.setItem('lancache_theme_css', themeStyles);
+    localStorage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
 
     // Force re-render
     window.dispatchEvent(new Event('themechange'));
   }
 
   async loadSavedTheme(): Promise<void> {
-    // Always start with default variables
-    this.applyDefaultVariables();
-    
-    // Check if user has a saved theme preference
+    // Check if we have a preloaded theme from the HTML
+    const preloadStyle = document.getElementById('lancache-theme-preload');
     const savedThemeId = localStorage.getItem('lancache_selected_theme');
     
+    if (preloadStyle && savedThemeId) {
+      // We have a preloaded theme, load the fresh version from server
+      const theme = await this.getTheme(savedThemeId);
+      if (theme) {
+        // Apply the fresh theme (this will remove the preload and apply the real theme)
+        this.applyTheme(theme);
+        this.currentTheme = theme;
+        return;
+      }
+      // If saved theme not found on server, clear everything
+      localStorage.removeItem('lancache_selected_theme');
+      localStorage.removeItem('lancache_theme_css');
+      localStorage.removeItem('lancache_theme_dark');
+    }
+    
+    // No preload or theme not found, apply defaults
+    this.applyDefaultVariables();
+    
+    // Check if user has a saved theme preference without preload
     if (savedThemeId) {
-      // Try to load the saved theme
       const theme = await this.getTheme(savedThemeId);
       if (theme) {
         this.applyTheme(theme);
         return;
       }
-      // If saved theme not found, clear the preference
-      localStorage.removeItem('lancache_selected_theme');
     }
     
     // Default to dark theme if no saved preference or theme not found
