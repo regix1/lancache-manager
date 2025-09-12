@@ -1091,7 +1091,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
     try {
       // Upload the theme file
-      const uploadedTheme = await themeService.uploadTheme(file);
+      await themeService.uploadTheme(file);
       
       // Update the theme service's cache immediately with our clean version
       themeService.updateCachedTheme(updatedTheme);
