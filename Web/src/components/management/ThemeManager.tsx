@@ -885,7 +885,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     try {
       const result = await themeService.uploadTheme(file);
       setUploadSuccess(`Theme "${result.meta.name}" uploaded successfully`);
-      await loadThemes();
+      
+      // Add the new theme to the list immediately
+      setThemes(prevThemes => {
+        const existingIndex = prevThemes.findIndex(t => t.meta.id === result.meta.id);
+        if (existingIndex >= 0) {
+          // Update existing theme
+          const newThemes = [...prevThemes];
+          newThemes[existingIndex] = result;
+          return newThemes;
+        } else {
+          // Add new theme
+          return [...prevThemes, result];
+        }
+      });
+      
       setTimeout(() => setUploadSuccess(null), 5000);
     } catch (error: any) {
       setUploadError(error.message);
@@ -1118,29 +1132,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setUploadSuccess(`Theme "${updatedTheme.meta.name}" updated successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
       
-      // Reload from server after a short delay to confirm persistence
-      setTimeout(async () => {
-        try {
-          const themeList = await themeService.loadThemes();
-          const serverTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
-          
-          if (serverTheme) {
-              // Update with server version to confirm it was saved
-            setThemes(themeList);
-            
-            // Re-apply if it's the current theme to ensure consistency
-            if (currentTheme === updatedTheme.meta.id) {
-              themeService.applyTheme(serverTheme);
-            }
-          } else {
-            // Theme wasn't found on server - something went wrong
-            console.warn('Theme not found on server after save, but may still be updating');
-          }
-        } catch (error) {
-          console.error('Failed to verify theme save:', error);
-        }
-      }, 500); // Check after 500ms for faster feedback
-      
     } catch (error: any) {
       setUploadError(error.message || 'Failed to update theme');
       setLoading(false);
@@ -1192,7 +1183,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
     try {
       await themeService.uploadTheme(file);
-      await loadThemes();
+      
+      // Add the new theme to the list immediately
+      setThemes(prevThemes => [...prevThemes, theme]);
 
       themeService.applyTheme(theme);
       setCurrentTheme(theme.meta.id);
