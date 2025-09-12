@@ -140,6 +140,7 @@ const LogFileManager: React.FC<{
     services: [] as string[]
   });
   const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
 
@@ -162,10 +163,13 @@ const LogFileManager: React.FC<{
       setServiceCounts(counts);
     } catch (err) {
       console.error('Failed to load config:', err);
+      // Only use fallback if we truly failed to load
       setConfig({
         logPath: '/logs/access.log',
         services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -177,7 +181,17 @@ const LogFileManager: React.FC<{
       setTimeout(async () => {
         await serviceRemovalOp.clear();
         setActiveServiceRemoval(null);
-        loadConfig();
+        // Reload config without showing loading state
+        try {
+          const [configData, counts] = await Promise.all([
+            ApiService.getConfig(),
+            ApiService.getServiceLogCounts()
+          ]);
+          setConfig(configData);
+          setServiceCounts(counts);
+        } catch (err) {
+          console.error('Failed to reload config:', err);
+        }
         onDataRefresh?.();
       }, 10000);
     }
@@ -201,9 +215,19 @@ const LogFileManager: React.FC<{
       }
 
       await serviceRemovalOp.clear();
-      setTimeout(() => {
+      setTimeout(async () => {
         setActiveServiceRemoval(null);
-        loadConfig();
+        // Reload config without showing loading state
+        try {
+          const [configData, counts] = await Promise.all([
+            ApiService.getConfig(),
+            ApiService.getServiceLogCounts()
+          ]);
+          setConfig(configData);
+          setServiceCounts(counts);
+        } catch (err) {
+          console.error('Failed to reload config:', err);
+        }
         onDataRefresh?.();
       }, 2000);
     } catch (err: any) {
@@ -217,10 +241,7 @@ const LogFileManager: React.FC<{
     }
   };
 
-  const services =
-    config.services.length > 0
-      ? config.services
-      : ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'];
+  const services = config.services.length > 0 ? config.services : [];
 
   return (
     <Card>
@@ -232,8 +253,13 @@ const LogFileManager: React.FC<{
         Remove service entries from{' '}
         <code className="bg-themed-tertiary px-2 py-1 rounded">{config.logPath}</code>
       </p>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {services.map((service) => {
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader className="w-6 h-6 animate-spin text-themed-muted" />
+        </div>
+      ) : services.length > 0 ? (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {services.map((service) => {
           const isRemoving = activeServiceRemoval === service;
           return (
             <Button
@@ -261,8 +287,13 @@ const LogFileManager: React.FC<{
               )}
             </Button>
           );
-        })}
-      </div>
+          })}
+        </div>
+      ) : (
+        <div className="text-center py-8 text-themed-muted">
+          No services configured
+        </div>
+      )}
       <div className="mt-4">
         <Alert color="yellow">
           <p className="text-xs">
