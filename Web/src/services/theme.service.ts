@@ -181,11 +181,9 @@ class ThemeService {
         }
 
         if (deletedThemeIds.length > 0) {
-          const currentThemeId = localStorage.getItem('lancache_theme');
-          if (currentThemeId && deletedThemeIds.includes(currentThemeId)) {
-            console.log(`Current theme ${currentThemeId} was deleted, resetting to default`);
-            localStorage.removeItem('lancache_theme');
-            localStorage.removeItem('lancache_theme_applied');
+          // If current theme was deleted, reset to default
+          if (this.currentTheme && deletedThemeIds.includes(this.currentTheme.meta.id)) {
+            console.log(`Current theme ${this.currentTheme.meta.id} was deleted, resetting to default`);
             const darkDefault = builtInThemes.find((t) => t.meta.id === 'dark-default');
             if (darkDefault) {
               this.applyTheme(darkDefault);
@@ -668,12 +666,6 @@ class ThemeService {
   }
 
   clearTheme(): void {
-    // Remove preload styles if they exist
-    const preloadStyle = document.getElementById('lancache-theme-preload');
-    if (preloadStyle) {
-      preloadStyle.remove();
-    }
-
     if (this.styleElement) {
       this.styleElement.remove();
       this.styleElement = null;
@@ -682,11 +674,6 @@ class ThemeService {
     const root = document.documentElement;
     root.removeAttribute('data-theme');
     root.removeAttribute('data-theme-id');
-
-    localStorage.removeItem('lancache_theme');
-    localStorage.removeItem('lancache_theme_applied');
-    localStorage.removeItem('lancache_theme_css');
-    localStorage.removeItem('lancache_theme_dark');
     this.currentTheme = null;
 
     this.applyDefaultVariables();
@@ -695,15 +682,16 @@ class ThemeService {
   applyTheme(theme: Theme): void {
     if (!theme || !theme.colors) return;
 
-    // Remove preload styles if they exist
-    const preloadStyle = document.getElementById('lancache-theme-preload');
-    if (preloadStyle) {
-      preloadStyle.remove();
-    }
-
+    // Remove any existing theme styles
     if (this.styleElement) {
       this.styleElement.remove();
       this.styleElement = null;
+    }
+    
+    // Also remove default preload if it exists
+    const defaultPreload = document.getElementById('lancache-default-preload');
+    if (defaultPreload) {
+      defaultPreload.remove();
     }
 
     const colors = theme.colors;
@@ -849,12 +837,6 @@ class ThemeService {
     const root = document.documentElement;
     root.setAttribute('data-theme', theme.meta.isDark ? 'dark' : 'light');
     root.setAttribute('data-theme-id', theme.meta.id);
-
-    // Save to localStorage including the CSS for instant load next time
-    localStorage.setItem('lancache_theme', theme.meta.id);
-    localStorage.setItem('lancache_theme_applied', 'true');
-    localStorage.setItem('lancache_theme_css', themeStyles);
-    localStorage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
     this.currentTheme = theme;
 
     // Force re-render
@@ -862,67 +844,27 @@ class ThemeService {
   }
 
   async loadSavedTheme(): Promise<void> {
-    // Check if preload already applied the theme
-    const preloadStyle = document.getElementById('lancache-theme-preload');
-    const themeApplied = localStorage.getItem('lancache_theme_applied') === 'true';
-    const savedThemeId = localStorage.getItem('lancache_theme');
-    
-    // If preload style exists and matches saved theme, we're already good
-    if (preloadStyle && themeApplied && savedThemeId) {
-      // Don't apply default variables since we have preloaded theme
-      // Load themes
-      this.loadThemes().then(async () => {
-        const theme = await this.getTheme(savedThemeId);
-        if (theme) {
-          // Apply the full theme (this will remove preload and apply proper styles)
-          this.applyTheme(theme);
-        }
-      });
-      return;
-    }
-    
-    // Normal loading path if no preload
+    // Always start with default variables
     this.applyDefaultVariables();
-
-    if (themeApplied && savedThemeId) {
-      const theme = await this.getTheme(savedThemeId);
-      if (theme) {
-        this.applyTheme(theme);
-      } else {
-        console.log(`Saved theme ${savedThemeId} not found, resetting to default`);
-        localStorage.removeItem('lancache_theme');
-        localStorage.removeItem('lancache_theme_applied');
-        localStorage.removeItem('lancache_theme_css');
-        localStorage.removeItem('lancache_theme_dark');
-        const darkDefault = await this.getTheme('dark-default');
-        if (darkDefault) {
-          this.applyTheme(darkDefault);
-        }
-      }
-    } else if (!themeApplied) {
-      const darkDefault = await this.getTheme('dark-default');
-      if (darkDefault) {
-        this.applyTheme(darkDefault);
-      }
+    
+    // Always load and apply dark-default theme on startup
+    // User can change it after loading
+    const darkDefault = await this.getTheme('dark-default');
+    if (darkDefault) {
+      this.applyTheme(darkDefault);
     }
   }
 
   getCurrentThemeId(): string {
-    const applied = localStorage.getItem('lancache_theme_applied') === 'true';
-    if (!applied) return 'dark-default';
-    return localStorage.getItem('lancache_theme') || 'dark-default';
+    return this.currentTheme?.meta.id || 'dark-default';
   }
 
   getCurrentTheme(): Theme | null {
-    const applied = localStorage.getItem('lancache_theme_applied') === 'true';
-    if (!applied) {
-      return this.getBuiltInThemes().find((t) => t.meta.id === 'dark-default') || null;
-    }
     return this.currentTheme;
   }
 
   isThemeApplied(): boolean {
-    return localStorage.getItem('lancache_theme_applied') === 'true';
+    return this.currentTheme !== null;
   }
 
   exportTheme(theme: Theme): string {
