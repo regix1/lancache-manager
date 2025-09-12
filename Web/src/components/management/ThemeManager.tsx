@@ -86,6 +86,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   ]);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
   const [colorHistory, setColorHistory] = useState<Record<string, string>>({});
+  const [createColorHistory, setCreateColorHistory] = useState<Record<string, string>>({});
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -818,7 +819,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const handleColorChange = (key: string, value: string) => {
+    // Save the previous color to history before changing
+    if (newTheme[key] && newTheme[key] !== value) {
+      setCreateColorHistory(prev => ({ ...prev, [key]: newTheme[key] }));
+    }
     setNewTheme((prev: any) => ({ ...prev, [key]: value }));
+  };
+
+  const restoreCreatePreviousColor = (key: string) => {
+    const previousColor = createColorHistory[key];
+    if (previousColor) {
+      // Swap current with history
+      const currentColor = newTheme[key];
+      setNewTheme((prev: any) => ({ ...prev, [key]: previousColor }));
+      setCreateColorHistory(prev => ({ ...prev, [key]: currentColor }));
+    }
   };
 
   const handleEditColorChange = (key: string, value: string) => {
@@ -1215,6 +1230,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       themeService.applyTheme(theme);
       setCurrentTheme(theme.meta.id);
       setCreateModalOpen(false);
+      
+      // Clear create color history after successful save
+      setCreateColorHistory({});
 
       setNewTheme({
         name: '',
@@ -1877,7 +1895,11 @@ content = """
 
       <Modal
         opened={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        onClose={() => {
+          setCreateModalOpen(false);
+          // Clear history when closing without saving
+          setCreateColorHistory({});
+        }}
         title="Create Custom Theme"
         size="xl"
       >
@@ -2117,6 +2139,8 @@ content = """
           setEditModalOpen(false);
           setEditingTheme(null);
           setEditedTheme({});
+          // Clear history when closing without saving
+          setColorHistory({});
         }}
         title={`Edit Theme: ${editingTheme?.meta.name || ''}`}
         size="xl"
