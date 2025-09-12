@@ -190,23 +190,10 @@ public class ThemeController : ControllerBase
                 themeId = Regex.Replace(baseName, @"[^a-zA-Z0-9-_]", "-").ToLower();
                 themeId = themeId.Substring(0, Math.Min(themeId.Length, 50));
 
-                // Check if this is an update to an existing theme
-                var existingPath = Path.Combine(_themesPath, $"{themeId}.toml");
-                var isUpdate = System.IO.File.Exists(existingPath);
-                
-                if (!isUpdate)
-                {
-                    // Only ensure unique ID for new themes
-                    var counter = 0;
-                    var baseId = themeId;
-                    while (System.IO.File.Exists(Path.Combine(_themesPath, $"{themeId}.toml")))
-                    {
-                        counter++;
-                        themeId = $"{baseId}-{counter}";
-                    }
-                }
-
+                // Simply use the theme ID from the filename - overwrite if exists
                 filePath = Path.Combine(_themesPath, $"{themeId}.toml");
+                
+                _logger.LogInformation($"Saving theme to: {filePath} (will overwrite if exists)");
                 await System.IO.File.WriteAllTextAsync(filePath, content);
             }
             else

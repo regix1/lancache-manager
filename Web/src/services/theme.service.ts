@@ -675,6 +675,9 @@ class ThemeService {
     root.removeAttribute('data-theme');
     root.removeAttribute('data-theme-id');
     this.currentTheme = null;
+    
+    // Clear the saved theme preference
+    localStorage.removeItem('lancache_selected_theme');
 
     this.applyDefaultVariables();
   }
@@ -838,6 +841,9 @@ class ThemeService {
     root.setAttribute('data-theme', theme.meta.isDark ? 'dark' : 'light');
     root.setAttribute('data-theme-id', theme.meta.id);
     this.currentTheme = theme;
+    
+    // Save only the theme ID to remember the selection (NOT the content)
+    localStorage.setItem('lancache_selected_theme', theme.meta.id);
 
     // Force re-render
     window.dispatchEvent(new Event('themechange'));
@@ -847,8 +853,21 @@ class ThemeService {
     // Always start with default variables
     this.applyDefaultVariables();
     
-    // Always load and apply dark-default theme on startup
-    // User can change it after loading
+    // Check if user has a saved theme preference
+    const savedThemeId = localStorage.getItem('lancache_selected_theme');
+    
+    if (savedThemeId) {
+      // Try to load the saved theme
+      const theme = await this.getTheme(savedThemeId);
+      if (theme) {
+        this.applyTheme(theme);
+        return;
+      }
+      // If saved theme not found, clear the preference
+      localStorage.removeItem('lancache_selected_theme');
+    }
+    
+    // Default to dark theme if no saved preference or theme not found
     const darkDefault = await this.getTheme('dark-default');
     if (darkDefault) {
       this.applyTheme(darkDefault);

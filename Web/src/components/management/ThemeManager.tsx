@@ -756,19 +756,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   ];
 
   useEffect(() => {
-    // Load themes and apply the last selected one from server
-    loadThemes().then(async () => {
-      // Check if a theme is currently applied
-      const currentThemeId = themeService.getCurrentThemeId();
-      if (currentThemeId && currentThemeId !== 'dark-default') {
-        // Re-apply the current theme from server to ensure it's up to date
-        const theme = await themeService.getTheme(currentThemeId);
-        if (theme) {
-          themeService.applyTheme(theme);
-        }
-      }
-      setCurrentTheme(currentThemeId);
-    });
+    // Load themes and set the current theme ID
+    loadThemes();
+    const currentThemeId = themeService.getCurrentThemeId();
+    setCurrentTheme(currentThemeId);
   }, []);
 
   const loadThemes = async () => {
