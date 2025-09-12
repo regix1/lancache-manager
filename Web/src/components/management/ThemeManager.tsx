@@ -867,16 +867,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
     return localStorage.getItem(historyKey);
   };
-  
-  // Utility to clear all color history (can be called if needed)
-  const clearAllColorHistory = () => {
-    const keys = Object.keys(localStorage);
-    keys.forEach(key => {
-      if (key.startsWith('color_history_')) {
-        localStorage.removeItem(key);
-      }
-    });
-  };
 
   const copyColor = async (color: string) => {
     try {
