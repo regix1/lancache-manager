@@ -85,8 +85,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     'navigation'
   ]);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
-  const [colorHistory, setColorHistory] = useState<Record<string, string>>({});
-  const [createColorHistory, setCreateColorHistory] = useState<Record<string, string>>({});
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -820,41 +818,64 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const handleColorChange = (key: string, value: string) => {
-    // Save the previous color to history before changing
-    if (newTheme[key] && newTheme[key] !== value) {
-      setCreateColorHistory(prev => ({ ...prev, [key]: newTheme[key] }));
+    // Save the previous color to localStorage history before changing
+    const currentValue = newTheme[key];
+    if (currentValue && currentValue !== value) {
+      localStorage.setItem(`color_history_create_${key}`, currentValue);
     }
     setNewTheme((prev: any) => ({ ...prev, [key]: value }));
   };
 
   const restoreCreatePreviousColor = (key: string) => {
-    const previousColor = createColorHistory[key];
+    const previousColor = localStorage.getItem(`color_history_create_${key}`);
     if (previousColor) {
       // Swap current with history
       const currentColor = newTheme[key];
       setNewTheme((prev: any) => ({ ...prev, [key]: previousColor }));
-      setCreateColorHistory(prev => ({ ...prev, [key]: currentColor }));
+      localStorage.setItem(`color_history_create_${key}`, currentColor);
     }
+  };
+  
+  const getCreateColorHistory = (key: string) => {
+    return localStorage.getItem(`color_history_create_${key}`);
   };
 
   const handleEditColorChange = (key: string, value: string) => {
-    // Save the previous color to history before changing
+    // Save the previous color to localStorage history before changing
     const currentValue = editedTheme[key];
-    if (currentValue && currentValue !== value && currentValue !== '#000000') {
-      console.log(`Saving history for ${key}: ${currentValue} -> ${value}`);
-      setColorHistory(prev => ({ ...prev, [key]: currentValue }));
+    if (currentValue && currentValue !== value) {
+      const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
+      localStorage.setItem(historyKey, currentValue);
+      console.log(`Saved history for ${key}: ${currentValue} -> ${value}`);
     }
     setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
   };
 
   const restorePreviousColor = (key: string) => {
-    const previousColor = colorHistory[key];
+    const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
+    const previousColor = localStorage.getItem(historyKey);
     if (previousColor) {
       // Swap current with history
       const currentColor = editedTheme[key];
+      console.log(`Restoring ${key}: ${currentColor} -> ${previousColor}`);
       setEditedTheme((prev: any) => ({ ...prev, [key]: previousColor }));
-      setColorHistory(prev => ({ ...prev, [key]: currentColor }));
+      localStorage.setItem(historyKey, currentColor || '');
     }
+  };
+  
+  const getEditColorHistory = (key: string) => {
+    const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
+    return localStorage.getItem(historyKey);
+  };
+  
+  // Utility to clear all color history (can be called if needed)
+  const clearAllColorHistory = () => {
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith('color_history_')) {
+        localStorage.removeItem(key);
+      }
+    });
   };
 
   const copyColor = async (color: string) => {
@@ -1068,9 +1089,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     console.log('Editing theme:', latestTheme);
     console.log('Theme colors:', latestTheme.colors);
 
-    // Clear color history when opening a new theme
-    setColorHistory({});
-    
     setEditingTheme(latestTheme);
     
     // Start with all theme colors
@@ -1159,8 +1177,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         throw new Error('Theme was uploaded but not found on server');
       }
       
-      // Clear color history after successful save
-      setColorHistory({});
+      // Clear color history for this theme after successful save
+      Object.keys(editedTheme).forEach(key => {
+        const historyKey = `color_history_${editingTheme.meta.id}_${key}`;
+        localStorage.removeItem(historyKey);
+      });
       
       // Close modal
       setEditModalOpen(false);
@@ -1237,7 +1258,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setCreateModalOpen(false);
       
       // Clear create color history after successful save
-      setCreateColorHistory({});
+      Object.keys(newTheme).forEach(key => {
+        localStorage.removeItem(`color_history_create_${key}`);
+      });
 
       setNewTheme({
         name: '',
@@ -1902,8 +1925,6 @@ content = """
         opened={createModalOpen}
         onClose={() => {
           setCreateModalOpen(false);
-          // Clear history when closing without saving
-          setCreateColorHistory({});
         }}
         title="Create Custom Theme"
         size="xl"
@@ -2082,12 +2103,12 @@ content = """
                                   <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
                               </button>
-                              {createColorHistory[color.key] && (
+                              {getCreateColorHistory(color.key) && (
                                 <button
                                   onClick={() => restoreCreatePreviousColor(color.key)}
                                   className="p-1 rounded-lg hover:bg-opacity-50"
                                   style={{ backgroundColor: 'var(--theme-bg-hover)' }}
-                                  title={`Restore previous color: ${createColorHistory[color.key]}`}
+                                  title={`Restore previous color: ${getCreateColorHistory(color.key)}`}
                                 >
                                   <RotateCcw className="w-3 h-3 text-themed-muted" />
                                 </button>
@@ -2144,8 +2165,6 @@ content = """
           setEditModalOpen(false);
           setEditingTheme(null);
           setEditedTheme({});
-          // Clear history when closing without saving
-          setColorHistory({});
         }}
         title={`Edit Theme: ${editingTheme?.meta.name || ''}`}
         size="xl"
@@ -2304,15 +2323,12 @@ content = """
                                   <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
                               </button>
-                              {colorHistory[color.key] && (
+                              {getEditColorHistory(color.key) && (
                                 <button
-                                  onClick={() => {
-                                    console.log(`Restoring ${color.key} from ${editedTheme[color.key]} to ${colorHistory[color.key]}`);
-                                    restorePreviousColor(color.key);
-                                  }}
+                                  onClick={() => restorePreviousColor(color.key)}
                                   className="p-1 rounded-lg hover:bg-opacity-50"
                                   style={{ backgroundColor: 'var(--theme-bg-hover)' }}
-                                  title={`Restore previous color: ${colorHistory[color.key]}`}
+                                  title={`Restore previous color: ${getEditColorHistory(color.key)}`}
                                 >
                                   <RotateCcw className="w-3 h-3 text-themed-muted" />
                                 </button>
