@@ -915,22 +915,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
     try {
       const result = await themeService.uploadTheme(file);
+      
+      // Wait a moment for the server to save the file
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Reload themes from server to ensure we have the saved version
+      const themeList = await themeService.loadThemes();
+      setThemes(themeList);
+      
       setUploadSuccess(`Theme "${result.meta.name}" uploaded successfully`);
-      
-      // Add the new theme to the list immediately
-      setThemes(prevThemes => {
-        const existingIndex = prevThemes.findIndex(t => t.meta.id === result.meta.id);
-        if (existingIndex >= 0) {
-          // Update existing theme
-          const newThemes = [...prevThemes];
-          newThemes[existingIndex] = result;
-          return newThemes;
-        } else {
-          // Add new theme
-          return [...prevThemes, result];
-        }
-      });
-      
       setTimeout(() => setUploadSuccess(null), 5000);
     } catch (error: any) {
       setUploadError(error.message);
@@ -1144,32 +1137,31 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       // Upload the theme file
       await themeService.uploadTheme(file);
       
-      // Immediately update the local themes list with our known good version
-      setThemes(prevThemes => {
-        const newThemes = prevThemes.map(t => {
-          if (t.meta.id === updatedTheme.meta.id) {
-            return updatedTheme;
-          }
-          return t;
-        });
-        return newThemes;
-      });
+      // Wait a moment for the server to save the file
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Reload themes from server to get the actual saved version
+      const themeList = await themeService.loadThemes();
+      setThemes(themeList);
+      
+      // Find the saved theme and apply it if it's current
+      const savedTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
+      if (savedTheme) {
+        if (currentTheme === editingTheme.meta.id) {
+          themeService.applyTheme(savedTheme);
+        }
+        setUploadSuccess(`Theme "${savedTheme.meta.name}" updated successfully`);
+      } else {
+        throw new Error('Theme was uploaded but not found on server');
+      }
       
       // Clear color history after successful save
       setColorHistory({});
       
-      // Apply theme if currently active (immediate feedback)
-      if (currentTheme === editingTheme.meta.id) {
-        themeService.applyTheme(updatedTheme);
-        // Force a re-render of the theme by updating data-theme attribute
-        document.documentElement.setAttribute('data-theme', updatedTheme.meta.id);
-      }
-      
-      // Close modal immediately for better UX
+      // Close modal
       setEditModalOpen(false);
       setEditingTheme(null);
       setEditedTheme({});
-      setUploadSuccess(`Theme "${updatedTheme.meta.name}" updated successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
       
     } catch (error: any) {
@@ -1224,11 +1216,20 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     try {
       await themeService.uploadTheme(file);
       
-      // Add the new theme to the list immediately
-      setThemes(prevThemes => [...prevThemes, theme]);
-
-      themeService.applyTheme(theme);
-      setCurrentTheme(theme.meta.id);
+      // Wait a moment for the server to save the file
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Reload themes from server to ensure we have the saved version
+      const themeList = await themeService.loadThemes();
+      setThemes(themeList);
+      
+      // Find and apply the created theme
+      const savedTheme = themeList.find(t => t.meta.id === theme.meta.id);
+      if (savedTheme) {
+        themeService.applyTheme(savedTheme);
+        setCurrentTheme(savedTheme.meta.id);
+      }
+      
       setCreateModalOpen(false);
       
       // Clear create color history after successful save
