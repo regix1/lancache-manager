@@ -145,8 +145,29 @@ class ThemeService {
   private currentTheme: Theme | null = null;
   private themes: Theme[] = [];
   private styleElement: HTMLStyleElement | null = null;
+  private lastLoadTime: number = 0;
+  private CACHE_DURATION = 30000; // 30 seconds cache
 
-  async loadThemes(): Promise<Theme[]> {
+  getCachedThemes(): Theme[] {
+    return this.themes;
+  }
+
+  updateCachedTheme(theme: Theme): void {
+    const index = this.themes.findIndex(t => t.meta.id === theme.meta.id);
+    if (index !== -1) {
+      this.themes[index] = theme;
+    } else {
+      this.themes.push(theme);
+    }
+  }
+
+  async loadThemes(forceReload: boolean = false): Promise<Theme[]> {
+    // Use cache if available and not forcing reload
+    const now = Date.now();
+    if (!forceReload && this.themes.length > 0 && (now - this.lastLoadTime) < this.CACHE_DURATION) {
+      return this.themes;
+    }
+
     const builtInThemes = this.getBuiltInThemes();
 
     const apiThemes: Theme[] = [];
@@ -209,6 +230,7 @@ class ThemeService {
     });
 
     this.themes = allThemes;
+    this.lastLoadTime = Date.now();
     return this.themes;
   }
 
@@ -547,12 +569,7 @@ class ThemeService {
       }
 
       // Update the cached version immediately
-      const existingThemeIndex = this.themes.findIndex(t => t.meta.id === theme.meta.id);
-      if (existingThemeIndex !== -1) {
-        this.themes[existingThemeIndex] = theme;
-      } else {
-        this.themes.push(theme);
-      }
+      this.updateCachedTheme(theme);
       
       // Don't wait for server sync - return immediately for better UX
       return theme;

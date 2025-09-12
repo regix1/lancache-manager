@@ -758,10 +758,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setCurrentTheme(currentThemeId);
   }, []);
 
-  const loadThemes = async () => {
+  const loadThemes = async (forceReload: boolean = false) => {
     setLoading(true);
     try {
-      const themeList = await themeService.loadThemes();
+      const themeList = await themeService.loadThemes(forceReload);
       setThemes(themeList);
     } catch (error) {
       console.error('Failed to load themes:', error);
@@ -1096,20 +1096,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setUploadSuccess(`Theme "${updatedTheme.meta.name}" updated successfully`);
       setTimeout(() => setUploadSuccess(null), 5000);
       
-      // Reload from server in background (non-blocking)
-      setTimeout(async () => {
-        try {
-          const themeList = await themeService.loadThemes();
-          const serverTheme = themeList.find(t => t.meta.id === updatedTheme.meta.id);
-          
-          // Only update if server has caught up
-          if (serverTheme && JSON.stringify(serverTheme.colors) === JSON.stringify(updatedTheme.colors)) {
-            setThemes(themeList);
-          }
-        } catch (error) {
-          console.error('Background theme reload failed:', error);
-        }
-      }, 2000); // Check server after 2 seconds in background
+      // Update the theme service's cache
+      themeService.updateCachedTheme(updatedTheme);
+      
+      // Don't reload from server immediately - the cache is up to date
+      // Server sync will happen automatically on next forced reload
       
     } catch (error: any) {
       setUploadError(error.message || 'Failed to update theme');
@@ -1578,7 +1569,7 @@ content = """
               </button>
             )}
             <button
-              onClick={loadThemes}
+              onClick={() => loadThemes(true)}
               disabled={loading}
               className="p-2 rounded-lg transition-colors"
               style={{
