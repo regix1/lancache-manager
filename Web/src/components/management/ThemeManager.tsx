@@ -758,6 +758,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     loadThemes();
     const currentThemeId = themeService.getCurrentThemeId();
     setCurrentTheme(currentThemeId);
+    
+    // Debug: Log all color history in localStorage
+    console.log('=== Color History in localStorage ===');
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('color_history_')) {
+        console.log(`${key}: ${localStorage.getItem(key)}`);
+      }
+    });
+    console.log('=====================================');
   }, []);
 
   const loadThemes = async () => {
@@ -843,10 +852,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const handleEditColorChange = (key: string, value: string) => {
     // Save the previous color to localStorage history before changing
     const currentValue = editedTheme[key];
-    if (currentValue && currentValue !== value) {
+    console.log(`handleEditColorChange: key=${key}, currentValue=${currentValue}, newValue=${value}`);
+    
+    // Only save to history if we have a valid hex color
+    if (currentValue && currentValue !== value && currentValue.match(/^#[0-9a-fA-F]{6}$/)) {
       const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
       localStorage.setItem(historyKey, currentValue);
-      console.log(`Saved history for ${key}: ${currentValue} -> ${value}`);
+      console.log(`Saved to localStorage[${historyKey}] = ${currentValue}`);
     }
     setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
   };
@@ -865,7 +877,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   
   const getEditColorHistory = (key: string) => {
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
-    return localStorage.getItem(historyKey);
+    const value = localStorage.getItem(historyKey);
+    console.log(`getEditColorHistory: key=${key}, historyKey=${historyKey}, value=${value}`);
+    return value;
   };
 
   const copyColor = async (color: string) => {
@@ -1101,7 +1115,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
     
     console.log('Theme data for editing:', themeData);
-    console.log('Color keys in theme data:', Object.keys(themeData).filter(k => !['name', 'description', 'author', 'version', 'isDark', 'customCSS'].includes(k)));
+    const colorKeys = Object.keys(themeData).filter(k => !['name', 'description', 'author', 'version', 'isDark', 'customCSS'].includes(k));
+    console.log('Color keys and values in theme data:');
+    colorKeys.forEach(key => {
+      console.log(`  ${key}: ${themeData[key]}`);
+    });
     setEditedTheme(themeData);
     setEditModalOpen(true);
   };
@@ -2313,16 +2331,21 @@ content = """
                                   <Copy className="w-3 h-3 text-themed-muted" />
                                 )}
                               </button>
-                              {getEditColorHistory(color.key) && (
-                                <button
-                                  onClick={() => restorePreviousColor(color.key)}
-                                  className="p-1 rounded-lg hover:bg-opacity-50"
-                                  style={{ backgroundColor: 'var(--theme-bg-hover)' }}
-                                  title={`Restore previous color: ${getEditColorHistory(color.key)}`}
-                                >
-                                  <RotateCcw className="w-3 h-3 text-themed-muted" />
-                                </button>
-                              )}
+                              {(() => {
+                                const historyColor = getEditColorHistory(color.key);
+                                if (!historyColor) return null;
+                                
+                                return (
+                                  <button
+                                    onClick={() => restorePreviousColor(color.key)}
+                                    className="p-1 rounded-lg hover:bg-opacity-50"
+                                    style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                    title={`Restore previous color: ${historyColor}`}
+                                  >
+                                    <RotateCcw className="w-3 h-3 text-themed-muted" />
+                                  </button>
+                                );
+                              })()}
                             </div>
                           </div>
                         </div>
