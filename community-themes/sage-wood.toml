@@ -97,6 +97,12 @@ chartCacheHitColor = "#6b8e4e"
 chartCacheMissColor = "#d4a574"
 dragHandleColor = "#808080"
 dragHandleHover = "#a5b896"
+publicAccessBg = "rgba(107, 142, 78, 0.2)"
+publicAccessText = "#a5b896"
+publicAccessBorder = "rgba(107, 142, 78, 0.3)"
+securedAccessBg = "rgba(212, 165, 116, 0.2)"
+securedAccessText = "#e8d4b8"
+securedAccessBorder = "rgba(212, 165, 116, 0.3)"
 
 [css]
 content = """

@@ -312,10 +312,10 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
             <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
           </div>
           {metricsSecured !== null && (
-            <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium ${
-              metricsSecured 
-                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' 
-                : 'bg-green-500/20 text-green-400 border border-green-500/30'
+            <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${
+              metricsSecured
+                ? 'access-indicator-secured'
+                : 'access-indicator-public'
             }`}>
               {metricsSecured ? (
                 <>

@@ -123,6 +123,14 @@ interface ThemeColors {
   scrollbarTrack?: string;
   scrollbarThumb?: string;
   scrollbarHover?: string;
+
+  // Access indicator colors
+  publicAccessBg?: string;
+  publicAccessText?: string;
+  publicAccessBorder?: string;
+  securedAccessBg?: string;
+  securedAccessText?: string;
+  securedAccessBorder?: string;
 }
 
 interface ThemeMeta {
@@ -339,7 +347,15 @@ class ThemeService {
           // Scrollbar colors
           scrollbarTrack: '#374151',
           scrollbarThumb: '#6B7280',
-          scrollbarHover: '#9CA3AF'
+          scrollbarHover: '#9CA3AF',
+
+          // Access indicator colors
+          publicAccessBg: 'rgba(16, 185, 129, 0.2)',  // green-500 with 20% opacity
+          publicAccessText: '#34d399',                 // green-400
+          publicAccessBorder: 'rgba(16, 185, 129, 0.3)', // green-500 with 30% opacity
+          securedAccessBg: 'rgba(245, 158, 11, 0.2)',    // yellow-500 with 20% opacity
+          securedAccessText: '#fbbf24',                   // yellow-400
+          securedAccessBorder: 'rgba(245, 158, 11, 0.3)'  // yellow-500 with 30% opacity
         }
       },
       // In theme.service.ts, update the light-default theme:
@@ -473,7 +489,15 @@ class ThemeService {
           // Scrollbar colors - Light theme appropriate
           scrollbarTrack: '#e5e7eb',
           scrollbarThumb: '#9ca3af',
-          scrollbarHover: '#6b7280'
+          scrollbarHover: '#6b7280',
+
+          // Access indicator colors
+          publicAccessBg: '#d1fae5',      // green-100
+          publicAccessText: '#047857',    // green-800
+          publicAccessBorder: '#86efac',  // green-300
+          securedAccessBg: '#fef3c7',     // yellow-100
+          securedAccessText: '#92400e',   // yellow-800
+          securedAccessBorder: '#fde047'  // yellow-300
         }
       }
     ];
@@ -820,6 +844,14 @@ class ThemeService {
       --theme-scrollbar-track: ${colors.scrollbarTrack || colors.bgTertiary || '#374151'};
       --theme-scrollbar-thumb: ${colors.scrollbarThumb || colors.textMuted || '#6B7280'};
       --theme-scrollbar-hover: ${colors.scrollbarHover || colors.textSecondary || '#9CA3AF'};
+
+      /* Access Indicator Colors */
+      --theme-public-access-bg: ${colors.publicAccessBg || 'rgba(16, 185, 129, 0.2)'};
+      --theme-public-access-text: ${colors.publicAccessText || '#34d399'};
+      --theme-public-access-border: ${colors.publicAccessBorder || 'rgba(16, 185, 129, 0.3)'};
+      --theme-secured-access-bg: ${colors.securedAccessBg || 'rgba(245, 158, 11, 0.2)'};
+      --theme-secured-access-text: ${colors.securedAccessText || '#fbbf24'};
+      --theme-secured-access-border: ${colors.securedAccessBorder || 'rgba(245, 158, 11, 0.3)'};
     }
 
     /* Global Transitions */

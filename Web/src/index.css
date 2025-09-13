@@ -541,6 +541,19 @@
   .hit-rate-badge.warning {
     @apply hit-rate-warning;
   }
+
+  /* Access Indicator Classes */
+  .access-indicator-public {
+    background-color: var(--theme-public-access-bg, rgba(16, 185, 129, 0.2));
+    color: var(--theme-public-access-text, #34d399);
+    border-color: var(--theme-public-access-border, rgba(16, 185, 129, 0.3));
+  }
+
+  .access-indicator-secured {
+    background-color: var(--theme-secured-access-bg, rgba(245, 158, 11, 0.2));
+    color: var(--theme-secured-access-text, #fbbf24);
+    border-color: var(--theme-secured-access-border, rgba(245, 158, 11, 0.3));
+  }
 }
 
 @keyframes shimmer {
