@@ -13,11 +13,10 @@ import {
   Users,
   Settings,
   Download as DownloadIcon,
-  Loader,
-  X
+  Loader
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
+import { formatBytes, formatPercent } from '../../utils/formatters';
 import VirtualizedList from '../common/VirtualizedList';
 import { Alert } from '../ui/Alert';
 import { Card } from '../ui/Card';
@@ -25,8 +24,7 @@ import type {
   Download,
   GameInfo,
   DownloadGroup,
-  DownloadSettings,
-  DownloadType
+  DownloadSettings
 } from '../../types';
 
 // Storage keys for persistence
@@ -295,7 +293,7 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 const DownloadsTab: React.FC = () => {
   const { 
     latestDownloads = [], 
-    isLoadingDownloads, 
+    loading, 
     mockMode, 
     updateMockDataCount, 
     updateApiDownloadCount 
@@ -320,7 +318,7 @@ const DownloadsTab: React.FC = () => {
   }));
 
   // Helper functions
-  const getDownloadTypeInfo = (download: Download): DownloadType => {
+  const getDownloadTypeInfo = (download: Download) => {
     const totalBytes = download.totalBytes || 0;
     const isMissingData = totalBytes === 0;
     const cachedBytes = download.cacheHitBytes || 0;
@@ -329,31 +327,35 @@ const DownloadsTab: React.FC = () => {
 
     if (isMissingData) {
       return {
-        type: 'metadata',
+        type: 'metadata' as const,
         icon: Database,
         iconColor: 'text-purple-400',
-        description: 'Metadata/Configuration'
+        description: 'Metadata/Configuration',
+        label: 'Metadata'
       };
     } else if (cachePercentage === 100) {
       return {
-        type: 'fully-cached',
+        type: 'content' as const,
         icon: Check,
         iconColor: 'text-green-400',
-        description: 'Fully Cached'
+        description: 'Fully Cached',
+        label: 'Cached'
       };
     } else if (isCached) {
       return {
-        type: 'partially-cached',
+        type: 'content' as const,
         icon: DownloadIcon,
         iconColor: 'text-yellow-400',
-        description: `${cachePercentage.toFixed(0)}% Cached`
+        description: `${cachePercentage.toFixed(0)}% Cached`,
+        label: 'Partial'
       };
     } else {
       return {
-        type: 'uncached',
+        type: 'content' as const,
         icon: CloudOff,
         iconColor: 'text-gray-400',
-        description: 'Not Cached'
+        description: 'Not Cached',
+        label: 'Uncached'
       };
     }
   };
@@ -520,17 +522,32 @@ const DownloadsTab: React.FC = () => {
           id: groupKey,
           name: groupName,
           type: groupType,
+          service: download.service,
           downloads: [],
           totalBytes: 0,
           cacheHitBytes: 0,
-          downloadCount: 0
+          cacheMissBytes: 0,
+          clientsSet: new Set<string>(),
+          firstSeen: download.startTime,
+          lastSeen: download.startTime,
+          count: 0
         };
       }
 
       groups[groupKey].downloads.push(download);
       groups[groupKey].totalBytes += download.totalBytes || 0;
       groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
-      groups[groupKey].downloadCount++;
+      groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
+      groups[groupKey].clientsSet.add(download.clientIp);
+      groups[groupKey].count++;
+      
+      // Update first and last seen times
+      if (download.startTime < groups[groupKey].firstSeen) {
+        groups[groupKey].firstSeen = download.startTime;
+      }
+      if (download.startTime > groups[groupKey].lastSeen) {
+        groups[groupKey].lastSeen = download.startTime;
+      }
     });
 
     return Object.values(groups).sort((a, b) => {
@@ -585,7 +602,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
                 <span className="text-sm font-medium text-themed-accent">{group.name}</span>
               </div>
-              <span className="text-xs text-themed-muted">({group.downloadCount} items)</span>
+              <span className="text-xs text-themed-muted">({group.count} items)</span>
             </div>
             
             <div className="flex items-center gap-6">
@@ -615,7 +632,7 @@ const DownloadsTab: React.FC = () => {
                         <span className={`text-xs font-medium service-${d.service.toLowerCase()}`}>
                           {d.service}
                         </span>
-                        <span className="text-xs text-themed-muted">{d.clientHost}</span>
+                        <span className="text-xs text-themed-muted">{d.clientIp}</span>
                       </div>
                       <div className="text-xs text-themed-muted">
                         {formatBytes(d.totalBytes || 0)}
@@ -671,7 +688,7 @@ const DownloadsTab: React.FC = () => {
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <Users size={14} className="text-themed-muted" />
-                <span className="text-xs text-themed-muted">{download.clientHost}</span>
+                <span className="text-xs text-themed-muted">{download.clientIp}</span>
               </div>
               
               <div className="text-right">
@@ -698,8 +715,8 @@ const DownloadsTab: React.FC = () => {
                 <div className="flex gap-6 items-start">
                   <div className="flex-shrink-0">
                     <ImageWithFallback
-                      src={game.headerImage}
-                      alt={game.gameName}
+                      src={game.headerImage || ''}
+                      alt={game.gameName || 'Game'}
                       className="rounded w-56 object-cover shadow-lg"
                       style={{ height: '107px' }}
                       fallback={
@@ -721,17 +738,16 @@ const DownloadsTab: React.FC = () => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
-                      {game.gameName}
+                      {game.gameName || 'Unknown Game'}
                     </h3>
-                    <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
-                      {game.shortDescription}
-                    </p>
+                    {game.description && (
+                      <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
+                        {game.description}
+                      </p>
+                    )}
                     <div className="flex flex-wrap gap-4 text-xs text-themed-muted">
-                      {game.releaseDate && (
-                        <span>Released: {game.releaseDate}</span>
-                      )}
-                      {game.genres && game.genres.length > 0 && (
-                        <span>Genres: {game.genres.join(', ')}</span>
+                      {game.gameType && (
+                        <span>Type: {game.gameType}</span>
                       )}
                     </div>
                     {isSteam && (
@@ -764,7 +780,7 @@ const DownloadsTab: React.FC = () => {
   }, [renderGroup, renderDownload]);
 
   // Loading state
-  if (isLoadingDownloads) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader className="w-8 h-8 animate-spin" />
