@@ -2,6 +2,8 @@
 
 LANCache Manager includes a powerful theme engine that lets you customize every color in the interface.
 
+<img width="1505" height="1015" alt="Wiki-Page-Themeing-Example" src="https://github.com/user-attachments/assets/c0f59824-f42e-465c-bacc-f78570c9240b" />
+
 ## Quick Start
 
 1. Navigate to **Management** → **Theme Management**
