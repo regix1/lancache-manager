@@ -27,7 +27,10 @@ import {
   Component,
   Sparkles,
   Activity,
-  Edit
+  Edit,
+  Search,
+  X,
+  Percent
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import authService from '../../services/auth.service';
@@ -61,6 +64,7 @@ interface ColorGroup {
     description: string;
     affects: string[];
     value?: string;
+    supportsAlpha?: boolean; // Allow transparency for this color
   }[];
 }
 
@@ -86,6 +90,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   ]);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
   const [colorEditingStarted, setColorEditingStarted] = useState<Record<string, boolean>>({});
+  const [createSearchQuery, setCreateSearchQuery] = useState('');
+  const [editSearchQuery, setEditSearchQuery] = useState('');
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -207,6 +213,64 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper functions for color conversion
+  const hexToRgba = (hex: string, alpha: number = 1): string => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!result) return hex;
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  const parseColorValue = (color: string): { hex: string; alpha: number } => {
+    // Handle rgba format
+    const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (rgbaMatch) {
+      const r = parseInt(rgbaMatch[1]);
+      const g = parseInt(rgbaMatch[2]);
+      const b = parseInt(rgbaMatch[3]);
+      const alpha = rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
+      const hex = '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+      return { hex, alpha };
+    }
+    // Handle hex format
+    return { hex: color, alpha: 1 };
+  };
+
+  const updateColorWithAlpha = (key: string, hex: string, alpha: number, isCreate: boolean = false) => {
+    const colorValue = alpha < 1 ? hexToRgba(hex, alpha) : hex;
+    if (isCreate) {
+      setNewTheme((prev: any) => ({ ...prev, [key]: colorValue }));
+    } else {
+      setEditedTheme((prev: any) => ({ ...prev, [key]: colorValue }));
+    }
+  };
+
+  // Filter color groups based on search
+  const filterColorGroups = (groups: ColorGroup[], search: string): ColorGroup[] => {
+    if (!search.trim()) return groups;
+
+    const searchLower = search.toLowerCase();
+    return groups.map(group => {
+      const filteredColors = group.colors.filter(color =>
+        color.label.toLowerCase().includes(searchLower) ||
+        color.description.toLowerCase().includes(searchLower) ||
+        color.affects.some(affect => affect.toLowerCase().includes(searchLower)) ||
+        color.key.toLowerCase().includes(searchLower)
+      );
+
+      // If group name matches, show all colors in that group
+      if (group.name.toLowerCase().includes(searchLower) ||
+          group.description.toLowerCase().includes(searchLower)) {
+        return group;
+      }
+
+      // Otherwise only show groups with matching colors
+      return { ...group, colors: filteredColors };
+    }).filter(group => group.colors.length > 0);
+  };
 
   const colorGroups: ColorGroup[] = [
     // PRIMARY GROUPS - Most important
@@ -558,7 +622,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           key: 'publicAccessBg',
           label: 'Public Access Background',
           description: 'Background for public access indicator',
-          affects: ['Public access badge']
+          affects: ['Public access badge'],
+          supportsAlpha: true
         },
         {
           key: 'publicAccessText',
@@ -570,13 +635,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           key: 'publicAccessBorder',
           label: 'Public Access Border',
           description: 'Border color for public access indicator',
-          affects: ['Public access badge border']
+          affects: ['Public access badge border'],
+          supportsAlpha: true
         },
         {
           key: 'securedAccessBg',
           label: 'Secured Access Background',
           description: 'Background for secured access indicator',
-          affects: ['API key required badge']
+          affects: ['API key required badge'],
+          supportsAlpha: true
         },
         {
           key: 'securedAccessText',
@@ -588,7 +655,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           key: 'securedAccessBorder',
           label: 'Secured Access Border',
           description: 'Border color for secured access indicator',
-          affects: ['Secured access badge border']
+          affects: ['Secured access badge border'],
+          supportsAlpha: true
         }
       ]
     },
@@ -2085,11 +2153,31 @@ content = """
             </div>
           </div>
 
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
+            <input
+              type="text"
+              value={createSearchQuery}
+              onChange={(e) => setCreateSearchQuery(e.target.value)}
+              placeholder="Search colors... (e.g., 'button', 'background', 'text')"
+              className="w-full pl-10 pr-10 py-2 themed-input"
+            />
+            {createSearchQuery && (
+              <button
+                onClick={() => setCreateSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-themed-muted hover:text-themed-primary"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
           {/* Color Groups */}
           <div className="space-y-4 max-h-96 overflow-y-auto">
-            {colorGroups.map((group) => {
+            {filterColorGroups(colorGroups, createSearchQuery).map((group) => {
               const Icon = group.icon;
-              const isExpanded = expandedGroups.includes(group.name);
+              const isExpanded = expandedGroups.includes(group.name) || createSearchQuery.trim() !== '';
 
               return (
                 <div
@@ -2147,47 +2235,77 @@ content = """
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="relative">
-                                <input
-                                  type="color"
-                                  value={newTheme[color.key]}
-                                  onMouseDown={() => handleColorStart(color.key)}
-                                  onFocus={() => handleColorStart(color.key)}
-                                  onChange={(e) => handleColorChange(color.key, e.target.value)}
-                                  className="w-12 h-8 rounded cursor-pointer"
-                                  style={{ backgroundColor: newTheme[color.key] }}
-                                />
-                              </div>
-                              <input
-                                type="text"
-                                value={newTheme[color.key]}
-                                onFocus={() => handleColorStart(color.key)}
-                                onChange={(e) => handleColorChange(color.key, e.target.value)}
-                                className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
-                              />
-                              <button
-                                onClick={() => copyColor(newTheme[color.key])}
-                                className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                title="Copy color"
-                              >
-                                {copiedColor === newTheme[color.key] ? (
-                                  <Check
-                                    className="w-3 h-3"
-                                    style={{ color: 'var(--theme-success)' }}
-                                  />
-                                ) : (
-                                  <Copy className="w-3 h-3 text-themed-muted" />
-                                )}
-                              </button>
-                              {getCreateColorHistory(color.key) && (
-                                <button
-                                  onClick={() => restoreCreatePreviousColor(color.key)}
-                                  className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                  title={`Restore previous color: ${getCreateColorHistory(color.key)}`}
-                                >
-                                  <RotateCcw className="w-3 h-3 text-themed-muted" />
-                                </button>
-                              )}
+                              {(() => {
+                                const { hex, alpha } = parseColorValue(newTheme[color.key] || '#000000');
+                                return (
+                                  <>
+                                    <div className="relative">
+                                      <input
+                                        type="color"
+                                        value={hex}
+                                        onMouseDown={() => handleColorStart(color.key)}
+                                        onFocus={() => handleColorStart(color.key)}
+                                        onChange={(e) => {
+                                          const currentAlpha = parseColorValue(newTheme[color.key]).alpha;
+                                          updateColorWithAlpha(color.key, e.target.value, currentAlpha, true);
+                                        }}
+                                        className="w-12 h-8 rounded cursor-pointer"
+                                        style={{ backgroundColor: newTheme[color.key] }}
+                                      />
+                                    </div>
+                                    {color.supportsAlpha && (
+                                      <div className="flex items-center gap-1">
+                                        <Percent className="w-3 h-3 text-themed-muted" />
+                                        <input
+                                          type="range"
+                                          min="0"
+                                          max="100"
+                                          value={Math.round(alpha * 100)}
+                                          onChange={(e) => {
+                                            const newAlpha = parseInt(e.target.value) / 100;
+                                            updateColorWithAlpha(color.key, hex, newAlpha, true);
+                                          }}
+                                          className="w-16"
+                                          title={`Opacity: ${Math.round(alpha * 100)}%`}
+                                        />
+                                        <span className="text-xs text-themed-muted w-8">
+                                          {Math.round(alpha * 100)}%
+                                        </span>
+                                      </div>
+                                    )}
+                                    <input
+                                      type="text"
+                                      value={newTheme[color.key]}
+                                      onFocus={() => handleColorStart(color.key)}
+                                      onChange={(e) => handleColorChange(color.key, e.target.value)}
+                                      className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
+                                    />
+                                    <button
+                                      onClick={() => copyColor(newTheme[color.key])}
+                                      className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
+                                      title="Copy color"
+                                    >
+                                      {copiedColor === newTheme[color.key] ? (
+                                        <Check
+                                          className="w-3 h-3"
+                                          style={{ color: 'var(--theme-success)' }}
+                                        />
+                                      ) : (
+                                        <Copy className="w-3 h-3 text-themed-muted" />
+                                      )}
+                                    </button>
+                                    {getCreateColorHistory(color.key) && (
+                                      <button
+                                        onClick={() => restoreCreatePreviousColor(color.key)}
+                                        className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
+                                        title={`Restore previous color: ${getCreateColorHistory(color.key)}`}
+                                      >
+                                        <RotateCcw className="w-3 h-3 text-themed-muted" />
+                                      </button>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
                           </div>
                         </div>
@@ -2304,11 +2422,31 @@ content = """
             </div>
           </div>
 
+          {/* Search Bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
+            <input
+              type="text"
+              value={editSearchQuery}
+              onChange={(e) => setEditSearchQuery(e.target.value)}
+              placeholder="Search colors... (e.g., 'button', 'background', 'text')"
+              className="w-full pl-10 pr-10 py-2 themed-input"
+            />
+            {editSearchQuery && (
+              <button
+                onClick={() => setEditSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-themed-muted hover:text-themed-primary"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
           {/* Color Groups */}
           <div className="space-y-4 max-h-96 overflow-y-auto">
-            {colorGroups.map((group) => {
+            {filterColorGroups(colorGroups, editSearchQuery).map((group) => {
               const Icon = group.icon;
-              const isExpanded = expandedGroups.includes(group.name);
+              const isExpanded = expandedGroups.includes(group.name) || editSearchQuery.trim() !== '';
 
               return (
                 <div
@@ -2366,51 +2504,81 @@ content = """
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="relative">
-                                <input
-                                  type="color"
-                                  value={editedTheme[color.key] || '#000000'}
-                                  onMouseDown={() => handleEditColorStart(color.key)}
-                                  onFocus={() => handleEditColorStart(color.key)}
-                                  onChange={(e) => handleEditColorChange(color.key, e.target.value)}
-                                  className="w-12 h-8 rounded cursor-pointer"
-                                  style={{ backgroundColor: editedTheme[color.key] || '#000000' }}
-                                />
-                              </div>
-                              <input
-                                type="text"
-                                value={editedTheme[color.key] || ''}
-                                onFocus={() => handleEditColorStart(color.key)}
-                                onChange={(e) => handleEditColorChange(color.key, e.target.value)}
-                                className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
-                                placeholder={color.key}
-                              />
-                              <button
-                                onClick={() => copyColor(editedTheme[color.key] || '')}
-                                className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                title="Copy color"
-                              >
-                                {copiedColor === editedTheme[color.key] ? (
-                                  <Check
-                                    className="w-3 h-3"
-                                    style={{ color: 'var(--theme-success)' }}
-                                  />
-                                ) : (
-                                  <Copy className="w-3 h-3 text-themed-muted" />
-                                )}
-                              </button>
                               {(() => {
-                                const historyColor = getEditColorHistory(color.key);
-                                if (!historyColor) return null;
-                                
+                                const { hex, alpha } = parseColorValue(editedTheme[color.key] || '#000000');
                                 return (
-                                  <button
-                                    onClick={() => restorePreviousColor(color.key)}
-                                    className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                    title={`Restore previous color: ${historyColor}`}
-                                  >
-                                    <RotateCcw className="w-3 h-3 text-themed-muted" />
-                                  </button>
+                                  <>
+                                    <div className="relative">
+                                      <input
+                                        type="color"
+                                        value={hex}
+                                        onMouseDown={() => handleEditColorStart(color.key)}
+                                        onFocus={() => handleEditColorStart(color.key)}
+                                        onChange={(e) => {
+                                          const currentAlpha = parseColorValue(editedTheme[color.key] || '#000000').alpha;
+                                          updateColorWithAlpha(color.key, e.target.value, currentAlpha, false);
+                                        }}
+                                        className="w-12 h-8 rounded cursor-pointer"
+                                        style={{ backgroundColor: editedTheme[color.key] || '#000000' }}
+                                      />
+                                    </div>
+                                    {color.supportsAlpha && (
+                                      <div className="flex items-center gap-1">
+                                        <Percent className="w-3 h-3 text-themed-muted" />
+                                        <input
+                                          type="range"
+                                          min="0"
+                                          max="100"
+                                          value={Math.round(alpha * 100)}
+                                          onChange={(e) => {
+                                            const newAlpha = parseInt(e.target.value) / 100;
+                                            updateColorWithAlpha(color.key, hex, newAlpha, false);
+                                          }}
+                                          className="w-16"
+                                          title={`Opacity: ${Math.round(alpha * 100)}%`}
+                                        />
+                                        <span className="text-xs text-themed-muted w-8">
+                                          {Math.round(alpha * 100)}%
+                                        </span>
+                                      </div>
+                                    )}
+                                    <input
+                                      type="text"
+                                      value={editedTheme[color.key] || ''}
+                                      onFocus={() => handleEditColorStart(color.key)}
+                                      onChange={(e) => handleEditColorChange(color.key, e.target.value)}
+                                      className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
+                                      placeholder={color.key}
+                                    />
+                                    <button
+                                      onClick={() => copyColor(editedTheme[color.key] || '')}
+                                      className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
+                                      title="Copy color"
+                                    >
+                                      {copiedColor === editedTheme[color.key] ? (
+                                        <Check
+                                          className="w-3 h-3"
+                                          style={{ color: 'var(--theme-success)' }}
+                                        />
+                                      ) : (
+                                        <Copy className="w-3 h-3 text-themed-muted" />
+                                      )}
+                                    </button>
+                                    {(() => {
+                                      const historyColor = getEditColorHistory(color.key);
+                                      if (!historyColor) return null;
+
+                                      return (
+                                        <button
+                                          onClick={() => restorePreviousColor(color.key)}
+                                          className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
+                                          title={`Restore previous color: ${historyColor}`}
+                                        >
+                                          <RotateCcw className="w-3 h-3 text-themed-muted" />
+                                        </button>
+                                      );
+                                    })()}
+                                  </>
                                 );
                               })()}
                             </div>
