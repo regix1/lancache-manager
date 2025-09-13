@@ -254,7 +254,8 @@ const DownloadsTab: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const count = settings.itemsPerPage === 'unlimited' ? 100 : settings.itemsPerPage;
+    // When "Load All" is selected, request a very large number to get all items
+    const count = settings.itemsPerPage === 'unlimited' ? 10000 : settings.itemsPerPage;
     if (mockMode && updateMockDataCount) {
       updateMockDataCount(count);
     } else if (!mockMode && updateApiDownloadCount) {
