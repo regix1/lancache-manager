@@ -71,6 +71,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
   const [loading, setLoading] = useState(false);
   const [selectedType, setSelectedType] = useState<DataType | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('json');
+  const [loadingProgress, setLoadingProgress] = useState<{ [key: string]: number }>({});
 
   const convertToCSV = (data: any[]): string => {
     if (!data || data.length === 0) return '';
@@ -182,6 +183,19 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     return lines.join('\n');
   };
 
+  const simulateProgress = (type: DataType) => {
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 30;
+      if (progress >= 95) {
+        progress = 95;
+        clearInterval(interval);
+      }
+      setLoadingProgress(prev => ({ ...prev, [type]: progress }));
+    }, 200);
+    return interval;
+  };
+
   const handleExport = async () => {
     if (!selectedType) {
       onError?.('Please select data to export');
@@ -194,6 +208,9 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     }
 
     setLoading(true);
+    setLoadingProgress({ [selectedType]: 0 });
+    const progressInterval = simulateProgress(selectedType);
+    
     try {
       let data: any;
       let filename: string;
@@ -258,8 +275,14 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
+      clearInterval(progressInterval);
+      setLoadingProgress({ [selectedType]: 100 });
+      setTimeout(() => setLoadingProgress({}), 500);
+      
       onSuccess?.(`Exported ${selectedType} data as ${selectedFormat.toUpperCase()}`);
     } catch (error: any) {
+      clearInterval(progressInterval);
+      setLoadingProgress({});
       onError?.(error.message || 'Failed to export data');
     } finally {
       setLoading(false);
@@ -295,20 +318,42 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
                       setSelectedFormat(option.formats[0]);
                     }
                   }}
-                  className={`p-3 rounded-lg border-2 transition-all text-left ${
-                    selectedType === option.type
-                      ? 'border-themed-accent bg-themed-tertiary'
-                      : 'border-themed-border hover:border-themed-muted'
-                  }`}
+                  className={`p-3 rounded-lg border-2 transition-all text-left relative overflow-hidden`}
+                  style={{
+                    borderColor: selectedType === option.type 
+                      ? 'var(--theme-accent)' 
+                      : 'var(--theme-border-primary)',
+                    backgroundColor: selectedType === option.type
+                      ? 'var(--theme-bg-tertiary)'
+                      : 'transparent'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (selectedType !== option.type) {
+                      e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedType !== option.type) {
+                      e.currentTarget.style.borderColor = 'var(--theme-border-primary)';
+                    }
+                  }}
                   disabled={mockMode && option.type !== 'cache'}
                 >
-                  <div className="flex items-start space-x-3">
+                  <div className="flex items-start space-x-3 relative z-10">
                     <Icon className="w-5 h-5 text-themed-accent mt-0.5" />
                     <div className="flex-1">
                       <div className="font-medium text-themed-primary">{option.label}</div>
                       <div className="text-xs text-themed-muted mt-1">{option.description}</div>
                     </div>
                   </div>
+                  {loadingProgress[option.type] !== undefined && (
+                    <div className="absolute bottom-0 left-0 w-full h-1 bg-themed-secondary">
+                      <div 
+                        className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300"
+                        style={{ width: `${loadingProgress[option.type]}%` }}
+                      />
+                    </div>
+                  )}
                 </button>
               );
             })}
