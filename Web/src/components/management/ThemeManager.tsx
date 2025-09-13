@@ -1737,7 +1737,7 @@ content = """
             ))}
           </select>
           {previewTheme && (
-            <p className="text-xs mt-2" style={{ color: 'var(--theme-warning)' }}>
+            <p className="text-xs mt-2 text-themed-warning">
               Preview mode active. Select a theme to apply it permanently.
             </p>
           )}
@@ -1767,7 +1767,7 @@ content = """
                     {theme.meta.isDark ? (
                       <Moon className="w-3 h-3 text-themed-muted" />
                     ) : (
-                      <Sun className="w-3 h-3" style={{ color: 'var(--theme-warning)' }} />
+                      <Sun className="w-3 h-3 text-themed-warning" />
                     )}
                     {currentTheme === theme.meta.id && !previewTheme && (
                       <span className="px-2 py-0.5 text-xs rounded themed-button-primary">
@@ -1776,22 +1776,14 @@ content = """
                     )}
                     {previewTheme === theme.meta.id && (
                       <span
-                        className="px-2 py-0.5 text-xs rounded"
-                        style={{
-                          backgroundColor: 'var(--theme-warning)',
-                          color: 'var(--theme-bg-primary)'
-                        }}
+                        className="px-2 py-0.5 text-xs rounded bg-themed-warning text-themed-primary"
                       >
                         Preview
                       </span>
                     )}
                     {isSystemTheme(theme.meta.id) && (
                       <span
-                        className="px-2 py-0.5 text-xs rounded"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-hover)',
-                          color: 'var(--theme-text-muted)'
-                        }}
+                        className="px-2 py-0.5 text-xs rounded bg-themed-hover text-themed-muted"
                       >
                         System
                       </span>
@@ -1849,8 +1841,7 @@ content = """
                     <button
                       onClick={() => handleEditTheme(theme)}
                       disabled={loading}
-                      className="p-2 transition-colors"
-                      style={{ color: 'var(--theme-text-secondary)' }}
+                      className="p-2 transition-colors text-themed-secondary"
                       title="Edit theme"
                     >
                       <Edit className="w-4 h-4" />
@@ -1860,8 +1851,7 @@ content = """
                     <button
                       onClick={() => handleDelete(theme.meta.id, theme.meta.name)}
                       disabled={loading}
-                      className="p-2 transition-colors disabled:opacity-50"
-                      style={{ color: 'var(--theme-error)' }}
+                      className="p-2 transition-colors disabled:opacity-50 text-themed-error"
                       title="Delete theme"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -2014,22 +2004,14 @@ content = """
               </label>
               <button
                 onClick={() => loadPresetColors('dark')}
-                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  color: 'var(--theme-text-secondary)'
-                }}
+                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
               >
                 <Moon className="w-3 h-3" />
                 Load Dark Preset
               </button>
               <button
                 onClick={() => loadPresetColors('light')}
-                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  color: 'var(--theme-text-secondary)'
-                }}
+                className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
               >
                 <Sun className="w-3 h-3" />
                 Load Light Preset
@@ -2046,8 +2028,7 @@ content = """
               return (
                 <div
                   key={group.name}
-                  className="border rounded-lg"
-                  style={{ borderColor: 'var(--theme-border-primary)' }}
+                  className="border border-themed-secondary rounded-lg"
                 >
                   <button
                     onClick={() => toggleGroup(group.name)}
@@ -2074,8 +2055,7 @@ content = """
 
                   {isExpanded && (
                     <div
-                      className="p-4 border-t space-y-4"
-                      style={{ borderColor: 'var(--theme-border-primary)' }}
+                      className="p-4 border-t border-themed-secondary space-y-4"
                     >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">
@@ -2121,8 +2101,7 @@ content = """
                               />
                               <button
                                 onClick={() => copyColor(newTheme[color.key])}
-                                className="p-1 rounded-lg hover:bg-opacity-50"
-                                style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
                                 title="Copy color"
                               >
                                 {copiedColor === newTheme[color.key] ? (
@@ -2137,8 +2116,7 @@ content = """
                               {getCreateColorHistory(color.key) && (
                                 <button
                                   onClick={() => restoreCreatePreviousColor(color.key)}
-                                  className="p-1 rounded-lg hover:bg-opacity-50"
-                                  style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                  className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
                                   title={`Restore previous color: ${getCreateColorHistory(color.key)}`}
                                 >
                                   <RotateCcw className="w-3 h-3 text-themed-muted" />
@@ -2269,8 +2247,7 @@ content = """
               return (
                 <div
                   key={group.name}
-                  className="border rounded-lg"
-                  style={{ borderColor: 'var(--theme-border-primary)' }}
+                  className="border border-themed-secondary rounded-lg"
                 >
                   <button
                     onClick={() => toggleGroup(group.name)}
@@ -2297,8 +2274,7 @@ content = """
 
                   {isExpanded && (
                     <div
-                      className="p-4 border-t space-y-4"
-                      style={{ borderColor: 'var(--theme-border-primary)' }}
+                      className="p-4 border-t border-themed-secondary space-y-4"
                     >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">
@@ -2345,8 +2321,7 @@ content = """
                               />
                               <button
                                 onClick={() => copyColor(editedTheme[color.key] || '')}
-                                className="p-1 rounded-lg hover:bg-opacity-50"
-                                style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
                                 title="Copy color"
                               >
                                 {copiedColor === editedTheme[color.key] ? (
@@ -2365,8 +2340,7 @@ content = """
                                 return (
                                   <button
                                     onClick={() => restorePreviousColor(color.key)}
-                                    className="p-1 rounded-lg hover:bg-opacity-50"
-                                    style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+                                    className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
                                     title={`Restore previous color: ${historyColor}`}
                                   >
                                     <RotateCcw className="w-3 h-3 text-themed-muted" />
