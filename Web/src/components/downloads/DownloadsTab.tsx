@@ -313,6 +313,7 @@ const DownloadsTab: React.FC = () => {
   };
 
   const fetchGameInfo = async (download: Download) => {
+    // Since there's no Steam API endpoint, we'll create mock game info from the download data
     if (!download.id || !download.gameName || download.service.toLowerCase() !== 'steam') {
       return;
     }
@@ -323,56 +324,55 @@ const DownloadsTab: React.FC = () => {
 
     setLoadingGame(download.id);
 
-    try {
-      const response = await fetch(`/api/steam/game/${encodeURIComponent(download.gameName)}`);
-      if (response.ok) {
-        const data = await response.json();
-        setGameInfo(prev => ({
-          ...prev,
-          [download.id!]: data
-        }));
-        
-        // Cache the game info
-        const cached = localStorage.getItem('steam_game_cache') || '{}';
-        const cache = JSON.parse(cached);
-        cache[download.gameName] = { data, timestamp: Date.now() };
-        localStorage.setItem('steam_game_cache', JSON.stringify(cache));
-      }
-    } catch (error) {
-      console.error('Failed to fetch game info:', error);
-    } finally {
-      setLoadingGame(null);
-    }
+    // Simulate loading delay
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Create game info from download data
+    const mockGameInfo: GameInfo = {
+      downloadId: download.id!,
+      service: download.service,
+      appId: download.gameAppId || 0,
+      gameName: download.gameName,
+      headerImage: `https://cdn.cloudflare.steamstatic.com/steam/apps/${download.gameAppId}/header.jpg`,
+      description: `${download.gameName} - Downloaded via ${download.service}`,
+      gameType: 'game'
+    };
+
+    setGameInfo(prev => ({
+      ...prev,
+      [download.id!]: mockGameInfo
+    }));
+    
+    setLoadingGame(null);
   };
 
-  // Load cached game info on mount
+  // Pre-populate game info for Steam games
   useEffect(() => {
-    const loadCachedGameInfo = () => {
-      const cached = localStorage.getItem('steam_game_cache');
-      if (cached) {
-        try {
-          const cache = JSON.parse(cached);
-          const now = Date.now();
-          const validCache: Record<number, GameInfo> = {};
-          
-          latestDownloads.forEach(download => {
-            if (download.id && download.gameName && cache[download.gameName]) {
-              const cacheEntry = cache[download.gameName];
-              // Cache is valid for 24 hours
-              if (now - cacheEntry.timestamp < 86400000) {
-                validCache[download.id] = cacheEntry.data;
-              }
-            }
-          });
-          
-          setGameInfo(validCache);
-        } catch (error) {
-          console.error('Failed to load cached game info:', error);
-        }
-      }
-    };
+    const steamDownloads = latestDownloads.filter(
+      d => d.service.toLowerCase() === 'steam' && 
+      d.gameName && 
+      d.gameName !== 'Unknown Steam Game' &&
+      d.gameAppId
+    );
     
-    loadCachedGameInfo();
+    const preloadedInfo: Record<number, GameInfo> = {};
+    steamDownloads.forEach(download => {
+      if (download.id && !gameInfo[download.id]) {
+        preloadedInfo[download.id] = {
+          downloadId: download.id,
+          service: download.service,
+          appId: download.gameAppId || 0,
+          gameName: download.gameName || 'Unknown Game',
+          headerImage: `https://cdn.cloudflare.steamstatic.com/steam/apps/${download.gameAppId}/header.jpg`,
+          description: `${download.gameName} - Downloaded via Steam`,
+          gameType: 'game'
+        };
+      }
+    });
+    
+    if (Object.keys(preloadedInfo).length > 0) {
+      setGameInfo(prev => ({ ...prev, ...preloadedInfo }));
+    }
   }, [latestDownloads]);
 
   // Update download count when items per page changes
@@ -520,12 +520,16 @@ const DownloadsTab: React.FC = () => {
 
   // Event handlers
   const handleDownloadClick = async (download: Download) => {
-    if (download.totalBytes === 0) return;
+    const isSteam = download.service.toLowerCase() === 'steam';
+    const hasData = (download.totalBytes || 0) > 0;
+    const canExpand = isSteam && hasData && download.gameName && download.gameName !== 'Unknown Steam Game';
+    
+    if (!canExpand) return;
     
     const newExpanded = expandedDownload === download.id ? null : download.id;
     setExpandedDownload(newExpanded);
     
-    if (newExpanded && download.service.toLowerCase() === 'steam' && download.gameName) {
+    if (newExpanded && !gameInfo[download.id!]) {
       await fetchGameInfo(download);
     }
   };
@@ -604,17 +608,18 @@ const DownloadsTab: React.FC = () => {
     const isExpanded = expandedDownload === download.id;
     const isSteam = download.service.toLowerCase() === 'steam';
     const hasData = (download.totalBytes || 0) > 0;
+    const canExpand = isSteam && hasData && download.gameName && download.gameName !== 'Unknown Steam Game';
     const downloadType = getDownloadTypeInfo(download);
     const IconComponent = downloadType.icon;
     const game = download.id ? gameInfo[download.id] : undefined;
 
     return (
       <Card key={download.id} padding="sm">
-        <div onClick={() => handleDownloadClick(download)} className={hasData ? 'cursor-pointer' : ''}>
+        <div onClick={() => canExpand ? handleDownloadClick(download) : undefined} className={canExpand ? 'cursor-pointer' : ''}>
           <div className="flex items-center justify-between py-1">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
-                {hasData && (
+                {canExpand && (
                   <ChevronRight
                     size={16}
                     className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
@@ -656,14 +661,14 @@ const DownloadsTab: React.FC = () => {
             </div>
           </div>
 
-          {isExpanded && game && (
+          {isExpanded && canExpand && (
             <>
               <div className="border-t border-themed-secondary my-4" />
               {loadingGame === download.id ? (
                 <div className="flex justify-center py-4">
                   <Loader className="w-6 h-6 animate-spin" />
                 </div>
-              ) : (
+              ) : game ? (
                 <div className="flex gap-6 items-start">
                   <div className="flex-shrink-0">
                     <ImageWithFallback
@@ -706,6 +711,45 @@ const DownloadsTab: React.FC = () => {
                     {isSteam && (
                       <a
                         href={`https://store.steampowered.com/app/${game.appId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
+                      >
+                        View on Steam
+                        <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-6 items-start">
+                  <div className="flex-shrink-0">
+                    <div 
+                      className="rounded flex items-center justify-center shadow-lg"
+                      style={{ 
+                        width: '224px',
+                        height: '107px',
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        border: '1px solid var(--theme-border-primary)'
+                      }}
+                    >
+                      <Gamepad2 
+                        className="w-12 h-12"
+                        style={{ color: 'var(--theme-text-muted)' }}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
+                      {download.gameName || 'Loading...'}
+                    </h3>
+                    <p className="text-sm text-themed-secondary mb-4">
+                      Loading game information...
+                    </p>
+                    {isSteam && download.gameAppId && (
+                      <a
+                        href={`https://store.steampowered.com/app/${download.gameAppId}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
