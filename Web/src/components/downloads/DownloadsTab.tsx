@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import ReactDOM from 'react-dom';
 import {
   ChevronRight,
   ChevronDown,
@@ -56,42 +55,27 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   onLoad,
   onError
 }) => {
-  const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading');
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [hasError, setHasError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!src) {
-      setImageState('error');
-      return;
-    }
+    // Reset states when src changes
+    setHasError(false);
+    setIsLoading(true);
+  }, [src]);
 
-    // Reset state when src changes
-    setImageState('loading');
-    
-    // Create a new image to preload
-    const img = new Image();
-    
-    img.onload = () => {
-      setImageSrc(src);
-      setImageState('loaded');
-      onLoad?.();
-    };
-    
-    img.onerror = () => {
-      setImageState('error');
-      onError?.();
-    };
-    
-    img.src = src;
+  const handleLoad = () => {
+    setIsLoading(false);
+    onLoad?.();
+  };
 
-    // Cleanup
-    return () => {
-      img.onload = null;
-      img.onerror = null;
-    };
-  }, [src, onLoad, onError]);
+  const handleError = () => {
+    setHasError(true);
+    setIsLoading(false);
+    onError?.();
+  };
 
-  if (imageState === 'error' || !src) {
+  if (!src || hasError) {
     return (
       <>
         {fallback || (
@@ -114,10 +98,10 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   }
 
   return (
-    <>
-      {imageState === 'loading' && (
+    <div className="relative">
+      {isLoading && (
         <div 
-          className={`${className} flex items-center justify-center`}
+          className={`${className} flex items-center justify-center absolute inset-0`}
           style={{
             ...style,
             backgroundColor: 'var(--theme-bg-tertiary)'
@@ -126,15 +110,19 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
           <Loader className="w-6 h-6 animate-spin" />
         </div>
       )}
-      {imageState === 'loaded' && imageSrc && (
-        <img
-          src={imageSrc}
-          alt={alt}
-          className={className}
-          style={style}
-        />
-      )}
-    </>
+      <img
+        src={src}
+        alt={alt}
+        className={className}
+        style={{
+          ...style,
+          opacity: isLoading ? 0 : 1,
+          transition: 'opacity 0.3s'
+        }}
+        onLoad={handleLoad}
+        onError={handleError}
+      />
+    </div>
   );
 };
 
@@ -162,27 +150,8 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   
   const selectedOption = options.find((opt) => opt.value === value);
-
-  // Calculate dropdown position
-  useEffect(() => {
-    if (isOpen && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      
-      // Determine if dropdown should appear above or below
-      const shouldFlip = spaceBelow < 200 && spaceAbove > spaceBelow;
-      
-      setDropdownPosition({
-        top: shouldFlip ? rect.top - 8 : rect.bottom + 8,
-        left: rect.left,
-        width: rect.width
-      });
-    }
-  }, [isOpen]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -225,50 +194,6 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     }
   };
 
-  // Render dropdown menu in portal
-  const dropdownMenu = isOpen && ReactDOM.createPortal(
-    <>
-      {/* Invisible overlay to catch clicks */}
-      <div 
-        className="fixed inset-0" 
-        style={{ zIndex: 9998 }}
-        onClick={() => setIsOpen(false)}
-      />
-      
-      {/* Dropdown menu */}
-      <div
-        ref={dropdownRef}
-        className="fixed themed-card shadow-xl border border-themed-border"
-        style={{
-          zIndex: 9999,
-          top: `${dropdownPosition.top}px`,
-          left: `${dropdownPosition.left}px`,
-          width: `${dropdownPosition.width}px`,
-          maxHeight: '300px',
-          overflowY: 'auto'
-        }}
-      >
-        <div className="py-1">
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => handleSelect(option.value)}
-              className={`w-full px-4 py-2 text-left text-sm hover:bg-themed-hover transition-colors ${
-                option.value === value
-                  ? 'bg-themed-hover text-themed-accent'
-                  : 'text-themed-secondary'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </>,
-    document.body
-  );
-
   return (
     <div className={`relative ${className}`}>
       <button
@@ -284,7 +209,34 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       
-      {dropdownMenu}
+      {isOpen && (
+        <div
+          ref={dropdownRef}
+          className="absolute mt-1 w-full themed-card shadow-xl border border-themed-border"
+          style={{
+            zIndex: 50,
+            maxHeight: '300px',
+            overflowY: 'auto'
+          }}
+        >
+          <div className="py-1">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleSelect(option.value)}
+                className={`w-full px-4 py-2 text-left text-sm hover:bg-themed-hover transition-colors ${
+                  option.value === value
+                    ? 'bg-themed-hover text-themed-accent'
+                    : 'text-themed-secondary'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -588,9 +540,9 @@ const DownloadsTab: React.FC = () => {
     const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
 
     return (
-      <Card key={group.id} padding="md">
+      <Card key={group.id} padding="sm">
         <div onClick={() => handleGroupClick(group.id)} className="cursor-pointer">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between py-1">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <ChevronRight
@@ -623,8 +575,8 @@ const DownloadsTab: React.FC = () => {
         {isExpanded && (
           <>
             <div className="border-t border-themed-secondary my-4" />
-            <div className="max-h-72 overflow-y-auto">
-              <div className="space-y-2">
+            <div className="max-h-96 overflow-y-auto">
+              <div className="space-y-1">
                 {group.downloads.map((d) => (
                   <div key={d.id} className="p-3 rounded bg-themed-secondary">
                     <div className="flex items-center justify-between">
@@ -657,9 +609,9 @@ const DownloadsTab: React.FC = () => {
     const game = download.id ? gameInfo[download.id] : undefined;
 
     return (
-      <Card key={download.id} padding="md">
+      <Card key={download.id} padding="sm">
         <div onClick={() => handleDownloadClick(download)} className={hasData ? 'cursor-pointer' : ''}>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between py-1">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 {hasData && (
@@ -717,12 +669,13 @@ const DownloadsTab: React.FC = () => {
                     <ImageWithFallback
                       src={game.headerImage || ''}
                       alt={game.gameName || 'Game'}
-                      className="rounded w-56 object-cover shadow-lg"
-                      style={{ height: '107px' }}
+                      className="rounded shadow-lg"
+                      style={{ width: '224px', height: '107px', objectFit: 'cover' }}
                       fallback={
                         <div 
-                          className="rounded w-56 flex items-center justify-center shadow-lg"
+                          className="rounded flex items-center justify-center shadow-lg"
                           style={{ 
+                            width: '224px',
                             height: '107px',
                             backgroundColor: 'var(--theme-bg-tertiary)',
                             border: '1px solid var(--theme-border-primary)'
@@ -891,7 +844,7 @@ const DownloadsTab: React.FC = () => {
       )}
 
       {/* Downloads list */}
-      <div className="space-y-2">
+      <div>
         {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 100 ? (
           <VirtualizedList
             items={itemsToDisplay}
@@ -900,12 +853,14 @@ const DownloadsTab: React.FC = () => {
             renderItem={renderVirtualItem}
           />
         ) : (
-          itemsToDisplay.map((item) => {
-            if ('downloads' in item) {
-              return renderGroup(item as DownloadGroup);
-            }
-            return renderDownload(item as Download);
-          })
+          <div className="space-y-3">
+            {itemsToDisplay.map((item) => {
+              if ('downloads' in item) {
+                return renderGroup(item as DownloadGroup);
+              }
+              return renderDownload(item as Download);
+            })}
+          </div>
         )}
       </div>
 
