@@ -2,7 +2,7 @@
 
 High-performance cache monitoring and management for LANCache deployments.
 
-![Dashboard Overview](images/dashboard.png)
+<img width="1513" height="1222" alt="Home" src="https://github.com/user-attachments/assets/eeda1b52-bb41-4b3a-bd8e-e4b5b8afc388" />
 
 ## What it does
 
@@ -15,8 +15,6 @@ Monitors and manages your LANCache server in real-time. Shows what's being downl
 - Service distribution chart (Steam, Epic, Blizzard, etc.)
 - Recent downloads with progress tracking
 - Top clients by usage
-
-<img width="1513" height="1222" alt="Home" src="https://github.com/user-attachments/assets/eeda1b52-bb41-4b3a-bd8e-e4b5b8afc388" />
 
 ### Downloads View
 - Real-time download monitoring
