@@ -267,24 +267,67 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
           padding: 0
         },
         animation: {
-          // Only animate when data actually changes or on initial load
-          animateRotate: dataChanged,
-          animateScale: false,
-          duration: dataChanged ? 750 : 0
+          // Smooth animations for all transitions
+          animateRotate: true,
+          animateScale: dataChanged,
+          duration: 1200,
+          easing: 'easeInOutQuart',
+          delay: (context) => {
+            // Stagger animation for each segment
+            return context.dataIndex * 50;
+          }
+        },
+        transitions: {
+          active: {
+            animation: {
+              duration: 400,
+              easing: 'easeOutQuart'
+            }
+          },
+          resize: {
+            animation: {
+              duration: 400,
+              easing: 'easeInOutQuart'
+            }
+          },
+          show: {
+            animations: {
+              colors: {
+                from: 'transparent'
+              },
+              visible: {
+                duration: 400
+              }
+            }
+          },
+          hide: {
+            animations: {
+              colors: {
+                to: 'transparent'
+              },
+              visible: {
+                duration: 200
+              }
+            }
+          }
         },
         plugins: {
           legend: {
             display: false
           },
           tooltip: {
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
             titleColor: '#ffffff',
             bodyColor: textColor,
             borderColor: borderColor,
             borderWidth: 1,
-            cornerRadius: 6,
+            cornerRadius: 8,
             padding: 12,
             displayColors: true,
+            animation: {
+              duration: 200,
+              easing: 'easeOutQuart'
+            },
             callbacks: {
               label: (context) => {
                 const value = context.raw as number;
@@ -392,10 +435,12 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
             <button
               key={index}
               onClick={() => setActiveTab(index)}
-              className="h-1 flex-1 rounded-full transition-colors"
+              className="h-1 flex-1 rounded-full transition-all duration-300 ease-out hover:h-1.5"
               style={{
                 backgroundColor:
-                  index === activeTab ? 'var(--theme-primary)' : 'var(--theme-bg-hover)'
+                  index === activeTab ? 'var(--theme-primary)' : 'var(--theme-bg-hover)',
+                transform: index === activeTab ? 'scaleY(1.5)' : 'scaleY(1)',
+                opacity: index === activeTab ? 1 : 0.5
               }}
             />
           ))}
@@ -406,24 +451,29 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
         {chartData.labels.length > 0 ? (
           <>
             <div
-              className="flex justify-center items-center"
+              className="flex justify-center items-center transition-all duration-500 ease-in-out"
               style={{
                 height: `${chartContainerHeight}px`,
                 width: '100%'
               }}
             >
               <div
+                className="transition-all duration-500 ease-in-out"
                 style={{
                   width: `${Math.min(chartContainerHeight, 400)}px`,
-                  height: `${Math.min(chartContainerHeight, 400)}px`
+                  height: `${Math.min(chartContainerHeight, 400)}px`,
+                  transform: 'scale(1)',
+                  opacity: 1
                 }}
               >
                 <canvas
                   key={chartKey}
                   ref={chartRef}
+                  className="transition-opacity duration-300"
                   style={{
                     maxHeight: '100%',
-                    maxWidth: '100%'
+                    maxWidth: '100%',
+                    opacity: 1
                   }}
                 />
               </div>
@@ -437,9 +487,15 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
                 const percentage = ((value / total) * 100).toFixed(1);
 
                 return (
-                  <div key={label} className="flex items-center space-x-1">
+                  <div
+                    key={label}
+                    className="flex items-center space-x-1 transition-all duration-300 hover:scale-105"
+                    style={{
+                      animation: `fadeInUp 0.5s ease-out ${index * 0.1}s both`
+                    }}
+                  >
                     <div
-                      className="w-3 h-3 rounded"
+                      className="w-3 h-3 rounded transition-transform duration-300 hover:scale-125"
                       style={{ backgroundColor: chartData.colors[index] }}
                     />
                     <span className="text-xs text-themed-muted">{label}:</span>
@@ -470,9 +526,15 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
               {getChartInfo.stats.length > 0 && (
                 <div className="grid grid-cols-3 gap-4 mt-4">
                   {getChartInfo.stats.map((stat, index) => (
-                    <div key={index} className="text-center">
+                    <div
+                      key={index}
+                      className="text-center transition-all duration-300 hover:transform hover:scale-110"
+                      style={{
+                        animation: `fadeIn 0.6s ease-out ${0.4 + index * 0.1}s both`
+                      }}
+                    >
                       <div className="text-xs text-themed-muted mb-0.5">{stat.label}</div>
-                      <div className="text-sm font-semibold text-themed-secondary">
+                      <div className="text-sm font-semibold text-themed-secondary transition-colors duration-200 hover:text-themed-primary">
                         {stat.value}
                       </div>
                     </div>
