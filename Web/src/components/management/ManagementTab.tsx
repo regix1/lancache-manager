@@ -22,6 +22,7 @@ import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
+import DataExportManager from './DataExportManager';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -525,6 +526,14 @@ const ManagementTab: React.FC = () => {
         onBackgroundOperation={(service) =>
           setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
         }
+      />
+
+      {/* Data Export Manager */}
+      <DataExportManager
+        isAuthenticated={isAuthenticated}
+        mockMode={mockMode}
+        onError={addError}
+        onSuccess={setSuccess}
       />
 
       {/* Theme Manager */}
