@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Download, Activity, Database, Clock, TrendingUp } from 'lucide-react';
+import { Download, Activity, Database, Clock, TrendingUp, Link, Copy, CheckCircle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -63,8 +63,8 @@ const exportOptions: ExportOption[] = [
 ];
 
 const DataExportManager: React.FC<DataExportManagerProps> = ({
-  isAuthenticated,
-  mockMode,
+  isAuthenticated: _isAuthenticated,
+  mockMode: _mockMode,
   onError,
   onSuccess
 }) => {
@@ -72,6 +72,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
   const [selectedType, setSelectedType] = useState<DataType | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('json');
   const [loadingProgress, setLoadingProgress] = useState<{ [key: string]: number }>({});
+  const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
 
   const convertToCSV = (data: any[]): string => {
     if (!data || data.length === 0) return '';
@@ -202,11 +203,6 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
       return;
     }
 
-    if (!isAuthenticated && !mockMode) {
-      onError?.('Authentication required for export');
-      return;
-    }
-
     setLoading(true);
     setLoadingProgress({ [selectedType]: 0 });
     const progressInterval = simulateProgress(selectedType);
@@ -289,8 +285,83 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     }
   };
 
+  const copyToClipboard = (text: string, endpoint: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedEndpoint(endpoint);
+    setTimeout(() => setCopiedEndpoint(null), 2000);
+  };
+
+  const apiBaseUrl = window.location.origin;
+
   return (
-    <Card>
+    <div className="space-y-4">
+      {/* Live API Endpoints for Grafana */}
+      <Card>
+        <div className="flex items-center space-x-2 mb-4">
+          <Link className="w-5 h-5 text-themed-accent" />
+          <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
+        </div>
+        
+        <p className="text-themed-muted text-sm mb-4">
+          These endpoints provide real-time metrics without authentication. Use them directly in Grafana or Prometheus.
+        </p>
+
+        <div className="space-y-3">
+          <div className="p-3 rounded-lg border border-themed-border bg-themed-secondary/10">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => copyToClipboard(`${apiBaseUrl}/api/metrics`, 'prometheus')}
+                leftSection={copiedEndpoint === 'prometheus' ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              >
+                {copiedEndpoint === 'prometheus' ? 'Copied!' : 'Copy'}
+              </Button>
+            </div>
+            <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/api/metrics</code>
+            <p className="text-xs text-themed-muted mt-1">OpenMetrics format for Prometheus scraping</p>
+          </div>
+
+          <div className="p-3 rounded-lg border border-themed-border bg-themed-secondary/10">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium text-themed-primary">JSON Metrics</span>
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => copyToClipboard(`${apiBaseUrl}/api/metrics/json`, 'json-api')}
+                leftSection={copiedEndpoint === 'json-api' ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              >
+                {copiedEndpoint === 'json-api' ? 'Copied!' : 'Copy'}
+              </Button>
+            </div>
+            <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/api/metrics/json</code>
+            <p className="text-xs text-themed-muted mt-1">JSON format for direct Grafana integration</p>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <Alert color="blue">
+            <p className="text-sm">
+              <strong>Security Options:</strong> By default, these endpoints are public. 
+              To require API key authentication, set <code>RequireAuthForMetrics: true</code> in your config.
+              Then add header <code>X-Api-Key: your-key</code> to Grafana/Prometheus.
+            </p>
+          </Alert>
+        </div>
+        
+        <div className="mt-2">
+          <Alert color="green">
+            <p className="text-sm">
+              <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for real-time monitoring.
+              Works with both Prometheus and JSON datasource plugins.
+            </p>
+          </Alert>
+        </div>
+      </Card>
+
+      {/* Data Export */}
+      <Card>
       <div className="flex items-center space-x-2 mb-4">
         <Download className="w-5 h-5 text-themed-accent" />
         <h3 className="text-lg font-semibold text-themed-primary">Data Export</h3>
@@ -337,7 +408,6 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
                       e.currentTarget.style.borderColor = 'var(--theme-border-primary)';
                     }
                   }}
-                  disabled={mockMode && option.type !== 'cache'}
                 >
                   <div className="flex items-start space-x-3 relative z-10">
                     <Icon className="w-5 h-5 text-themed-accent mt-0.5" />
@@ -416,7 +486,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
 
         <Button
           onClick={handleExport}
-          disabled={!selectedType || loading || (!isAuthenticated && !mockMode)}
+          disabled={!selectedType || loading}
           loading={loading}
           variant="filled"
           color="green"
@@ -425,16 +495,9 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
         >
           Export Data
         </Button>
-
-        {mockMode && (
-          <Alert color="yellow">
-            <p className="text-xs">
-              Mock mode active - only cache info export available
-            </p>
-          </Alert>
-        )}
       </div>
     </Card>
+    </div>
   );
 };
 

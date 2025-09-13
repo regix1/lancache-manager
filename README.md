@@ -58,6 +58,8 @@ services:
       - LanCache__LogPath=/logs/access.log
       - LanCache__CachePath=/cache
       - LanCache__StartFromEndOfLog=true
+      # Optional: Require API key for Grafana metrics (default: false)
+      # - Security__RequireAuthForMetrics=true
 ```
 
 ### Volume Configuration
@@ -72,10 +74,14 @@ The application requires three volume mounts:
 
 ### Environment Variables
 
+#### Core Settings
 - `TZ`: Set your timezone for accurate timestamp display
 - `LanCache__LogPath`: Path to the LanCache access.log file within the container
 - `LanCache__CachePath`: Path to the LanCache cache directory within the container
 - `LanCache__StartFromEndOfLog`: When true, starts processing from the current end of the log file. When false, processes from the beginning
+
+#### Security Settings
+- `Security__RequireAuthForMetrics`: Set to `true` to require API key for Grafana/Prometheus metrics endpoints (default: `false`)
 
 ### Starting the Application
 
