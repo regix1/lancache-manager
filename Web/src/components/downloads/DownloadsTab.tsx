@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import {
   ChevronRight,
   ChevronDown,
@@ -12,7 +13,8 @@ import {
   Users,
   Settings,
   Download as DownloadIcon,
-  Loader
+  Loader,
+  X
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
@@ -27,6 +29,7 @@ import type {
   DownloadType
 } from '../../types';
 
+// Storage keys for persistence
 const STORAGE_KEYS = {
   SERVICE_FILTER: 'lancache_downloads_service',
   ITEMS_PER_PAGE: 'lancache_downloads_items',
@@ -35,12 +38,115 @@ const STORAGE_KEYS = {
   SHOW_SMALL_FILES: 'lancache_downloads_show_small'
 };
 
+// Enhanced Image component with built-in fallback
+interface ImageWithFallbackProps {
+  src: string;
+  fallback?: React.ReactNode;
+  alt: string;
+  className?: string;
+  style?: React.CSSProperties;
+  onLoad?: () => void;
+  onError?: () => void;
+}
+
+const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
+  src,
+  fallback,
+  alt,
+  className = '',
+  style = {},
+  onLoad,
+  onError
+}) => {
+  const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!src) {
+      setImageState('error');
+      return;
+    }
+
+    // Reset state when src changes
+    setImageState('loading');
+    
+    // Create a new image to preload
+    const img = new Image();
+    
+    img.onload = () => {
+      setImageSrc(src);
+      setImageState('loaded');
+      onLoad?.();
+    };
+    
+    img.onerror = () => {
+      setImageState('error');
+      onError?.();
+    };
+    
+    img.src = src;
+
+    // Cleanup
+    return () => {
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [src, onLoad, onError]);
+
+  if (imageState === 'error' || !src) {
+    return (
+      <>
+        {fallback || (
+          <div 
+            className={`${className} flex items-center justify-center`}
+            style={{
+              ...style,
+              backgroundColor: 'var(--theme-bg-tertiary)',
+              border: '1px solid var(--theme-border-primary)'
+            }}
+          >
+            <Gamepad2 
+              className="w-12 h-12"
+              style={{ color: 'var(--theme-text-muted)' }}
+            />
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {imageState === 'loading' && (
+        <div 
+          className={`${className} flex items-center justify-center`}
+          style={{
+            ...style,
+            backgroundColor: 'var(--theme-bg-tertiary)'
+          }}
+        >
+          <Loader className="w-6 h-6 animate-spin" />
+        </div>
+      )}
+      {imageState === 'loaded' && imageSrc && (
+        <img
+          src={imageSrc}
+          alt={alt}
+          className={className}
+          style={style}
+        />
+      )}
+    </>
+  );
+};
+
+// Enhanced Dropdown with Portal rendering
 interface DropdownOption {
   value: string;
   label: string;
 }
 
-interface CustomDropdownProps {
+interface EnhancedDropdownProps {
   options: DropdownOption[];
   value: string;
   onChange: (value: string) => void;
@@ -48,7 +154,7 @@ interface CustomDropdownProps {
   className?: string;
 }
 
-const CustomDropdown: React.FC<CustomDropdownProps> = ({
+const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   options,
   value,
   onChange,
@@ -56,39 +162,119 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
   className = ''
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  
   const selectedOption = options.find((opt) => opt.value === value);
 
-  const handleSelect = (optionValue: string) => {
-    onChange(optionValue);
-    setIsOpen(false);
-  };
+  // Calculate dropdown position
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      
+      // Determine if dropdown should appear above or below
+      const shouldFlip = spaceBelow < 200 && spaceAbove > spaceBelow;
+      
+      setDropdownPosition({
+        top: shouldFlip ? rect.top - 8 : rect.bottom + 8,
+        left: rect.left,
+        width: rect.width
+      });
+    }
+  }, [isOpen]);
 
+  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (!target.closest('.custom-dropdown')) {
+      if (
+        dropdownRef.current && 
+        !dropdownRef.current.contains(event.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
         setIsOpen(false);
       }
     };
 
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleEscape);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        document.removeEventListener('keydown', handleEscape);
+      };
     }
   }, [isOpen]);
+
+  const handleSelect = (optionValue: string) => {
+    onChange(optionValue);
+    setIsOpen(false);
+  };
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       setIsOpen(!isOpen);
-    } else if (event.key === 'Escape') {
-      setIsOpen(false);
     }
   };
 
+  // Render dropdown menu in portal
+  const dropdownMenu = isOpen && ReactDOM.createPortal(
+    <>
+      {/* Invisible overlay to catch clicks */}
+      <div 
+        className="fixed inset-0" 
+        style={{ zIndex: 9998 }}
+        onClick={() => setIsOpen(false)}
+      />
+      
+      {/* Dropdown menu */}
+      <div
+        ref={dropdownRef}
+        className="fixed themed-card shadow-xl border border-themed-border"
+        style={{
+          zIndex: 9999,
+          top: `${dropdownPosition.top}px`,
+          left: `${dropdownPosition.left}px`,
+          width: `${dropdownPosition.width}px`,
+          maxHeight: '300px',
+          overflowY: 'auto'
+        }}
+      >
+        <div className="py-1">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => handleSelect(option.value)}
+              className={`w-full px-4 py-2 text-left text-sm hover:bg-themed-hover transition-colors ${
+                option.value === value
+                  ? 'bg-themed-hover text-themed-accent'
+                  : 'text-themed-secondary'
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+
   return (
-    <div className={`relative custom-dropdown ${className}`}>
+    <div className={`relative ${className}`}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
@@ -99,162 +285,144 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
         <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
-
-      {isOpen && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          <div className="mobile-dropdown sm:right-0 themed-card z-50">
-            <div className="py-1">
-              {options.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleSelect(option.value)}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-themed-hover transition-colors ${
-                    option.value === value
-                      ? 'bg-themed-hover text-themed-accent'
-                      : 'text-themed-secondary'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
+      
+      {dropdownMenu}
     </div>
   );
 };
 
-// Game info cache utilities
-const GAME_INFO_CACHE_KEY = 'lancache_game_info_cache';
-const CACHE_EXPIRY_HOURS = 24;
-
-interface CachedGameInfo {
-  data: GameInfo;
-  timestamp: number;
-  expiresAt: number;
-}
-
-const gameInfoCache = {
-  get: (downloadId: number): GameInfo | null => {
-    try {
-      const cacheStr = localStorage.getItem(GAME_INFO_CACHE_KEY);
-      if (!cacheStr) return null;
-      
-      const cache: Record<string, CachedGameInfo> = JSON.parse(cacheStr);
-      const cached = cache[downloadId.toString()];
-      
-      if (!cached) return null;
-      
-      // Check if expired
-      if (Date.now() > cached.expiresAt) {
-        delete cache[downloadId.toString()];
-        localStorage.setItem(GAME_INFO_CACHE_KEY, JSON.stringify(cache));
-        return null;
-      }
-      
-      return cached.data;
-    } catch (err) {
-      console.error('Error reading game info cache:', err);
-      return null;
-    }
-  },
-  
-  set: (downloadId: number, gameInfo: GameInfo): void => {
-    try {
-      const cacheStr = localStorage.getItem(GAME_INFO_CACHE_KEY);
-      const cache: Record<string, CachedGameInfo> = cacheStr ? JSON.parse(cacheStr) : {};
-      
-      const expiresAt = Date.now() + (CACHE_EXPIRY_HOURS * 60 * 60 * 1000);
-      
-      cache[downloadId.toString()] = {
-        data: gameInfo,
-        timestamp: Date.now(),
-        expiresAt
-      };
-      
-      localStorage.setItem(GAME_INFO_CACHE_KEY, JSON.stringify(cache));
-    } catch (err) {
-      console.error('Error saving game info to cache:', err);
-    }
-  },
-  
-  clear: (): void => {
-    try {
-      localStorage.removeItem(GAME_INFO_CACHE_KEY);
-    } catch (err) {
-      console.error('Error clearing game info cache:', err);
-    }
-  }
-};
-
+// Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
-  const { latestDownloads, mockMode, updateMockDataCount, updateApiDownloadCount } = useData();
+  const { 
+    latestDownloads = [], 
+    isLoadingDownloads, 
+    mockMode, 
+    updateMockDataCount, 
+    updateApiDownloadCount 
+  } = useData();
 
+  // State management
   const [expandedDownload, setExpandedDownload] = useState<number | null>(null);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [gameInfo, setGameInfo] = useState<Record<number, GameInfo>>({});
   const [loadingGame, setLoadingGame] = useState<number | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
-  const [brokenImages, setBrokenImages] = useState<Set<number>>(new Set());
 
   const [settings, setSettings] = useState<DownloadSettings>(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
     showSmallFiles: localStorage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
     selectedService: localStorage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
-    itemsPerPage: (() => {
-      const saved = localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
-      return saved === 'unlimited' ? ('unlimited' as const) : saved ? parseInt(saved, 10) : 20;
-    })(),
-    groupGames: localStorage.getItem(STORAGE_KEYS.GROUP_GAMES) === 'true'
+    groupGames: localStorage.getItem(STORAGE_KEYS.GROUP_GAMES) === 'true',
+    itemsPerPage: 
+      localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited' 
+        ? 'unlimited' 
+        : parseInt(localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50')
   }));
 
-  const updateSettings = useCallback((updates: Partial<DownloadSettings>) => {
-    setSettings((prev) => ({ ...prev, ...updates }));
-  }, []);
+  // Helper functions
+  const getDownloadTypeInfo = (download: Download): DownloadType => {
+    const totalBytes = download.totalBytes || 0;
+    const isMissingData = totalBytes === 0;
+    const cachedBytes = download.cacheHitBytes || 0;
+    const isCached = cachedBytes > 0;
+    const cachePercentage = totalBytes > 0 ? (cachedBytes / totalBytes) * 100 : 0;
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
-    localStorage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
-    localStorage.setItem(STORAGE_KEYS.GROUP_GAMES, settings.groupGames.toString());
-    localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
-    localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
-  }, [settings]);
+    if (isMissingData) {
+      return {
+        type: 'metadata',
+        icon: Database,
+        iconColor: 'text-purple-400',
+        description: 'Metadata/Configuration'
+      };
+    } else if (cachePercentage === 100) {
+      return {
+        type: 'fully-cached',
+        icon: Check,
+        iconColor: 'text-green-400',
+        description: 'Fully Cached'
+      };
+    } else if (isCached) {
+      return {
+        type: 'partially-cached',
+        icon: DownloadIcon,
+        iconColor: 'text-yellow-400',
+        description: `${cachePercentage.toFixed(0)}% Cached`
+      };
+    } else {
+      return {
+        type: 'uncached',
+        icon: CloudOff,
+        iconColor: 'text-gray-400',
+        description: 'Not Cached'
+      };
+    }
+  };
 
-  // Preload cached game info when component mounts
+  const fetchGameInfo = async (download: Download) => {
+    if (!download.id || !download.gameName || download.service.toLowerCase() !== 'steam') {
+      return;
+    }
+
+    if (gameInfo[download.id]) {
+      return;
+    }
+
+    setLoadingGame(download.id);
+
+    try {
+      const response = await fetch(`/api/steam/game/${encodeURIComponent(download.gameName)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setGameInfo(prev => ({
+          ...prev,
+          [download.id!]: data
+        }));
+        
+        // Cache the game info
+        const cached = localStorage.getItem('steam_game_cache') || '{}';
+        const cache = JSON.parse(cached);
+        cache[download.gameName] = { data, timestamp: Date.now() };
+        localStorage.setItem('steam_game_cache', JSON.stringify(cache));
+      }
+    } catch (error) {
+      console.error('Failed to fetch game info:', error);
+    } finally {
+      setLoadingGame(null);
+    }
+  };
+
+  // Load cached game info on mount
   useEffect(() => {
     const loadCachedGameInfo = () => {
-      try {
-        const cacheStr = localStorage.getItem(GAME_INFO_CACHE_KEY);
-        if (!cacheStr) return;
-
-        const cache: Record<string, CachedGameInfo> = JSON.parse(cacheStr);
-        const cachedGameInfo: Record<number, GameInfo> = {};
-        let hasValidCache = false;
-
-        Object.entries(cache).forEach(([downloadId, cached]) => {
-          // Only load non-expired cache entries
-          if (Date.now() <= cached.expiresAt) {
-            cachedGameInfo[parseInt(downloadId)] = cached.data;
-            hasValidCache = true;
-          }
-        });
-
-        if (hasValidCache) {
-          setGameInfo(cachedGameInfo);
+      const cached = localStorage.getItem('steam_game_cache');
+      if (cached) {
+        try {
+          const cache = JSON.parse(cached);
+          const now = Date.now();
+          const validCache: Record<number, GameInfo> = {};
+          
+          latestDownloads.forEach(download => {
+            if (download.id && download.gameName && cache[download.gameName]) {
+              const cacheEntry = cache[download.gameName];
+              // Cache is valid for 24 hours
+              if (now - cacheEntry.timestamp < 86400000) {
+                validCache[download.id] = cacheEntry.data;
+              }
+            }
+          });
+          
+          setGameInfo(validCache);
+        } catch (error) {
+          console.error('Failed to load cached game info:', error);
         }
-      } catch (err) {
-        console.error('Error loading cached game info:', err);
       }
     };
-
+    
     loadCachedGameInfo();
-  }, []);
+  }, [latestDownloads]);
 
+  // Update download count when items per page changes
   useEffect(() => {
-    // When "Load All" is selected, request a very large number to get all items
     const count = settings.itemsPerPage === 'unlimited' ? 10000 : settings.itemsPerPage;
     if (mockMode && updateMockDataCount) {
       updateMockDataCount(count);
@@ -263,6 +431,19 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settings.itemsPerPage, mockMode, updateMockDataCount, updateApiDownloadCount]);
 
+  // Persist settings
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
+    localStorage.setItem(
+      STORAGE_KEYS.ITEMS_PER_PAGE, 
+      settings.itemsPerPage === 'unlimited' ? 'unlimited' : settings.itemsPerPage.toString()
+    );
+    localStorage.setItem(STORAGE_KEYS.GROUP_GAMES, settings.groupGames.toString());
+    localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
+    localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
+  }, [settings]);
+
+  // Memoized values
   const availableServices = useMemo(() => {
     const services = new Set(latestDownloads.map((d) => d.service.toLowerCase()));
     return Array.from(services).sort();
@@ -271,9 +452,9 @@ const DownloadsTab: React.FC = () => {
   const serviceOptions = useMemo(
     () => [
       { value: 'all', label: 'All Services' },
-      ...availableServices.map((s) => ({
-        value: s,
-        label: s.charAt(0).toUpperCase() + s.slice(1)
+      ...availableServices.map((service) => ({
+        value: service,
+        label: service.charAt(0).toUpperCase() + service.slice(1)
       }))
     ],
     [availableServices]
@@ -339,46 +520,28 @@ const DownloadsTab: React.FC = () => {
           id: groupKey,
           name: groupName,
           type: groupType,
-          service: download.service,
           downloads: [],
           totalBytes: 0,
           cacheHitBytes: 0,
-          cacheMissBytes: 0,
-          clientsSet: new Set(),
-          firstSeen: download.startTime,
-          lastSeen: download.endTime || download.startTime,
-          count: 0,
-          clientCount: 0
+          downloadCount: 0
         };
       }
 
       groups[groupKey].downloads.push(download);
       groups[groupKey].totalBytes += download.totalBytes || 0;
       groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
-      groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
-      groups[groupKey].clientsSet.add(download.clientIp);
-      groups[groupKey].count++;
-
-      if (new Date(download.startTime) < new Date(groups[groupKey].firstSeen)) {
-        groups[groupKey].firstSeen = download.startTime;
-      }
-      if (download.endTime && new Date(download.endTime) > new Date(groups[groupKey].lastSeen)) {
-        groups[groupKey].lastSeen = download.endTime;
-      }
+      groups[groupKey].downloadCount++;
     });
 
-    return Object.values(groups)
-      .map((group) => ({
-        ...group,
-        clientCount: group.clientsSet.size
-      }))
-      .sort((a, b) => b.totalBytes - a.totalBytes);
+    return Object.values(groups).sort((a, b) => {
+      if (a.type === 'game' && b.type !== 'game') return -1;
+      if (a.type !== 'game' && b.type === 'game') return 1;
+      return b.totalBytes - a.totalBytes;
+    });
   }, [filteredDownloads, settings.groupGames]);
 
   const itemsToDisplay = useMemo(() => {
-    const items = settings.groupGames ? groupedDownloads : filteredDownloads;
-    if (!items) return [];
-
+    const items = settings.groupGames ? groupedDownloads || [] : filteredDownloads;
     if (settings.itemsPerPage === 'unlimited') {
       return items;
     }
@@ -386,96 +549,15 @@ const DownloadsTab: React.FC = () => {
     return items.slice(0, limit);
   }, [settings.groupGames, settings.itemsPerPage, groupedDownloads, filteredDownloads]);
 
-  const getDownloadTypeInfo = (download: Download): DownloadType => {
-    const bytes = download.totalBytes || 0;
-    const serviceName = download.service.charAt(0).toUpperCase() + download.service.slice(1);
-
-    if (bytes === 0) {
-      return {
-        type: 'metadata',
-        label: download.clientIp === '127.0.0.1' ? `${serviceName} Service` : 'Metadata',
-        icon: Database
-      };
-    }
-
-    if (
-      download.service.toLowerCase() === 'steam' &&
-      download.gameName &&
-      download.gameName !== 'Unknown Steam Game'
-    ) {
-      return { type: 'game', label: download.gameName, icon: Gamepad2 };
-    }
-
-    if (bytes < 1048576) {
-      return { type: 'metadata', label: `${serviceName} Update`, icon: Database };
-    }
-
-    return { type: 'content', label: `${serviceName} Content`, icon: CloudOff };
-  };
-
-  const getHitRateColor = (percent: number): string => {
-    if (percent >= 75) return 'progress-bar-high';
-    if (percent >= 50) return 'progress-bar-medium';
-    if (percent >= 25) return 'progress-bar-low';
-    return 'progress-bar-critical';
-  };
-
-  const isDownloadGroup = (item: Download | DownloadGroup): item is DownloadGroup => {
-    return 'downloads' in item;
-  };
-
+  // Event handlers
   const handleDownloadClick = async (download: Download) => {
-    if (
-      download.service.toLowerCase() !== 'steam' ||
-      (download.totalBytes || 0) === 0 ||
-      !download.id
-    ) {
-      return;
-    }
-
-    setExpandedDownload(expandedDownload === download.id ? null : download.id);
-
-    if (expandedDownload !== download.id && !gameInfo[download.id]) {
-      // Check cache first
-      const cachedGameInfo = gameInfoCache.get(download.id);
-      if (cachedGameInfo) {
-        setGameInfo((prev) => ({ ...prev, [download.id]: cachedGameInfo }));
-        return;
-      }
-
-      if (mockMode) {
-        const mockGameInfo = {
-          downloadId: download.id,
-          service: 'steam',
-          appId: 730,
-          gameName: 'Counter-Strike 2',
-          gameType: 'game',
-          headerImage: 'https://cdn.akamai.steamstatic.com/steam/apps/730/header.jpg',
-          description: 'Counter-Strike 2 is a tactical shooter.',
-          totalBytes: download.totalBytes,
-          cacheHitBytes: download.cacheHitBytes,
-          cacheMissBytes: download.cacheMissBytes,
-          cacheHitPercent: download.cacheHitPercent
-        };
-        setGameInfo((prev) => ({ ...prev, [download.id]: mockGameInfo }));
-        // Cache mock data too
-        gameInfoCache.set(download.id, mockGameInfo);
-      } else {
-        try {
-          setLoadingGame(download.id);
-          const response = await fetch(`/api/gameinfo/download/${download.id}`);
-          if (response.ok) {
-            const data = await response.json();
-            setGameInfo((prev) => ({ ...prev, [download.id]: data }));
-            // Cache the fetched data
-            gameInfoCache.set(download.id, data);
-          }
-        } catch (err) {
-          console.error('Error fetching game info:', err);
-        } finally {
-          setLoadingGame(null);
-        }
-      }
+    if (download.totalBytes === 0) return;
+    
+    const newExpanded = expandedDownload === download.id ? null : download.id;
+    setExpandedDownload(newExpanded);
+    
+    if (newExpanded && download.service.toLowerCase() === 'steam' && download.gameName) {
+      await fetchGameInfo(download);
     }
   };
 
@@ -483,217 +565,144 @@ const DownloadsTab: React.FC = () => {
     setExpandedGroup(expandedGroup === groupId ? null : groupId);
   };
 
-  const renderGroup = useCallback(
-    (group: DownloadGroup) => {
-      const isExpanded = expandedGroup === group.id;
-      const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+  // Render functions
+  const renderGroup = useCallback((group: DownloadGroup) => {
+    const isExpanded = expandedGroup === group.id;
+    const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
 
-      return (
-        <Card key={group.id} padding="md">
-          <div onClick={() => handleGroupClick(group.id)} className="cursor-pointer">
-            <div className="grid grid-cols-12 gap-4">
-              <div className="col-span-12 sm:col-span-4 md:col-span-3">
-                <p className="text-xs text-themed-muted">Group</p>
-                <div className="flex items-center gap-2">
+    return (
+      <Card key={group.id} padding="md">
+        <div onClick={() => handleGroupClick(group.id)} className="cursor-pointer">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <ChevronRight
+                  size={16}
+                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                />
+                <div className="w-6 h-6 rounded bg-themed-secondary flex items-center justify-center">
+                  <Layers size={14} className="text-themed-accent" />
+                </div>
+                <span className="text-sm font-medium text-themed-accent">{group.name}</span>
+              </div>
+              <span className="text-xs text-themed-muted">({group.downloadCount} items)</span>
+            </div>
+            
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <div className="text-sm font-medium text-themed-primary">
+                  {formatBytes(group.totalBytes)}
+                </div>
+                {group.totalBytes > 0 && (
+                  <div className="text-xs text-themed-muted">
+                    {formatPercent(hitPercent)} cached
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {isExpanded && (
+          <>
+            <div className="border-t border-themed-secondary my-4" />
+            <div className="max-h-72 overflow-y-auto">
+              <div className="space-y-2">
+                {group.downloads.map((d) => (
+                  <div key={d.id} className="p-3 rounded bg-themed-secondary">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={`text-xs font-medium service-${d.service.toLowerCase()}`}>
+                          {d.service}
+                        </span>
+                        <span className="text-xs text-themed-muted">{d.clientHost}</span>
+                      </div>
+                      <div className="text-xs text-themed-muted">
+                        {formatBytes(d.totalBytes || 0)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </Card>
+    );
+  }, [expandedGroup]);
+
+  const renderDownload = useCallback((download: Download) => {
+    const isExpanded = expandedDownload === download.id;
+    const isSteam = download.service.toLowerCase() === 'steam';
+    const hasData = (download.totalBytes || 0) > 0;
+    const downloadType = getDownloadTypeInfo(download);
+    const IconComponent = downloadType.icon;
+    const game = download.id ? gameInfo[download.id] : undefined;
+
+    return (
+      <Card key={download.id} padding="md">
+        <div onClick={() => handleDownloadClick(download)} className={hasData ? 'cursor-pointer' : ''}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                {hasData && (
                   <ChevronRight
                     size={16}
                     className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
                   />
-                  <div className="w-6 h-6 rounded bg-themed-secondary flex items-center justify-center">
-                    <Layers size={14} className="text-themed-accent" />
-                  </div>
-                  <span className="text-sm font-medium text-themed-accent">{group.name}</span>
+                )}
+                <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
+                  {download.service}
+                </span>
+              </div>
+              
+              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
+                <span className="text-sm text-themed-primary font-medium">
+                  {download.gameName}
+                </span>
+              )}
+              
+              <div className="flex items-center gap-2">
+                <IconComponent size={14} className={downloadType.iconColor} />
+                <span className="text-xs text-themed-muted">{downloadType.description}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <Users size={14} className="text-themed-muted" />
+                <span className="text-xs text-themed-muted">{download.clientHost}</span>
+              </div>
+              
+              <div className="text-right">
+                <div className="text-sm font-medium text-themed-primary">
+                  {formatBytes(download.totalBytes || 0)}
                 </div>
-                <p className="text-xs text-themed-muted">{group.count} items</p>
-              </div>
-
-              <div className="col-span-6 sm:col-span-4 md:col-span-3">
-                <p className="text-xs text-themed-muted">Size</p>
-                <p className="text-sm font-medium">
-                  {group.totalBytes > 0 ? formatBytes(group.totalBytes) : 'Metadata'}
-                </p>
-              </div>
-
-              <div className="col-span-6 sm:col-span-4 md:col-span-3">
-                <p className="text-xs text-themed-muted">Clients</p>
-                <div className="flex items-center gap-1">
-                  <Users size={14} />
-                  <span className="text-sm">{group.clientCount || 0}</span>
-                </div>
-              </div>
-
-              <div className="col-span-12 md:col-span-3">
-                <p className="text-xs text-themed-muted">Cache Hit</p>
-                {group.totalBytes > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 progress-track rounded-full h-2 overflow-hidden">
-                      <div
-                        className={`h-full ${getHitRateColor(hitPercent)}`}
-                        style={{ width: `${hitPercent}%` }}
-                      />
-                    </div>
-                    <span className="text-sm">{formatPercent(hitPercent)}</span>
+                {download.totalBytes && download.totalBytes > 0 && (
+                  <div className="text-xs text-themed-muted">
+                    {formatPercent((download.cacheHitBytes || 0) / download.totalBytes * 100)} hit
                   </div>
-                ) : (
-                  <p className="text-sm text-themed-muted">N/A</p>
                 )}
               </div>
             </div>
           </div>
 
-          {isExpanded && (
+          {isExpanded && game && (
             <>
               <div className="border-t border-themed-secondary my-4" />
-              <div className="max-h-72 overflow-y-auto">
-                <div className="space-y-2">
-                  {group.downloads.map((d) => (
-                    <div key={d.id} className="p-2 bg-themed-tertiary rounded">
-                      <div className="grid grid-cols-4 gap-2">
-                        <span className="text-xs">{d.clientIp}</span>
-                        <span className="text-xs">{formatBytes(d.totalBytes)}</span>
-                        <span className="text-xs">{formatPercent(d.cacheHitPercent || 0)}</span>
-                        <span className="text-xs">{formatDateTime(d.startTime)}</span>
-                      </div>
-                    </div>
-                  ))}
+              {loadingGame === download.id ? (
+                <div className="flex justify-center py-4">
+                  <Loader className="w-6 h-6 animate-spin" />
                 </div>
-              </div>
-            </>
-          )}
-        </Card>
-      );
-    },
-    [expandedGroup]
-  );
-
-  const renderDownload = useCallback(
-    (download: Download) => {
-      const isExpanded = expandedDownload === download.id;
-      const isSteam = download.service.toLowerCase() === 'steam';
-      const hasData = (download.totalBytes || 0) > 0;
-      const downloadType = getDownloadTypeInfo(download);
-      const IconComponent = downloadType.icon;
-      const game = download.id ? gameInfo[download.id] : undefined;
-
-      return (
-        <Card key={download.id} padding="md" className={isSteam && hasData ? 'cursor-pointer' : ''}>
-          <div onClick={() => (isSteam && hasData ? handleDownloadClick(download) : undefined)}>
-            <div className="grid grid-cols-12 gap-4">
-              <div className="col-span-12 sm:col-span-4 md:col-span-3">
-                <p className="text-xs text-themed-muted">Service</p>
-                <div className="flex items-center gap-2">
-                  {isSteam && hasData && (
-                    <ChevronRight
-                      size={16}
-                      className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                    />
-                  )}
-                  <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
-                    {download.service}
-                  </span>
-                  <div
-                    className={`w-6 h-6 rounded flex items-center justify-center ${
-                      downloadType.type === 'game'
-                        ? 'download-game'
-                        : downloadType.type === 'metadata'
-                          ? 'download-metadata'
-                          : 'download-content'
-                    }`}
-                  >
-                    <IconComponent
-                      size={14}
-                      className={
-                        downloadType.type === 'game'
-                          ? 'text-themed-primary'
-                          : downloadType.type === 'metadata'
-                            ? 'text-themed-muted'
-                            : 'text-themed-primary'
-                      }
-                    />
-                  </div>
-                </div>
-                {downloadType.label && (
-                  <p className="text-xs text-themed-muted truncate">{downloadType.label}</p>
-                )}
-              </div>
-
-              <div className="col-span-6 sm:col-span-4 md:col-span-2">
-                <p className="text-xs text-themed-muted">Client</p>
-                <p className="text-sm">{download.clientIp}</p>
-              </div>
-
-              <div className="col-span-6 sm:col-span-4 md:col-span-2">
-                <p className="text-xs text-themed-muted">Size</p>
-                <p className={`text-sm ${hasData ? 'font-medium' : ''}`}>
-                  {hasData ? formatBytes(download.totalBytes) : 'Metadata'}
-                </p>
-              </div>
-
-              <div className="col-span-12 sm:col-span-6 md:col-span-3">
-                <p className="text-xs text-themed-muted">Cache Hit</p>
-                {hasData ? (
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 progress-track rounded-full h-2 overflow-hidden">
-                      <div
-                        className={`h-full ${getHitRateColor(download.cacheHitPercent || 0)}`}
-                        style={{ width: `${download.cacheHitPercent || 0}%` }}
-                      />
-                    </div>
-                    <span className="text-sm">{formatPercent(download.cacheHitPercent || 0)}</span>
-                  </div>
-                ) : (
-                  <p className="text-sm text-themed-muted">N/A</p>
-                )}
-              </div>
-
-              <div className="col-span-12 sm:col-span-6 md:col-span-2">
-                <p className="text-xs text-themed-muted">Status</p>
-                {download.isActive ? (
-                  <span className="status-active inline-flex items-center gap-1 px-2 py-1 text-xs rounded">
-                    <DownloadIcon size={12} />
-                    Active
-                  </span>
-                ) : (
-                  <span className="status-completed inline-flex items-center gap-1 px-2 py-1 text-xs rounded">
-                    <Check size={12} />
-                    Done
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {isExpanded && game && (
-              <>
-                <div className="border-t border-themed-secondary my-4" />
-                {loadingGame === download.id ? (
-                  <div className="flex justify-center py-4">
-                    <Loader className="w-6 h-6 animate-spin" />
-                  </div>
-                ) : (
-                  <div className="flex gap-6 items-start">
-                    <div className="flex-shrink-0">
-                      {game.headerImage && !brokenImages.has(download.id!) ? (
-                        <img
-                          src={game.headerImage}
-                          alt={game.gameName}
-                          className="rounded w-56 object-cover shadow-lg"
-                          style={{ height: '107px' }}
-                          onError={(e) => {
-                            // Immediately hide the broken image and show placeholder
-                            e.currentTarget.style.display = 'none';
-                            setBrokenImages(prev => {
-                              const newSet = new Set(prev);
-                              newSet.add(download.id!);
-                              return newSet;
-                            });
-                          }}
-                          onLoad={(e) => {
-                            // Ensure image is visible when it loads successfully
-                            e.currentTarget.style.display = 'block';
-                          }}
-                        />
-                      ) : null}
-                      {(!game.headerImage || brokenImages.has(download.id!)) && (
+              ) : (
+                <div className="flex gap-6 items-start">
+                  <div className="flex-shrink-0">
+                    <ImageWithFallback
+                      src={game.headerImage}
+                      alt={game.gameName}
+                      className="rounded w-56 object-cover shadow-lg"
+                      style={{ height: '107px' }}
+                      fallback={
                         <div 
                           className="rounded w-56 flex items-center justify-center shadow-lg"
                           style={{ 
@@ -707,151 +716,184 @@ const DownloadsTab: React.FC = () => {
                             style={{ color: 'var(--theme-text-muted)' }}
                           />
                         </div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
-                        {game.gameName}
-                      </h3>
-                      {game.description && (
-                        <p className="text-sm text-themed-muted mb-4 line-clamp-3">
-                          {game.description.length > 200
-                            ? `${game.description.substring(0, 200)}...`
-                            : game.description}
-                        </p>
-                      )}
-                      {game.appId && (
-                        <a
-                          href={`https://store.steampowered.com/app/${game.appId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 text-sm text-themed-accent hover:text-themed-primary transition-colors font-medium"
-                        >
-                          View on Steam <ExternalLink size={16} />
-                        </a>
-                      )}
-                    </div>
+                      }
+                    />
                   </div>
-                )}
-              </>
-            )}
-          </div>
-        </Card>
-      );
-    },
-    [expandedDownload, gameInfo, loadingGame]
-  );
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
+                      {game.gameName}
+                    </h3>
+                    <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
+                      {game.shortDescription}
+                    </p>
+                    <div className="flex flex-wrap gap-4 text-xs text-themed-muted">
+                      {game.releaseDate && (
+                        <span>Released: {game.releaseDate}</span>
+                      )}
+                      {game.genres && game.genres.length > 0 && (
+                        <span>Genres: {game.genres.join(', ')}</span>
+                      )}
+                    </div>
+                    {isSteam && (
+                      <a
+                        href={`https://store.steampowered.com/app/${game.appId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
+                      >
+                        View on Steam
+                        <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Card>
+    );
+  }, [expandedDownload, gameInfo, loadingGame]);
 
-  const renderVirtualItem = useCallback(
-    (item: Download | DownloadGroup) => {
-      return isDownloadGroup(item) ? renderGroup(item) : renderDownload(item);
-    },
-    [renderGroup, renderDownload]
-  );
+  const renderVirtualItem = useCallback((item: any) => {
+    if ('downloads' in item) {
+      return renderGroup(item as DownloadGroup);
+    }
+    return renderDownload(item as Download);
+  }, [renderGroup, renderDownload]);
+
+  // Loading state
+  if (isLoadingDownloads) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
+
+  // Empty state
+  if (latestDownloads.length === 0) {
+    return (
+      <Alert color="blue" icon={<Database className="w-5 h-5" />}>
+        No downloads recorded yet. Downloads will appear here as clients request content.
+      </Alert>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-0">
-        <h2 className="text-xl sm:text-2xl font-semibold text-themed-primary">Downloads</h2>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-2">
-            <CustomDropdown
+    <div className="space-y-4">
+      {/* Controls */}
+      <Card padding="sm">
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1">
+            <EnhancedDropdown
               options={serviceOptions}
               value={settings.selectedService}
-              onChange={(value) => updateSettings({ selectedService: value })}
-              className="flex-1 sm:min-w-[140px]"
-            />
-
-            <CustomDropdown
-              options={itemsPerPageOptions}
-              value={settings.itemsPerPage.toString()}
               onChange={(value) =>
-                updateSettings({
+                setSettings({ ...settings, selectedService: value })
+              }
+              className="w-full sm:w-40"
+            />
+            
+            <EnhancedDropdown
+              options={itemsPerPageOptions}
+              value={
+                settings.itemsPerPage === 'unlimited'
+                  ? 'unlimited'
+                  : settings.itemsPerPage.toString()
+              }
+              onChange={(value) =>
+                setSettings({
+                  ...settings,
                   itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
                 })
               }
-              className="flex-1 sm:min-w-[120px]"
+              className="w-full sm:w-32"
             />
           </div>
 
-          <div className="relative flex-shrink-0 self-end sm:self-auto">
-            <button
-              onClick={() => setSettingsOpened(!settingsOpened)}
-              className="p-2.5 themed-button-primary transition-colors w-full sm:w-auto"
-            >
-              <Settings size={20} />
-            </button>
-
-            {settingsOpened && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setSettingsOpened(false)} />
-                <div className="mobile-dropdown sm:right-0 themed-card p-4">
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium">Settings</p>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={settings.groupGames}
-                        onChange={(e) => updateSettings({ groupGames: e.target.checked })}
-                        className="rounded border-themed-secondary"
-                      />
-                      <span className="text-sm">Group similar items</span>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={settings.showZeroBytes}
-                        onChange={(e) => updateSettings({ showZeroBytes: e.target.checked })}
-                        className="rounded border-themed-secondary"
-                      />
-                      <span className="text-sm">Show 0-byte requests</span>
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={settings.showSmallFiles}
-                        onChange={(e) => updateSettings({ showSmallFiles: e.target.checked })}
-                        className="rounded border-themed-secondary"
-                      />
-                      <span className="text-sm">Show small files</span>
-                    </label>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          <button
+            onClick={() => setSettingsOpened(!settingsOpened)}
+            className="p-2 rounded hover:bg-themed-hover transition-colors"
+            title="Settings"
+          >
+            <Settings size={18} />
+          </button>
         </div>
+
+        {settingsOpened && (
+          <>
+            <div className="border-t border-themed-secondary my-3" />
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.groupGames}
+                  onChange={(e) =>
+                    setSettings({ ...settings, groupGames: e.target.checked })
+                  }
+                  className="themed-checkbox"
+                />
+                <span className="text-sm text-themed-secondary">Group by games</span>
+              </label>
+              
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.showZeroBytes}
+                  onChange={(e) =>
+                    setSettings({ ...settings, showZeroBytes: e.target.checked })
+                  }
+                  className="themed-checkbox"
+                />
+                <span className="text-sm text-themed-secondary">Show metadata (0 bytes)</span>
+              </label>
+              
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.showSmallFiles}
+                  onChange={(e) =>
+                    setSettings({ ...settings, showSmallFiles: e.target.checked })
+                  }
+                  className="themed-checkbox"
+                />
+                <span className="text-sm text-themed-secondary">Show small files (&lt; 1MB)</span>
+              </label>
+            </div>
+          </>
+        )}
+      </Card>
+
+      {/* Stats */}
+      {filteredDownloads.length !== latestDownloads.length && (
+        <Alert color="blue" icon={<Database className="w-5 h-5" />}>
+          Showing {filteredDownloads.length} of {latestDownloads.length} downloads
+          {settings.selectedService !== 'all' && ` for ${settings.selectedService}`}
+        </Alert>
+      )}
+
+      {/* Downloads list */}
+      <div className="space-y-2">
+        {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 100 ? (
+          <VirtualizedList
+            items={itemsToDisplay}
+            height={window.innerHeight - 250}
+            itemHeight={120}
+            renderItem={renderVirtualItem}
+          />
+        ) : (
+          itemsToDisplay.map((item) => {
+            if ('downloads' in item) {
+              return renderGroup(item as DownloadGroup);
+            }
+            return renderDownload(item as Download);
+          })
+        )}
       </div>
 
-      {itemsToDisplay.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12">
-          <div className="w-16 h-16 rounded-full bg-themed-tertiary flex items-center justify-center mb-4">
-            <CloudOff size={32} className="text-themed-muted" />
-          </div>
-          <p className="text-themed-muted">No downloads found</p>
-        </div>
-      )}
-
-      {itemsToDisplay.length > 0 && (
-        <>
-          {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 100 ? (
-            <VirtualizedList
-              items={itemsToDisplay}
-              height={window.innerHeight - 250}
-              itemHeight={120}
-              renderItem={renderVirtualItem}
-              overscan={3}
-            />
-          ) : (
-            <div className="space-y-3 max-h-[calc(100vh-250px)] overflow-y-auto custom-scrollbar">
-              {itemsToDisplay.map((item) =>
-                isDownloadGroup(item) ? renderGroup(item) : renderDownload(item)
-              )}
-            </div>
-          )}
-        </>
-      )}
-
+      {/* Performance warning */}
       {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
         <Alert color="yellow" icon={<AlertTriangle className="w-5 h-5" />}>
           Loading {itemsToDisplay.length} items. Performance optimized with virtual scrolling.
