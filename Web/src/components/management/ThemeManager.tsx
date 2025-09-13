@@ -82,7 +82,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
     'core',
     'backgrounds',
-    'navigation'
+    'text'
   ]);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
   const [colorEditingStarted, setColorEditingStarted] = useState<Record<string, boolean>>({});
@@ -195,12 +195,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     scrollbarThumb: '#6B7280',
     scrollbarHover: '#9CA3AF',
 
+    // Access indicators
+    publicAccessBg: 'rgba(16, 185, 129, 0.2)',
+    publicAccessText: '#34d399',
+    publicAccessBorder: 'rgba(16, 185, 129, 0.3)',
+    securedAccessBg: 'rgba(245, 158, 11, 0.2)',
+    securedAccessText: '#fbbf24',
+    securedAccessBorder: 'rgba(245, 158, 11, 0.3)',
+
     customCSS: ''
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const colorGroups: ColorGroup[] = [
+    // PRIMARY GROUPS - Most important
     {
       name: 'core',
       icon: Palette,
@@ -459,49 +468,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         }
       ]
     },
-    {
-      name: 'services',
-      icon: Gamepad2,
-      description: 'Colors for different gaming services',
-      colors: [
-        {
-          key: 'steamColor',
-          label: 'Steam',
-          description: 'Steam service color',
-          affects: ['Steam badges', 'Steam charts', 'Steam stats']
-        },
-        {
-          key: 'epicColor',
-          label: 'Epic Games',
-          description: 'Epic Games service color',
-          affects: ['Epic badges', 'Epic charts', 'Epic stats']
-        },
-        {
-          key: 'originColor',
-          label: 'Origin/EA',
-          description: 'Origin/EA service color',
-          affects: ['Origin badges', 'Origin charts', 'Origin stats']
-        },
-        {
-          key: 'blizzardColor',
-          label: 'Blizzard',
-          description: 'Blizzard service color',
-          affects: ['Blizzard badges', 'Blizzard charts', 'Blizzard stats']
-        },
-        {
-          key: 'wsusColor',
-          label: 'Windows Update',
-          description: 'Windows Update service color',
-          affects: ['WSUS badges', 'WSUS charts', 'WSUS stats']
-        },
-        {
-          key: 'riotColor',
-          label: 'Riot Games',
-          description: 'Riot Games service color',
-          affects: ['Riot badges', 'Riot charts', 'Riot stats']
-        }
-      ]
-    },
+
+    // SECONDARY GROUPS - Important UI elements
     {
       name: 'components',
       icon: Component,
@@ -582,88 +550,90 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       ]
     },
     {
-      name: 'icons',
-      icon: Brush,
-      description: 'Solid background colors for icon containers (no gradients)',
+      name: 'accessIndicators',
+      icon: Lock,
+      description: 'Colors for public/secured access indicators',
       colors: [
         {
-          key: 'iconBgBlue',
-          label: 'Blue Icon Background',
-          description: 'Blue icon container background',
-          affects: ['Database icons', 'Info icons']
+          key: 'publicAccessBg',
+          label: 'Public Access Background',
+          description: 'Background for public access indicator',
+          affects: ['Public access badge']
         },
         {
-          key: 'iconBgGreen',
-          label: 'Green Icon Background',
-          description: 'Green icon container background',
-          affects: ['Success icons', 'Online status']
+          key: 'publicAccessText',
+          label: 'Public Access Text',
+          description: 'Text color for public access indicator',
+          affects: ['Public access text and icon']
         },
         {
-          key: 'iconBgEmerald',
-          label: 'Emerald Icon Background',
-          description: 'Emerald icon container background',
-          affects: ['Trending icons', 'Growth indicators']
+          key: 'publicAccessBorder',
+          label: 'Public Access Border',
+          description: 'Border color for public access indicator',
+          affects: ['Public access badge border']
         },
         {
-          key: 'iconBgPurple',
-          label: 'Purple Icon Background',
-          description: 'Purple icon container background',
-          affects: ['Special features', 'Premium indicators']
+          key: 'securedAccessBg',
+          label: 'Secured Access Background',
+          description: 'Background for secured access indicator',
+          affects: ['API key required badge']
         },
         {
-          key: 'iconBgIndigo',
-          label: 'Indigo Icon Background',
-          description: 'Indigo icon container background',
-          affects: ['Server icons', 'System indicators']
+          key: 'securedAccessText',
+          label: 'Secured Access Text',
+          description: 'Text color for secured access indicator',
+          affects: ['Secured access text and icon']
         },
         {
-          key: 'iconBgOrange',
-          label: 'Orange Icon Background',
-          description: 'Orange icon container background',
-          affects: ['Download icons', 'Activity indicators']
-        },
-        {
-          key: 'iconBgYellow',
-          label: 'Yellow Icon Background',
-          description: 'Yellow icon container background',
-          affects: ['Warning icons', 'Client indicators']
-        },
-        {
-          key: 'iconBgCyan',
-          label: 'Cyan Icon Background',
-          description: 'Cyan icon container background',
-          affects: ['Activity icons', 'Performance indicators']
-        },
-        {
-          key: 'iconBgRed',
-          label: 'Red Icon Background',
-          description: 'Red icon container background',
-          affects: ['Error icons', 'Critical indicators']
+          key: 'securedAccessBorder',
+          label: 'Secured Access Border',
+          description: 'Border color for secured access indicator',
+          affects: ['Secured access badge border']
         }
       ]
     },
+
+    // TERTIARY GROUPS - Specialized elements
     {
-      name: 'scrollbar',
-      icon: Layout,
-      description: 'Scrollbar appearance customization',
+      name: 'services',
+      icon: Gamepad2,
+      description: 'Colors for different gaming services',
       colors: [
         {
-          key: 'scrollbarTrack',
-          label: 'Scrollbar Track',
-          description: 'Background track for scrollbars',
-          affects: ['All scrollbar tracks', 'Scrollbar corners']
+          key: 'steamColor',
+          label: 'Steam',
+          description: 'Steam service color',
+          affects: ['Steam badges', 'Steam charts', 'Steam stats']
         },
         {
-          key: 'scrollbarThumb',
-          label: 'Scrollbar Thumb',
-          description: 'Scrollbar draggable thumb',
-          affects: ['Scrollbar handle', 'Firefox scrollbar color']
+          key: 'epicColor',
+          label: 'Epic Games',
+          description: 'Epic Games service color',
+          affects: ['Epic badges', 'Epic charts', 'Epic stats']
         },
         {
-          key: 'scrollbarHover',
-          label: 'Scrollbar Hover',
-          description: 'Scrollbar thumb on hover',
-          affects: ['Hover state of scrollbar thumb']
+          key: 'originColor',
+          label: 'Origin/EA',
+          description: 'Origin/EA service color',
+          affects: ['Origin badges', 'Origin charts', 'Origin stats']
+        },
+        {
+          key: 'blizzardColor',
+          label: 'Blizzard',
+          description: 'Blizzard service color',
+          affects: ['Blizzard badges', 'Blizzard charts', 'Blizzard stats']
+        },
+        {
+          key: 'wsusColor',
+          label: 'Windows Update',
+          description: 'Windows Update service color',
+          affects: ['WSUS badges', 'WSUS charts', 'WSUS stats']
+        },
+        {
+          key: 'riotColor',
+          label: 'Riot Games',
+          description: 'Riot Games service color',
+          affects: ['Riot badges', 'Riot charts', 'Riot stats']
         }
       ]
     },
@@ -749,6 +719,94 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Cache Miss Color',
           description: 'Color for cache miss data in charts',
           affects: ['Cache miss ratio chart', 'Miss indicators']
+        }
+      ]
+    },
+
+    // UTILITY GROUPS - Less frequently changed
+    {
+      name: 'icons',
+      icon: Brush,
+      description: 'Solid background colors for icon containers (no gradients)',
+      colors: [
+        {
+          key: 'iconBgBlue',
+          label: 'Blue Icon Background',
+          description: 'Blue icon container background',
+          affects: ['Database icons', 'Info icons']
+        },
+        {
+          key: 'iconBgGreen',
+          label: 'Green Icon Background',
+          description: 'Green icon container background',
+          affects: ['Success icons', 'Online status']
+        },
+        {
+          key: 'iconBgEmerald',
+          label: 'Emerald Icon Background',
+          description: 'Emerald icon container background',
+          affects: ['Trending icons', 'Growth indicators']
+        },
+        {
+          key: 'iconBgPurple',
+          label: 'Purple Icon Background',
+          description: 'Purple icon container background',
+          affects: ['Special features', 'Premium indicators']
+        },
+        {
+          key: 'iconBgIndigo',
+          label: 'Indigo Icon Background',
+          description: 'Indigo icon container background',
+          affects: ['Server icons', 'System indicators']
+        },
+        {
+          key: 'iconBgOrange',
+          label: 'Orange Icon Background',
+          description: 'Orange icon container background',
+          affects: ['Download icons', 'Activity indicators']
+        },
+        {
+          key: 'iconBgYellow',
+          label: 'Yellow Icon Background',
+          description: 'Yellow icon container background',
+          affects: ['Warning icons', 'Client indicators']
+        },
+        {
+          key: 'iconBgCyan',
+          label: 'Cyan Icon Background',
+          description: 'Cyan icon container background',
+          affects: ['Activity icons', 'Performance indicators']
+        },
+        {
+          key: 'iconBgRed',
+          label: 'Red Icon Background',
+          description: 'Red icon container background',
+          affects: ['Error icons', 'Critical indicators']
+        }
+      ]
+    },
+    {
+      name: 'scrollbar',
+      icon: Layout,
+      description: 'Scrollbar appearance customization',
+      colors: [
+        {
+          key: 'scrollbarTrack',
+          label: 'Scrollbar Track',
+          description: 'Background track for scrollbars',
+          affects: ['All scrollbar tracks', 'Scrollbar corners']
+        },
+        {
+          key: 'scrollbarThumb',
+          label: 'Scrollbar Thumb',
+          description: 'Scrollbar draggable thumb',
+          affects: ['Scrollbar handle', 'Firefox scrollbar color']
+        },
+        {
+          key: 'scrollbarHover',
+          label: 'Scrollbar Hover',
+          description: 'Scrollbar thumb on hover',
+          affects: ['Hover state of scrollbar thumb']
         }
       ]
     }
@@ -1387,6 +1445,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         scrollbarTrack: '#374151',
         scrollbarThumb: '#6B7280',
         scrollbarHover: '#9CA3AF',
+
+        // Access indicators
+        publicAccessBg: 'rgba(16, 185, 129, 0.2)',
+        publicAccessText: '#34d399',
+        publicAccessBorder: 'rgba(16, 185, 129, 0.3)',
+        securedAccessBg: 'rgba(245, 158, 11, 0.2)',
+        securedAccessText: '#fbbf24',
+        securedAccessBorder: 'rgba(245, 158, 11, 0.3)',
 
         customCSS: ''
       });
