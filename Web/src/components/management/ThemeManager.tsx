@@ -2028,7 +2028,7 @@ content = """
               return (
                 <div
                   key={group.name}
-                  className="border border-themed-secondary rounded-lg"
+                  className="border themed-card rounded-lg"
                 >
                   <button
                     onClick={() => toggleGroup(group.name)}
@@ -2055,7 +2055,7 @@ content = """
 
                   {isExpanded && (
                     <div
-                      className="p-4 border-t border-themed-secondary space-y-4"
+                      className="p-4 border-t themed-card space-y-4"
                     >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">
@@ -2247,7 +2247,7 @@ content = """
               return (
                 <div
                   key={group.name}
-                  className="border border-themed-secondary rounded-lg"
+                  className="border themed-card rounded-lg"
                 >
                   <button
                     onClick={() => toggleGroup(group.name)}
@@ -2274,7 +2274,7 @@ content = """
 
                   {isExpanded && (
                     <div
-                      className="p-4 border-t border-themed-secondary space-y-4"
+                      className="p-4 border-t themed-card space-y-4"
                     >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">
