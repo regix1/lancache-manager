@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Download, Activity, Database, Clock, TrendingUp, Link, Copy, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, Activity, Database, Clock, TrendingUp, Link, Copy, CheckCircle, Lock, Unlock } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -73,6 +73,15 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('json');
   const [loadingProgress, setLoadingProgress] = useState<{ [key: string]: number }>({});
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
+  const [metricsSecured, setMetricsSecured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // Check metrics security status
+    fetch('/api/metrics/status')
+      .then(res => res.json())
+      .then(data => setMetricsSecured(data.requiresAuthentication))
+      .catch(() => setMetricsSecured(false));
+  }, []);
 
   const convertToCSV = (data: any[]): string => {
     if (!data || data.length === 0) return '';
@@ -297,17 +306,40 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
     <div className="space-y-4">
       {/* Live API Endpoints for Grafana */}
       <Card>
-        <div className="flex items-center space-x-2 mb-4">
-          <Link className="w-5 h-5 text-themed-accent" />
-          <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <Link className="w-5 h-5 text-themed-accent" />
+            <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
+          </div>
+          {metricsSecured !== null && (
+            <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium ${
+              metricsSecured 
+                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' 
+                : 'bg-green-500/20 text-green-400 border border-green-500/30'
+            }`}>
+              {metricsSecured ? (
+                <>
+                  <Lock className="w-3 h-3" />
+                  <span>API Key Required</span>
+                </>
+              ) : (
+                <>
+                  <Unlock className="w-3 h-3" />
+                  <span>Public Access</span>
+                </>
+              )}
+            </div>
+          )}
         </div>
         
         <p className="text-themed-muted text-sm mb-4">
-          These endpoints provide real-time metrics without authentication. Use them directly in Grafana or Prometheus.
+          {metricsSecured 
+            ? 'These endpoints provide real-time metrics with API key authentication. Configure your API key in Grafana or Prometheus.'
+            : 'These endpoints provide real-time metrics without authentication. Use them directly in Grafana or Prometheus.'}
         </p>
 
         <div className="space-y-3">
-          <div className="p-3 rounded-lg border border-themed-border bg-themed-secondary/10">
+          <div className="p-3 rounded-lg border border-themed-secondary">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
               <Button
@@ -323,7 +355,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
             <p className="text-xs text-themed-muted mt-1">OpenMetrics format for Prometheus scraping</p>
           </div>
 
-          <div className="p-3 rounded-lg border border-themed-border bg-themed-secondary/10">
+          <div className="p-3 rounded-lg border border-themed-secondary">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-themed-primary">JSON Metrics</span>
               <Button

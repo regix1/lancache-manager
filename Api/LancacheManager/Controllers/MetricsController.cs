@@ -161,6 +161,18 @@ public class MetricsController : ControllerBase
         }
     }
     
+    [HttpGet("status")]
+    [Produces("application/json")]
+    public IActionResult GetMetricsStatus()
+    {
+        var requireAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
+        return Ok(new 
+        { 
+            requiresAuthentication = requireAuth,
+            status = requireAuth ? "Secured" : "Public"
+        });
+    }
+    
     [HttpGet("json")]
     [Produces("application/json")]
     public async Task<IActionResult> GetJsonMetrics()
