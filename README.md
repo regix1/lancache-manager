@@ -16,7 +16,7 @@ Monitors and manages your LANCache server in real-time. Shows what's being downl
 - Recent downloads with progress tracking
 - Top clients by usage
 
-![Dashboard Screenshot](images/dashboard-main.png)
+<img width="1513" height="1222" alt="Home" src="https://github.com/user-attachments/assets/eeda1b52-bb41-4b3a-bd8e-e4b5b8afc388" />
 
 ### Downloads View
 - Real-time download monitoring
@@ -24,7 +24,7 @@ Monitors and manages your LANCache server in real-time. Shows what's being downl
 - Hit rate indicators
 - Client IP tracking
 
-![Downloads View](images/downloads.png)
+<img width="1516" height="688" alt="Downloads" src="https://github.com/user-attachments/assets/3c3f4e26-c4db-48f7-b304-3c771cb68c68" />
 
 ### Client Management
 - Active client monitoring
@@ -32,7 +32,7 @@ Monitors and manages your LANCache server in real-time. Shows what's being downl
 - Cache hit/miss ratios
 - Historical data tracking
 
-![Clients View](images/clients.png)
+<img width="1510" height="1069" alt="Clients" src="https://github.com/user-attachments/assets/c27d4fae-bbfa-45df-8e40-641b8e08a2f9" />
 
 ### Management Tools
 - **Authentication**: API key based security
@@ -43,7 +43,8 @@ Monitors and manages your LANCache server in real-time. Shows what's being downl
 - **Data Export**: Prometheus metrics, JSON API endpoints
 - **Theme Engine**: Full UI customization
 
-![Management Tab](images/management.png)
+<img width="1512" height="1159" alt="Management-1" src="https://github.com/user-attachments/assets/5d394dc9-a73f-480c-9664-5825a135b478" />
+<img width="1511" height="1226" alt="Management-2" src="https://github.com/user-attachments/assets/866d68ad-d60f-42e3-adfb-b70678bf6a68" />
 
 ## Quick Start
 
