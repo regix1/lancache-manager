@@ -85,7 +85,6 @@ services:
 
       # Log Processing Options
       - LanCache__StartFromEndOfLog=true      # Start monitoring from current position
-      - LanCache__ProcessHistoricalLogs=false # Process existing logs on startup
 
       # Performance Tuning (Optional)
       - LanCache__ChannelCapacity=100000      # Log processing queue size
@@ -154,7 +153,6 @@ npm run build
 | `PGID` | Group ID for file permissions | `1000` | `1006` |
 | `TZ` | Timezone | `UTC` | `America/Chicago` |
 | `LanCache__StartFromEndOfLog` | Start monitoring from current log position | `true` | `true` |
-| `LanCache__ProcessHistoricalLogs` | Process existing logs on startup | `false` | `true` |
 | `LanCache__ChannelCapacity` | Log processing queue size | `100000` | `200000` |
 | `LanCache__BatchSize` | Batch processing size | `5000` | `10000` |
 | `LanCache__BatchTimeoutMs` | Batch timeout in milliseconds | `500` | `1000` |
@@ -256,6 +254,23 @@ curl -H "X-Api-Key: lm_your-api-key" http://localhost:8080/api/management/cache
 ### WebSocket Endpoints
 - `/hubs/downloads` - Real-time download updates via SignalR
 
+## Grafana Integration
+
+LANCache Manager provides comprehensive Prometheus metrics for advanced monitoring and visualization in Grafana.
+
+### Quick Setup
+1. Configure Prometheus to scrape `/api/metrics` endpoint
+2. Add Prometheus as data source in Grafana
+3. Import dashboard or create custom visualizations
+
+### Available Metrics
+- Service-level statistics (hit/miss rates, bandwidth)
+- Client metrics (activity, usage patterns)
+- Cache performance (size, efficiency, growth)
+- System metrics (uptime, processing rates)
+
+For detailed Grafana setup and dashboard examples, see the [Grafana Integration Guide](wiki/Grafana.md).
+
 ## Theme Customization
 
 LANCache Manager includes a powerful theme engine allowing complete UI customization.
@@ -275,6 +290,13 @@ Themes are TOML files containing:
 - **Custom CSS**: Additional styling (optional)
 
 For detailed theming documentation, see the included Theming Guide in the `wiki/Theming.md` file.
+
+### Community Themes
+Browse pre-made themes in the `community-themes/` folder, including:
+- **Sage & Wood**: Earthy sage green with warm wood browns
+- More themes coming soon!
+
+To use a community theme, import any `.toml` file from the folder via the Theme Manager.
 
 ## System Requirements
 

@@ -1,0 +1,153 @@
+[meta]
+name = "Sage & Wood"
+id = "sage-wood"
+description = "Earthy sage green with warm wood browns on charcoal"
+author = "Nature"
+version = "1.2.0"
+isDark = true
+
+[colors]
+primaryColor = "#87a96b"
+secondaryColor = "#8b6f47"
+accentColor = "#9caf88"
+bgPrimary = "#2b2b2b"
+bgSecondary = "#424242"
+bgTertiary = "#404040"
+bgHover = "#4a4a4a"
+textPrimary = "#e8e3db"
+textSecondary = "#c4beb4"
+textMuted = "#9a9590"
+textAccent = "#a5b896"
+borderPrimary = "#454545"
+borderSecondary = "#505050"
+borderFocus = "#87a96b"
+navBg = "#323232"
+navBorder = "#454545"
+navTabActive = "#87a96b"
+navTabInactive = "#9a9590"
+navTabHover = "#c4beb4"
+navTabActiveBorder = "#87a96b"
+navMobileMenuBg = "#323232"
+navMobileItemHover = "#404040"
+success = "#6b8e4e"
+successBg = "#3a4a34"
+successText = "#a5b896"
+warning = "#d4a574"
+warningBg = "#4a3f2f"
+warningText = "#e8d4b8"
+error = "#c07860"
+errorBg = "#4a3532"
+errorText = "#e8b5a6"
+info = "#7a9a9f"
+infoBg = "#364045"
+infoText = "#b8d4d8"
+steamColor = "#7a9a9f"
+epicColor = "#9b8b7a"
+originColor = "#87a96b"
+blizzardColor = "#8fa4c4"
+wsusColor = "#8b9f7e"
+riotColor = "#c07860"
+cardBg = "#353535"
+cardBorder = "#454545"
+buttonBg = "#87a96b"
+buttonHover = "#6b8e4e"
+buttonText = "#ffffff"
+inputBg = "#404040"
+inputBorder = "#505050"
+inputFocus = "#87a96b"
+badgeBg = "#87a96b"
+badgeText = "#ffffff"
+progressBar = "#87a96b"
+progressBg = "#404040"
+hitRateHighBg = "#3a4a34"
+hitRateHighText = "#a5b896"
+hitRateMediumBg = "#364045"
+hitRateMediumText = "#b8d4d8"
+hitRateLowBg = "#4a3f2f"
+hitRateLowText = "#d4a574"
+hitRateWarningBg = "#4a3532"
+hitRateWarningText = "#e8b5a6"
+actionResetBg = "#d4a574"
+actionResetHover = "#b8935f"
+actionProcessBg = "#6b8e4e"
+actionProcessHover = "#5a7a40"
+actionDeleteBg = "#c07860"
+actionDeleteHover = "#a66550"
+iconBgBlue = "#7a9a7f"
+iconBgGreen = "#6b8e4e"
+iconBgEmerald = "#87a96b"
+iconBgPurple = "#8b7355"
+iconBgIndigo = "#708062"
+iconBgOrange = "#a68b5b"
+iconBgYellow = "#9b8b6a"
+iconBgCyan = "#8fa67f"
+iconBgRed = "#8b6f47"
+chartColor1 = "#87a96b"
+chartColor2 = "#6b8e4e"
+chartColor3 = "#d4a574"
+chartColor4 = "#c07860"
+chartColor5 = "#8b6f47"
+chartColor6 = "#7a9a9f"
+chartColor7 = "#9b8b7a"
+chartColor8 = "#8fa4c4"
+chartBorderColor = "#353535"
+chartGridColor = "#454545"
+chartTextColor = "#9a9590"
+chartCacheHitColor = "#6b8e4e"
+chartCacheMissColor = "#d4a574"
+dragHandleColor = "#808080"
+dragHandleHover = "#a5b896"
+
+[css]
+content = """
+/* Sage & Wood Theme - Natural Aesthetics */
+
+/* Subtle wood grain effect on cards */
+.themed-card {
+  background-image:
+    linear-gradient(
+      135deg,
+      rgba(139, 111, 71, 0.03) 0%,
+      transparent 50%,
+      rgba(139, 111, 71, 0.03) 100%
+    );
+}
+
+/* Sage green glow on focus */
+*:focus {
+  box-shadow: 0 0 0 2px rgba(135, 169, 107, 0.2);
+}
+
+/* Natural hover effects */
+.hover\:bg-themed-hover:hover {
+  background-image:
+    radial-gradient(
+      circle at center,
+      rgba(135, 169, 107, 0.05),
+      transparent
+    );
+}
+
+/* Earthy button shadows */
+button {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+button:hover {
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* Natural scrollbar styling */
+*::-webkit-scrollbar-track {
+  background: #353535;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #87a96b, #6b8e4e);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #9caf88, #87a96b);
+}
+"""
