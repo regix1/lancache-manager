@@ -102,8 +102,8 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({
 
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-          <div className="mobile-dropdown sm:right-0 themed-card">
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
+          <div className="mobile-dropdown sm:right-0 themed-card z-50">
             <div className="py-1">
               {options.map((option) => (
                 <button
@@ -678,11 +678,22 @@ const DownloadsTab: React.FC = () => {
                           alt={game.gameName}
                           className="rounded w-56 object-cover shadow-lg"
                           style={{ height: '107px' }}
-                          onError={() => {
-                            setBrokenImages(prev => new Set(prev).add(download.id!));
+                          onError={(e) => {
+                            // Immediately hide the broken image and show placeholder
+                            e.currentTarget.style.display = 'none';
+                            setBrokenImages(prev => {
+                              const newSet = new Set(prev);
+                              newSet.add(download.id!);
+                              return newSet;
+                            });
+                          }}
+                          onLoad={(e) => {
+                            // Ensure image is visible when it loads successfully
+                            e.currentTarget.style.display = 'block';
                           }}
                         />
-                      ) : (
+                      ) : null}
+                      {(!game.headerImage || brokenImages.has(download.id!)) && (
                         <div 
                           className="rounded w-56 flex items-center justify-center shadow-lg"
                           style={{ 
