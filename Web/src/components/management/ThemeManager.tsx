@@ -85,6 +85,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     'navigation'
   ]);
   const [copiedColor, setCopiedColor] = useState<string | null>(null);
+  const [colorEditingStarted, setColorEditingStarted] = useState<Record<string, boolean>>({});
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -826,12 +827,22 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     );
   };
 
-  const handleColorChange = (key: string, value: string) => {
-    // Save the previous color to localStorage history before changing
-    const currentValue = newTheme[key];
-    if (currentValue && currentValue !== value) {
-      localStorage.setItem(`color_history_create_${key}`, currentValue);
+  const [createColorEditingStarted, setCreateColorEditingStarted] = useState<Record<string, boolean>>({});
+  
+  const handleColorStart = (key: string) => {
+    // Save the original color when user starts editing
+    if (!createColorEditingStarted[key]) {
+      const currentValue = newTheme[key];
+      if (currentValue) {
+        localStorage.setItem(`color_history_create_${key}`, currentValue);
+        console.log(`Saved original create color: ${key} = ${currentValue}`);
+      }
+      setCreateColorEditingStarted(prev => ({ ...prev, [key]: true }));
     }
+  };
+  
+  const handleColorChange = (key: string, value: string) => {
+    // Just update the value, don't save to history on every change
     setNewTheme((prev: any) => ({ ...prev, [key]: value }));
   };
 
@@ -849,17 +860,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     return localStorage.getItem(`color_history_create_${key}`);
   };
 
-  const handleEditColorChange = (key: string, value: string) => {
-    // Save the previous color to localStorage history before changing
-    const currentValue = editedTheme[key];
-    console.log(`handleEditColorChange: key=${key}, currentValue=${currentValue}, newValue=${value}`);
-    
-    // Only save to history if we have a valid hex color
-    if (currentValue && currentValue !== value && currentValue.match(/^#[0-9a-fA-F]{6}$/)) {
-      const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
-      localStorage.setItem(historyKey, currentValue);
-      console.log(`Saved to localStorage[${historyKey}] = ${currentValue}`);
+  const handleEditColorStart = (key: string) => {
+    // Save the original color when user starts editing (not on every change)
+    if (!colorEditingStarted[key]) {
+      const currentValue = editedTheme[key];
+      if (currentValue && currentValue.match(/^#[0-9a-fA-F]{6}$/)) {
+        const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
+        localStorage.setItem(historyKey, currentValue);
+        console.log(`Saved original color to history: ${key} = ${currentValue}`);
+      }
+      setColorEditingStarted(prev => ({ ...prev, [key]: true }));
     }
+  };
+
+  const handleEditColorChange = (key: string, value: string) => {
+    // Just update the value, don't save to history on every change
     setEditedTheme((prev: any) => ({ ...prev, [key]: value }));
   };
 
@@ -1093,6 +1108,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     console.log('Editing theme:', latestTheme);
     console.log('Theme colors:', latestTheme.colors);
 
+    // Reset the color editing started flags
+    setColorEditingStarted({});
     setEditingTheme(latestTheme);
     
     // Start with all theme colors
@@ -1185,11 +1202,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         throw new Error('Theme was uploaded but not found on server');
       }
       
-      // Clear color history for this theme after successful save
+      // Clear color history and reset flags for this theme after successful save
       Object.keys(editedTheme).forEach(key => {
         const historyKey = `color_history_${editingTheme.meta.id}_${key}`;
         localStorage.removeItem(historyKey);
       });
+      setColorEditingStarted({});
       
       // Close modal
       setEditModalOpen(false);
@@ -1265,10 +1283,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       
       setCreateModalOpen(false);
       
-      // Clear create color history after successful save
+      // Clear create color history and reset flags after successful save
       Object.keys(newTheme).forEach(key => {
         localStorage.removeItem(`color_history_create_${key}`);
       });
+      setCreateColorEditingStarted({});
 
       setNewTheme({
         name: '',
@@ -1933,6 +1952,7 @@ content = """
         opened={createModalOpen}
         onClose={() => {
           setCreateModalOpen(false);
+          setCreateColorEditingStarted({});
         }}
         title="Create Custom Theme"
         size="xl"
@@ -2085,6 +2105,8 @@ content = """
                                 <input
                                   type="color"
                                   value={newTheme[color.key]}
+                                  onMouseDown={() => handleColorStart(color.key)}
+                                  onFocus={() => handleColorStart(color.key)}
                                   onChange={(e) => handleColorChange(color.key, e.target.value)}
                                   className="w-12 h-8 rounded cursor-pointer"
                                   style={{ backgroundColor: newTheme[color.key] }}
@@ -2093,6 +2115,7 @@ content = """
                               <input
                                 type="text"
                                 value={newTheme[color.key]}
+                                onFocus={() => handleColorStart(color.key)}
                                 onChange={(e) => handleColorChange(color.key, e.target.value)}
                                 className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
                               />
@@ -2173,6 +2196,7 @@ content = """
           setEditModalOpen(false);
           setEditingTheme(null);
           setEditedTheme({});
+          setColorEditingStarted({});
         }}
         title={`Edit Theme: ${editingTheme?.meta.name || ''}`}
         size="xl"
@@ -2304,6 +2328,8 @@ content = """
                                 <input
                                   type="color"
                                   value={editedTheme[color.key] || '#000000'}
+                                  onMouseDown={() => handleEditColorStart(color.key)}
+                                  onFocus={() => handleEditColorStart(color.key)}
                                   onChange={(e) => handleEditColorChange(color.key, e.target.value)}
                                   className="w-12 h-8 rounded cursor-pointer"
                                   style={{ backgroundColor: editedTheme[color.key] || '#000000' }}
@@ -2312,6 +2338,7 @@ content = """
                               <input
                                 type="text"
                                 value={editedTheme[color.key] || ''}
+                                onFocus={() => handleEditColorStart(color.key)}
                                 onChange={(e) => handleEditColorChange(color.key, e.target.value)}
                                 className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
                                 placeholder={color.key}
