@@ -478,6 +478,11 @@
     color: var(--theme-text-primary, #ffffff);
   }
 
+  .themed-input::placeholder {
+    color: var(--theme-text-placeholder, #6b7280);
+    opacity: 1; /* Override browser defaults */
+  }
+
   .themed-input:focus {
     border-color: var(--theme-input-focus, #3b82f6);
     outline-color: var(--theme-input-focus, #3b82f6);

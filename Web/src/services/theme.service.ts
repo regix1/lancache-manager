@@ -19,7 +19,8 @@ interface ThemeColors {
   textSecondary?: string;
   textMuted?: string;
   textAccent?: string;
-  
+  textPlaceholder?: string;
+
   // Drag handle colors
   dragHandleColor?: string;
   dragHandleHover?: string;
@@ -244,6 +245,7 @@ class ThemeService {
           textSecondary: '#d1d5db',
           textMuted: '#9ca3af',
           textAccent: '#60a5fa',
+          textPlaceholder: '#6b7280',
           
           // Drag handle
           dragHandleColor: '#6b7280',
@@ -386,6 +388,7 @@ class ThemeService {
           textSecondary: '#374151',
           textMuted: '#6b7280',
           textAccent: '#2563eb',
+          textPlaceholder: '#9ca3af',
           
           // Drag handle
           dragHandleColor: '#9ca3af',
@@ -744,6 +747,7 @@ class ThemeService {
       --theme-text-secondary: ${colors.textSecondary || '#d1d5db'};
       --theme-text-muted: ${colors.textMuted || '#9ca3af'};
       --theme-text-accent: ${colors.textAccent || '#60a5fa'};
+      --theme-text-placeholder: ${colors.textPlaceholder || '#6b7280'};
       --theme-drag-handle: ${colors.dragHandleColor || colors.textMuted || '#6b7280'};
       --theme-drag-handle-hover: ${colors.dragHandleHover || colors.textAccent || '#60a5fa'};
       --theme-border-primary: ${colors.borderPrimary || '#374151'};

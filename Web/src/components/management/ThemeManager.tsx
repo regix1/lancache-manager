@@ -117,6 +117,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     textSecondary: '#d1d5db',
     textMuted: '#9ca3af',
     textAccent: '#60a5fa',
+    textPlaceholder: '#6b7280',
     dragHandleColor: '#6b7280',
     dragHandleHover: '#60a5fa',
 
@@ -273,106 +274,197 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const colorGroups: ColorGroup[] = [
-    // PRIMARY GROUPS - Most important
+    // 1. FOUNDATION - Core brand colors
     {
-      name: 'core',
+      name: 'foundation',
       icon: Palette,
-      description: 'Main theme colors used throughout the interface',
+      description: 'Core brand colors that define your theme\'s identity',
       colors: [
         {
           key: 'primaryColor',
-          label: 'Primary Color',
-          description: 'Main brand color',
-          affects: ['Buttons', 'Links', 'Active states', 'Focus rings']
+          label: 'Primary Brand Color',
+          description: 'Main brand color used throughout',
+          affects: ['Primary buttons', 'Links', 'Active states', 'Focus rings'],
+          supportsAlpha: true
         },
         {
           key: 'secondaryColor',
-          label: 'Secondary Color',
-          description: 'Complementary accent color',
-          affects: ['Secondary buttons', 'Highlights', 'Purple text elements']
+          label: 'Secondary Brand Color',
+          description: 'Complementary brand accent',
+          affects: ['Secondary buttons', 'Highlights', 'Accents'],
+          supportsAlpha: true
         },
         {
           key: 'accentColor',
           label: 'Accent Color',
-          description: 'Additional accent for special elements',
-          affects: ['Special badges', 'Tooltips', 'Notifications']
+          description: 'Tertiary accent for special elements',
+          affects: ['Special badges', 'Tooltips', 'Info elements'],
+          supportsAlpha: true
         }
       ]
     },
+
+    // 2. CONTENT - Text and typography
     {
-      name: 'backgrounds',
-      icon: Layout,
-      description: 'Background colors for different UI layers',
-      colors: [
-        {
-          key: 'bgPrimary',
-          label: 'Primary Background',
-          description: 'Main app background',
-          affects: ['Body background', 'Main container']
-        },
-        {
-          key: 'bgSecondary',
-          label: 'Secondary Background',
-          description: 'Card and panel backgrounds',
-          affects: ['Cards', 'Panels', 'Modals']
-        },
-        {
-          key: 'bgTertiary',
-          label: 'Tertiary Background',
-          description: 'Input and nested element backgrounds',
-          affects: ['Input fields', 'Dropdown menus', 'Code blocks']
-        },
-        {
-          key: 'bgHover',
-          label: 'Hover Background',
-          description: 'Background for hover states',
-          affects: ['Button hovers', 'List item hovers', 'Menu item hovers']
-        }
-      ]
-    },
-    {
-      name: 'text',
+      name: 'content',
       icon: Type,
-      description: 'Text colors for different content hierarchies',
+      description: 'Text colors for content hierarchy and readability',
       colors: [
         {
           key: 'textPrimary',
           label: 'Primary Text',
-          description: 'Main text color',
-          affects: ['Headings', 'Body text', 'Labels']
+          description: 'Main content text color',
+          affects: ['Headings', 'Body text', 'Labels'],
+          supportsAlpha: true
         },
         {
           key: 'textSecondary',
           label: 'Secondary Text',
-          description: 'Less prominent text',
-          affects: ['Descriptions', 'Subtitles', 'Help text']
+          description: 'Supporting content text',
+          affects: ['Descriptions', 'Subtitles', 'Help text'],
+          supportsAlpha: true
         },
         {
           key: 'textMuted',
           label: 'Muted Text',
-          description: 'Disabled or placeholder text',
-          affects: ['Placeholders', 'Disabled labels', 'Timestamps']
+          description: 'De-emphasized text',
+          affects: ['Disabled text', 'Timestamps', 'Minor labels'],
+          supportsAlpha: true
         },
         {
           key: 'textAccent',
           label: 'Accent Text',
           description: 'Highlighted or linked text',
-          affects: ['Links', 'Highlighted values', 'Active menu items']
+          affects: ['Links', 'Highlighted values', 'Active menu items'],
+          supportsAlpha: true
+        },
+        {
+          key: 'textPlaceholder',
+          label: 'Placeholder Text',
+          description: 'Input placeholder text color',
+          affects: ['Form placeholders', 'Search hints', 'Empty states'],
+          supportsAlpha: true
+        }
+      ]
+    },
+
+    // 3. LAYOUT - Surfaces and containers
+    {
+      name: 'layout',
+      icon: Layout,
+      description: 'Background colors for UI surfaces and layers',
+      colors: [
+        {
+          key: 'bgPrimary',
+          label: 'Base Background',
+          description: 'Main application background',
+          affects: ['Body', 'Main container', 'Base layer'],
+          supportsAlpha: true
+        },
+        {
+          key: 'bgSecondary',
+          label: 'Surface Background',
+          description: 'Elevated surface backgrounds',
+          affects: ['Cards', 'Panels', 'Modals', 'Dialogs'],
+          supportsAlpha: true
+        },
+        {
+          key: 'bgTertiary',
+          label: 'Recessed Background',
+          description: 'Sunken or nested elements',
+          affects: ['Input fields', 'Wells', 'Code blocks'],
+          supportsAlpha: true
+        },
+        {
+          key: 'bgHover',
+          label: 'Hover State',
+          description: 'Interactive hover backgrounds',
+          affects: ['Button hovers', 'List hovers', 'Menu hovers'],
+          supportsAlpha: true
+        },
+        {
+          key: 'cardBg',
+          label: 'Card Background',
+          description: 'Card component background',
+          affects: ['Stat cards', 'Content cards', 'Widget backgrounds'],
+          supportsAlpha: true
+        },
+        {
+          key: 'cardBorder',
+          label: 'Card Border',
+          description: 'Card component borders',
+          affects: ['Card outlines', 'Panel borders'],
+          supportsAlpha: true
+        }
+      ]
+    },
+
+    // 4. INTERACTIVE - Form elements and controls
+    {
+      name: 'interactive',
+      icon: Component,
+      description: 'Interactive elements like buttons, inputs, and forms',
+      colors: [
+        {
+          key: 'buttonBg',
+          label: 'Button Background',
+          description: 'Primary button fill color',
+          affects: ['Primary buttons', 'Submit buttons', 'CTAs'],
+          supportsAlpha: true
+        },
+        {
+          key: 'buttonHover',
+          label: 'Button Hover',
+          description: 'Button hover state color',
+          affects: ['Button hover effects', 'Active button states'],
+          supportsAlpha: true
+        },
+        {
+          key: 'buttonText',
+          label: 'Button Text',
+          description: 'Button label color',
+          affects: ['Button labels', 'Button icons'],
+          supportsAlpha: true
+        },
+        {
+          key: 'inputBg',
+          label: 'Input Background',
+          description: 'Form input background',
+          affects: ['Text inputs', 'Textareas', 'Select boxes'],
+          supportsAlpha: true
+        },
+        {
+          key: 'inputBorder',
+          label: 'Input Border',
+          description: 'Form input border',
+          affects: ['Input outlines', 'Field borders'],
+          supportsAlpha: true
+        },
+        {
+          key: 'inputFocus',
+          label: 'Input Focus',
+          description: 'Focused input indicator',
+          affects: ['Active input borders', 'Focus rings'],
+          supportsAlpha: true
         },
         {
           key: 'dragHandleColor',
           label: 'Drag Handle',
-          description: 'Color for drag/reorder indicators',
-          affects: ['Drag grips', 'Reorder handles']
+          description: 'Drag and reorder controls',
+          affects: ['Drag grips', 'Reorder handles', 'Move indicators'],
+          supportsAlpha: true
         },
         {
           key: 'dragHandleHover',
           label: 'Drag Handle Hover',
-          description: 'Color when hovering over drag handles',
-          affects: ['Drag grip hover state', 'Active dragging']
+          description: 'Active drag handle state',
+          affects: ['Drag grip hover', 'Active dragging'],
+          supportsAlpha: true
         }
       ]
     },
+
+    // 5. BORDERS & DIVIDERS
     {
       name: 'borders',
       icon: Square,
@@ -381,500 +473,469 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         {
           key: 'borderPrimary',
           label: 'Primary Border',
-          description: 'Main border color',
-          affects: ['Card borders', 'Dividers', 'Table borders']
+          description: 'Main divider and border color',
+          affects: ['Card borders', 'Dividers', 'Separators'],
+          supportsAlpha: true
         },
         {
           key: 'borderSecondary',
           label: 'Secondary Border',
-          description: 'Subtle borders',
-          affects: ['Input borders', 'Section dividers']
+          description: 'Subtle borders and dividers',
+          affects: ['Input borders', 'Section dividers', 'Subtle lines'],
+          supportsAlpha: true
         },
         {
           key: 'borderFocus',
           label: 'Focus Border',
-          description: 'Border color for focused elements',
-          affects: ['Focused inputs', 'Active tabs', 'Selected items']
-        }
-      ]
-    },
-    {
-      name: 'navigation',
-      icon: Layout,
-      description: 'Colors specifically for navigation elements',
-      colors: [
-        {
-          key: 'navBg',
-          label: 'Navigation Background',
-          description: 'Main navigation background color',
-          affects: ['Header navigation', 'Navigation bar', 'Menu background']
-        },
-        {
-          key: 'navBorder',
-          label: 'Navigation Border',
-          description: 'Navigation border and separator color',
-          affects: ['Navigation borders', 'Header border', 'Menu separators']
-        },
-        {
-          key: 'navTabActive',
-          label: 'Active Tab Color',
-          description: 'Color for active navigation tabs',
-          affects: ['Active tab text', 'Current page indicator']
-        },
-        {
-          key: 'navTabInactive',
-          label: 'Inactive Tab Color',
-          description: 'Color for inactive navigation tabs',
-          affects: ['Inactive tab text', 'Unselected menu items']
-        },
-        {
-          key: 'navTabHover',
-          label: 'Tab Hover Color',
-          description: 'Color when hovering over navigation tabs',
-          affects: ['Tab hover text', 'Menu item hover text']
-        },
-        {
-          key: 'navTabActiveBorder',
-          label: 'Active Tab Border',
-          description: 'Border color for active navigation tabs',
-          affects: ['Active tab underline', 'Current page border']
-        },
-        {
-          key: 'navMobileMenuBg',
-          label: 'Mobile Menu Background',
-          description: 'Background for mobile navigation menu',
-          affects: ['Mobile menu background', 'Dropdown menu background']
-        },
-        {
-          key: 'navMobileItemHover',
-          label: 'Mobile Item Hover',
-          description: 'Hover color for mobile navigation items',
-          affects: ['Mobile menu item hover', 'Dropdown item hover']
-        }
-      ]
-    },
-    {
-      name: 'status',
-      icon: AlertCircle,
-      description: 'Colors for status indicators and alerts',
-      colors: [
-        {
-          key: 'success',
-          label: 'Success',
-          description: 'Success state color',
-          affects: ['Success buttons', 'Progress bars', 'Online status']
-        },
-        {
-          key: 'successBg',
-          label: 'Success Background',
-          description: 'Background for success elements',
-          affects: ['Success alerts', 'Success badges']
-        },
-        {
-          key: 'successText',
-          label: 'Success Text',
-          description: 'Text color for success states',
-          affects: ['Success messages', 'Positive values']
-        },
-        {
-          key: 'warning',
-          label: 'Warning',
-          description: 'Warning state color',
-          affects: ['Warning buttons', 'Caution indicators']
-        },
-        {
-          key: 'warningBg',
-          label: 'Warning Background',
-          description: 'Background for warning elements',
-          affects: ['Warning alerts', 'Warning badges']
-        },
-        {
-          key: 'warningText',
-          label: 'Warning Text',
-          description: 'Text color for warning states',
-          affects: ['Warning messages', 'Caution text']
-        },
-        {
-          key: 'error',
-          label: 'Error',
-          description: 'Error state color',
-          affects: ['Error buttons', 'Delete actions', 'Offline status']
-        },
-        {
-          key: 'errorBg',
-          label: 'Error Background',
-          description: 'Background for error elements',
-          affects: ['Error alerts', 'Error badges']
-        },
-        {
-          key: 'errorText',
-          label: 'Error Text',
-          description: 'Text color for error states',
-          affects: ['Error messages', 'Validation errors']
-        },
-        {
-          key: 'info',
-          label: 'Info',
-          description: 'Informational state color',
-          affects: ['Info buttons', 'Info indicators']
-        },
-        {
-          key: 'infoBg',
-          label: 'Info Background',
-          description: 'Background for info elements',
-          affects: ['Info alerts', 'Info badges']
-        },
-        {
-          key: 'infoText',
-          label: 'Info Text',
-          description: 'Text color for info states',
-          affects: ['Info messages', 'Help content']
+          description: 'Active focus indicators',
+          affects: ['Focus rings', 'Active borders', 'Selected outlines'],
+          supportsAlpha: true
         }
       ]
     },
 
-    // SECONDARY GROUPS - Important UI elements
+    // 6. FEEDBACK - Status and alerts
     {
-      name: 'components',
-      icon: Component,
-      description: 'Specific colors for UI components',
+      name: 'feedback',
+      icon: AlertCircle,
+      description: 'Status indicators, alerts, and feedback colors',
       colors: [
         {
-          key: 'cardBg',
-          label: 'Card Background',
-          description: 'Background for card components',
-          affects: ['Stat cards', 'Content cards', 'List items']
+          key: 'success',
+          label: 'Success Primary',
+          description: 'Success state primary color',
+          affects: ['Success icons', 'Success buttons', 'Positive actions'],
+          supportsAlpha: true
         },
         {
-          key: 'cardBorder',
-          label: 'Card Border',
-          description: 'Border for card components',
-          affects: ['Card outlines', 'Panel borders']
+          key: 'successBg',
+          label: 'Success Background',
+          description: 'Success state background',
+          affects: ['Success alerts', 'Success badges', 'Success cards'],
+          supportsAlpha: true
         },
         {
-          key: 'buttonBg',
-          label: 'Button Background',
-          description: 'Primary button background',
-          affects: ['Primary buttons', 'CTAs']
+          key: 'successText',
+          label: 'Success Text',
+          description: 'Success state text color',
+          affects: ['Success messages', 'Positive values'],
+          supportsAlpha: true
         },
         {
-          key: 'buttonHover',
-          label: 'Button Hover',
-          description: 'Button hover state',
-          affects: ['Button hover effects']
+          key: 'warning',
+          label: 'Warning Primary',
+          description: 'Warning state primary color',
+          affects: ['Warning icons', 'Caution buttons'],
+          supportsAlpha: true
         },
         {
-          key: 'buttonText',
-          label: 'Button Text',
-          description: 'Button text color',
-          affects: ['Button labels']
+          key: 'warningBg',
+          label: 'Warning Background',
+          description: 'Warning state background',
+          affects: ['Warning alerts', 'Warning badges'],
+          supportsAlpha: true
         },
         {
-          key: 'inputBg',
-          label: 'Input Background',
-          description: 'Form input background',
-          affects: ['Text inputs', 'Selects', 'Textareas']
+          key: 'warningText',
+          label: 'Warning Text',
+          description: 'Warning state text color',
+          affects: ['Warning messages', 'Caution text'],
+          supportsAlpha: true
         },
         {
-          key: 'inputBorder',
-          label: 'Input Border',
-          description: 'Form input border',
-          affects: ['Input outlines']
+          key: 'error',
+          label: 'Error Primary',
+          description: 'Error state primary color',
+          affects: ['Error icons', 'Delete buttons', 'Critical actions'],
+          supportsAlpha: true
         },
         {
-          key: 'inputFocus',
-          label: 'Input Focus',
-          description: 'Focused input border',
-          affects: ['Active input borders']
+          key: 'errorBg',
+          label: 'Error Background',
+          description: 'Error state background',
+          affects: ['Error alerts', 'Error badges'],
+          supportsAlpha: true
         },
+        {
+          key: 'errorText',
+          label: 'Error Text',
+          description: 'Error state text color',
+          affects: ['Error messages', 'Validation errors'],
+          supportsAlpha: true
+        },
+        {
+          key: 'info',
+          label: 'Info Primary',
+          description: 'Information state primary color',
+          affects: ['Info icons', 'Info buttons'],
+          supportsAlpha: true
+        },
+        {
+          key: 'infoBg',
+          label: 'Info Background',
+          description: 'Information state background',
+          affects: ['Info alerts', 'Info cards'],
+          supportsAlpha: true
+        },
+        {
+          key: 'infoText',
+          label: 'Info Text',
+          description: 'Information state text color',
+          affects: ['Info messages', 'Help content'],
+          supportsAlpha: true
+        }
+      ]
+    },
+
+    // 7. NAVIGATION
+    {
+      name: 'navigation',
+      icon: Layout,
+      description: 'Navigation bar and menu styling',
+      colors: [
+        {
+          key: 'navBg',
+          label: 'Navigation Background',
+          description: 'Navigation bar background',
+          affects: ['Header', 'Nav bar', 'Menu background'],
+          supportsAlpha: true
+        },
+        {
+          key: 'navBorder',
+          label: 'Navigation Border',
+          description: 'Navigation separators',
+          affects: ['Nav borders', 'Menu dividers'],
+          supportsAlpha: true
+        },
+        {
+          key: 'navTabActive',
+          label: 'Active Tab',
+          description: 'Active navigation item',
+          affects: ['Current page', 'Active tab'],
+          supportsAlpha: true
+        },
+        {
+          key: 'navTabInactive',
+          label: 'Inactive Tab',
+          description: 'Inactive navigation items',
+          affects: ['Unselected tabs', 'Inactive menu items'],
+          supportsAlpha: true
+        },
+        {
+          key: 'navTabHover',
+          label: 'Tab Hover',
+          description: 'Navigation hover state',
+          affects: ['Tab hovers', 'Menu hovers'],
+          supportsAlpha: true
+        },
+        {
+          key: 'navTabActiveBorder',
+          label: 'Active Tab Indicator',
+          description: 'Active tab underline/border',
+          affects: ['Tab indicators', 'Active borders'],
+          supportsAlpha: true
+        },
+        {
+          key: 'navMobileMenuBg',
+          label: 'Mobile Menu Background',
+          description: 'Mobile navigation background',
+          affects: ['Mobile menu', 'Dropdown menus'],
+          supportsAlpha: true
+        },
+        {
+          key: 'navMobileItemHover',
+          label: 'Mobile Menu Hover',
+          description: 'Mobile menu item hover',
+          affects: ['Mobile hovers', 'Dropdown hovers'],
+          supportsAlpha: true
+        }
+      ]
+    },
+
+    // 8. DATA DISPLAY - Progress, badges, charts
+    {
+      name: 'dataDisplay',
+      icon: Activity,
+      description: 'Data visualization and display elements',
+      colors: [
         {
           key: 'badgeBg',
           label: 'Badge Background',
-          description: 'Badge background color',
-          affects: ['Status badges', 'Tags', 'Pills']
+          description: 'Badge and pill backgrounds',
+          affects: ['Status badges', 'Tags', 'Labels'],
+          supportsAlpha: true
         },
         {
           key: 'badgeText',
           label: 'Badge Text',
           description: 'Badge text color',
-          affects: ['Badge labels']
+          affects: ['Badge labels', 'Tag text'],
+          supportsAlpha: true
         },
         {
           key: 'progressBar',
-          label: 'Progress Bar',
+          label: 'Progress Bar Fill',
           description: 'Progress indicator color',
-          affects: ['Progress bars', 'Loading bars']
+          affects: ['Progress bars', 'Loading bars', 'Completion indicators'],
+          supportsAlpha: true
         },
         {
           key: 'progressBg',
-          label: 'Progress Background',
+          label: 'Progress Track',
           description: 'Progress bar background',
-          affects: ['Progress track']
+          affects: ['Progress tracks', 'Empty progress state'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartColor1',
+          label: 'Chart Primary',
+          description: 'Primary chart color',
+          affects: ['First data series', 'Main chart color'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartColor2',
+          label: 'Chart Secondary',
+          description: 'Secondary chart color',
+          affects: ['Second data series'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartColor3',
+          label: 'Chart Tertiary',
+          description: 'Third chart color',
+          affects: ['Third data series'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartColor4',
+          label: 'Chart Quaternary',
+          description: 'Fourth chart color',
+          affects: ['Fourth data series'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartCacheHitColor',
+          label: 'Cache Hit Color',
+          description: 'Cache hit visualization',
+          affects: ['Hit rate charts', 'Success indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartCacheMissColor',
+          label: 'Cache Miss Color',
+          description: 'Cache miss visualization',
+          affects: ['Miss rate charts', 'Warning indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartGridColor',
+          label: 'Chart Grid',
+          description: 'Chart grid lines',
+          affects: ['Grid lines', 'Axes'],
+          supportsAlpha: true
+        },
+        {
+          key: 'chartTextColor',
+          label: 'Chart Text',
+          description: 'Chart labels and legends',
+          affects: ['Axis labels', 'Legends'],
+          supportsAlpha: true
         }
       ]
     },
+
+    // 9. ACCESS CONTROL - Security indicators
     {
-      name: 'accessIndicators',
+      name: 'accessControl',
       icon: Lock,
-      description: 'Colors for public/secured access indicators',
+      description: 'Security and access control indicators',
       colors: [
         {
           key: 'publicAccessBg',
           label: 'Public Access Background',
-          description: 'Background for public access indicator',
-          affects: ['Public access badge'],
+          description: 'Public/open access indicator',
+          affects: ['Public badges', 'Open access indicators'],
           supportsAlpha: true
         },
         {
           key: 'publicAccessText',
           label: 'Public Access Text',
-          description: 'Text color for public access indicator',
-          affects: ['Public access text and icon']
+          description: 'Public access text color',
+          affects: ['Public labels', 'Open text'],
+          supportsAlpha: true
         },
         {
           key: 'publicAccessBorder',
           label: 'Public Access Border',
-          description: 'Border color for public access indicator',
-          affects: ['Public access badge border'],
+          description: 'Public access border',
+          affects: ['Public badge borders'],
           supportsAlpha: true
         },
         {
           key: 'securedAccessBg',
           label: 'Secured Access Background',
-          description: 'Background for secured access indicator',
-          affects: ['API key required badge'],
+          description: 'Secured/locked access indicator',
+          affects: ['Security badges', 'Locked indicators'],
           supportsAlpha: true
         },
         {
           key: 'securedAccessText',
           label: 'Secured Access Text',
-          description: 'Text color for secured access indicator',
-          affects: ['Secured access text and icon']
+          description: 'Secured access text color',
+          affects: ['Security labels', 'Locked text'],
+          supportsAlpha: true
         },
         {
           key: 'securedAccessBorder',
           label: 'Secured Access Border',
-          description: 'Border color for secured access indicator',
-          affects: ['Secured access badge border'],
+          description: 'Secured access border',
+          affects: ['Security badge borders'],
           supportsAlpha: true
         }
       ]
     },
 
-    // TERTIARY GROUPS - Specialized elements
+    // 10. PLATFORM SERVICES - Brand-specific colors
     {
-      name: 'services',
+      name: 'platforms',
       icon: Gamepad2,
-      description: 'Colors for different gaming services',
+      description: 'Gaming platform and service colors',
       colors: [
         {
           key: 'steamColor',
           label: 'Steam',
-          description: 'Steam service color',
-          affects: ['Steam badges', 'Steam charts', 'Steam stats']
+          description: 'Steam platform color',
+          affects: ['Steam badges', 'Steam charts'],
+          supportsAlpha: true
         },
         {
           key: 'epicColor',
           label: 'Epic Games',
-          description: 'Epic Games service color',
-          affects: ['Epic badges', 'Epic charts', 'Epic stats']
+          description: 'Epic Games platform color',
+          affects: ['Epic badges', 'Epic charts'],
+          supportsAlpha: true
         },
         {
           key: 'originColor',
           label: 'Origin/EA',
-          description: 'Origin/EA service color',
-          affects: ['Origin badges', 'Origin charts', 'Origin stats']
+          description: 'EA/Origin platform color',
+          affects: ['Origin badges', 'EA charts'],
+          supportsAlpha: true
         },
         {
           key: 'blizzardColor',
           label: 'Blizzard',
-          description: 'Blizzard service color',
-          affects: ['Blizzard badges', 'Blizzard charts', 'Blizzard stats']
+          description: 'Blizzard platform color',
+          affects: ['Blizzard badges', 'Battle.net charts'],
+          supportsAlpha: true
         },
         {
           key: 'wsusColor',
           label: 'Windows Update',
           description: 'Windows Update service color',
-          affects: ['WSUS badges', 'WSUS charts', 'WSUS stats']
+          affects: ['WSUS badges', 'Update charts'],
+          supportsAlpha: true
         },
         {
           key: 'riotColor',
           label: 'Riot Games',
-          description: 'Riot Games service color',
-          affects: ['Riot badges', 'Riot charts', 'Riot stats']
-        }
-      ]
-    },
-    {
-      name: 'charts',
-      icon: Activity,
-      description: 'Colors for data visualization and charts',
-      colors: [
-        {
-          key: 'chartColor1',
-          label: 'Chart Color 1',
-          description: 'Primary chart data color',
-          affects: ['First data series', 'Primary pie/donut slice']
-        },
-        {
-          key: 'chartColor2',
-          label: 'Chart Color 2',
-          description: 'Secondary chart data color',
-          affects: ['Second data series', 'Secondary pie/donut slice']
-        },
-        {
-          key: 'chartColor3',
-          label: 'Chart Color 3',
-          description: 'Tertiary chart data color',
-          affects: ['Third data series', 'Third pie/donut slice']
-        },
-        {
-          key: 'chartColor4',
-          label: 'Chart Color 4',
-          description: 'Quaternary chart data color',
-          affects: ['Fourth data series', 'Fourth pie/donut slice']
-        },
-        {
-          key: 'chartColor5',
-          label: 'Chart Color 5',
-          description: 'Fifth chart data color',
-          affects: ['Fifth data series', 'Fifth pie/donut slice']
-        },
-        {
-          key: 'chartColor6',
-          label: 'Chart Color 6',
-          description: 'Sixth chart data color',
-          affects: ['Sixth data series', 'Sixth pie/donut slice']
-        },
-        {
-          key: 'chartColor7',
-          label: 'Chart Color 7',
-          description: 'Seventh chart data color',
-          affects: ['Seventh data series', 'Seventh pie/donut slice']
-        },
-        {
-          key: 'chartColor8',
-          label: 'Chart Color 8',
-          description: 'Eighth chart data color',
-          affects: ['Eighth data series', 'Eighth pie/donut slice']
-        },
-        {
-          key: 'chartBorderColor',
-          label: 'Chart Border Color',
-          description: 'Border color between chart segments',
-          affects: ['Donut/pie borders', 'Bar borders']
-        },
-        {
-          key: 'chartGridColor',
-          label: 'Chart Grid Color',
-          description: 'Grid lines and axes color',
-          affects: ['Grid lines', 'Axes', 'Tick marks']
-        },
-        {
-          key: 'chartTextColor',
-          label: 'Chart Text Color',
-          description: 'Chart labels and legend text',
-          affects: ['Axis labels', 'Legend text', 'Data labels']
-        },
-        {
-          key: 'chartCacheHitColor',
-          label: 'Cache Hit Color',
-          description: 'Color for cache hit data in charts',
-          affects: ['Cache hit ratio chart', 'Hit indicators']
-        },
-        {
-          key: 'chartCacheMissColor',
-          label: 'Cache Miss Color',
-          description: 'Color for cache miss data in charts',
-          affects: ['Cache miss ratio chart', 'Miss indicators']
+          description: 'Riot Games platform color',
+          affects: ['Riot badges', 'LoL charts'],
+          supportsAlpha: true
         }
       ]
     },
 
-    // UTILITY GROUPS - Less frequently changed
+    // 11. UTILITIES - Misc UI elements
     {
-      name: 'icons',
+      name: 'utilities',
       icon: Brush,
-      description: 'Solid background colors for icon containers (no gradients)',
-      colors: [
-        {
-          key: 'iconBgBlue',
-          label: 'Blue Icon Background',
-          description: 'Blue icon container background',
-          affects: ['Database icons', 'Info icons']
-        },
-        {
-          key: 'iconBgGreen',
-          label: 'Green Icon Background',
-          description: 'Green icon container background',
-          affects: ['Success icons', 'Online status']
-        },
-        {
-          key: 'iconBgEmerald',
-          label: 'Emerald Icon Background',
-          description: 'Emerald icon container background',
-          affects: ['Trending icons', 'Growth indicators']
-        },
-        {
-          key: 'iconBgPurple',
-          label: 'Purple Icon Background',
-          description: 'Purple icon container background',
-          affects: ['Special features', 'Premium indicators']
-        },
-        {
-          key: 'iconBgIndigo',
-          label: 'Indigo Icon Background',
-          description: 'Indigo icon container background',
-          affects: ['Server icons', 'System indicators']
-        },
-        {
-          key: 'iconBgOrange',
-          label: 'Orange Icon Background',
-          description: 'Orange icon container background',
-          affects: ['Download icons', 'Activity indicators']
-        },
-        {
-          key: 'iconBgYellow',
-          label: 'Yellow Icon Background',
-          description: 'Yellow icon container background',
-          affects: ['Warning icons', 'Client indicators']
-        },
-        {
-          key: 'iconBgCyan',
-          label: 'Cyan Icon Background',
-          description: 'Cyan icon container background',
-          affects: ['Activity icons', 'Performance indicators']
-        },
-        {
-          key: 'iconBgRed',
-          label: 'Red Icon Background',
-          description: 'Red icon container background',
-          affects: ['Error icons', 'Critical indicators']
-        }
-      ]
-    },
-    {
-      name: 'scrollbar',
-      icon: Layout,
-      description: 'Scrollbar appearance customization',
+      description: 'Utility colors for specialized UI elements',
       colors: [
         {
           key: 'scrollbarTrack',
           label: 'Scrollbar Track',
-          description: 'Background track for scrollbars',
-          affects: ['All scrollbar tracks', 'Scrollbar corners']
+          description: 'Scrollbar background track',
+          affects: ['Scrollbar tracks', 'Scroll gutters'],
+          supportsAlpha: true
         },
         {
           key: 'scrollbarThumb',
           label: 'Scrollbar Thumb',
-          description: 'Scrollbar draggable thumb',
-          affects: ['Scrollbar handle', 'Firefox scrollbar color']
+          description: 'Scrollbar draggable element',
+          affects: ['Scrollbar handles'],
+          supportsAlpha: true
         },
         {
           key: 'scrollbarHover',
           label: 'Scrollbar Hover',
-          description: 'Scrollbar thumb on hover',
-          affects: ['Hover state of scrollbar thumb']
+          description: 'Scrollbar hover state',
+          affects: ['Scrollbar hover effects'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgBlue',
+          label: 'Blue Icon Background',
+          description: 'Blue icon container',
+          affects: ['Database icons', 'Info icons'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgGreen',
+          label: 'Green Icon Background',
+          description: 'Green icon container',
+          affects: ['Success icons', 'Online status'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgEmerald',
+          label: 'Emerald Icon Background',
+          description: 'Emerald icon container',
+          affects: ['Trending icons', 'Growth indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgPurple',
+          label: 'Purple Icon Background',
+          description: 'Purple icon container',
+          affects: ['Special features', 'Premium indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgIndigo',
+          label: 'Indigo Icon Background',
+          description: 'Indigo icon container',
+          affects: ['Server icons', 'System indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgOrange',
+          label: 'Orange Icon Background',
+          description: 'Orange icon container',
+          affects: ['Download icons', 'Activity indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgYellow',
+          label: 'Yellow Icon Background',
+          description: 'Yellow icon container',
+          affects: ['Warning icons', 'Client indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgCyan',
+          label: 'Cyan Icon Background',
+          description: 'Cyan icon container',
+          affects: ['Activity icons', 'Performance indicators'],
+          supportsAlpha: true
+        },
+        {
+          key: 'iconBgRed',
+          label: 'Red Icon Background',
+          description: 'Red icon container',
+          affects: ['Error icons', 'Critical indicators'],
+          supportsAlpha: true
         }
       ]
     }
