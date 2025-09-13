@@ -269,7 +269,7 @@ LANCache Manager provides comprehensive Prometheus metrics for advanced monitori
 - Cache performance (size, efficiency, growth)
 - System metrics (uptime, processing rates)
 
-For detailed Grafana setup and dashboard examples, see the [Grafana Integration Guide](wiki/Grafana.md).
+For detailed Grafana setup and dashboard examples, see the [Grafana Integration Guide](https://github.com/regix1/lancache-manager/blob/main/wiki/Grafana.md).
 
 ## Theme Customization
 
@@ -289,11 +289,11 @@ Themes are TOML files containing:
 - **Chart Colors**: Data visualization colors
 - **Custom CSS**: Additional styling (optional)
 
-For detailed theming documentation, see the included Theming Guide in the `wiki/Theming.md` file.
+For detailed theming documentation, see the [Theming Guide](https://github.com/regix1/lancache-manager/blob/main/wiki/Theming.md).
 
 ### Community Themes
-Browse pre-made themes in the `community-themes/` folder, including:
-- **Sage & Wood**: Earthy sage green with warm wood browns
+Browse pre-made themes in the [community-themes](https://github.com/regix1/lancache-manager/tree/main/community-themes) folder, including:
+- **[Sage & Wood](https://github.com/regix1/lancache-manager/blob/main/community-themes/sage-wood.toml)**: Earthy sage green with warm wood browns
 - More themes coming soon!
 
 To use a community theme, import any `.toml` file from the folder via the Theme Manager.
@@ -369,8 +369,8 @@ To use a community theme, import any `.toml` file from the folder via the Theme 
 ### Getting Help
 
 - **Bug Reports**: [GitHub Issues](https://github.com/regix1/lancache-manager/issues)
-- **Feature Requests**: [GitHub Discussions](https://github.com/regix1/lancache-manager/discussions)
-- **Documentation**: [Wiki](https://github.com/regix1/lancache-manager/wiki)
+- **Documentation**: [Wiki Folder](https://github.com/regix1/lancache-manager/tree/main/wiki)
+- **Themes**: [Community Themes](https://github.com/regix1/lancache-manager/tree/main/community-themes)
 - **Community**: LANCache Discord Server
 
 ## Contributing

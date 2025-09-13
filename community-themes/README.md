@@ -36,4 +36,4 @@ Want to share your theme with the community?
 
 ## Support
 
-For help with themes, see the [Theming Guide](../wiki/Theming.md)
+For help with themes, see the [Theming Guide](https://github.com/regix1/lancache-manager/blob/main/wiki/Theming.md)
