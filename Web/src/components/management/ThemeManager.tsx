@@ -957,6 +957,75 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     console.log('=====================================');
   }, []);
 
+  // Update newTheme colors when create modal opens
+  useEffect(() => {
+    if (createModalOpen) {
+      // Get current theme's colors from computed styles
+      const computedStyle = getComputedStyle(document.documentElement);
+      const getCurrentColor = (varName: string, fallback: string) => {
+        const color = computedStyle.getPropertyValue(varName).trim();
+        return color || fallback;
+      };
+
+      setNewTheme((prev: any) => ({
+        ...prev,
+        // Update all color values with current theme colors
+        primaryColor: getCurrentColor('--theme-primary', '#3b82f6'),
+        secondaryColor: getCurrentColor('--theme-secondary', '#8b5cf6'),
+        accentColor: getCurrentColor('--theme-accent', '#06b6d4'),
+
+        bgPrimary: getCurrentColor('--theme-bg-primary', '#111827'),
+        bgSecondary: getCurrentColor('--theme-bg-secondary', '#1f2937'),
+        bgTertiary: getCurrentColor('--theme-bg-tertiary', '#374151'),
+        bgHover: getCurrentColor('--theme-bg-hover', '#4b5563'),
+
+        textPrimary: getCurrentColor('--theme-text-primary', '#ffffff'),
+        textSecondary: getCurrentColor('--theme-text-secondary', '#d1d5db'),
+        textMuted: getCurrentColor('--theme-text-muted', '#9ca3af'),
+        textAccent: getCurrentColor('--theme-text-accent', '#60a5fa'),
+
+        borderPrimary: getCurrentColor('--theme-border-primary', '#374151'),
+        borderSecondary: getCurrentColor('--theme-border-secondary', '#4b5563'),
+        borderFocus: getCurrentColor('--theme-border-focus', '#3b82f6'),
+
+        navBg: getCurrentColor('--theme-nav-bg', '#1f2937'),
+        navBorder: getCurrentColor('--theme-nav-border', '#374151'),
+        navTabActive: getCurrentColor('--theme-nav-tab-active', '#3b82f6'),
+        navTabInactive: getCurrentColor('--theme-nav-tab-inactive', '#9ca3af'),
+        navTabHover: getCurrentColor('--theme-nav-tab-hover', '#ffffff'),
+        navTabActiveBorder: getCurrentColor('--theme-nav-tab-active-border', '#3b82f6'),
+
+        buttonBg: getCurrentColor('--theme-button-bg', '#3b82f6'),
+        buttonHover: getCurrentColor('--theme-button-hover', '#2563eb'),
+        buttonText: getCurrentColor('--theme-button-text', '#ffffff'),
+
+        inputBg: getCurrentColor('--theme-input-bg', '#374151'),
+        inputBorder: getCurrentColor('--theme-input-border', '#4b5563'),
+        inputFocus: getCurrentColor('--theme-input-focus', '#3b82f6'),
+
+        cardBg: getCurrentColor('--theme-card-bg', '#1f2937'),
+        cardBorder: getCurrentColor('--theme-card-border', '#374151'),
+
+        success: getCurrentColor('--theme-success', '#10b981'),
+        warning: getCurrentColor('--theme-warning', '#f59e0b'),
+        error: getCurrentColor('--theme-error', '#ef4444'),
+        info: getCurrentColor('--theme-info', '#3b82f6'),
+
+        badgeBg: getCurrentColor('--theme-badge-bg', '#3b82f6'),
+        badgeText: getCurrentColor('--theme-badge-text', '#ffffff'),
+        progressBar: getCurrentColor('--theme-progress-bar', '#3b82f6'),
+        progressBg: getCurrentColor('--theme-progress-bg', '#374151'),
+
+        chartColor1: getCurrentColor('--theme-chart-color-1', '#3b82f6'),
+        chartColor2: getCurrentColor('--theme-chart-color-2', '#10b981'),
+        chartColor3: getCurrentColor('--theme-chart-color-3', '#f59e0b'),
+        chartColor4: getCurrentColor('--theme-chart-color-4', '#ef4444'),
+        chartColor5: getCurrentColor('--theme-chart-color-5', '#8b5cf6'),
+        chartColor6: getCurrentColor('--theme-chart-color-6', '#06b6d4'),
+      }));
+    }
+  }, [createModalOpen]);
+
   const loadThemes = async () => {
     setLoading(true);
     try {
