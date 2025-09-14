@@ -28,7 +28,11 @@ function VirtualizedList<T>({
   });
 
   return (
-    <div ref={parentRef} className={`overflow-auto ${className}`} style={{ height: `${height}px` }}>
+    <div ref={parentRef} className={`overflow-auto ${className}`} style={{
+      height: `${height}px`,
+      position: 'relative',
+      zIndex: 1
+    }}>
       <div
         style={{
           height: `${virtualizer.getTotalSize()}px`,
@@ -36,7 +40,7 @@ function VirtualizedList<T>({
           position: 'relative'
         }}
       >
-        {virtualizer.getVirtualItems().map((virtualItem) => (
+        {virtualizer.getVirtualItems().map((virtualItem, index) => (
           <div
             key={virtualItem.key}
             style={{
@@ -45,7 +49,8 @@ function VirtualizedList<T>({
               left: 0,
               width: '100%',
               height: `${virtualItem.size}px`,
-              transform: `translateY(${virtualItem.start}px)`
+              transform: `translateY(${virtualItem.start}px)`,
+              zIndex: virtualizer.getVirtualItems().length - index
             }}
           >
             {renderItem(items[virtualItem.index], virtualItem.index)}

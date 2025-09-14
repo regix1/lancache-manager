@@ -67,6 +67,11 @@ logposition.txt
 # Static web assets
 staticwebassets/
 
+# Frontend build outputs
+Web/dist/
+Web/node_modules/
+*.map
+
 # Security - API Keys and Authentication
 api_key.txt
 /data/api_key.txt

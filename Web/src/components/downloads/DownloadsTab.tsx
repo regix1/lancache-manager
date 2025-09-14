@@ -215,7 +215,7 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           ref={dropdownRef}
           className="absolute mt-1 w-full themed-card shadow-xl border border-themed-border"
           style={{
-            zIndex: 50,
+            zIndex: 9999,
             maxHeight: '300px',
             overflowY: 'auto'
           }}
@@ -379,7 +379,7 @@ const DownloadsTab: React.FC = () => {
 
   // Update download count when items per page changes
   useEffect(() => {
-    const count = settings.itemsPerPage === 'unlimited' ? 10000 : settings.itemsPerPage;
+    const count = settings.itemsPerPage === 'unlimited' ? 5000 : settings.itemsPerPage;
     if (mockMode && updateMockDataCount) {
       updateMockDataCount(count);
     } else if (!mockMode && updateApiDownloadCount) {
@@ -423,7 +423,7 @@ const DownloadsTab: React.FC = () => {
       { value: '50', label: '50 items' },
       { value: '100', label: '100 items' },
       { value: '200', label: '200 items' },
-      { value: 'unlimited', label: 'Load All' }
+      { value: 'unlimited', label: 'Load All (Max 5000)' }
     ],
     []
   );
@@ -521,7 +521,8 @@ const DownloadsTab: React.FC = () => {
   const itemsToDisplay = useMemo(() => {
     const items = settings.groupGames ? groupedDownloads || [] : filteredDownloads;
     if (settings.itemsPerPage === 'unlimited') {
-      return items;
+      // Cap at 5000 items for performance
+      return items.slice(0, 5000);
     }
     const limit = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 50;
     return items.slice(0, limit);
@@ -913,8 +914,9 @@ const DownloadsTab: React.FC = () => {
           <VirtualizedList
             items={itemsToDisplay}
             height={window.innerHeight - 250}
-            itemHeight={120}
+            itemHeight={settings.groupGames ? 150 : 120}
             renderItem={renderVirtualItem}
+            overscan={3}
           />
         ) : (
           <div className="space-y-3">
@@ -931,7 +933,7 @@ const DownloadsTab: React.FC = () => {
       {/* Performance warning */}
       {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
         <Alert color="yellow" icon={<AlertTriangle className="w-5 h-5" />}>
-          Loading {itemsToDisplay.length} items. Performance optimized with virtual scrolling.
+          Loading {itemsToDisplay.length} items (capped at 5000 for performance). Virtual scrolling enabled.
         </Alert>
       )}
     </div>
