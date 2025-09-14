@@ -156,6 +156,22 @@ interface Theme {
 }
 
 class ThemeService {
+
+
+  // Get the best text color for a given background using theme colors
+  public getContrastText(background: string): string {
+    if (!background || background === 'transparent') {
+      return 'var(--theme-text-primary)';
+    }
+
+    // Get the actual theme button text color
+    const buttonText = getComputedStyle(document.documentElement)
+      .getPropertyValue('--theme-button-text').trim() || '#ffffff';
+
+    // For primary color backgrounds, always use the theme's button text
+    return buttonText;
+  }
+
   private currentTheme: Theme | null = null;
   private styleElement: HTMLStyleElement | null = null;
 
@@ -177,7 +193,6 @@ class ThemeService {
 
               if (themeResponse.status === 404) {
                 deletedThemeIds.push(themeInfo.id);
-                console.log(`Theme ${themeInfo.id} no longer exists on server`);
                 continue;
               }
 
@@ -197,7 +212,6 @@ class ThemeService {
         if (deletedThemeIds.length > 0) {
           // If current theme was deleted, reset to default
           if (this.currentTheme && deletedThemeIds.includes(this.currentTheme.meta.id)) {
-            console.log(`Current theme ${this.currentTheme.meta.id} was deleted, resetting to default`);
             const darkDefault = builtInThemes.find((t) => t.meta.id === 'dark-default');
             if (darkDefault) {
               this.applyTheme(darkDefault);
@@ -961,7 +975,6 @@ class ThemeService {
   }
 
   exportTheme(theme: Theme): string {
-    console.log('Exporting theme to TOML:', theme);
     let toml = '';
 
     toml += '[meta]\n';
@@ -975,7 +988,6 @@ class ThemeService {
 
     toml += '[colors]\n';
     if (theme.colors) {
-      console.log('Exporting colors:', theme.colors);
       Object.entries(theme.colors).forEach(([key, value]) => {
         toml += `${key} = "${value}"\n`;
       });

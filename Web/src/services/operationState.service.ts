@@ -66,7 +66,6 @@ class OperationStateService {
   async updateState(key: string, updates: any): Promise<StateUpdateResponse | null> {
     try {
       const url = `${API_URL}/api/operationstate/${encodeURIComponent(key)}`;
-      console.log('Updating state at:', url);
 
       const response = await fetch(url, {
         method: 'PATCH',
@@ -149,7 +148,6 @@ class OperationStateService {
           await this.saveState(key, type, parsed, 120);
           localStorage.removeItem(key);
           migrated++;
-          console.log(`Migrated ${key} from localStorage to backend`);
         }
       } catch (err) {
         console.error(`Failed to migrate ${key}:`, err);
@@ -157,7 +155,6 @@ class OperationStateService {
     }
 
     if (migrated > 0) {
-      console.log(`Successfully migrated ${migrated} operations to backend storage`);
     }
 
     return migrated;

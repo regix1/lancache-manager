@@ -39,6 +39,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { API_BASE } from '../../utils/constants';
+import { Home, BarChart3, Users, Server, Settings, Layers } from 'lucide-react';
 
 interface Theme {
   meta: {
@@ -65,7 +66,15 @@ interface ColorGroup {
     affects: string[];
     value?: string;
     supportsAlpha?: boolean; // Allow transparency for this color
+    pages?: string[]; // Pages where this color is used
   }[];
+}
+
+interface PageGroup {
+  name: string;
+  label: string;
+  icon: React.ElementType;
+  description: string;
 }
 
 interface ThemeManagerProps {
@@ -92,6 +101,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [colorEditingStarted, setColorEditingStarted] = useState<Record<string, boolean>>({});
   const [createSearchQuery, setCreateSearchQuery] = useState('');
   const [editSearchQuery, setEditSearchQuery] = useState('');
+  const [organizationMode, setOrganizationMode] = useState<'category' | 'page'>('category');
+  const [selectedPage, setSelectedPage] = useState<string>('all');
+  const [editOrganizationMode, setEditOrganizationMode] = useState<'category' | 'page'>('category');
+  const [editSelectedPage, setEditSelectedPage] = useState<string>('all');
+
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -164,6 +178,49 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }).filter(group => group.colors.length > 0);
   };
 
+  // Filter colors by page
+  const filterByPage = (groups: ColorGroup[], page: string): ColorGroup[] => {
+    if (page === 'all') return groups;
+
+    return groups.map(group => {
+      const filteredColors = group.colors.filter(color =>
+        color.pages?.includes(page)
+      );
+      return { ...group, colors: filteredColors };
+    }).filter(group => group.colors.length > 0);
+  };
+
+  // Get filtered groups based on organization mode
+  const getFilteredGroups = (groups: ColorGroup[], search: string, isEdit: boolean = false): ColorGroup[] => {
+    let filtered = groups;
+
+    // Apply page filter if in page mode
+    const mode = isEdit ? editOrganizationMode : organizationMode;
+    const page = isEdit ? editSelectedPage : selectedPage;
+
+    if (mode === 'page') {
+      filtered = filterByPage(filtered, page);
+    }
+
+    // Apply search filter
+    if (search.trim()) {
+      filtered = filterColorGroups(filtered, search);
+    }
+
+    return filtered;
+  };
+
+  // Define available pages
+  const pageDefinitions: PageGroup[] = [
+    { name: 'all', label: 'All Pages', icon: Layers, description: 'Colors used across all pages' },
+    { name: 'dashboard', label: 'Dashboard', icon: Home, description: 'Main dashboard and overview page' },
+    { name: 'downloads', label: 'Downloads', icon: Download, description: 'Downloads and active transfers' },
+    { name: 'clients', label: 'Clients', icon: Users, description: 'Client connections and statistics' },
+    { name: 'services', label: 'Services', icon: Server, description: 'Service status and statistics' },
+    { name: 'management', label: 'Management', icon: Settings, description: 'Cache and theme management' },
+    { name: 'charts', label: 'Charts & Graphs', icon: BarChart3, description: 'Data visualizations and charts' }
+  ];
+
   const colorGroups: ColorGroup[] = [
     // 1. FOUNDATION - Core brand colors
     {
@@ -176,21 +233,24 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Primary Brand Color',
           description: 'Main brand color used throughout',
           affects: ['Primary buttons', 'Links', 'Active states', 'Focus rings'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'secondaryColor',
           label: 'Secondary Brand Color',
           description: 'Complementary brand accent',
           affects: ['Secondary buttons', 'Highlights', 'Accents'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'management']
         },
         {
           key: 'accentColor',
           label: 'Accent Color',
           description: 'Tertiary accent for special elements',
           affects: ['Special badges', 'Tooltips', 'Info elements'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         }
       ]
     },
@@ -206,35 +266,40 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Primary Text',
           description: 'Main content text color',
           affects: ['Headings', 'Body text', 'Labels'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'textSecondary',
           label: 'Secondary Text',
           description: 'Supporting content text',
           affects: ['Descriptions', 'Subtitles', 'Help text'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'textMuted',
           label: 'Muted Text',
           description: 'De-emphasized text',
           affects: ['Disabled text', 'Timestamps', 'Minor labels'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'textAccent',
           label: 'Accent Text',
           description: 'Highlighted or linked text',
           affects: ['Links', 'Highlighted values', 'Active menu items'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'textPlaceholder',
           label: 'Placeholder Text',
           description: 'Input placeholder text color',
           affects: ['Form placeholders', 'Search hints', 'Empty states'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['downloads', 'management']
         }
       ]
     },
@@ -250,42 +315,48 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Base Background',
           description: 'Main application background',
           affects: ['Body', 'Main container', 'Base layer'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'bgSecondary',
           label: 'Surface Background',
           description: 'Elevated surface backgrounds',
           affects: ['Cards', 'Panels', 'Modals', 'Dialogs'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'bgTertiary',
           label: 'Recessed Background',
           description: 'Sunken or nested elements',
           affects: ['Input fields', 'Wells', 'Code blocks'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['downloads', 'management']
         },
         {
           key: 'bgHover',
           label: 'Hover State',
           description: 'Interactive hover backgrounds',
           affects: ['Button hovers', 'List hovers', 'Menu hovers'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'management']
         },
         {
           key: 'cardBg',
           label: 'Card Background',
           description: 'Card component background',
           affects: ['Stat cards', 'Content cards', 'Widget backgrounds'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
         },
         {
           key: 'cardBorder',
           label: 'Card Border',
           description: 'Card component borders',
           affects: ['Card outlines', 'Panel borders'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
         }
       ]
     },
@@ -301,7 +372,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Button Background',
           description: 'Primary button fill color',
           affects: ['Primary buttons', 'Submit buttons', 'CTAs'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['management', 'downloads']
         },
         {
           key: 'buttonHover',
@@ -322,7 +394,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Input Background',
           description: 'Form input background',
           affects: ['Text inputs', 'Textareas', 'Select boxes'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['management', 'downloads']
         },
         {
           key: 'inputBorder',
@@ -343,7 +416,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Checkbox Accent',
           description: 'Checkbox checked state color',
           affects: ['Checkbox checkmarks', 'Checkbox backgrounds'],
-          supportsAlpha: false  // Browser overrides alpha for accessibility
+          supportsAlpha: false,  // Browser overrides alpha for accessibility
+          pages: ['downloads', 'management']
         },
         {
           key: 'checkboxBorder',
@@ -357,7 +431,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Slider Accent',
           description: 'Range slider accent color',
           affects: ['Slider thumbs', 'Slider filled tracks'],
-          supportsAlpha: false  // Browser overrides alpha for accessibility
+          supportsAlpha: false,  // Browser overrides alpha for accessibility
+          pages: ['management']
         },
         {
           key: 'sliderThumb',
@@ -424,90 +499,90 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     {
       name: 'feedback',
       icon: AlertCircle,
-      description: 'Status indicators, alerts, and feedback colors',
+      description: 'Status indicators, alerts, notifications, banners, and feedback colors',
       colors: [
         {
           key: 'success',
           label: 'Success Primary',
-          description: 'Success state primary color',
-          affects: ['Success icons', 'Success buttons', 'Positive actions'],
+          description: 'Success state primary color (border for alerts)',
+          affects: ['Success icons', 'Success buttons', 'Positive actions', 'Alert borders', 'Success notifications'],
           supportsAlpha: true
         },
         {
           key: 'successBg',
           label: 'Success Background',
-          description: 'Success state background',
-          affects: ['Success alerts', 'Success badges', 'Success cards'],
+          description: 'Success state background (alert background)',
+          affects: ['Success alerts', 'Success badges', 'Success cards', 'Alert backgrounds', 'Success banners'],
           supportsAlpha: true
         },
         {
           key: 'successText',
           label: 'Success Text',
-          description: 'Success state text color',
-          affects: ['Success messages', 'Positive values'],
+          description: 'Success state text color (alert text)',
+          affects: ['Success messages', 'Positive values', 'Alert text', 'Success notifications'],
           supportsAlpha: true
         },
         {
           key: 'warning',
           label: 'Warning Primary',
-          description: 'Warning state primary color',
-          affects: ['Warning icons', 'Caution buttons'],
+          description: 'Warning state primary color (border for alerts)',
+          affects: ['Warning icons', 'Caution buttons', 'Alert borders', 'Warning notifications'],
           supportsAlpha: true
         },
         {
           key: 'warningBg',
           label: 'Warning Background',
-          description: 'Warning state background',
-          affects: ['Warning alerts', 'Warning badges'],
+          description: 'Warning state background (alert background)',
+          affects: ['Warning alerts', 'Warning badges', 'Alert backgrounds', 'Caution banners'],
           supportsAlpha: true
         },
         {
           key: 'warningText',
           label: 'Warning Text',
-          description: 'Warning state text color',
-          affects: ['Warning messages', 'Caution text'],
+          description: 'Warning state text color (alert text)',
+          affects: ['Warning messages', 'Caution text', 'Alert text', 'Warning notifications'],
           supportsAlpha: true
         },
         {
           key: 'error',
           label: 'Error Primary',
-          description: 'Error state primary color',
-          affects: ['Error icons', 'Delete buttons', 'Critical actions'],
+          description: 'Error state primary color (border for alerts)',
+          affects: ['Error icons', 'Delete buttons', 'Critical actions', 'Alert borders', 'Error notifications'],
           supportsAlpha: true
         },
         {
           key: 'errorBg',
           label: 'Error Background',
-          description: 'Error state background',
-          affects: ['Error alerts', 'Error badges'],
+          description: 'Error state background (alert background)',
+          affects: ['Error alerts', 'Error badges', 'Alert backgrounds', 'Error banners', 'Danger zones'],
           supportsAlpha: true
         },
         {
           key: 'errorText',
           label: 'Error Text',
-          description: 'Error state text color',
-          affects: ['Error messages', 'Validation errors'],
+          description: 'Error state text color (alert text)',
+          affects: ['Error messages', 'Validation errors', 'Alert text', 'Error notifications'],
           supportsAlpha: true
         },
         {
           key: 'info',
           label: 'Info Primary',
-          description: 'Information state primary color',
-          affects: ['Info icons', 'Info buttons'],
+          description: 'Information state primary color (border for alerts)',
+          affects: ['Info icons', 'Info buttons', 'Alert borders', 'Info notifications'],
           supportsAlpha: true
         },
         {
           key: 'infoBg',
           label: 'Info Background',
-          description: 'Information state background',
-          affects: ['Info alerts', 'Info cards'],
+          description: 'Information state background (alert background)',
+          affects: ['Info alerts', 'Info cards', 'Alert backgrounds', 'Notification panels', 'Info banners'],
           supportsAlpha: true
         },
         {
           key: 'infoText',
           label: 'Info Text',
-          description: 'Information state text color',
-          affects: ['Info messages', 'Help content'],
+          description: 'Information state text color (alert text)',
+          affects: ['Info messages', 'Help content', 'Alert text', 'Notification text'],
           supportsAlpha: true
         }
       ]
@@ -522,15 +597,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         {
           key: 'navBg',
           label: 'Navigation Background',
-          description: 'Navigation bar background',
-          affects: ['Header', 'Nav bar', 'Menu background'],
+          description: 'Navigation bar background (header background)',
+          affects: ['Header', 'Nav bar', 'Menu background', 'Top bar', 'App header'],
           supportsAlpha: true
         },
         {
           key: 'navBorder',
           label: 'Navigation Border',
-          description: 'Navigation separators',
-          affects: ['Nav borders', 'Menu dividers'],
+          description: 'Navigation separators (header border)',
+          affects: ['Nav borders', 'Menu dividers', 'Header separator', 'Top bar border'],
           supportsAlpha: true
         },
         {
@@ -733,20 +808,23 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Steam',
           description: 'Steam platform color',
           affects: ['Steam badges', 'Steam charts'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
         },
         {
           key: 'epicColor',
           label: 'Epic Games',
           description: 'Epic Games platform color',
           affects: ['Epic badges', 'Epic charts'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
         },
         {
           key: 'originColor',
           label: 'Origin/EA',
           description: 'EA/Origin platform color',
           affects: ['Origin badges', 'EA charts'],
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'charts'],
           supportsAlpha: true
         },
         {
@@ -754,14 +832,24 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Blizzard',
           description: 'Blizzard platform color',
           affects: ['Blizzard badges', 'Battle.net charts'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
         },
         {
           key: 'wsusColor',
           label: 'Windows Update',
           description: 'Windows Update service color',
           affects: ['WSUS badges', 'Update charts'],
-          supportsAlpha: true
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+        },
+        {
+          key: 'riotColor',
+          label: 'Riot Games',
+          description: 'Riot Games platform color',
+          affects: ['Riot badges', 'Riot charts'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
         },
         {
           key: 'riotColor',
@@ -773,7 +861,137 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       ]
     },
 
-    // 11. UTILITIES - Misc UI elements
+    // 11. PERFORMANCE INDICATORS - Hit rate colors
+    {
+      name: 'performance',
+      icon: Activity,
+      description: 'Performance indicators and cache hit rate colors',
+      colors: [
+        {
+          key: 'hitRateHighBg',
+          label: 'High Hit Rate Background',
+          description: 'Background for high cache hit rates',
+          affects: ['90%+ hit rate badges', 'Success indicators'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
+        },
+        {
+          key: 'hitRateHighText',
+          label: 'High Hit Rate Text',
+          description: 'Text color for high hit rates',
+          affects: ['High hit rate labels'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
+        },
+        {
+          key: 'hitRateMediumBg',
+          label: 'Medium Hit Rate Background',
+          description: 'Background for medium cache hit rates',
+          affects: ['50-89% hit rate badges'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
+        },
+        {
+          key: 'hitRateMediumText',
+          label: 'Medium Hit Rate Text',
+          description: 'Text color for medium hit rates',
+          affects: ['Medium hit rate labels'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
+        },
+        {
+          key: 'hitRateLowBg',
+          label: 'Low Hit Rate Background',
+          description: 'Background for low cache hit rates',
+          affects: ['0-49% hit rate badges'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
+        },
+        {
+          key: 'hitRateLowText',
+          label: 'Low Hit Rate Text',
+          description: 'Text color for low hit rates',
+          affects: ['Low hit rate labels'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads', 'clients', 'services']
+        },
+        {
+          key: 'hitRateWarningBg',
+          label: 'Warning Hit Rate Background',
+          description: 'Background for warning hit rates',
+          affects: ['Critical performance warnings'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads']
+        },
+        {
+          key: 'hitRateWarningText',
+          label: 'Warning Hit Rate Text',
+          description: 'Text color for warning hit rates',
+          affects: ['Warning labels'],
+          supportsAlpha: true,
+          pages: ['dashboard', 'downloads']
+        }
+      ]
+    },
+
+    // 12. ACTION BUTTONS - Specialized action colors
+    {
+      name: 'actions',
+      icon: Sparkles,
+      description: 'Action button colors for operations',
+      colors: [
+        {
+          key: 'actionResetBg',
+          label: 'Reset Button Background',
+          description: 'Reset action button background',
+          affects: ['Reset buttons', 'Clear actions'],
+          supportsAlpha: true,
+          pages: ['management']
+        },
+        {
+          key: 'actionResetHover',
+          label: 'Reset Button Hover',
+          description: 'Reset button hover state',
+          affects: ['Reset button hover'],
+          supportsAlpha: true,
+          pages: ['management']
+        },
+        {
+          key: 'actionProcessBg',
+          label: 'Process Button Background',
+          description: 'Process action button background',
+          affects: ['Process buttons', 'Start actions'],
+          supportsAlpha: true,
+          pages: ['management']
+        },
+        {
+          key: 'actionProcessHover',
+          label: 'Process Button Hover',
+          description: 'Process button hover state',
+          affects: ['Process button hover'],
+          supportsAlpha: true,
+          pages: ['management']
+        },
+        {
+          key: 'actionDeleteBg',
+          label: 'Delete Button Background',
+          description: 'Delete action button background',
+          affects: ['Delete buttons', 'Remove actions'],
+          supportsAlpha: true,
+          pages: ['management']
+        },
+        {
+          key: 'actionDeleteHover',
+          label: 'Delete Button Hover',
+          description: 'Delete button hover state',
+          affects: ['Delete button hover'],
+          supportsAlpha: true,
+          pages: ['management']
+        }
+      ]
+    },
+
+    // 13. UTILITIES - Misc UI elements
     {
       name: 'utilities',
       icon: Brush,
@@ -873,14 +1091,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     const currentThemeId = themeService.getCurrentThemeId();
     setCurrentTheme(currentThemeId);
     
-    // Debug: Log all color history in localStorage
-    console.log('=== Color History in localStorage ===');
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('color_history_')) {
-        console.log(`${key}: ${localStorage.getItem(key)}`);
-      }
-    });
-    console.log('=====================================');
   }, []);
 
   // Update newTheme colors when create modal opens
@@ -950,7 +1160,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         cardBorder: getCurrentColor('--theme-card-border', '#374151'),
         buttonBg: getCurrentColor('--theme-button-bg', '#3b82f6'),
         buttonHover: getCurrentColor('--theme-button-hover', '#2563eb'),
-        buttonText: getCurrentColor('--theme-button-text', '#ffffff'),
+        buttonText: getCurrentColor('--theme-button-text', getCurrentColor('--theme-text-primary', '#ffffff')),
         inputBg: getCurrentColor('--theme-input-bg', '#374151'),
         inputBorder: getCurrentColor('--theme-input-border', '#4b5563'),
         inputFocus: getCurrentColor('--theme-input-focus', '#3b82f6'),
@@ -960,7 +1170,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         sliderThumb: getCurrentColor('--theme-slider-thumb', getCurrentColor('--theme-primary', '#3b82f6')),
         sliderTrack: getCurrentColor('--theme-slider-track', getCurrentColor('--theme-bg-tertiary', '#374151')),
         badgeBg: getCurrentColor('--theme-badge-bg', '#3b82f6'),
-        badgeText: getCurrentColor('--theme-badge-text', '#ffffff'),
+        badgeText: getCurrentColor('--theme-badge-text', getCurrentColor('--theme-text-primary', '#ffffff')),
         progressBar: getCurrentColor('--theme-progress-bar', '#3b82f6'),
         progressBg: getCurrentColor('--theme-progress-bg', '#374151'),
 
@@ -995,6 +1205,24 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         scrollbarTrack: getCurrentColor('--theme-scrollbar-track', '#1f2937'),
         scrollbarThumbHover: getCurrentColor('--theme-scrollbar-thumb-hover', '#6b7280'),
         scrollbarHover: getCurrentColor('--theme-scrollbar-hover', '#9CA3AF'),
+
+        // Hit rate indicators
+        hitRateHighBg: getCurrentColor('--theme-hit-rate-high-bg', '#064e3b'),
+        hitRateHighText: getCurrentColor('--theme-hit-rate-high-text', '#34d399'),
+        hitRateMediumBg: getCurrentColor('--theme-hit-rate-medium-bg', '#1e3a8a'),
+        hitRateMediumText: getCurrentColor('--theme-hit-rate-medium-text', '#93c5fd'),
+        hitRateLowBg: getCurrentColor('--theme-hit-rate-low-bg', '#44403c'),
+        hitRateLowText: getCurrentColor('--theme-hit-rate-low-text', '#fbbf24'),
+        hitRateWarningBg: getCurrentColor('--theme-hit-rate-warning-bg', '#44403c'),
+        hitRateWarningText: getCurrentColor('--theme-hit-rate-warning-text', '#fcd34d'),
+
+        // Action button colors
+        actionResetBg: getCurrentColor('--theme-action-reset-bg', '#f59e0b'),
+        actionResetHover: getCurrentColor('--theme-action-reset-hover', '#d97706'),
+        actionProcessBg: getCurrentColor('--theme-action-process-bg', '#10b981'),
+        actionProcessHover: getCurrentColor('--theme-action-process-hover', '#059669'),
+        actionDeleteBg: getCurrentColor('--theme-action-delete-bg', '#ef4444'),
+        actionDeleteHover: getCurrentColor('--theme-action-delete-hover', '#dc2626'),
 
         // Access indicators
         publicAccessBg: getCurrentColor('--theme-public-access-bg', 'rgba(16, 185, 129, 0.2)'),
@@ -1072,7 +1300,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const currentValue = newTheme[key];
       if (currentValue) {
         localStorage.setItem(`color_history_create_${key}`, currentValue);
-        console.log(`Saved original create color: ${key} = ${currentValue}`);
       }
       setCreateColorEditingStarted(prev => ({ ...prev, [key]: true }));
     }
@@ -1104,7 +1331,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       if (currentValue && currentValue.match(/^#[0-9a-fA-F]{6}$/)) {
         const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
         localStorage.setItem(historyKey, currentValue);
-        console.log(`Saved original color to history: ${key} = ${currentValue}`);
       }
       setColorEditingStarted(prev => ({ ...prev, [key]: true }));
     }
@@ -1121,7 +1347,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     if (previousColor) {
       // Swap current with history
       const currentColor = editedTheme[key];
-      console.log(`Restoring ${key}: ${currentColor} -> ${previousColor}`);
       setEditedTheme((prev: any) => ({ ...prev, [key]: previousColor }));
       localStorage.setItem(historyKey, currentColor || '');
     }
@@ -1130,7 +1355,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const getEditColorHistory = (key: string) => {
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
     const value = localStorage.getItem(historyKey);
-    console.log(`getEditColorHistory: key=${key}, historyKey=${historyKey}, value=${value}`);
     return value;
   };
 
@@ -1258,7 +1482,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         }
 
         if (result.availableThemes) {
-          console.log('Available themes on server:', result.availableThemes);
         }
 
         setTimeout(() => setUploadError(null), 10000);
@@ -1342,8 +1565,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     // Always use the most recent version from the themes array
     const latestTheme = themes.find(t => t.meta.id === theme.meta.id) || theme;
     
-    console.log('Editing theme:', latestTheme);
-    console.log('Theme colors:', latestTheme.colors);
 
     // Reset the color editing started flags
     setColorEditingStarted({});
@@ -1368,12 +1589,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       themeData.dragHandleHover = latestTheme.meta.isDark ? '#60a5fa' : '#2563eb';
     }
     
-    console.log('Theme data for editing:', themeData);
-    const colorKeys = Object.keys(themeData).filter(k => !['name', 'description', 'author', 'version', 'isDark', 'customCSS'].includes(k));
-    console.log('Color keys and values in theme data:');
-    colorKeys.forEach(key => {
-      console.log(`  ${key}: ${themeData[key]}`);
-    });
     setEditedTheme(themeData);
     setEditModalOpen(true);
   };
@@ -1387,7 +1602,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       return;
     }
 
-    console.log('Saving theme with colors:', editedTheme);
 
     // Create a clean colors object without meta properties
     const cleanColors: any = {};
@@ -1410,7 +1624,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       css: editedTheme.customCSS ? { content: editedTheme.customCSS } : undefined
     };
     
-    console.log('Theme object to save:', updatedTheme);
 
     const tomlContent = themeService.exportTheme(updatedTheme);
     const blob = new Blob([tomlContent], { type: 'text/plain' });
@@ -1714,8 +1927,20 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         navMobileItemHover: '#e5e7eb',
         cardBg: '#ffffff',
         cardBorder: '#e5e7eb',
+        buttonBg: '#3b82f6',
+        buttonHover: '#2563eb',
+        buttonText: '#ffffff',  // White text on blue button for 8.6:1 contrast
         inputBg: '#ffffff',
         inputBorder: '#d1d5db',
+        inputFocus: '#3b82f6',
+        checkboxAccent: '#3b82f6',
+        checkboxBorder: '#d1d5db',
+        sliderAccent: '#3b82f6',
+        sliderThumb: '#3b82f6',
+        sliderTrack: '#e5e7eb',
+        badgeBg: '#3b82f6',
+        badgeText: '#ffffff',
+        progressBar: '#3b82f6',
         progressBg: '#e5e7eb',
         successBg: '#d1fae5',
         successText: '#065f46',
@@ -2264,14 +2489,74 @@ content = """
             </div>
           </div>
 
+          {/* Organization Mode Toggle */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOrganizationMode('category')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                organizationMode === 'category'
+                  ? 'bg-primary text-themed-button'
+                  : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
+              }`}
+            >
+              <Layers className="w-4 h-4 inline-block mr-2" />
+              By Category
+            </button>
+            <button
+              onClick={() => setOrganizationMode('page')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                organizationMode === 'page'
+                  ? 'bg-primary text-themed-button'
+                  : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
+              }`}
+            >
+              <Layout className="w-4 h-4 inline-block mr-2" />
+              By Page
+            </button>
+          </div>
+
+          {/* Page Selector (when in page mode) */}
+          <div className={`transition-all duration-300 overflow-hidden ${
+            organizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
+          }`}>
+            <label className="block text-sm font-medium text-themed-primary mb-2">
+              Select Page
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {pageDefinitions.map((page) => {
+                const Icon = page.icon;
+                return (
+                  <button
+                    key={page.name}
+                    onClick={() => setSelectedPage(page.name)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                      selectedPage === page.name
+                        ? 'bg-primary'
+                        : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
+                    }`}
+                    style={{
+                      color: selectedPage === page.name
+                        ? 'var(--theme-button-text)'
+                        : undefined
+                    }}
+                    title={page.description}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {page.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Search Bar */}
-          <div className="relative">
+          <div className="relative mt-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
             <input
               type="text"
               value={createSearchQuery}
               onChange={(e) => setCreateSearchQuery(e.target.value)}
-              placeholder="Search colors... (e.g., 'button', 'background', 'text')"
+              placeholder="Search colors... (e.g., 'alert', 'header', 'button', 'background')"
               className="w-full pl-10 pr-10 py-2 themed-input"
             />
             {createSearchQuery && (
@@ -2286,7 +2571,7 @@ content = """
 
           {/* Color Groups */}
           <div className="space-y-4 max-h-96 overflow-y-auto">
-            {filterColorGroups(colorGroups, createSearchQuery).map((group) => {
+            {getFilteredGroups(colorGroups, createSearchQuery).map((group) => {
               const Icon = group.icon;
               const isExpanded = expandedGroups.includes(group.name) || createSearchQuery.trim() !== '';
 
@@ -2581,14 +2866,74 @@ content = """
             </div>
           </div>
 
+          {/* Organization Mode Toggle */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setEditOrganizationMode('category')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                editOrganizationMode === 'category'
+                  ? 'bg-primary text-themed-button'
+                  : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
+              }`}
+            >
+              <Layers className="w-4 h-4 inline-block mr-2" />
+              By Category
+            </button>
+            <button
+              onClick={() => setEditOrganizationMode('page')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                editOrganizationMode === 'page'
+                  ? 'bg-primary text-themed-button'
+                  : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
+              }`}
+            >
+              <Layout className="w-4 h-4 inline-block mr-2" />
+              By Page
+            </button>
+          </div>
+
+          {/* Page Selector (when in page mode) */}
+          <div className={`transition-all duration-300 overflow-hidden ${
+            editOrganizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
+          }`}>
+            <label className="block text-sm font-medium text-themed-primary mb-2">
+              Select Page
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {pageDefinitions.map((page) => {
+                const Icon = page.icon;
+                return (
+                  <button
+                    key={page.name}
+                    onClick={() => setEditSelectedPage(page.name)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                      editSelectedPage === page.name
+                        ? 'bg-primary'
+                        : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
+                    }`}
+                    style={{
+                      color: editSelectedPage === page.name
+                        ? 'var(--theme-button-text)'
+                        : undefined
+                    }}
+                    title={page.description}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {page.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Search Bar */}
-          <div className="relative">
+          <div className="relative mt-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-themed-muted" />
             <input
               type="text"
               value={editSearchQuery}
               onChange={(e) => setEditSearchQuery(e.target.value)}
-              placeholder="Search colors... (e.g., 'button', 'background', 'text')"
+              placeholder="Search colors... (e.g., 'alert', 'header', 'button', 'background')"
               className="w-full pl-10 pr-10 py-2 themed-input"
             />
             {editSearchQuery && (
@@ -2603,7 +2948,7 @@ content = """
 
           {/* Color Groups */}
           <div className="space-y-4 max-h-96 overflow-y-auto">
-            {filterColorGroups(colorGroups, editSearchQuery).map((group) => {
+            {getFilteredGroups(colorGroups, editSearchQuery, true).map((group) => {
               const Icon = group.icon;
               const isExpanded = expandedGroups.includes(group.name) || editSearchQuery.trim() !== '';
 

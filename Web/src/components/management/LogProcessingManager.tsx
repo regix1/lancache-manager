@@ -106,7 +106,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         .build();
 
       connection.on('ProcessingProgress', async (progress: any) => {
-        console.log('Processing progress received:', progress);
 
         setProcessingStatus((prev) => {
           if (prev?.status === 'complete') {
@@ -133,7 +132,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       });
 
       connection.on('BulkProcessingComplete', async (result: any) => {
-        console.log('Bulk processing complete:', result);
 
         if (pollingInterval.current) {
           clearInterval(pollingInterval.current);
@@ -156,13 +154,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         }, 10000);
       });
 
-      connection.onreconnecting((error) => {
-        console.log('SignalR reconnecting:', error);
+      connection.onreconnecting(() => {
         setSignalRConnected(false);
       });
 
-      connection.onreconnected((connectionId) => {
-        console.log('SignalR reconnected:', connectionId);
+      connection.onreconnected(() => {
         setSignalRConnected(true);
       });
 
@@ -171,7 +167,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         setSignalRConnected(false);
 
         if (isProcessingLogs) {
-          console.log('SignalR disconnected during processing, falling back to polling');
           startProcessingPolling();
         }
 
@@ -183,7 +178,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       await connection.start();
       signalRConnection.current = connection;
       setSignalRConnected(true);
-      console.log('SignalR connected');
     } catch (err) {
       console.error('SignalR connection failed, falling back to polling:', err);
       setSignalRConnected(false);

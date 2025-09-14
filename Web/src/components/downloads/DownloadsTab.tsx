@@ -32,7 +32,8 @@ const STORAGE_KEYS = {
   ITEMS_PER_PAGE: 'lancache_downloads_items',
   GROUP_GAMES: 'lancache_downloads_group',
   SHOW_METADATA: 'lancache_downloads_metadata',
-  SHOW_SMALL_FILES: 'lancache_downloads_show_small'
+  SHOW_SMALL_FILES: 'lancache_downloads_show_small',
+  HIDE_LOCALHOST: 'lancache_downloads_hide_localhost'
 };
 
 // Enhanced Image component with built-in fallback
@@ -261,11 +262,12 @@ const DownloadsTab: React.FC = () => {
   const [settings, setSettings] = useState<DownloadSettings>(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
     showSmallFiles: localStorage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
+    hideLocalhost: localStorage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
     selectedService: localStorage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
     groupGames: localStorage.getItem(STORAGE_KEYS.GROUP_GAMES) === 'true',
-    itemsPerPage: 
-      localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited' 
-        ? 'unlimited' 
+    itemsPerPage:
+      localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
+        ? 'unlimited'
         : parseInt(localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50')
   }));
 
@@ -395,6 +397,7 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.GROUP_GAMES, settings.groupGames.toString());
     localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
     localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
+    localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
   }, [settings]);
 
   // Memoized values
@@ -435,6 +438,12 @@ const DownloadsTab: React.FC = () => {
     if (!settings.showSmallFiles) {
       filtered = filtered.filter(
         (d) => (d.totalBytes || 0) === 0 || (d.totalBytes || 0) >= 1048576
+      );
+    }
+
+    if (settings.hideLocalhost) {
+      filtered = filtered.filter(
+        (d) => d.clientIp !== '127.0.0.1' && d.clientIp !== '::1'
       );
     }
 
@@ -873,6 +882,17 @@ const DownloadsTab: React.FC = () => {
                   className="themed-checkbox"
                 />
                 <span className="text-sm text-themed-secondary">Show small files (&lt; 1MB)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.hideLocalhost}
+                  onChange={(e) =>
+                    setSettings({ ...settings, hideLocalhost: e.target.checked })
+                  }
+                  className="themed-checkbox"
+                />
+                <span className="text-sm text-themed-secondary">Hide localhost (127.0.0.1)</span>
               </label>
             </div>
           </>

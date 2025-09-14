@@ -216,7 +216,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                   if (clients) setClientStats(clients);
                   if (services) setServiceStats(services);
                 } catch (err) {
-                  console.log('Deferred stats fetch error:', err);
                 }
               }, 100);
             } else {

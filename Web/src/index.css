@@ -644,8 +644,16 @@
     color: var(--theme-accent, #06b6d4);
   }
 
+  .text-themed-button {
+    color: var(--theme-button-text, #ffffff);
+  }
+
   .bg-themed-primary {
     background-color: var(--theme-bg-primary, #111827);
+  }
+
+  .bg-primary {
+    background-color: var(--theme-primary, #3b82f6);
   }
 
   .bg-themed-secondary {

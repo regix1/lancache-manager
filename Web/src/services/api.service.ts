@@ -45,7 +45,6 @@ class ApiService {
       return await this.handleResponse<CacheInfo>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getCacheInfo request aborted (timeout)');
       } else {
         console.error('getCacheInfo error:', error);
       }
@@ -62,7 +61,6 @@ class ApiService {
       return await this.handleResponse<Download[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getActiveDownloads request aborted (timeout)');
       } else {
         console.error('getActiveDownloads error:', error);
       }
@@ -83,7 +81,6 @@ class ApiService {
       return await this.handleResponse<Download[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getLatestDownloads request aborted (timeout)');
       } else {
         console.error('getLatestDownloads error:', error);
       }
@@ -100,7 +97,6 @@ class ApiService {
       return await this.handleResponse<ClientStat[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getClientStats request aborted (timeout)');
       } else {
         console.error('getClientStats error:', error);
       }
@@ -123,7 +119,6 @@ class ApiService {
       return await this.handleResponse<ServiceStat[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getServiceStats request aborted (timeout)');
       } else {
         console.error('getServiceStats error:', error);
       }
@@ -141,7 +136,6 @@ class ApiService {
       return await this.handleResponse<DashboardStats>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getDashboardStats request aborted (timeout)');
       } else {
         console.error('getDashboardStats error:', error);
       }
@@ -159,7 +153,6 @@ class ApiService {
       return await this.handleResponse(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getCacheEffectiveness request aborted (timeout)');
       } else {
         console.error('getCacheEffectiveness error:', error);
       }
@@ -181,7 +174,6 @@ class ApiService {
       return await this.handleResponse(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getTimelineStats request aborted (timeout)');
       } else {
         console.error('getTimelineStats error:', error);
       }
@@ -199,7 +191,6 @@ class ApiService {
       return await this.handleResponse(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getBandwidthSaved request aborted (timeout)');
       } else {
         console.error('getBandwidthSaved error:', error);
       }
@@ -217,7 +208,6 @@ class ApiService {
       return await this.handleResponse(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('getTopGames request aborted (timeout)');
       } else {
         console.error('getTopGames error:', error);
       }

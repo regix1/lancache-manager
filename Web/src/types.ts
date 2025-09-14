@@ -61,6 +61,7 @@ export interface DownloadGroup {
 export interface DownloadSettings {
   showZeroBytes: boolean;
   showSmallFiles: boolean;
+  hideLocalhost: boolean;
   selectedService: string;
   itemsPerPage: number | 'unlimited';
   groupGames: boolean;
