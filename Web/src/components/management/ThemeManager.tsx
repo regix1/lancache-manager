@@ -100,116 +100,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     author: '',
     version: '1.0.0',
     isDark: true,
-
-    // Core colors
-    primaryColor: '#3b82f6',
-    secondaryColor: '#8b5cf6',
-    accentColor: '#06b6d4',
-
-    // Backgrounds
-    bgPrimary: '#111827',
-    bgSecondary: '#1f2937',
-    bgTertiary: '#374151',
-    bgHover: '#4b5563',
-
-    // Text
-    textPrimary: '#ffffff',
-    textSecondary: '#d1d5db',
-    textMuted: '#9ca3af',
-    textAccent: '#60a5fa',
-    textPlaceholder: '#6b7280',
-    dragHandleColor: '#6b7280',
-    dragHandleHover: '#60a5fa',
-
-    // Borders
-    borderPrimary: '#374151',
-    borderSecondary: '#4b5563',
-    borderFocus: '#3b82f6',
-
-    // Navigation
-    navBg: '#1f2937',
-    navBorder: '#374151',
-    navTabActive: '#3b82f6',
-    navTabInactive: '#9ca3af',
-    navTabHover: '#ffffff',
-    navTabActiveBorder: '#3b82f6',
-    navMobileMenuBg: '#1f2937',
-    navMobileItemHover: '#374151',
-
-    // Status colors with backgrounds and text
-    success: '#10b981',
-    successBg: '#064e3b',
-    successText: '#34d399',
-    warning: '#f59e0b',
-    warningBg: '#78350f',
-    warningText: '#fbbf24',
-    error: '#ef4444',
-    errorBg: '#7f1d1d',
-    errorText: '#fca5a5',
-    info: '#3b82f6',
-    infoBg: '#1e3a8a',
-    infoText: '#93c5fd',
-
-    // Service colors
-    steamColor: '#1e40af',
-    epicColor: '#7c3aed',
-    originColor: '#ea580c',
-    blizzardColor: '#0891b2',
-    wsusColor: '#16a34a',
-    riotColor: '#dc2626',
-
-    // Components
-    cardBg: '#1f2937',
-    cardBorder: '#374151',
-    buttonBg: '#3b82f6',
-    buttonHover: '#2563eb',
-    buttonText: '#ffffff',
-    inputBg: '#374151',
-    inputBorder: '#4b5563',
-    inputFocus: '#3b82f6',
-    badgeBg: '#3b82f6',
-    badgeText: '#ffffff',
-    progressBar: '#3b82f6',
-    progressBg: '#374151',
-
-    // Icon backgrounds (solid colors)
-    iconBgBlue: '#3b82f6',
-    iconBgGreen: '#10b981',
-    iconBgEmerald: '#10b981',
-    iconBgPurple: '#8b5cf6',
-    iconBgIndigo: '#6366f1',
-    iconBgOrange: '#f97316',
-    iconBgYellow: '#eab308',
-    iconBgCyan: '#06b6d4',
-    iconBgRed: '#ef4444',
-
-    chartColor1: '#3b82f6',
-    chartColor2: '#10b981',
-    chartColor3: '#f59e0b',
-    chartColor4: '#ef4444',
-    chartColor5: '#8b5cf6',
-    chartColor6: '#06b6d4',
-    chartColor7: '#f97316',
-    chartColor8: '#ec4899',
-    chartBorderColor: '#1f2937',
-    chartGridColor: '#374151',
-    chartTextColor: '#9ca3af',
-    chartCacheHitColor: '#10b981',
-    chartCacheMissColor: '#f59e0b',
-
-    // Scrollbar colors
-    scrollbarTrack: '#374151',
-    scrollbarThumb: '#6B7280',
-    scrollbarHover: '#9CA3AF',
-
-    // Access indicators
-    publicAccessBg: 'rgba(16, 185, 129, 0.2)',
-    publicAccessText: '#34d399',
-    publicAccessBorder: 'rgba(16, 185, 129, 0.3)',
-    securedAccessBg: 'rgba(245, 158, 11, 0.2)',
-    securedAccessText: '#fbbf24',
-    securedAccessBorder: 'rgba(245, 158, 11, 0.3)',
-
+    // All colors will be populated when the modal opens from the current theme
     customCSS: ''
   });
 
@@ -1063,6 +954,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         scrollbarThumb: getCurrentColor('--theme-scrollbar-thumb', '#4b5563'),
         scrollbarTrack: getCurrentColor('--theme-scrollbar-track', '#1f2937'),
         scrollbarThumbHover: getCurrentColor('--theme-scrollbar-thumb-hover', '#6b7280'),
+        scrollbarHover: getCurrentColor('--theme-scrollbar-hover', '#9CA3AF'),
+
+        // Access indicators
+        publicAccessBg: getCurrentColor('--theme-public-access-bg', 'rgba(16, 185, 129, 0.2)'),
+        publicAccessText: getCurrentColor('--theme-public-access-text', '#34d399'),
+        publicAccessBorder: getCurrentColor('--theme-public-access-border', 'rgba(16, 185, 129, 0.3)'),
+        securedAccessBg: getCurrentColor('--theme-secured-access-bg', 'rgba(245, 158, 11, 0.2)'),
+        securedAccessText: getCurrentColor('--theme-secured-access-text', '#fbbf24'),
+        securedAccessBorder: getCurrentColor('--theme-secured-access-border', 'rgba(245, 158, 11, 0.3)'),
       }));
     }
   }, [createModalOpen]);
