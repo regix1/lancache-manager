@@ -494,7 +494,7 @@
     appearance: none;
     width: 20px;
     height: 20px;
-    border: 2px solid var(--theme-border-secondary, #4b5563);
+    border: 2px solid var(--theme-checkbox-border, var(--theme-border-secondary, #4b5563));
     border-radius: 4px;
     background: var(--theme-input-bg, #374151);
     cursor: pointer;

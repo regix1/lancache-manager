@@ -72,6 +72,7 @@ interface ThemeColors {
   inputBorder?: string;
   inputFocus?: string;
   checkboxAccent?: string;
+  checkboxBorder?: string;
   sliderAccent?: string;
   sliderThumb?: string;
   sliderTrack?: string;
@@ -645,6 +646,7 @@ class ThemeService {
         --theme-input-border: #4b5563;
         --theme-input-focus: #3b82f6;
         --theme-checkbox-accent: #3b82f6;
+        --theme-checkbox-border: #4b5563;
         --theme-slider-accent: #3b82f6;
         --theme-slider-thumb: #3b82f6;
         --theme-slider-track: #374151;
@@ -804,6 +806,7 @@ class ThemeService {
       --theme-input-border: ${colors.inputBorder || colors.borderSecondary || '#4b5563'};
       --theme-input-focus: ${colors.inputFocus || colors.primaryColor || '#3b82f6'};
       --theme-checkbox-accent: ${colors.checkboxAccent || colors.primaryColor || '#3b82f6'};
+      --theme-checkbox-border: ${colors.checkboxBorder || colors.borderSecondary || '#4b5563'};
       --theme-slider-accent: ${colors.sliderAccent || colors.primaryColor || '#3b82f6'};
       --theme-slider-thumb: ${colors.sliderThumb || colors.primaryColor || '#3b82f6'};
       --theme-slider-track: ${colors.sliderTrack || colors.bgTertiary || '#374151'};

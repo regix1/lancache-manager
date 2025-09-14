@@ -343,14 +343,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           label: 'Checkbox Accent',
           description: 'Checkbox checked state color',
           affects: ['Checkbox checkmarks', 'Checkbox backgrounds'],
-          supportsAlpha: false
+          supportsAlpha: false  // Browser overrides alpha for accessibility
+        },
+        {
+          key: 'checkboxBorder',
+          label: 'Checkbox Border',
+          description: 'Checkbox border color when unchecked',
+          affects: ['Checkbox borders', 'Unchecked state'],
+          supportsAlpha: true  // Custom styling, supports alpha
         },
         {
           key: 'sliderAccent',
           label: 'Slider Accent',
           description: 'Range slider accent color',
           affects: ['Slider thumbs', 'Slider filled tracks'],
-          supportsAlpha: false
+          supportsAlpha: false  // Browser overrides alpha for accessibility
         },
         {
           key: 'sliderThumb',
@@ -948,6 +955,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         inputBorder: getCurrentColor('--theme-input-border', '#4b5563'),
         inputFocus: getCurrentColor('--theme-input-focus', '#3b82f6'),
         checkboxAccent: getCurrentColor('--theme-checkbox-accent', getCurrentColor('--theme-primary', '#3b82f6')),
+        checkboxBorder: getCurrentColor('--theme-checkbox-border', getCurrentColor('--theme-border-secondary', '#4b5563')),
         sliderAccent: getCurrentColor('--theme-slider-accent', getCurrentColor('--theme-primary', '#3b82f6')),
         sliderThumb: getCurrentColor('--theme-slider-thumb', getCurrentColor('--theme-primary', '#3b82f6')),
         sliderTrack: getCurrentColor('--theme-slider-track', getCurrentColor('--theme-bg-tertiary', '#374151')),
@@ -2367,6 +2375,7 @@ content = """
                                   inputBorder: '--theme-input-border',
                                   inputFocus: '--theme-input-focus',
                                   checkboxAccent: '--theme-checkbox-accent',
+                                  checkboxBorder: '--theme-checkbox-border',
                                   sliderAccent: '--theme-slider-accent',
                                   sliderThumb: '--theme-slider-thumb',
                                   sliderTrack: '--theme-slider-track',
