@@ -2300,7 +2300,9 @@ content = """
 
                           {/* Dropdown Menu */}
                           {themeActionMenu === theme.meta.id && (
-                            <div className="absolute right-0 mt-1 w-40 bg-themed-secondary border border-themed-border rounded-lg shadow-lg z-10">
+                            <div className="absolute right-0 mt-1 w-40 bg-themed-secondary rounded-lg shadow-lg z-10" style={{
+                              border: '1px solid var(--theme-border-primary)'
+                            }}>
                               {!isActive && (
                                 <button
                                   onClick={() => {
@@ -2347,7 +2349,7 @@ content = """
                               </button>
                               {!isSystem && isAuthenticated && (
                                 <>
-                                  <div className="border-t border-themed-border my-1" />
+                                  <div className="border-t my-1" style={{ borderColor: 'var(--theme-border-primary)' }} />
                                   <button
                                     onClick={() => {
                                       handleDelete(theme.meta.id, theme.meta.name);
