@@ -339,6 +339,34 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           supportsAlpha: true
         },
         {
+          key: 'checkboxAccent',
+          label: 'Checkbox Accent',
+          description: 'Checkbox checked state color',
+          affects: ['Checkbox checkmarks', 'Checkbox backgrounds'],
+          supportsAlpha: false
+        },
+        {
+          key: 'sliderAccent',
+          label: 'Slider Accent',
+          description: 'Range slider accent color',
+          affects: ['Slider thumbs', 'Slider filled tracks'],
+          supportsAlpha: false
+        },
+        {
+          key: 'sliderThumb',
+          label: 'Slider Thumb',
+          description: 'Range slider thumb/handle',
+          affects: ['Slider drag handles'],
+          supportsAlpha: true
+        },
+        {
+          key: 'sliderTrack',
+          label: 'Slider Track',
+          description: 'Range slider track background',
+          affects: ['Slider backgrounds', 'Progress tracks'],
+          supportsAlpha: true
+        },
+        {
           key: 'dragHandleColor',
           label: 'Drag Handle',
           description: 'Drag and reorder controls',
@@ -919,6 +947,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         inputBg: getCurrentColor('--theme-input-bg', '#374151'),
         inputBorder: getCurrentColor('--theme-input-border', '#4b5563'),
         inputFocus: getCurrentColor('--theme-input-focus', '#3b82f6'),
+        checkboxAccent: getCurrentColor('--theme-checkbox-accent', getCurrentColor('--theme-primary', '#3b82f6')),
+        sliderAccent: getCurrentColor('--theme-slider-accent', getCurrentColor('--theme-primary', '#3b82f6')),
+        sliderThumb: getCurrentColor('--theme-slider-thumb', getCurrentColor('--theme-primary', '#3b82f6')),
+        sliderTrack: getCurrentColor('--theme-slider-track', getCurrentColor('--theme-bg-tertiary', '#374151')),
         badgeBg: getCurrentColor('--theme-badge-bg', '#3b82f6'),
         badgeText: getCurrentColor('--theme-badge-text', '#ffffff'),
         progressBar: getCurrentColor('--theme-progress-bar', '#3b82f6'),
@@ -2307,7 +2339,54 @@ content = """
                             </div>
                             <div className="flex items-center gap-2">
                               {(() => {
-                                const { hex, alpha } = parseColorValue(newTheme[color.key] || '#000000');
+                                // Use current theme color as fallback instead of black
+                                const computedStyle = getComputedStyle(document.documentElement);
+                                // Map color keys to CSS variable names
+                                const cssVarMap: Record<string, string> = {
+                                  primaryColor: '--theme-primary',
+                                  secondaryColor: '--theme-secondary',
+                                  accentColor: '--theme-accent',
+                                  bgPrimary: '--theme-bg-primary',
+                                  bgSecondary: '--theme-bg-secondary',
+                                  bgTertiary: '--theme-bg-tertiary',
+                                  bgHover: '--theme-bg-hover',
+                                  textPrimary: '--theme-text-primary',
+                                  textSecondary: '--theme-text-secondary',
+                                  textMuted: '--theme-text-muted',
+                                  textAccent: '--theme-text-accent',
+                                  borderPrimary: '--theme-border-primary',
+                                  borderSecondary: '--theme-border-secondary',
+                                  borderFocus: '--theme-border-focus',
+                                  success: '--theme-success',
+                                  warning: '--theme-warning',
+                                  error: '--theme-error',
+                                  info: '--theme-info',
+                                  buttonBg: '--theme-button-bg',
+                                  buttonHover: '--theme-button-hover',
+                                  inputBg: '--theme-input-bg',
+                                  inputBorder: '--theme-input-border',
+                                  inputFocus: '--theme-input-focus',
+                                  checkboxAccent: '--theme-checkbox-accent',
+                                  sliderAccent: '--theme-slider-accent',
+                                  sliderThumb: '--theme-slider-thumb',
+                                  sliderTrack: '--theme-slider-track',
+                                  cardBg: '--theme-card-bg',
+                                  cardBorder: '--theme-card-border',
+                                  badgeBg: '--theme-badge-bg',
+                                  progressBar: '--theme-progress-bar',
+                                  iconBgBlue: '--theme-icon-bg-blue',
+                                  iconBgGreen: '--theme-icon-bg-green',
+                                  iconBgPurple: '--theme-icon-bg-purple',
+                                  chartColor1: '--theme-chart-color-1',
+                                  chartColor2: '--theme-chart-color-2',
+                                  chartColor3: '--theme-chart-color-3',
+                                  chartColor4: '--theme-chart-color-4',
+                                  chartColor5: '--theme-chart-color-5',
+                                  chartColor6: '--theme-chart-color-6',
+                                };
+                                const cssVarName = cssVarMap[color.key] || `--theme-${color.key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
+                                const currentThemeColor = computedStyle.getPropertyValue(cssVarName).trim() || '#3b82f6';
+                                const { hex, alpha } = parseColorValue(newTheme[color.key] || currentThemeColor);
                                 return (
                                   <>
                                     <div className="relative">
@@ -2317,11 +2396,11 @@ content = """
                                         onMouseDown={() => handleColorStart(color.key)}
                                         onFocus={() => handleColorStart(color.key)}
                                         onChange={(e) => {
-                                          const currentAlpha = parseColorValue(newTheme[color.key]).alpha;
+                                          const currentAlpha = parseColorValue(newTheme[color.key] || currentThemeColor).alpha;
                                           updateColorWithAlpha(color.key, e.target.value, currentAlpha, true);
                                         }}
                                         className="w-12 h-8 rounded cursor-pointer"
-                                        style={{ backgroundColor: newTheme[color.key] }}
+                                        style={{ backgroundColor: newTheme[color.key] || currentThemeColor }}
                                       />
                                     </div>
                                     {color.supportsAlpha && (
@@ -2346,17 +2425,17 @@ content = """
                                     )}
                                     <input
                                       type="text"
-                                      value={newTheme[color.key]}
+                                      value={newTheme[color.key] || currentThemeColor}
                                       onFocus={() => handleColorStart(color.key)}
                                       onChange={(e) => handleColorChange(color.key, e.target.value)}
                                       className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
                                     />
                                     <button
-                                      onClick={() => copyColor(newTheme[color.key])}
+                                      onClick={() => copyColor(newTheme[color.key] || currentThemeColor)}
                                       className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
                                       title="Copy color"
                                     >
-                                      {copiedColor === newTheme[color.key] ? (
+                                      {copiedColor === (newTheme[color.key] || currentThemeColor) ? (
                                         <Check
                                           className="w-3 h-3"
                                           style={{ color: 'var(--theme-success)' }}

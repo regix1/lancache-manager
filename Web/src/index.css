@@ -488,6 +488,145 @@
     outline-color: var(--theme-input-focus, #3b82f6);
   }
 
+  /* Checkbox styling - Modern and Pretty */
+  input[type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--theme-border-secondary, #4b5563);
+    border-radius: 4px;
+    background: var(--theme-input-bg, #374151);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+  }
+
+  input[type="checkbox"]:checked {
+    background: var(--theme-checkbox-accent, var(--theme-primary, #3b82f6));
+    border-color: var(--theme-checkbox-accent, var(--theme-primary, #3b82f6));
+  }
+
+  input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 5px;
+    top: 2px;
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  input[type="checkbox"]:hover {
+    border-color: var(--theme-checkbox-accent, var(--theme-primary, #3b82f6));
+    box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb, 59, 130, 246), 0.1);
+  }
+
+  input[type="checkbox"]:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb, 59, 130, 246), 0.2);
+  }
+
+  input[type="checkbox"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Range/Slider styling - Modern and Pretty */
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+    height: 20px;
+  }
+
+  /* Track styling - Webkit */
+  input[type="range"]::-webkit-slider-runnable-track {
+    background: var(--theme-slider-track, var(--theme-bg-tertiary, #374151));
+    height: 6px;
+    border-radius: 3px;
+    border: 1px solid var(--theme-border-primary, #374151);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Track styling - Firefox */
+  input[type="range"]::-moz-range-track {
+    background: var(--theme-slider-track, var(--theme-bg-tertiary, #374151));
+    height: 6px;
+    border-radius: 3px;
+    border: 1px solid var(--theme-border-primary, #374151);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  /* Thumb styling - Webkit */
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--theme-slider-thumb, var(--theme-primary, #3b82f6));
+    border: 2px solid var(--theme-bg-primary, #111827);
+    border-radius: 50%;
+    height: 18px;
+    width: 18px;
+    margin-top: -7px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+  }
+
+  /* Thumb styling - Firefox */
+  input[type="range"]::-moz-range-thumb {
+    background: var(--theme-slider-thumb, var(--theme-primary, #3b82f6));
+    border: 2px solid var(--theme-bg-primary, #111827);
+    border-radius: 50%;
+    height: 18px;
+    width: 18px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+    cursor: pointer;
+  }
+
+  /* Hover state for thumb */
+  input[type="range"]:hover::-webkit-slider-thumb {
+    transform: scale(1.1);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  input[type="range"]:hover::-moz-range-thumb {
+    transform: scale(1.1);
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Active/focus state */
+  input[type="range"]:focus {
+    outline: none;
+  }
+
+  input[type="range"]:focus::-webkit-slider-thumb {
+    box-shadow: 0 0 0 4px rgba(var(--theme-primary-rgb, 59, 130, 246), 0.1),
+                0 3px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  input[type="range"]:focus::-moz-range-thumb {
+    box-shadow: 0 0 0 4px rgba(var(--theme-primary-rgb, 59, 130, 246), 0.1),
+                0 3px 6px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Progress fill effect (for Webkit - shows filled portion) */
+  input[type="range"] {
+    background-image: linear-gradient(
+      to right,
+      var(--theme-slider-accent, var(--theme-primary, #3b82f6)) 0%,
+      var(--theme-slider-accent, var(--theme-primary, #3b82f6)) var(--range-progress, 50%),
+      transparent var(--range-progress, 50%),
+      transparent 100%
+    );
+    background-size: 100% 6px;
+    background-position: 0 center;
+    background-repeat: no-repeat;
+  }
+
   /* Utility Classes */
   .text-themed-primary {
     color: var(--theme-text-primary, #ffffff);

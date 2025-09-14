@@ -71,6 +71,10 @@ interface ThemeColors {
   inputBg?: string;
   inputBorder?: string;
   inputFocus?: string;
+  checkboxAccent?: string;
+  sliderAccent?: string;
+  sliderThumb?: string;
+  sliderTrack?: string;
   badgeBg?: string;
   badgeText?: string;
   progressBar?: string;
@@ -640,6 +644,10 @@ class ThemeService {
         --theme-input-bg: #374151;
         --theme-input-border: #4b5563;
         --theme-input-focus: #3b82f6;
+        --theme-checkbox-accent: #3b82f6;
+        --theme-slider-accent: #3b82f6;
+        --theme-slider-thumb: #3b82f6;
+        --theme-slider-track: #374151;
         --theme-badge-bg: #3b82f6;
         --theme-badge-text: #ffffff;
         --theme-progress-bar: #3b82f6;
@@ -795,6 +803,10 @@ class ThemeService {
       --theme-input-bg: ${colors.inputBg || colors.bgTertiary || '#374151'};
       --theme-input-border: ${colors.inputBorder || colors.borderSecondary || '#4b5563'};
       --theme-input-focus: ${colors.inputFocus || colors.primaryColor || '#3b82f6'};
+      --theme-checkbox-accent: ${colors.checkboxAccent || colors.primaryColor || '#3b82f6'};
+      --theme-slider-accent: ${colors.sliderAccent || colors.primaryColor || '#3b82f6'};
+      --theme-slider-thumb: ${colors.sliderThumb || colors.primaryColor || '#3b82f6'};
+      --theme-slider-track: ${colors.sliderTrack || colors.bgTertiary || '#374151'};
       --theme-badge-bg: ${colors.badgeBg || colors.primaryColor || '#3b82f6'};
       --theme-badge-text: ${colors.badgeText || '#ffffff'};
       --theme-progress-bar: ${colors.progressBar || colors.primaryColor || '#3b82f6'};
