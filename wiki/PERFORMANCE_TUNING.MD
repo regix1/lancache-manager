@@ -1,5 +1,7 @@
 # Performance Tuning
 
+**WARNING**: These are estimated values and have not been extensively tested in production environments. Adjust based on your specific hardware and deployment.
+
 ## Settings
 
 | Variable | Default | Range | Purpose |
@@ -59,14 +61,16 @@ curl http://localhost:8080/api/performance/stats
 **Dashboard not updating**: Set UseHighThroughputMode=false
 **Queue overflow**: Increase ChannelCapacity
 
-## Performance
+## Performance (Estimated)
 
 | Clients | Lines/sec | Memory | CPU |
 |---------|-----------|--------|-----|
-| 10 | 5K | 500MB | 10% |
-| 50 | 20K | 1GB | 25% |
-| 200 | 50K | 2GB | 50% |
-| 500+ | 100K | 4GB | 80% |
+| 10 | ~5K | ~500MB | ~10% |
+| 50 | ~20K | ~1GB | ~25% |
+| 200 | ~50K | ~2GB | ~50% |
+| 500+ | ~100K | ~4GB | ~80% |
+
+*Note: These are rough estimates. Actual performance varies based on hardware, network, and log complexity.*
 
 ## Best Practices
 

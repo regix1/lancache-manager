@@ -4,11 +4,7 @@ Collection of themes for LanCache Manager.
 
 ## Available Themes
 
-### Sage
-A calming green theme with earthy tones. Perfect for extended monitoring sessions.
-- **Author**: LanCache Manager
-- **Type**: Dark
-- **Primary Colors**: Green palette (#86efac, #4ade80, #22c55e)
+See existing themes in the application's Theme Manager.
 
 ## Installing Themes
 
