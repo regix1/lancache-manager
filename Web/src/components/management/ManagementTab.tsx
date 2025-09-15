@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ToggleLeft,
   ToggleRight,
-  AlertCircle,
   Database,
   Loader,
   FileText,
