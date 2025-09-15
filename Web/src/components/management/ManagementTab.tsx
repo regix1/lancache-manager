@@ -23,7 +23,6 @@ import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
 import DataExportManager from './DataExportManager';
-import { TelemetryStatus } from './TelemetryStatus';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -530,9 +529,6 @@ const ManagementTab: React.FC = () => {
         onError={addError}
         onSuccess={setSuccess}
       />
-
-      {/* Telemetry Status */}
-      <TelemetryStatus mockMode={mockMode} />
 
       {/* Theme Manager */}
       <ThemeManager isAuthenticated={isAuthenticated} />
