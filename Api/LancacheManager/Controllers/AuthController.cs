@@ -30,13 +30,28 @@ public class AuthController : ControllerBase
     [HttpGet("check")]
     public IActionResult CheckAuth()
     {
+        // Check if authentication is enabled
+        var authEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+
+        // If authentication is disabled, always return authenticated
+        if (!authEnabled)
+        {
+            return Ok(new
+            {
+                requiresAuth = false,
+                isAuthenticated = true,
+                authenticationType = "disabled",
+                deviceId = (string?)null
+            });
+        }
+
         // Check if already authenticated
         var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
         var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
-        
+
         bool isAuthenticated = false;
         string? authenticationType = null;
-        
+
         if (!string.IsNullOrEmpty(apiKey) && _apiKeyService.ValidateApiKey(apiKey))
         {
             isAuthenticated = true;
@@ -47,9 +62,9 @@ public class AuthController : ControllerBase
             isAuthenticated = true;
             authenticationType = "device";
         }
-        
-        return Ok(new 
-        { 
+
+        return Ok(new
+        {
             requiresAuth = true,
             isAuthenticated,
             authenticationType,

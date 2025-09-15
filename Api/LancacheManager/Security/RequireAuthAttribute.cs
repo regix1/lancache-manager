@@ -8,9 +8,20 @@ public class RequireAuthAttribute : ActionFilterAttribute
     public override void OnActionExecuting(ActionExecutingContext context)
     {
         var httpContext = context.HttpContext;
+        var configuration = httpContext.RequestServices.GetRequiredService<IConfiguration>();
+
+        // Check if authentication is globally disabled
+        var authEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
+        if (!authEnabled)
+        {
+            // Skip authentication if disabled
+            base.OnActionExecuting(context);
+            return;
+        }
+
         var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
         var deviceAuthService = httpContext.RequestServices.GetRequiredService<DeviceAuthService>();
-        
+
         // Check for API key in header
         var apiKey = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
         if (!string.IsNullOrEmpty(apiKey) && apiKeyService.ValidateApiKey(apiKey))
@@ -18,7 +29,7 @@ public class RequireAuthAttribute : ActionFilterAttribute
             base.OnActionExecuting(context);
             return;
         }
-        
+
         // Check for device ID in header
         var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
         if (!string.IsNullOrEmpty(deviceId) && deviceAuthService.ValidateDevice(deviceId))
@@ -26,10 +37,10 @@ public class RequireAuthAttribute : ActionFilterAttribute
             base.OnActionExecuting(context);
             return;
         }
-        
+
         // Not authenticated
-        context.Result = new UnauthorizedObjectResult(new 
-        { 
+        context.Result = new UnauthorizedObjectResult(new
+        {
             error = "Authentication required",
             message = "Please provide either X-Api-Key or X-Device-Id header"
         });
@@ -42,6 +53,7 @@ public class AuthenticationMiddleware
     private readonly ILogger<AuthenticationMiddleware> _logger;
     private readonly ApiKeyService _apiKeyService;
     private readonly DeviceAuthService _deviceAuthService;
+    private readonly IConfiguration _configuration;
     
     // Endpoints that require authentication
     private readonly HashSet<string> _protectedPaths = new(StringComparer.OrdinalIgnoreCase)
@@ -68,18 +80,29 @@ public class AuthenticationMiddleware
         RequestDelegate next,
         ILogger<AuthenticationMiddleware> logger,
         ApiKeyService apiKeyService,
-        DeviceAuthService deviceAuthService)
+        DeviceAuthService deviceAuthService,
+        IConfiguration configuration)
     {
         _next = next;
         _logger = logger;
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
+        _configuration = configuration;
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
+        // Check if authentication is globally disabled
+        var authEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+        if (!authEnabled)
+        {
+            // Skip all authentication checks if disabled
+            await _next(context);
+            return;
+        }
+
         var path = context.Request.Path.Value?.ToLower() ?? "";
-        
+
         // Check if this is a protected endpoint
         bool requiresAuth = false;
         
