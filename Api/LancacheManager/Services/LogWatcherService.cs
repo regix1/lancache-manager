@@ -8,7 +8,7 @@ namespace LancacheManager.Services;
 public class LogWatcherService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly LogParserService _parser;
+    private readonly LogProcessingService _processingService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<LogWatcherService> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
@@ -17,25 +17,26 @@ public class LogWatcherService : BackgroundService
     private readonly string _processingMarker = "/data/bulk_processing.marker";
     private readonly string _logPath;
     private bool _isBulkProcessing = false;
-    private readonly List<LogEntry> _batchBuffer = new();
     private DateTime _lastMarkerCheck = DateTime.MinValue;
     private FileSystemWatcher? _markerWatcher;
     private volatile bool _restartProcessing = false;
     private DateTime _bulkProcessingStartTime = default; // Track when bulk processing started
+    private readonly bool _useHighThroughputMode;
 
     public LogWatcherService(
         IServiceProvider serviceProvider,
-        LogParserService parser,
+        LogProcessingService processingService,
         IConfiguration configuration,
         ILogger<LogWatcherService> logger,
         IHubContext<DownloadHub> hubContext)
     {
         _serviceProvider = serviceProvider;
-        _parser = parser;
+        _processingService = processingService;
         _configuration = configuration;
         _logger = logger;
         _hubContext = hubContext;
         _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
+        _useHighThroughputMode = configuration.GetValue<bool>("LanCache:UseHighThroughputMode", false);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -401,25 +402,22 @@ public class LogWatcherService : BackgroundService
                         _logger.LogInformation($"Processing line {linesProcessed}: {line.Substring(0, Math.Min(100, line.Length))}...");
                     }
 
-                    var entry = _parser.ParseLine(line);
-                    
-                    if (entry != null && entry.BytesServed > 0)
+                    // Send line to processing service for parsing and batching
+                    var enqueued = await _processingService.EnqueueLogLine(line);
+
+                    if (enqueued)
                     {
                         entriesProcessed++;
-                        _batchBuffer.Add(entry);
-                        
+
                         if (isBulkMode && entriesProcessed <= 5)
                         {
-                            _logger.LogInformation($"Parsed entry {entriesProcessed}: {entry.Service} - {entry.ClientIp} - {entry.BytesServed} bytes");
+                            _logger.LogInformation($"Enqueued line {entriesProcessed} for processing");
                         }
                     }
-
-                    // Process batch when buffer is full
-                    var batchSize = isBulkMode ? 500 : 50;
-                    if (_batchBuffer.Count >= batchSize)
+                    else if (!_useHighThroughputMode)
                     {
-                        await ProcessBatch(_batchBuffer.ToList(), !isBulkMode);
-                        _batchBuffer.Clear();
+                        // In normal mode, log if we couldn't enqueue (channel full)
+                        _logger.LogWarning($"Failed to enqueue log line (channel full), line: {line.Substring(0, Math.Min(100, line.Length))}");
                     }
 
                     // CRITICAL FIX: Update position after processing lines, not just when reading is done
@@ -446,13 +444,7 @@ public class LogWatcherService : BackgroundService
                     // No more data available
                     emptyReadCount++;
                     
-                    // Process any remaining entries
-                    if (_batchBuffer.Count > 0)
-                    {
-                        _logger.LogInformation($"Processing final batch of {_batchBuffer.Count} entries");
-                        await ProcessBatch(_batchBuffer.ToList(), !isBulkMode);
-                        _batchBuffer.Clear();
-                    }
+                    // The LogProcessingService will handle remaining entries via its batch timeout
                     
                     _lastPosition = stream.Position;
                     await SavePosition();
@@ -688,34 +680,7 @@ public class LogWatcherService : BackgroundService
         }
     }
 
-    private async Task ProcessBatch(List<LogEntry> entries, bool sendRealtimeUpdates)
-    {
-        if (entries.Count == 0) return;
-
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
-
-            var grouped = entries.GroupBy(e => new { e.ClientIp, e.Service });
-
-            foreach (var group in grouped)
-            {
-                try
-                {
-                    await dbService.ProcessLogEntryBatch(group.ToList(), sendRealtimeUpdates);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing batch");
-        }
-    }
+    // ProcessBatch is now handled by LogProcessingService for better parallelism and performance
 
     private async Task SavePosition()
     {

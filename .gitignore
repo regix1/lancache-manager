@@ -78,7 +78,9 @@ api_key.txt
 **/api_key.txt
 
 # Device registrations
+devices/
 /data/devices/
+**/devices/
 **/devices/*.json
 NGEzMDgyOWMtMGViMC00ZjgyLTg4NzUtOTcyNWMyMzlkMTA1.json
 

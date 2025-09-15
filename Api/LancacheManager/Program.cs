@@ -75,6 +75,10 @@ builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
 
+// Register LogProcessingService for high-performance log processing
+builder.Services.AddSingleton<LogProcessingService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<LogProcessingService>());
+
 // Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());
