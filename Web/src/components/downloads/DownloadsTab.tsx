@@ -476,7 +476,13 @@ const DownloadsTab: React.FC = () => {
 
     if (settings.hideUnknownGames) {
       filtered = filtered.filter(
-        (d) => !d.gameName || (d.gameName && d.gameName !== 'Unknown Steam Game')
+        (d) => {
+          if (!d.gameName) return true;
+          // Hide "Unknown Steam Game" and "Steam App XXXXX" patterns
+          if (d.gameName === 'Unknown Steam Game') return false;
+          if (d.gameName.match(/^Steam App \d+$/)) return false;
+          return true;
+        }
       );
     }
 
@@ -497,7 +503,9 @@ const DownloadsTab: React.FC = () => {
       let groupName: string;
       let groupType: 'game' | 'metadata' | 'content';
 
-      if (download.gameName && download.gameName !== 'Unknown Steam Game') {
+      if (download.gameName &&
+          download.gameName !== 'Unknown Steam Game' &&
+          !download.gameName.match(/^Steam App \d+$/)) {
         groupKey = `game-${download.gameName}`;
         groupName = download.gameName;
         groupType = 'game';
