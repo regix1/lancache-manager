@@ -23,6 +23,7 @@ import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
 import DataExportManager from './DataExportManager';
+import { TelemetryStatus } from './TelemetryStatus';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -58,10 +59,7 @@ const MockModeManager: React.FC<{
       {mockMode && (
         <div className="mt-4">
           <Alert color="blue">
-            <div className="flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4" />
-              <span className="text-sm">Mock mode active - API actions disabled</span>
-            </div>
+            <span className="text-sm">Mock mode active - API actions disabled</span>
           </Alert>
         </div>
       )}
@@ -463,15 +461,12 @@ const ManagementTab: React.FC = () => {
 
         {/* Service Removal Background Operation */}
         {backgroundOperations.serviceRemoval && (
-          <Alert color="orange">
-            <div className="flex items-center space-x-3">
-              <Loader className="w-5 h-5 animate-spin" />
-              <div>
-                <p className="font-medium">
-                  Removing {backgroundOperations.serviceRemoval} entries from logs...
-                </p>
-                <p className="text-sm mt-1">This may take several minutes for large log files</p>
-              </div>
+          <Alert color="orange" icon={<Loader className="w-5 h-5 animate-spin" />}>
+            <div>
+              <p className="font-medium">
+                Removing {backgroundOperations.serviceRemoval} entries from logs...
+              </p>
+              <p className="text-sm mt-1">This may take several minutes for large log files</p>
             </div>
           </Alert>
         )}
@@ -535,6 +530,9 @@ const ManagementTab: React.FC = () => {
         onError={addError}
         onSuccess={setSuccess}
       />
+
+      {/* Telemetry Status */}
+      <TelemetryStatus mockMode={mockMode} />
 
       {/* Theme Manager */}
       <ThemeManager isAuthenticated={isAuthenticated} />

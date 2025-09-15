@@ -36,6 +36,7 @@ const STORAGE_KEYS = {
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
   HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
+  HIDE_UNKNOWN_GAMES: 'lancache_downloads_hide_unknown',
   VIEW_MODE: 'lancache_downloads_view_mode',
   SORT_ORDER: 'lancache_downloads_sort_order'
 };
@@ -283,6 +284,7 @@ const DownloadsTab: React.FC = () => {
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
     showSmallFiles: localStorage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
     hideLocalhost: localStorage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
+    hideUnknownGames: localStorage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
     selectedService: localStorage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
     groupGames: localStorage.getItem(STORAGE_KEYS.GROUP_GAMES) === 'true',
     itemsPerPage:
@@ -420,6 +422,7 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
     localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
     localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
+    localStorage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
     localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
   }, [settings]);
@@ -468,6 +471,12 @@ const DownloadsTab: React.FC = () => {
     if (settings.hideLocalhost) {
       filtered = filtered.filter(
         (d) => d.clientIp !== '127.0.0.1' && d.clientIp !== '::1'
+      );
+    }
+
+    if (settings.hideUnknownGames) {
+      filtered = filtered.filter(
+        (d) => !d.gameName || (d.gameName && d.gameName !== 'Unknown Steam Game')
       );
     }
 
@@ -1191,6 +1200,18 @@ const DownloadsTab: React.FC = () => {
                   className="themed-checkbox"
                 />
                 <span className="text-sm text-themed-secondary">Hide localhost (127.0.0.1)</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.hideUnknownGames}
+                  onChange={(e) =>
+                    setSettings({ ...settings, hideUnknownGames: e.target.checked })
+                  }
+                  className="themed-checkbox"
+                />
+                <span className="text-sm text-themed-secondary">Hide unknown games</span>
               </label>
             </div>
           </>
