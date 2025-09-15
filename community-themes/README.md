@@ -1,39 +1,41 @@
 # Community Themes
 
-This folder contains community-contributed themes for LANCache Manager. These themes showcase different color schemes and styles created by users.
+Collection of themes for LanCache Manager.
 
 ## Available Themes
 
-### Sage & Wood
-- **Author**: Nature
-- **Description**: Earthy sage green with warm wood browns on charcoal
-- **Type**: Dark theme
-- **Features**: Natural aesthetics with wood grain effects and sage green accents
+### Sage
+A calming green theme with earthy tones. Perfect for extended monitoring sessions.
+- **Author**: LanCache Manager
+- **Type**: Dark
+- **Primary Colors**: Green palette (#86efac, #4ade80, #22c55e)
 
-## How to Use
+## Installing Themes
 
-1. Copy any `.toml` file from this folder
-2. In LANCache Manager, go to **Management → Theme Management**
-3. Click **Import Theme** and upload the file
-4. Select and apply the theme
+1. Download the `.toml` file
+2. Open Management → Theme Management
+3. Click Import Theme
+4. Select the downloaded file
+5. Apply the imported theme
 
-## Contributing Themes
+## Creating Your Own Theme
 
-Want to share your theme with the community?
+1. Copy an existing theme as template
+2. Modify colors to your preference
+3. Test in Theme Manager
+4. Share with the community
 
-1. Create your custom theme in LANCache Manager
-2. Export it as a `.toml` file
-3. Submit a pull request adding your theme to this folder
-4. Include a brief description in this README
+## Contributing
 
-## Theme Guidelines
+Submit your themes via pull request. Include:
+- Theme `.toml` file
+- Brief description
+- Screenshot (optional)
 
-- Test your theme thoroughly before submitting
-- Ensure good contrast ratios for accessibility
-- Include meaningful descriptions and metadata
-- Use semantic version numbers
-- Consider both light and dark theme users
+## Theme Requirements
 
-## Support
-
-For help with themes, see the [Theming Guide](https://github.com/regix1/lancache-manager/blob/main/wiki/Theming.md)
+All themes must include:
+- Complete color definitions
+- Valid TOML syntax
+- Unique theme ID
+- Proper meta information
