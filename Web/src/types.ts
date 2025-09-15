@@ -42,6 +42,17 @@ export interface GameInfo {
   error?: string;
 }
 
+export interface DownloadSettings {
+  showZeroBytes: boolean;
+  showSmallFiles: boolean;
+  hideLocalhost: boolean;
+  selectedService: string;
+  itemsPerPage: number | 'unlimited';
+  groupGames: boolean;
+  viewMode: 'compact' | 'normal';
+  sortOrder: 'latest' | 'oldest' | 'largest' | 'smallest' | 'service';
+}
+
 export interface DownloadGroup {
   id: string;
   name: string;

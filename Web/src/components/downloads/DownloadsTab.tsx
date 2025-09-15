@@ -12,7 +12,10 @@ import {
   Users,
   Settings,
   Download as DownloadIcon,
-  Loader
+  Loader,
+  List,
+  Grid3x3,
+  Clock
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
@@ -22,8 +25,7 @@ import { Card } from '../ui/Card';
 import type {
   Download,
   GameInfo,
-  DownloadGroup,
-  DownloadSettings
+  DownloadGroup
 } from '../../types';
 
 // Storage keys for persistence
@@ -33,7 +35,25 @@ const STORAGE_KEYS = {
   GROUP_GAMES: 'lancache_downloads_group',
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
-  HIDE_LOCALHOST: 'lancache_downloads_hide_localhost'
+  HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
+  VIEW_MODE: 'lancache_downloads_view_mode',
+  SORT_ORDER: 'lancache_downloads_sort_order'
+};
+
+// Helper function to format relative time
+const formatRelativeTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffDays > 0) return `${diffDays}d ago`;
+  if (diffHours > 0) return `${diffHours}h ago`;
+  if (diffMins > 0) return `${diffMins}m ago`;
+  return 'Just now';
 };
 
 // Enhanced Image component with built-in fallback
@@ -202,7 +222,7 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
-        className="w-full px-3 py-2 themed-input text-themed-primary text-left focus:outline-none hover:bg-themed-hover transition-colors flex items-center justify-between"
+        className="w-full px-3 py-2 rounded-lg themed-input text-themed-primary text-left focus:outline-none hover:bg-themed-hover transition-colors flex items-center justify-between"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
@@ -213,7 +233,7 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute mt-1 w-full themed-card shadow-xl border border-themed-border"
+          className="absolute mt-1 w-full rounded-lg themed-card shadow-xl border border-themed-border"
           style={{
             zIndex: 9999,
             maxHeight: '300px',
@@ -259,7 +279,7 @@ const DownloadsTab: React.FC = () => {
   const [loadingGame, setLoadingGame] = useState<number | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
 
-  const [settings, setSettings] = useState<DownloadSettings>(() => ({
+  const [settings, setSettings] = useState(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
     showSmallFiles: localStorage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
     hideLocalhost: localStorage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
@@ -267,8 +287,10 @@ const DownloadsTab: React.FC = () => {
     groupGames: localStorage.getItem(STORAGE_KEYS.GROUP_GAMES) === 'true',
     itemsPerPage:
       localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
-        ? 'unlimited'
-        : parseInt(localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50')
+        ? 'unlimited' as const
+        : parseInt(localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50'),
+    viewMode: (localStorage.getItem(STORAGE_KEYS.VIEW_MODE) || 'compact') as 'compact' | 'normal',
+    sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service'
   }));
 
   // Helper functions
@@ -391,13 +413,15 @@ const DownloadsTab: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
     localStorage.setItem(
-      STORAGE_KEYS.ITEMS_PER_PAGE, 
+      STORAGE_KEYS.ITEMS_PER_PAGE,
       settings.itemsPerPage === 'unlimited' ? 'unlimited' : settings.itemsPerPage.toString()
     );
     localStorage.setItem(STORAGE_KEYS.GROUP_GAMES, settings.groupGames.toString());
     localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
     localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
     localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
+    localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
+    localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
   }, [settings]);
 
   // Memoized values
@@ -519,14 +543,70 @@ const DownloadsTab: React.FC = () => {
   }, [filteredDownloads, settings.groupGames]);
 
   const itemsToDisplay = useMemo(() => {
-    const items = settings.groupGames ? groupedDownloads || [] : filteredDownloads;
+    let items = settings.groupGames ? groupedDownloads || [] : filteredDownloads;
+
+    // Apply sorting
+    if (!settings.groupGames) {
+      // Sort individual downloads
+      const downloads = [...items] as Download[];
+      switch (settings.sortOrder) {
+        case 'oldest':
+          downloads.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+          break;
+        case 'largest':
+          downloads.sort((a, b) => (b.totalBytes || 0) - (a.totalBytes || 0));
+          break;
+        case 'smallest':
+          downloads.sort((a, b) => (a.totalBytes || 0) - (b.totalBytes || 0));
+          break;
+        case 'service':
+          downloads.sort((a, b) => {
+            const serviceCompare = a.service.localeCompare(b.service);
+            if (serviceCompare !== 0) return serviceCompare;
+            return new Date(b.startTime).getTime() - new Date(a.startTime).getTime();
+          });
+          break;
+        case 'latest':
+        default:
+          downloads.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+          break;
+      }
+      items = downloads;
+    } else {
+      // Sort grouped downloads
+      const groups = [...items] as DownloadGroup[];
+      switch (settings.sortOrder) {
+        case 'oldest':
+          groups.sort((a, b) => new Date(a.firstSeen).getTime() - new Date(b.firstSeen).getTime());
+          break;
+        case 'largest':
+          groups.sort((a, b) => b.totalBytes - a.totalBytes);
+          break;
+        case 'smallest':
+          groups.sort((a, b) => a.totalBytes - b.totalBytes);
+          break;
+        case 'service':
+          groups.sort((a, b) => {
+            const serviceCompare = a.service.localeCompare(b.service);
+            if (serviceCompare !== 0) return serviceCompare;
+            return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
+          });
+          break;
+        case 'latest':
+        default:
+          groups.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
+          break;
+      }
+      items = groups;
+    }
+
     if (settings.itemsPerPage === 'unlimited') {
       // No cap - load all available items
       return items;
     }
     const limit = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 50;
     return items.slice(0, limit);
-  }, [settings.groupGames, settings.itemsPerPage, groupedDownloads, filteredDownloads]);
+  }, [settings.groupGames, settings.itemsPerPage, groupedDownloads, filteredDownloads, settings.sortOrder]);
 
   // Event handlers
   const handleDownloadClick = async (download: Download) => {
@@ -623,6 +703,172 @@ const DownloadsTab: React.FC = () => {
     const IconComponent = downloadType.icon;
     const game = download.id ? gameInfo[download.id] : undefined;
 
+    // Normal view - show more details inline
+    if (settings.viewMode === 'normal') {
+      // For Steam games with names, show the full experience
+      if (isSteam && download.gameName && download.gameName !== 'Unknown Steam Game') {
+      return (
+        <Card key={download.id} padding="md">
+          <div className="flex gap-4 items-start">
+            {/* Game header image */}
+            <div className="flex-shrink-0">
+              <ImageWithFallback
+                src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${download.gameAppId}/header.jpg`}
+                alt={download.gameName || 'Game'}
+                className="rounded shadow-md"
+                style={{ width: '184px', height: '88px', objectFit: 'cover' }}
+                fallback={
+                  <div
+                    className="rounded flex items-center justify-center shadow-md"
+                    style={{
+                      width: '184px',
+                      height: '88px',
+                      backgroundColor: 'var(--theme-bg-tertiary)',
+                      border: '1px solid var(--theme-border-primary)'
+                    }}
+                  >
+                    <Gamepad2
+                      className="w-10 h-10"
+                      style={{ color: 'var(--theme-text-muted)' }}
+                    />
+                  </div>
+                }
+              />
+            </div>
+
+            {/* Game details */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
+                      {download.service}
+                    </span>
+                    <h3 className="text-base font-semibold text-themed-primary truncate">
+                      {download.gameName}
+                    </h3>
+                  </div>
+
+                  <div className="flex items-center gap-4 text-sm text-themed-secondary mb-2">
+                    <div className="flex items-center gap-2">
+                      <IconComponent size={14} className={downloadType.iconColor} />
+                      <span>{downloadType.description}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Users size={14} />
+                      <span>{download.clientIp}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock size={14} />
+                      <span>{formatRelativeTime(download.startTime)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-6">
+                    <div>
+                      <span className="text-xs text-themed-muted">Size: </span>
+                      <span className="text-sm font-medium text-themed-primary">
+                        {formatBytes(download.totalBytes || 0)}
+                      </span>
+                    </div>
+                    {download.totalBytes && download.totalBytes > 0 && (
+                      <div>
+                        <span className="text-xs text-themed-muted">Cache Hit: </span>
+                        <span className="text-sm font-medium text-themed-primary">
+                          {formatPercent((download.cacheHitBytes || 0) / download.totalBytes * 100)}
+                        </span>
+                      </div>
+                    )}
+                    {download.cacheHitBytes > 0 && (
+                      <div>
+                        <span className="text-xs text-themed-muted">Saved: </span>
+                        <span className="text-sm font-medium text-green-500">
+                          {formatBytes(download.cacheHitBytes)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Steam link button */}
+                <div className="ml-4">
+                  <a
+                    href={`https://store.steampowered.com/app/${download.gameAppId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
+                  >
+                    <ExternalLink size={14} />
+                    <span>View on Steam</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+      );
+      }
+
+      // Normal view for non-Steam or other downloads
+      return (
+        <Card key={download.id} padding="md">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-2">
+                <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
+                  {download.service}
+                </span>
+                {download.gameName && download.gameName !== 'Unknown Steam Game' && (
+                  <h3 className="text-base font-semibold text-themed-primary">
+                    {download.gameName}
+                  </h3>
+                )}
+                <div className="flex items-center gap-2">
+                  <IconComponent size={14} className={downloadType.iconColor} />
+                  <span className="text-sm text-themed-secondary">{downloadType.description}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-6 text-sm text-themed-secondary">
+                <div className="flex items-center gap-2">
+                  <Users size={14} />
+                  <span>{download.clientIp}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock size={14} />
+                  <span>{formatRelativeTime(download.startTime)}</span>
+                </div>
+                <div>
+                  <span className="text-xs text-themed-muted">Size: </span>
+                  <span className="font-medium text-themed-primary">
+                    {formatBytes(download.totalBytes || 0)}
+                  </span>
+                </div>
+                {download.totalBytes && download.totalBytes > 0 && (
+                  <div>
+                    <span className="text-xs text-themed-muted">Cache Hit: </span>
+                    <span className="font-medium text-themed-primary">
+                      {formatPercent((download.cacheHitBytes || 0) / download.totalBytes * 100)}
+                    </span>
+                  </div>
+                )}
+                {download.cacheHitBytes > 0 && (
+                  <div>
+                    <span className="text-xs text-themed-muted">Saved: </span>
+                    <span className="font-medium text-green-500">
+                      {formatBytes(download.cacheHitBytes)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+      );
+    }
+
+    // Compact view - original expandable layout
     return (
       <Card key={download.id} padding="sm">
         <div onClick={() => canExpand ? handleDownloadClick(download) : undefined} className={canExpand ? 'cursor-pointer' : ''}>
@@ -639,13 +885,13 @@ const DownloadsTab: React.FC = () => {
                   {download.service}
                 </span>
               </div>
-              
+
               {download.gameName && download.gameName !== 'Unknown Steam Game' && (
                 <span className="text-sm text-themed-primary font-medium">
                   {download.gameName}
                 </span>
               )}
-              
+
               <div className="flex items-center gap-2">
                 <IconComponent size={14} className={downloadType.iconColor} />
                 <span className="text-xs text-themed-muted">{downloadType.description}</span>
@@ -657,7 +903,7 @@ const DownloadsTab: React.FC = () => {
                 <Users size={14} className="text-themed-muted" />
                 <span className="text-xs text-themed-muted">{download.clientIp}</span>
               </div>
-              
+
               <div className="text-right">
                 <div className="text-sm font-medium text-themed-primary">
                   {formatBytes(download.totalBytes || 0)}
@@ -777,7 +1023,7 @@ const DownloadsTab: React.FC = () => {
         </div>
       </Card>
     );
-  }, [expandedDownload, gameInfo, loadingGame]);
+  }, [expandedDownload, gameInfo, loadingGame, settings.viewMode]);
 
   const renderVirtualItem = useCallback((item: any) => {
     if ('downloads' in item) {
@@ -818,7 +1064,7 @@ const DownloadsTab: React.FC = () => {
               }
               className="w-full sm:w-40"
             />
-            
+
             <EnhancedDropdown
               options={itemsPerPageOptions}
               value={
@@ -834,15 +1080,66 @@ const DownloadsTab: React.FC = () => {
               }
               className="w-full sm:w-32"
             />
+
+            <EnhancedDropdown
+              options={[
+                { value: 'latest', label: 'Latest First' },
+                { value: 'oldest', label: 'Oldest First' },
+                { value: 'largest', label: 'Largest First' },
+                { value: 'smallest', label: 'Smallest First' },
+                { value: 'service', label: 'By Service' }
+              ]}
+              value={settings.sortOrder}
+              onChange={(value) =>
+                setSettings({ ...settings, sortOrder: value as any })
+              }
+              className="w-full sm:w-40"
+            />
           </div>
 
-          <button
-            onClick={() => setSettingsOpened(!settingsOpened)}
-            className="p-2 rounded hover:bg-themed-hover transition-colors"
-            title="Settings"
-          >
-            <Settings size={18} />
-          </button>
+          <div className="flex gap-2">
+            {/* View Mode Toggle */}
+            <div className="flex rounded-lg bg-themed-tertiary p-1">
+              <button
+                onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
+                className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                  settings.viewMode === 'compact'
+                    ? 'bg-primary'
+                    : 'text-themed-secondary hover:text-themed-primary'
+                }`}
+                style={{
+                  color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
+                }}
+                title="Compact View"
+              >
+                <List size={16} />
+                <span className="text-xs hidden sm:inline">Compact</span>
+              </button>
+              <button
+                onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
+                className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                  settings.viewMode === 'normal'
+                    ? 'bg-primary'
+                    : 'text-themed-secondary hover:text-themed-primary'
+                }`}
+                style={{
+                  color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
+                }}
+                title="Normal View"
+              >
+                <Grid3x3 size={16} />
+                <span className="text-xs hidden sm:inline">Normal</span>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setSettingsOpened(!settingsOpened)}
+              className="p-2 rounded hover:bg-themed-hover transition-colors"
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
+          </div>
         </div>
 
         {settingsOpened && (
