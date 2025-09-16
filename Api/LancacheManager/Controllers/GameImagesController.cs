@@ -31,6 +31,13 @@ public class GameImagesController : ControllerBase
         {
             _logger.LogInformation($"Getting image for app {appId}, type {imageType}");
 
+            // Test if context works
+            var testConnection = await _context.Database.CanConnectAsync();
+            if (!testConnection)
+            {
+                return StatusCode(500, new { error = "Database connection failed" });
+            }
+
             // First check if we have it in cache
             var cachedImage = await _context.GameImages
                 .AsNoTracking()
@@ -72,7 +79,12 @@ public class GameImagesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error getting image for app {appId}: {ex.Message}");
-            return StatusCode(500, new { error = "Failed to get image", message = ex.Message });
+            return StatusCode(500, new {
+                error = "Failed to get image",
+                message = ex.Message,
+                type = ex.GetType().Name,
+                stackTrace = ex.StackTrace
+            });
         }
     }
 
@@ -95,6 +107,12 @@ public class GameImagesController : ControllerBase
             _logger.LogError(ex, $"Error caching image for app {appId}");
             return StatusCode(500, new { success = false, error = ex.Message });
         }
+    }
+
+    [HttpGet("test")]
+    public IActionResult Test()
+    {
+        return Ok(new { status = "GameImagesController is working", timestamp = DateTime.UtcNow });
     }
 
     [HttpGet("stats")]
