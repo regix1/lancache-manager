@@ -234,9 +234,8 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute mt-1 w-full rounded-lg themed-card shadow-xl border border-themed-border"
+          className="absolute mt-1 w-full rounded-lg themed-card shadow-xl border border-themed-border z-[9999]"
           style={{
-            zIndex: 9999,
             maxHeight: '300px',
             overflowY: 'auto'
           }}
@@ -359,7 +358,7 @@ const DownloadsTab: React.FC = () => {
       service: download.service,
       appId: download.gameAppId || 0,
       gameName: download.gameName,
-      headerImage: `https://cdn.cloudflare.steamstatic.com/steam/apps/${download.gameAppId}/header.jpg`,
+      headerImage: `${import.meta.env.VITE_API_URL || ''}/api/gameimages/${download.gameAppId}/header`,
       description: `${download.gameName} - Downloaded via ${download.service}`,
       gameType: 'game'
     };
@@ -389,7 +388,7 @@ const DownloadsTab: React.FC = () => {
           service: download.service,
           appId: download.gameAppId || 0,
           gameName: download.gameName || 'Unknown Game',
-          headerImage: `https://cdn.cloudflare.steamstatic.com/steam/apps/${download.gameAppId}/header.jpg`,
+          headerImage: `${import.meta.env.VITE_API_URL || ''}/api/gameimages/${download.gameAppId}/header`,
           description: `${download.gameName} - Downloaded via Steam`,
           gameType: 'game'
         };
@@ -456,6 +455,10 @@ const DownloadsTab: React.FC = () => {
   );
 
   const filteredDownloads = useMemo(() => {
+    if (!Array.isArray(latestDownloads)) {
+      console.error('latestDownloads is not an array:', latestDownloads);
+      return [];
+    }
     let filtered = [...latestDownloads];
 
     if (!settings.showZeroBytes) {
@@ -560,6 +563,7 @@ const DownloadsTab: React.FC = () => {
   }, [filteredDownloads, settings.groupGames]);
 
   const itemsToDisplay = useMemo(() => {
+    try {
     let items = settings.groupGames ? groupedDownloads || [] : filteredDownloads;
 
     // Apply sorting
@@ -623,13 +627,19 @@ const DownloadsTab: React.FC = () => {
     }
     const limit = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 50;
     return items.slice(0, limit);
+    } catch (error) {
+      console.error('Error preparing items to display:', error);
+      return [];
+    }
   }, [settings.groupGames, settings.itemsPerPage, groupedDownloads, filteredDownloads, settings.sortOrder]);
 
   // Event handlers
   const handleDownloadClick = async (download: Download) => {
     const isSteam = download.service.toLowerCase() === 'steam';
     const hasData = (download.totalBytes || 0) > 0;
-    const canExpand = isSteam && hasData && download.gameName && download.gameName !== 'Unknown Steam Game';
+    const canExpand = isSteam && hasData && download.gameName &&
+                       download.gameName !== 'Unknown Steam Game' &&
+                       !download.gameName.match(/^Steam App \d+$/);
     
     if (!canExpand) return;
     
@@ -712,10 +722,17 @@ const DownloadsTab: React.FC = () => {
   }, [expandedGroup]);
 
   const renderDownload = useCallback((download: Download) => {
-    const isExpanded = expandedDownload === download.id;
+    try {
+      if (!download) {
+        console.error('Undefined download in renderDownload');
+        return null;
+      }
+      const isExpanded = expandedDownload === download.id;
     const isSteam = download.service.toLowerCase() === 'steam';
     const hasData = (download.totalBytes || 0) > 0;
-    const canExpand = isSteam && hasData && download.gameName && download.gameName !== 'Unknown Steam Game';
+    const canExpand = isSteam && hasData && download.gameName &&
+                       download.gameName !== 'Unknown Steam Game' &&
+                       !download.gameName.match(/^Steam App \d+$/);
     const downloadType = getDownloadTypeInfo(download);
     const IconComponent = downloadType.icon;
     const game = download.id ? gameInfo[download.id] : undefined;
@@ -723,14 +740,16 @@ const DownloadsTab: React.FC = () => {
     // Normal view - show more details inline
     if (settings.viewMode === 'normal') {
       // For Steam games with names, show the full experience
-      if (isSteam && download.gameName && download.gameName !== 'Unknown Steam Game') {
+      if (isSteam && download.gameName &&
+          download.gameName !== 'Unknown Steam Game' &&
+          !download.gameName.match(/^Steam App \d+$/)) {
       return (
         <Card key={download.id} padding="md">
           <div className="flex gap-4 items-start">
             {/* Game header image */}
             <div className="flex-shrink-0">
               <ImageWithFallback
-                src={`https://cdn.cloudflare.steamstatic.com/steam/apps/${download.gameAppId}/header.jpg`}
+                src={`${import.meta.env.VITE_API_URL || ''}/api/gameimages/${download.gameAppId}/header`}
                 alt={download.gameName || 'Game'}
                 className="rounded shadow-md"
                 style={{ width: '184px', height: '88px', objectFit: 'cover' }}
@@ -1040,6 +1059,14 @@ const DownloadsTab: React.FC = () => {
         </div>
       </Card>
     );
+    } catch (error) {
+      console.error('Error rendering download:', error, download);
+      return (
+        <Card key={download?.id || Math.random()} padding="sm">
+          <div className="text-themed-muted">Error rendering download</div>
+        </Card>
+      );
+    }
   }, [expandedDownload, gameInfo, loadingGame, settings.viewMode]);
 
   const renderVirtualItem = useCallback((item: any) => {
@@ -1236,7 +1263,7 @@ const DownloadsTab: React.FC = () => {
 
       {/* Downloads list */}
       <div>
-        {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 200 ? (
+        {(settings.itemsPerPage === 'unlimited' || settings.itemsPerPage >= 200) && itemsToDisplay.length >= 200 ? (
           <VirtualizedList
             items={itemsToDisplay}
             height={window.innerHeight - 250}

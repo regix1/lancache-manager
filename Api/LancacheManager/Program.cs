@@ -46,7 +46,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         }
     }
     
-    options.UseSqlite($"Data Source={dbPath}");
+    options.UseSqlite($"Data Source={dbPath};Cache=Shared");
 });
 
 // Register HttpClientFactory for better HTTP client management
@@ -74,6 +74,7 @@ builder.Services.AddSingleton<SteamService>();
 builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
+builder.Services.AddScoped<GameImageCacheService>();
 
 // Register LogProcessingService for high-performance log processing
 builder.Services.AddSingleton<LogProcessingService>();

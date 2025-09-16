@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
     public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
+    public DbSet<GameImage> GameImages { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,5 +56,15 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SteamDepotMapping>()
             .HasIndex(m => m.AppId)
             .HasDatabaseName("IX_SteamDepotMappings_AppId");
+
+        // GameImage indexes
+        modelBuilder.Entity<GameImage>()
+            .HasIndex(g => new { g.AppId, g.ImageType })
+            .HasDatabaseName("IX_GameImages_AppId_Type")
+            .IsUnique();
+
+        modelBuilder.Entity<GameImage>()
+            .HasIndex(g => g.LastAccessed)
+            .HasDatabaseName("IX_GameImages_LastAccessed");
     }
 }
