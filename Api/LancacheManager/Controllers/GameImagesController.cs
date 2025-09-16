@@ -69,8 +69,8 @@ public class GameImagesController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error getting image for app {appId}");
-            return StatusCode(500);
+            _logger.LogError(ex, $"Error getting image for app {appId}: {ex.Message}");
+            return StatusCode(500, new { error = "Failed to get image", message = ex.Message });
         }
     }
 
