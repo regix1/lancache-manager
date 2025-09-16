@@ -69,8 +69,11 @@ staticwebassets/
 
 # Frontend build outputs
 Web/dist/
-Web/node_modules/
 *.map
+
+# Node.js dependencies
+node_modules/
+**/node_modules/
 
 # Security - API Keys and Authentication
 api_key.txt
