@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
+import { API_BASE } from '../../utils/constants';
 import VirtualizedList from '../common/VirtualizedList';
 import { Alert } from '../ui/Alert';
 import { Card } from '../ui/Card';
@@ -358,7 +359,7 @@ const DownloadsTab: React.FC = () => {
       service: download.service,
       appId: download.gameAppId || 0,
       gameName: download.gameName,
-      headerImage: `${import.meta.env.VITE_API_URL || ''}/api/gameimages/${download.gameAppId}/header`,
+      headerImage: `${API_BASE}/gameimages/${download.gameAppId}/header`,
       description: `${download.gameName} - Downloaded via ${download.service}`,
       gameType: 'game'
     };
@@ -388,7 +389,7 @@ const DownloadsTab: React.FC = () => {
           service: download.service,
           appId: download.gameAppId || 0,
           gameName: download.gameName || 'Unknown Game',
-          headerImage: `${import.meta.env.VITE_API_URL || ''}/api/gameimages/${download.gameAppId}/header`,
+          headerImage: `${API_BASE}/gameimages/${download.gameAppId}/header`,
           description: `${download.gameName} - Downloaded via Steam`,
           gameType: 'game'
         };
@@ -749,7 +750,7 @@ const DownloadsTab: React.FC = () => {
             {/* Game header image */}
             <div className="flex-shrink-0">
               <ImageWithFallback
-                src={`${import.meta.env.VITE_API_URL || ''}/api/gameimages/${download.gameAppId}/header`}
+                src={`${API_BASE}/gameimages/${download.gameAppId}/header`}
                 alt={download.gameName || 'Game'}
                 className="rounded shadow-md"
                 style={{ width: '184px', height: '88px', objectFit: 'cover' }}

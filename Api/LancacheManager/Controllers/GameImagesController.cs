@@ -29,6 +29,8 @@ public class GameImagesController : ControllerBase
     {
         try
         {
+            _logger.LogInformation($"Getting image for app {appId}, type {imageType}");
+
             // First check if we have it in cache
             var cachedImage = await _context.GameImages
                 .AsNoTracking()
