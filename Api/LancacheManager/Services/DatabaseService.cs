@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Data;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
+using LancacheManager.Constants;
 
 namespace LancacheManager.Services;
 
@@ -16,7 +17,6 @@ public class DatabaseService
     // Track ongoing sessions to group downloads properly
     private static readonly Dictionary<string, DateTime> _sessionTracker = new();
     private static readonly object _sessionLock = new object();
-    private const string POSITION_FILE = "/data/logposition.txt";
 
     public DatabaseService(
         AppDbContext context, 
@@ -299,9 +299,9 @@ public class DatabaseService
             await _context.SaveChangesAsync();
             
             // Clear position file
-            if (File.Exists(POSITION_FILE))
+            if (File.Exists(LancacheConstants.POSITION_FILE))
             {
-                File.Delete(POSITION_FILE);
+                File.Delete(LancacheConstants.POSITION_FILE);
             }
             
             // Clear session tracker

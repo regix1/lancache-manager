@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Security;
+using LancacheManager.Constants;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -11,13 +12,12 @@ public class ThemeController : ControllerBase
 {
     private readonly string _themesPath;
     private readonly ILogger<ThemeController> _logger;
-    private const string DEFAULT_THEME_NAME = "dark-default";
 
     public ThemeController(IConfiguration configuration, ILogger<ThemeController> logger)
     {
         _logger = logger;
         
-        _themesPath = Path.Combine("/data", "themes");
+        _themesPath = LancacheConstants.THEMES_DIRECTORY;
 
         // Ensure themes directory exists
         if (!Directory.Exists(_themesPath))
@@ -26,8 +26,7 @@ public class ThemeController : ControllerBase
             _logger.LogInformation($"Created themes directory: {_themesPath}");
         }
 
-        // Initialize default themes
-        InitializeDefaultThemes();
+        // Frontend theme service handles built-in themes, backend only manages custom uploaded themes
     }
 
     [HttpGet]
@@ -39,7 +38,8 @@ public class ThemeController : ControllerBase
 
             if (!Directory.Exists(_themesPath))
             {
-                InitializeDefaultThemes();
+                Directory.CreateDirectory(_themesPath);
+                _logger.LogInformation($"Created themes directory: {_themesPath}");
             }
 
             // Get both JSON and TOML files
@@ -47,8 +47,8 @@ public class ThemeController : ControllerBase
             var tomlFiles = Directory.GetFiles(_themesPath, "*.toml");
             var themeFiles = jsonFiles.Concat(tomlFiles).ToArray();
 
-            // Define which themes are system themes (removed high-contrast)
-            var systemThemes = new[] { "dark-default", "light-default" };
+            // System themes are provided by frontend but marked as protected
+            var systemThemes = LancacheConstants.SYSTEM_THEMES;
 
             foreach (var file in themeFiles)
             {
@@ -258,25 +258,26 @@ public class ThemeController : ControllerBase
     {
         // Log the incoming request
         _logger.LogInformation($"Delete theme request received for ID: '{id}' from {HttpContext.Connection.RemoteIpAddress}");
-        
+
         // Sanitize ID
         var originalId = id;
         id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
-        
+
         if (originalId != id)
         {
             _logger.LogWarning($"Theme ID was sanitized from '{originalId}' to '{id}'");
         }
 
-        // Define system themes that cannot be deleted
-        var systemThemes = new[] { "dark-default", "light-default" };
-
         // Prevent deletion of system themes
-        if (systemThemes.Contains(id))
+        if (LancacheConstants.SYSTEM_THEMES.Contains(id))
         {
             _logger.LogWarning($"Attempted to delete system theme: {id}");
-            return BadRequest(new { error = "Cannot delete system themes. These are built-in themes required for the application." });
+            return BadRequest(new {
+                error = "Cannot delete system theme",
+                details = $"'{id}' is a protected system theme and cannot be deleted"
+            });
         }
+
 
         try
         {
@@ -454,172 +455,6 @@ public class ThemeController : ControllerBase
         }
     }
 
-    private void InitializeDefaultThemes()
-    {
-        try
-        {
-            // Remove high-contrast if it exists
-            var highContrastPath = Path.Combine(_themesPath, "high-contrast.json");
-            if (System.IO.File.Exists(highContrastPath))
-            {
-                System.IO.File.Delete(highContrastPath);
-                _logger.LogInformation("Removed deprecated high-contrast theme");
-            }
-
-            var darkThemePath = Path.Combine(_themesPath, $"{DEFAULT_THEME_NAME}.json");
-
-            if (!System.IO.File.Exists(darkThemePath))
-            {
-                var darkTheme = new
-                {
-                    name = "Dark Default",
-                    id = DEFAULT_THEME_NAME,
-                    description = "Default dark theme for LanCache Monitor",
-                    author = "System",
-                    version = "2.2.0",
-                    colors = new Dictionary<string, string>
-                    {
-                        // Backgrounds
-                        ["--bg-primary"] = "#111827",
-                        ["--bg-secondary"] = "#1f2937",
-                        ["--bg-tertiary"] = "#374151",
-                        ["--bg-hover"] = "#4b5563",
-                        ["--bg-input"] = "#374151",
-                        ["--bg-dropdown"] = "#1f2937",
-                        ["--bg-dropdown-hover"] = "#374151",
-                        ["--bg-nav"] = "#1f2937",
-
-                        // Borders
-                        ["--border-primary"] = "#374151",
-                        ["--border-secondary"] = "#4b5563",
-                        ["--border-input"] = "#4b5563",
-                        ["--border-nav"] = "#374151",
-                        ["--border-dropdown"] = "#374151",
-
-                        // Text colors
-                        ["--text-primary"] = "#ffffff",
-                        ["--text-secondary"] = "#d1d5db",
-                        ["--text-muted"] = "#9ca3af",
-                        ["--text-disabled"] = "#6b7280",
-                        ["--text-button"] = "#ffffff",
-                        ["--text-dropdown"] = "#ffffff",
-                        ["--text-dropdown-item"] = "#ffffff",
-                        ["--text-input"] = "#ffffff",
-                        ["--text-placeholder"] = "#9ca3af",
-                        ["--text-nav"] = "#d1d5db",
-                        ["--text-nav-active"] = "#3b82f6",
-
-                        // Icon colors
-                        ["--icon-primary"] = "#d1d5db",
-                        ["--icon-button"] = "#ffffff",
-                        ["--icon-muted"] = "#9ca3af",
-
-                        // Accent colors
-                        ["--accent-blue"] = "#3b82f6",
-                        ["--accent-green"] = "#10b981",
-                        ["--accent-yellow"] = "#f59e0b",
-                        ["--accent-red"] = "#ef4444",
-                        ["--accent-purple"] = "#8b5cf6",
-                        ["--accent-cyan"] = "#06b6d4",
-                        ["--accent-orange"] = "#f97316",
-                        ["--accent-pink"] = "#ec4899",
-
-                        // Status colors
-                        ["--success"] = "#10b981",
-                        ["--warning"] = "#f59e0b",
-                        ["--error"] = "#ef4444",
-                        ["--info"] = "#3b82f6"
-                    }
-                };
-
-                var json = JsonSerializer.Serialize(darkTheme, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
-
-                System.IO.File.WriteAllText(darkThemePath, json);
-                _logger.LogInformation("Created default dark theme v2.2");
-            }
-
-            // Create a light theme as well
-            var lightThemePath = Path.Combine(_themesPath, "light-default.json");
-
-            if (!System.IO.File.Exists(lightThemePath))
-            {
-                var lightTheme = new
-                {
-                    name = "Light Default",
-                    id = "light-default",
-                    description = "Default light theme for LanCache Monitor",
-                    author = "System",
-                    version = "2.2.0",
-                    colors = new Dictionary<string, string>
-                    {
-                        // Backgrounds
-                        ["--bg-primary"] = "#ffffff",
-                        ["--bg-secondary"] = "#f9fafb",
-                        ["--bg-tertiary"] = "#f3f4f6",
-                        ["--bg-hover"] = "#e5e7eb",
-                        ["--bg-input"] = "#ffffff",
-                        ["--bg-dropdown"] = "#ffffff",
-                        ["--bg-dropdown-hover"] = "#e5e7eb",
-                        ["--bg-nav"] = "#ffffff",
-
-                        // Borders
-                        ["--border-primary"] = "#e5e7eb",
-                        ["--border-secondary"] = "#d1d5db",
-                        ["--border-input"] = "#d1d5db",
-                        ["--border-nav"] = "#e5e7eb",
-                        ["--border-dropdown"] = "#9ca3af",
-
-                        // Text colors
-                        ["--text-primary"] = "#111827",
-                        ["--text-secondary"] = "#374151",
-                        ["--text-muted"] = "#6b7280",
-                        ["--text-disabled"] = "#9ca3af",
-                        ["--text-button"] = "#ffffff",
-                        ["--text-dropdown"] = "#111827",
-                        ["--text-dropdown-item"] = "#111827",
-                        ["--text-input"] = "#111827",
-                        ["--text-placeholder"] = "#9ca3af",
-                        ["--text-nav"] = "#374151",
-                        ["--text-nav-active"] = "#1d4ed8",
-
-                        // Icon colors
-                        ["--icon-primary"] = "#6b7280",
-                        ["--icon-button"] = "#ffffff",
-                        ["--icon-muted"] = "#9ca3af",
-
-                        // Accent colors - more vibrant for light backgrounds
-                        ["--accent-blue"] = "#1d4ed8",
-                        ["--accent-green"] = "#16a34a",
-                        ["--accent-yellow"] = "#ca8a04",
-                        ["--accent-red"] = "#dc2626",
-                        ["--accent-purple"] = "#7c3aed",
-                        ["--accent-cyan"] = "#0891b2",
-                        ["--accent-orange"] = "#ea580c",
-                        ["--accent-pink"] = "#be185d",
-
-                        // Status colors - vibrant versions
-                        ["--success"] = "#16a34a",
-                        ["--warning"] = "#ca8a04",
-                        ["--error"] = "#dc2626",
-                        ["--info"] = "#2563eb"
-                    }
-                };
-
-                var json = JsonSerializer.Serialize(lightTheme, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
-
-                System.IO.File.WriteAllText(lightThemePath, json);
-                _logger.LogInformation("Created default light theme v2.2");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to initialize default themes");
-        }
-    }
+    // Removed InitializeDefaultThemes() - Frontend theme service provides built-in themes
+    // Backend only manages custom uploaded themes to avoid duplication
 }

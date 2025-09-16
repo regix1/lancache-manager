@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
+using LancacheManager.Constants;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -27,12 +28,14 @@ public class CacheClearingService : IHostedService
         _configuration = configuration;
         
         // Determine cache path - check most likely locations first
-        var possiblePaths = new[]
+        var possiblePaths = new List<string>(LancacheConstants.CACHE_PATHS);
+
+        // Add config override if different
+        var configPath = configuration["LanCache:CachePath"];
+        if (!string.IsNullOrEmpty(configPath) && !possiblePaths.Contains(configPath))
         {
-            "/mnt/cache/cache",  // Docker mounted cache
-            "/cache",            // Direct container mount
-            configuration["LanCache:CachePath"] ?? "/cache"  // Config override
-        };
+            possiblePaths.Insert(0, configPath);  // Config path takes priority
+        }
         
         foreach (var path in possiblePaths)
         {

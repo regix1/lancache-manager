@@ -745,7 +745,7 @@ const DownloadsTab: React.FC = () => {
           download.gameName !== 'Unknown Steam Game' &&
           !download.gameName.match(/^Steam App \d+$/)) {
       return (
-        <Card key={download.id} padding="md">
+        <Card key={download.id} padding="md" className="mb-3">
           <div className="flex gap-4 items-start">
             {/* Game header image */}
             <div className="flex-shrink-0">
@@ -849,7 +849,7 @@ const DownloadsTab: React.FC = () => {
 
       // Normal view for non-Steam or other downloads
       return (
-        <Card key={download.id} padding="md">
+        <Card key={download.id} padding="md" className="mb-3">
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">

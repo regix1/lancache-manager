@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Constants;
 
 namespace LancacheManager.Services;
 
@@ -14,17 +15,35 @@ public class CacheManagementService
         _configuration = configuration;
         _logger = logger;
         
-        // In container: cache is at /cache
-        // In development: use configured path or current directory
-        if (Directory.Exists("/cache") && Directory.GetDirectories("/cache").Any(d => Path.GetFileName(d).Length == 2))
+        // Check for cache directory in order of preference
+        _cachePath = null;
+
+        // First check config override
+        var configPath = configuration["LanCache:CachePath"];
+        if (!string.IsNullOrEmpty(configPath) && Directory.Exists(configPath))
         {
-            _cachePath = "/cache";
-            _logger.LogInformation("Detected containerized environment, using cache path: /cache");
+            _cachePath = configPath;
+            _logger.LogInformation($"Using configured cache path: {_cachePath}");
         }
         else
         {
-            _cachePath = configuration["LanCache:CachePath"] ?? "./cache";
-            _logger.LogInformation($"Using configured cache path: {_cachePath}");
+            // Check standard cache paths
+            foreach (var path in LancacheConstants.CACHE_PATHS)
+            {
+                if (Directory.Exists(path) && Directory.GetDirectories(path).Any(d => Path.GetFileName(d).Length == 2))
+                {
+                    _cachePath = path;
+                    _logger.LogInformation($"Detected cache directory at: {_cachePath}");
+                    break;
+                }
+            }
+        }
+
+        // Fallback to config or default
+        if (string.IsNullOrEmpty(_cachePath))
+        {
+            _cachePath = configPath ?? "./cache";
+            _logger.LogInformation($"Using fallback cache path: {_cachePath}");
         }
         
         _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
@@ -101,11 +120,14 @@ public class CacheManagementService
                 return bestMatch;
             }
             
-            // Fallback: check if /cache is a mount point
-            if (path.StartsWith("/cache"))
+            // Fallback: check if any of the standard cache paths are mount points
+            foreach (var cachePath in LancacheConstants.CACHE_PATHS)
             {
-                if (Directory.Exists("/cache") && new DriveInfo("/cache").TotalSize > 0)
-                    return "/cache";
+                if (path.StartsWith(cachePath))
+                {
+                    if (Directory.Exists(cachePath) && new DriveInfo(cachePath).TotalSize > 0)
+                        return cachePath;
+                }
             }
             
             // Last resort: use root

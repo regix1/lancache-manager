@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
 using LancacheManager.Security;
+using LancacheManager.Constants;
 
 namespace LancacheManager.Controllers;
 
@@ -15,13 +16,6 @@ public class ManagementController : ControllerBase
     private readonly ILogger<ManagementController> _logger;
     private static CancellationTokenSource? _processingCancellation;
     private static DateTime? _processingStartTime;
-    
-    // Fixed Linux paths
-    private const string DATA_DIRECTORY = "/data";
-    private const string LOG_PATH = "/logs/access.log";
-    private const string POSITION_FILE = "/data/logposition.txt";
-    private const string PROCESSING_MARKER = "/data/bulk_processing.marker";
-    private const string DATABASE_PATH = "/data/lancache.db";
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -37,16 +31,16 @@ public class ManagementController : ControllerBase
         _logger = logger;
         
         // Ensure data directory exists
-        if (!Directory.Exists(DATA_DIRECTORY))
+        if (!Directory.Exists(LancacheConstants.DATA_DIRECTORY))
         {
             try
             {
-                Directory.CreateDirectory(DATA_DIRECTORY);
-                _logger.LogInformation($"Created data directory: {DATA_DIRECTORY}");
+                Directory.CreateDirectory(LancacheConstants.DATA_DIRECTORY);
+                _logger.LogInformation($"Created data directory: {LancacheConstants.DATA_DIRECTORY}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to create data directory: {DATA_DIRECTORY}");
+                _logger.LogError(ex, $"Failed to create data directory: {LancacheConstants.DATA_DIRECTORY}");
             }
         }
     }
@@ -158,9 +152,9 @@ public class ManagementController : ControllerBase
         try
         {
             // Clear position file to start from end
-            if (System.IO.File.Exists(POSITION_FILE))
+            if (System.IO.File.Exists(LancacheConstants.POSITION_FILE))
             {
-                System.IO.File.Delete(POSITION_FILE);
+                System.IO.File.Delete(LancacheConstants.POSITION_FILE);
             }
             
             // Only reset database if explicitly requested
@@ -197,11 +191,11 @@ public class ManagementController : ControllerBase
             _processingCancellation = new CancellationTokenSource();
             
             // Check if log file exists
-            if (!System.IO.File.Exists(LOG_PATH))
+            if (!System.IO.File.Exists(LancacheConstants.LOG_PATH))
             {
-                _logger.LogWarning($"Log file not found at: {LOG_PATH}");
+                _logger.LogWarning($"Log file not found at: {LancacheConstants.LOG_PATH}");
                 return Ok(new { 
-                    message = $"Log file not found at: {LOG_PATH}",
+                    message = $"Log file not found at: {LancacheConstants.LOG_PATH}",
                     logSizeMB = 0,
                     estimatedTimeMinutes = 0,
                     requiresRestart = false,
@@ -210,13 +204,13 @@ public class ManagementController : ControllerBase
             }
             
             // Get log file size
-            var fileInfo = new FileInfo(LOG_PATH);
+            var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
             
             // CHECK IF FILE IS EMPTY
             if (fileInfo.Length == 0)
             {
-                _logger.LogWarning($"Log file is empty (0 bytes): {LOG_PATH}");
+                _logger.LogWarning($"Log file is empty (0 bytes): {LancacheConstants.LOG_PATH}");
                 return Ok(new { 
                     message = "Log file is empty. No data to process.",
                     logSizeMB = 0,
@@ -229,7 +223,7 @@ public class ManagementController : ControllerBase
             // CHECK IF FILE IS TOO SMALL (less than 100 bytes probably means no real data)
             if (fileInfo.Length < 100)
             {
-                _logger.LogWarning($"Log file is very small ({fileInfo.Length} bytes): {LOG_PATH}");
+                _logger.LogWarning($"Log file is very small ({fileInfo.Length} bytes): {LancacheConstants.LOG_PATH}");
                 return Ok(new { 
                     message = $"Log file only contains {fileInfo.Length} bytes. Likely no game data yet.",
                     logSizeMB = sizeMB,
@@ -242,14 +236,14 @@ public class ManagementController : ControllerBase
             _logger.LogInformation($"Starting full log processing: {sizeMB:F1} MB");
             
             // Delete old marker first
-            if (System.IO.File.Exists(PROCESSING_MARKER))
+            if (System.IO.File.Exists(LancacheConstants.PROCESSING_MARKER))
             {
-                System.IO.File.Delete(PROCESSING_MARKER);
+                System.IO.File.Delete(LancacheConstants.PROCESSING_MARKER);
                 await Task.Delay(100);
             }
             
             // Set position to 0
-            await System.IO.File.WriteAllTextAsync(POSITION_FILE, "0");
+            await System.IO.File.WriteAllTextAsync(LancacheConstants.POSITION_FILE, "0");
             
             // Create marker with file size info
             var markerData = new
@@ -261,7 +255,7 @@ public class ManagementController : ControllerBase
                 requestId = Guid.NewGuid().ToString()
             };
             
-            await System.IO.File.WriteAllTextAsync(PROCESSING_MARKER, 
+            await System.IO.File.WriteAllTextAsync(LancacheConstants.PROCESSING_MARKER, 
                 System.Text.Json.JsonSerializer.Serialize(markerData));
             
             _processingStartTime = DateTime.UtcNow;
@@ -312,23 +306,23 @@ public class ManagementController : ControllerBase
             _processingCancellation?.Cancel();
             
             // Remove processing marker
-            if (System.IO.File.Exists(PROCESSING_MARKER))
+            if (System.IO.File.Exists(LancacheConstants.PROCESSING_MARKER))
             {
-                System.IO.File.Delete(PROCESSING_MARKER);
+                System.IO.File.Delete(LancacheConstants.PROCESSING_MARKER);
             }
             
             // Set position to end of file to stop processing
-            if (System.IO.File.Exists(LOG_PATH))
+            if (System.IO.File.Exists(LancacheConstants.LOG_PATH))
             {
-                var fileInfo = new FileInfo(LOG_PATH);
-                await System.IO.File.WriteAllTextAsync(POSITION_FILE, fileInfo.Length.ToString());
+                var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
+                await System.IO.File.WriteAllTextAsync(LancacheConstants.POSITION_FILE, fileInfo.Length.ToString());
                 _logger.LogInformation($"Processing cancelled, position set to end of file");
             }
             else
             {
-                if (System.IO.File.Exists(POSITION_FILE))
+                if (System.IO.File.Exists(LancacheConstants.POSITION_FILE))
                 {
-                    System.IO.File.Delete(POSITION_FILE);
+                    System.IO.File.Delete(LancacheConstants.POSITION_FILE);
                 }
                 _logger.LogInformation("Processing cancelled, position cleared");
             }
@@ -351,21 +345,21 @@ public class ManagementController : ControllerBase
         try
         {
             // First check if marker exists
-            bool markerExists = System.IO.File.Exists(PROCESSING_MARKER);
+            bool markerExists = System.IO.File.Exists(LancacheConstants.PROCESSING_MARKER);
             
             // Then check position file
             long currentPosition = 0;
             long totalSize = 0;
             
-            if (System.IO.File.Exists(LOG_PATH))
+            if (System.IO.File.Exists(LancacheConstants.LOG_PATH))
             {
-                var fileInfo = new FileInfo(LOG_PATH);
+                var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
                 totalSize = fileInfo.Length;
             }
             
-            if (System.IO.File.Exists(POSITION_FILE))
+            if (System.IO.File.Exists(LancacheConstants.POSITION_FILE))
             {
-                var posContent = await System.IO.File.ReadAllTextAsync(POSITION_FILE);
+                var posContent = await System.IO.File.ReadAllTextAsync(LancacheConstants.POSITION_FILE);
                 long.TryParse(posContent, out currentPosition);
             }
             
@@ -462,7 +456,7 @@ public class ManagementController : ControllerBase
             
             return Ok(new { 
                 message = $"Successfully removed {request.Service} entries from log file",
-                backupFile = $"{LOG_PATH}.bak"
+                backupFile = $"{LancacheConstants.LOG_PATH}.bak"
             });
         }
         catch (Exception ex)
@@ -536,16 +530,16 @@ public class ManagementController : ControllerBase
             
             return Ok(new { 
                 cachePath,
-                logPath = LOG_PATH,
+                logPath = LancacheConstants.LOG_PATH,
                 services
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting configuration");
-            return Ok(new { 
-                cachePath = "/cache",
-                logPath = "/logs/access.log",
+            return Ok(new {
+                cachePath = LancacheConstants.CACHE_DIRECTORY,
+                logPath = LancacheConstants.LOG_PATH,
                 services = new[] { "steam", "epic", "origin", "blizzard", "wsus", "riot" }
             });
         }
@@ -560,7 +554,7 @@ public class ManagementController : ControllerBase
         // Check /logs directory
         try
         {
-            var logsDir = Path.GetDirectoryName(LOG_PATH) ?? "/logs";
+            var logsDir = Path.GetDirectoryName(LancacheConstants.LOG_PATH) ?? "/logs";
             results["logsDirectory"] = logsDir;
             results["logsExists"] = Directory.Exists(logsDir);
             
@@ -673,12 +667,12 @@ public class ManagementController : ControllerBase
         // Check /data directory
         try
         {
-            results["dataDirectory"] = DATA_DIRECTORY;
-            results["dataExists"] = Directory.Exists(DATA_DIRECTORY);
+            results["dataDirectory"] = LancacheConstants.DATA_DIRECTORY;
+            results["dataExists"] = Directory.Exists(LancacheConstants.DATA_DIRECTORY);
             
-            if (Directory.Exists(DATA_DIRECTORY))
+            if (Directory.Exists(LancacheConstants.DATA_DIRECTORY))
             {
-                var testFile = Path.Combine(DATA_DIRECTORY, ".write_test");
+                var testFile = Path.Combine(LancacheConstants.DATA_DIRECTORY, ".write_test");
                 try
                 {
                     System.IO.File.WriteAllText(testFile, "test");
@@ -700,12 +694,12 @@ public class ManagementController : ControllerBase
         // Check log file
         try
         {
-            results["logFile"] = LOG_PATH;
-            results["logFileExists"] = System.IO.File.Exists(LOG_PATH);
+            results["logFile"] = LancacheConstants.LOG_PATH;
+            results["logFileExists"] = System.IO.File.Exists(LancacheConstants.LOG_PATH);
             
-            if (System.IO.File.Exists(LOG_PATH))
+            if (System.IO.File.Exists(LancacheConstants.LOG_PATH))
             {
-                var fileInfo = new FileInfo(LOG_PATH);
+                var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
                 results["logFileSize"] = fileInfo.Length;
                 results["logFileReadOnly"] = fileInfo.IsReadOnly;
                 results["logFileLastModified"] = fileInfo.LastWriteTimeUtc;

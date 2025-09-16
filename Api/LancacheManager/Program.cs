@@ -75,6 +75,7 @@ builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddScoped<GameImageCacheService>();
+builder.Services.AddScoped<StatsService>();
 
 // Register LogProcessingService for high-performance log processing
 builder.Services.AddSingleton<LogProcessingService>();

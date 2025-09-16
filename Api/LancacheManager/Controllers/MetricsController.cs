@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using LancacheManager.Data;
 using LancacheManager.Services;
 using LancacheManager.Security;
+using LancacheManager.Constants;
 using System.Text;
 
 namespace LancacheManager.Controllers;
@@ -11,20 +12,20 @@ namespace LancacheManager.Controllers;
 [Route("api/[controller]")]
 public class MetricsController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly StatsService _statsService;
     private readonly CacheManagementService _cacheService;
     private readonly ApiKeyService _apiKeyService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<MetricsController> _logger;
 
     public MetricsController(
-        AppDbContext context, 
-        CacheManagementService cacheService, 
+        StatsService statsService,
+        CacheManagementService cacheService,
         ApiKeyService apiKeyService,
         IConfiguration configuration,
         ILogger<MetricsController> logger)
     {
-        _context = context;
+        _statsService = statsService;
         _cacheService = cacheService;
         _apiKeyService = apiKeyService;
         _configuration = configuration;
@@ -34,39 +35,18 @@ public class MetricsController : ControllerBase
     [HttpGet]
     [HttpGet("prometheus")]
     [Produces("text/plain")]
+    [ConditionalAuth(LancacheConstants.CONFIG_KEY_REQUIRE_AUTH_METRICS, false)]
     public async Task<IActionResult> GetPrometheusMetrics()
     {
-        // Check if metrics require authentication (configurable)
-        var requireAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
-        
-        if (requireAuth)
-        {
-            var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
-            if (string.IsNullOrEmpty(apiKey) || !_apiKeyService.ValidateApiKey(apiKey))
-            {
-                return Unauthorized(new { error = "API key required for metrics access" });
-            }
-        }
-        
         try
         {
             var metrics = new StringBuilder();
-            
-            // Get current stats
-            var serviceStats = await _context.ServiceStats
-                .AsNoTracking()
-                .ToListAsync();
-                
-            var clientStats = await _context.ClientStats
-                .AsNoTracking()
-                .ToListAsync();
-                
+
+            // Get current stats using StatsService
+            var serviceStats = await _statsService.GetServiceStatsAsync();
+            var clientStats = await _statsService.GetClientStatsAsync();
             var cacheInfo = _cacheService.GetCacheInfo();
-                
-            var activeDownloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.IsActive)
-                .CountAsync();
+            var activeDownloads = await _statsService.GetActiveDownloadCountAsync();
             
             // Service metrics
             metrics.AppendLine("# HELP lancache_service_cache_hit_bytes Total cache hit bytes per service");
@@ -144,10 +124,10 @@ public class MetricsController : ControllerBase
             // Total unique clients
             metrics.AppendLine("# HELP lancache_unique_clients Total unique clients");
             metrics.AppendLine("# TYPE lancache_unique_clients gauge");
-            metrics.AppendLine($"lancache_unique_clients {clientStats.Count}");
-            
+            metrics.AppendLine($"lancache_unique_clients {await _statsService.GetUniqueClientCountAsync()}");
+
             // Calculate total bandwidth saved (sum of all cache hits)
-            var totalBandwidthSaved = serviceStats.Sum(s => s.TotalCacheHitBytes);
+            var totalBandwidthSaved = await _statsService.GetTotalBandwidthSavedAsync();
             metrics.AppendLine("# HELP lancache_bandwidth_saved_bytes Total bandwidth saved");
             metrics.AppendLine("# TYPE lancache_bandwidth_saved_bytes counter");
             metrics.AppendLine($"lancache_bandwidth_saved_bytes {totalBandwidthSaved}");
@@ -165,7 +145,7 @@ public class MetricsController : ControllerBase
     [Produces("application/json")]
     public IActionResult GetMetricsStatus()
     {
-        var requireAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
+        var requireAuth = _configuration.GetValue<bool>(LancacheConstants.CONFIG_KEY_REQUIRE_AUTH_METRICS, false);
         return Ok(new 
         { 
             requiresAuthentication = requireAuth,
@@ -175,42 +155,18 @@ public class MetricsController : ControllerBase
     
     [HttpGet("json")]
     [Produces("application/json")]
+    [ConditionalAuth(LancacheConstants.CONFIG_KEY_REQUIRE_AUTH_METRICS, false)]
     public async Task<IActionResult> GetJsonMetrics()
     {
-        // Check if metrics require authentication (configurable)
-        var requireAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
-        
-        if (requireAuth)
-        {
-            var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
-            if (string.IsNullOrEmpty(apiKey) || !_apiKeyService.ValidateApiKey(apiKey))
-            {
-                return Unauthorized(new { error = "API key required for metrics access" });
-            }
-        }
-        
         try
         {
-            var serviceStats = await _context.ServiceStats
-                .AsNoTracking()
-                .ToListAsync();
-                
-            var clientStats = await _context.ClientStats
-                .AsNoTracking()
-                .ToListAsync();
-                
+            // Use StatsService for all database queries
+            var serviceStats = await _statsService.GetServiceStatsAsync();
+            var clientStats = await _statsService.GetClientStatsAsync();
             var cacheInfo = _cacheService.GetCacheInfo();
+            var activeDownloads = await _statsService.GetActiveDownloadCountAsync();
                 
-            var activeDownloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.IsActive)
-                .CountAsync();
-                
-            var recentDownloads = await _context.Downloads
-                .AsNoTracking()
-                .OrderByDescending(d => d.StartTime)
-                .Take(10)
-                .ToListAsync();
+            var recentDownloads = await _statsService.GetLatestDownloadsAsync(10);
             
             return Ok(new
             {
