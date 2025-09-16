@@ -31,17 +31,12 @@ public class GameImagesController : ControllerBase
         {
             _logger.LogInformation($"Getting image for app {appId}, type {imageType}");
 
-            // Test if context works
-            var testConnection = await _context.Database.CanConnectAsync();
-            if (!testConnection)
-            {
-                return StatusCode(500, new { error = "Database connection failed" });
-            }
-
             // First check if we have it in cache
             var cachedImage = await _context.GameImages
                 .AsNoTracking()
                 .FirstOrDefaultAsync(g => g.AppId == appId && g.ImageType == imageType);
+
+            _logger.LogInformation($"Cache check result: {(cachedImage != null ? "found" : "not found")}");
 
             if (cachedImage != null && cachedImage.ImageData.Length > 0)
             {
@@ -66,7 +61,10 @@ public class GameImagesController : ControllerBase
             }
 
             // Not in cache or placeholder, try to download
+            _logger.LogInformation($"Attempting to download image for app {appId}");
             var gameImage = await _imageCacheService.GetImageAsync(appId, imageType);
+
+            _logger.LogInformation($"Download result: {(gameImage != null ? $"success, {gameImage.ImageData.Length} bytes" : "failed")}");
 
             if (gameImage != null && gameImage.ImageData.Length > 0)
             {
