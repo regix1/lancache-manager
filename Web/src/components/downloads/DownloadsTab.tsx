@@ -1077,6 +1077,35 @@ const DownloadsTab: React.FC = () => {
     return renderDownload(item as Download);
   }, [renderGroup, renderDownload]);
 
+  // Calculate dynamic height for virtualized list items based on content
+  const getItemHeight = useCallback((_index: number, item: any): number => {
+    if ('downloads' in item) {
+      // Group height
+      return settings.viewMode === 'normal' ? 220 : 180;
+    }
+
+    const download = item as Download;
+    // Check if download has a displayable game image (not hardcoded to service type)
+    const hasDisplayableGameInfo = download.gameAppId &&
+                                   download.gameName &&
+                                   download.gameName !== 'Unknown Steam Game' &&
+                                   !download.gameName.match(/^Steam App \d+$/);
+
+    if (settings.viewMode === 'normal') {
+      // Downloads with images/game info have larger height
+      if (hasDisplayableGameInfo) {
+        return 120; // Height for downloads with header image
+      }
+      return 95; // Height for downloads without images
+    } else {
+      // Compact mode heights
+      if (hasDisplayableGameInfo) {
+        return 80; // Expandable items with game info
+      }
+      return 72; // Standard compact items
+    }
+  }, [settings.viewMode]);
+
   // Loading state
   if (loading) {
     return (
@@ -1268,12 +1297,12 @@ const DownloadsTab: React.FC = () => {
           <VirtualizedList
             items={itemsToDisplay}
             height={window.innerHeight - 250}
-            itemHeight={settings.groupGames ? 180 : 140}
+            itemHeight={getItemHeight}
             renderItem={renderVirtualItem}
             overscan={5}
           />
         ) : (
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3">
             {itemsToDisplay.map((item) => {
               if ('downloads' in item) {
                 return renderGroup(item as DownloadGroup);

@@ -4,7 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 interface VirtualizedListProps<T> {
   items: T[];
   height: number;
-  itemHeight: number;
+  itemHeight: number | ((index: number, item: T) => number);
   renderItem: (item: T, index: number) => React.ReactNode;
   overscan?: number;
   className?: string;
@@ -23,7 +23,12 @@ function VirtualizedList<T>({
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => itemHeight,
+    estimateSize: (index) => {
+      if (typeof itemHeight === 'function') {
+        return itemHeight(index, items[index]);
+      }
+      return itemHeight;
+    },
     overscan
   });
 
