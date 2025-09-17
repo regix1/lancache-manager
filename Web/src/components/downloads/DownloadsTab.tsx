@@ -224,7 +224,17 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
-        className="w-full px-3 py-2 rounded-lg themed-input text-themed-primary text-left focus:outline-none hover:bg-themed-hover transition-colors flex items-center justify-between"
+        className="w-full px-3 py-2 rounded-lg border text-themed-primary text-left focus:outline-none transition-colors flex items-center justify-between"
+        style={{
+          backgroundColor: 'var(--theme-bg-secondary)',
+          borderColor: 'var(--theme-border-primary)'
+        }}
+        onMouseEnter={(e) =>
+          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+        }
+        onMouseLeave={(e) =>
+          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
+        }
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
@@ -235,8 +245,10 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute mt-1 w-full rounded-lg themed-card shadow-xl border border-themed-border z-[9999]"
+          className="absolute mt-1 w-full rounded-lg border shadow-xl z-[9999]"
           style={{
+            backgroundColor: 'var(--theme-bg-secondary)',
+            borderColor: 'var(--theme-border-primary)',
             maxHeight: '300px',
             overflowY: 'auto'
           }}
@@ -664,8 +676,8 @@ const DownloadsTab: React.FC = () => {
     return (
       <Card key={group.id} padding="sm">
         <div onClick={() => handleGroupClick(group.id)} className="cursor-pointer">
-          <div className="flex items-center justify-between py-1">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between py-1 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <ChevronRight
                   size={16}
@@ -674,12 +686,12 @@ const DownloadsTab: React.FC = () => {
                 <div className="w-6 h-6 rounded bg-themed-secondary flex items-center justify-center">
                   <Layers size={14} className="text-themed-accent" />
                 </div>
-                <span className="text-sm font-medium text-themed-accent">{group.name}</span>
+                <span className="text-sm font-medium text-themed-accent truncate">{group.name}</span>
               </div>
-              <span className="text-xs text-themed-muted">({group.count} items)</span>
+              <span className="text-xs text-themed-muted flex-shrink-0">({group.count} items)</span>
             </div>
-            
-            <div className="flex items-center gap-6">
+
+            <div className="flex items-center gap-6 flex-shrink-0">
               <div className="text-right">
                 <div className="text-sm font-medium text-themed-primary">
                   {formatBytes(group.totalBytes)}
@@ -706,7 +718,7 @@ const DownloadsTab: React.FC = () => {
                         <span className={`text-xs font-medium service-${d.service.toLowerCase()}`}>
                           {d.service}
                         </span>
-                        <span className="text-xs text-themed-muted">{d.clientIp}</span>
+                        <span className="text-xs text-themed-muted truncate">{d.clientIp}</span>
                       </div>
                       <div className="text-xs text-themed-muted">
                         {formatBytes(d.totalBytes || 0)}
@@ -746,20 +758,18 @@ const DownloadsTab: React.FC = () => {
           !download.gameName.match(/^Steam App \d+$/)) {
       return (
         <Card key={download.id} padding="md" className="mb-3">
-          <div className="flex gap-4 items-start">
+          <div className="flex flex-col sm:flex-row gap-4 items-start">
             {/* Game header image */}
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 w-full sm:w-auto">
               <ImageWithFallback
                 src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
                 alt={download.gameName || 'Game'}
-                className="rounded shadow-md"
-                style={{ width: '184px', height: '88px', objectFit: 'cover' }}
+                className="rounded shadow-md w-full sm:w-[184px] h-[88px]"
+                style={{ objectFit: 'cover' }}
                 fallback={
                   <div
-                    className="rounded flex items-center justify-center shadow-md"
+                    className="rounded flex items-center justify-center shadow-md w-full sm:w-[184px] h-[88px]"
                     style={{
-                      width: '184px',
-                      height: '88px',
                       backgroundColor: 'var(--theme-bg-tertiary)',
                       border: '1px solid var(--theme-border-primary)'
                     }}
@@ -775,9 +785,9 @@ const DownloadsTab: React.FC = () => {
 
             {/* Game details */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-1">
                     <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
                       {download.service}
                     </span>
@@ -786,14 +796,14 @@ const DownloadsTab: React.FC = () => {
                     </h3>
                   </div>
 
-                  <div className="flex items-center gap-4 text-sm text-themed-secondary mb-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-themed-secondary mb-2">
                     <div className="flex items-center gap-2">
                       <IconComponent size={14} className={downloadType.iconColor} />
                       <span>{downloadType.description}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Users size={14} />
-                      <span>{download.clientIp}</span>
+                      <span className="truncate">{download.clientIp}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock size={14} />
@@ -801,7 +811,7 @@ const DownloadsTab: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
                     <div>
                       <span className="text-xs text-themed-muted">Size: </span>
                       <span className="text-sm font-medium text-themed-primary">
@@ -828,7 +838,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
 
                 {/* Steam link button */}
-                <div className="ml-4">
+                <div className="ml-0 sm:ml-4">
                   <a
                     href={`https://store.steampowered.com/app/${download.gameAppId}`}
                     target="_blank"
@@ -909,8 +919,8 @@ const DownloadsTab: React.FC = () => {
     return (
       <Card key={download.id} padding="sm">
         <div onClick={() => canExpand ? handleDownloadClick(download) : undefined} className={canExpand ? 'cursor-pointer' : ''}>
-          <div className="flex items-center justify-between py-1">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between py-1 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 {canExpand && (
                   <ChevronRight
@@ -924,7 +934,7 @@ const DownloadsTab: React.FC = () => {
               </div>
 
               {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                <span className="text-sm text-themed-primary font-medium">
+                <span className="text-sm text-themed-primary font-medium truncate">
                   {download.gameName}
                 </span>
               )}
@@ -935,13 +945,13 @@ const DownloadsTab: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <Users size={14} className="text-themed-muted" />
-                <span className="text-xs text-themed-muted">{download.clientIp}</span>
+            <div className="flex items-center gap-6 flex-shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Users size={14} className="text-themed-muted flex-shrink-0" />
+                <span className="text-xs text-themed-muted truncate">{download.clientIp}</span>
               </div>
 
-              <div className="text-right">
+              <div className="text-right min-w-0">
                 <div className="text-sm font-medium text-themed-primary">
                   {formatBytes(download.totalBytes || 0)}
                 </div>
@@ -970,16 +980,16 @@ const DownloadsTab: React.FC = () => {
                       className="rounded shadow-lg"
                       style={{ width: '224px', height: '107px', objectFit: 'cover' }}
                       fallback={
-                        <div 
+                        <div
                           className="rounded flex items-center justify-center shadow-lg"
-                          style={{ 
+                          style={{
                             width: '224px',
                             height: '107px',
                             backgroundColor: 'var(--theme-bg-tertiary)',
                             border: '1px solid var(--theme-border-primary)'
                           }}
                         >
-                          <Gamepad2 
+                          <Gamepad2
                             className="w-12 h-12"
                             style={{ color: 'var(--theme-text-muted)' }}
                           />
@@ -1018,16 +1028,16 @@ const DownloadsTab: React.FC = () => {
               ) : (
                 <div className="flex gap-6 items-start">
                   <div className="flex-shrink-0">
-                    <div 
+                    <div
                       className="rounded flex items-center justify-center shadow-lg"
-                      style={{ 
+                      style={{
                         width: '224px',
                         height: '107px',
                         backgroundColor: 'var(--theme-bg-tertiary)',
                         border: '1px solid var(--theme-border-primary)'
                       }}
                     >
-                      <Gamepad2 
+                      <Gamepad2
                         className="w-12 h-12"
                         style={{ color: 'var(--theme-text-muted)' }}
                       />
@@ -1128,8 +1138,8 @@ const DownloadsTab: React.FC = () => {
     <div className="space-y-4">
       {/* Controls */}
       <Card padding="sm">
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center w-full">
             <EnhancedDropdown
               options={serviceOptions}
               value={settings.selectedService}
@@ -1171,7 +1181,7 @@ const DownloadsTab: React.FC = () => {
             />
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-2 justify-end sm:justify-start w-full sm:w-auto">
             {/* View Mode Toggle */}
             <div className="flex rounded-lg bg-themed-tertiary p-1">
               <button

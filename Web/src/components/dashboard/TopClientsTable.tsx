@@ -40,16 +40,16 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         </div>
 
         {displayClients.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="overflow-x-auto -mx-2 px-2">
+            <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                  <th className="pb-3">Client IP</th>
-                  <th className="pb-3">Total Downloaded</th>
-                  <th className="pb-3">Cache Hits</th>
-                  <th className="pb-3">Cache Misses</th>
-                  <th className="pb-3">Hit Rate</th>
-                  <th className="pb-3">Last Seen</th>
+                  <th className="pb-3 min-w-[120px]">Client IP</th>
+                  <th className="pb-3 hidden sm:table-cell">Total Downloaded</th>
+                  <th className="pb-3 hidden md:table-cell">Cache Hits</th>
+                  <th className="pb-3 hidden md:table-cell">Cache Misses</th>
+                  <th className="pb-3 min-w-[100px]">Hit Rate</th>
+                  <th className="pb-3 hidden lg:table-cell">Last Seen</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
@@ -58,10 +58,10 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                     key={`${client.clientIp}-${idx}`}
                     className="hover:bg-themed-hover transition-colors"
                   >
-                    <td className="py-3 text-themed-primary">{client.clientIp}</td>
-                    <td className="py-3 text-themed-secondary">{formatBytes(client.totalBytes)}</td>
-                    <td className="py-3 cache-hit">{formatBytes(client.totalCacheHitBytes)}</td>
-                    <td className="py-3 cache-miss">{formatBytes(client.totalCacheMissBytes)}</td>
+                    <td className="py-3 text-themed-primary whitespace-nowrap">{client.clientIp}</td>
+                    <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">{formatBytes(client.totalBytes)}</td>
+                    <td className="py-3 cache-hit hidden md:table-cell whitespace-nowrap">{formatBytes(client.totalCacheHitBytes)}</td>
+                    <td className="py-3 cache-miss hidden md:table-cell whitespace-nowrap">{formatBytes(client.totalCacheMissBytes)}</td>
                     <td className="py-3">
                       <span
                         className={`px-2 py-1 rounded text-xs hit-rate-badge ${
@@ -71,7 +71,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                         {formatPercent(client.cacheHitPercent)}
                       </span>
                     </td>
-                    <td className="py-3 text-themed-muted">{formatDateTime(client.lastSeen)}</td>
+                    <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">{formatDateTime(client.lastSeen)}</td>
                   </tr>
                 ))}
               </tbody>

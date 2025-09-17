@@ -15,7 +15,9 @@ import {
   RotateCcw,
   Search,
   GripVertical,
-  Loader
+  Loader,
+  LayoutGrid,
+  X
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
@@ -77,6 +79,11 @@ const Dashboard: React.FC = () => {
 
   const [draggedCard, setDraggedCard] = useState<string | null>(null);
   const [dragOverCard, setDragOverCard] = useState<string | null>(null);
+  const [isDragMode, setIsDragMode] = useState(false);
+  const [holdTimeout, setHoldTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [showDragHint, setShowDragHint] = useState(() => {
+    return localStorage.getItem('dashboard-hide-drag-hint') !== 'true';
+  });
   const dragCounter = useRef(0);
 
   const [cardOrder, setCardOrder] = useState<string[]>(() => {
@@ -199,8 +206,69 @@ const Dashboard: React.FC = () => {
   const handleDragEnd = useCallback(() => {
     setDraggedCard(null);
     setDragOverCard(null);
+    setIsDragMode(false);
     dragCounter.current = 0;
   }, []);
+
+  // Touch-friendly drag handlers
+  const handleTouchStart = useCallback((cardKey: string) => {
+    const timeout = setTimeout(() => {
+      setIsDragMode(true);
+      setDraggedCard(cardKey);
+      // Add haptic feedback if available
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+    }, 500); // 500ms hold to activate drag mode
+    setHoldTimeout(timeout);
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (holdTimeout) {
+      clearTimeout(holdTimeout);
+      setHoldTimeout(null);
+    }
+    if (isDragMode) {
+      setIsDragMode(false);
+      setDraggedCard(null);
+      setDragOverCard(null);
+    }
+  }, [holdTimeout, isDragMode]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragMode || !draggedCard) return;
+
+    e.preventDefault();
+    const touch = e.touches[0];
+    const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
+    const cardElement = elementBelow?.closest('[data-card-key]');
+
+    if (cardElement) {
+      const targetCardKey = cardElement.getAttribute('data-card-key');
+      if (targetCardKey && targetCardKey !== draggedCard) {
+        setDragOverCard(targetCardKey);
+      }
+    }
+  }, [isDragMode, draggedCard]);
+
+  const handleTouchDrop = useCallback((targetCardKey: string) => {
+    if (isDragMode && draggedCard && targetCardKey !== draggedCard) {
+      setCardOrder((prevOrder: string[]) => {
+        const newOrder = [...prevOrder];
+        const draggedIndex = newOrder.indexOf(draggedCard);
+        const targetIndex = newOrder.indexOf(targetCardKey);
+        newOrder.splice(draggedIndex, 1);
+        newOrder.splice(targetIndex, 0, draggedCard);
+        return newOrder;
+      });
+
+      // Add haptic feedback for successful drop
+      if (navigator.vibrate) {
+        navigator.vibrate([50, 50, 50]);
+      }
+    }
+    handleTouchEnd();
+  }, [isDragMode, draggedCard, handleTouchEnd]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -249,6 +317,11 @@ const Dashboard: React.FC = () => {
 
   const resetCardOrder = useCallback(() => {
     setCardOrder(DEFAULT_CARD_ORDER);
+  }, []);
+
+  const hideDragHint = useCallback(() => {
+    setShowDragHint(false);
+    localStorage.setItem('dashboard-hide-drag-hint', 'true');
   }, []);
 
   const stats = useMemo(() => {
@@ -408,29 +481,46 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div
+      className="space-y-6"
+      onClick={(e) => {
+        // Cancel drag mode if clicking outside of cards
+        if (isDragMode && !(e.target as Element).closest('[data-card-key]')) {
+          handleTouchEnd();
+        }
+      }}
+    >
       {/* Time Range Filter */}
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-themed-primary tracking-tight">Dashboard</h2>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+        <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">Dashboard</h2>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
           <button
             onClick={resetCardOrder}
-            className="p-2 transition-colors rounded-lg"
+            className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border order-2 sm:order-1 w-full sm:w-auto justify-center sm:justify-start"
             style={{
-              color: 'var(--theme-text-muted)',
-              backgroundColor: 'transparent'
+              color: 'var(--theme-text-secondary)',
+              backgroundColor: 'var(--theme-bg-secondary)',
+              borderColor: 'var(--theme-border-primary)'
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-            title="Reset card layout to default"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+              e.currentTarget.style.color = 'var(--theme-text-primary)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
+              e.currentTarget.style.color = 'var(--theme-text-secondary)';
+            }}
+            title="Reset card layout to default order"
           >
-            <RotateCcw className="w-4 h-4" />
+            <LayoutGrid className="w-4 h-4" />
+            <span className="hidden sm:inline">Reset Layout</span>
+            <span className="sm:hidden">Reset Card Layout</span>
           </button>
 
-          <div className="relative" ref={timeFilterRef}>
+          <div className="relative order-1 sm:order-2 w-full sm:w-auto" ref={timeFilterRef}>
             <button
               onClick={() => setTimeFilterOpen(!timeFilterOpen)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors w-full sm:w-auto justify-between"
               style={{
                 backgroundColor: 'var(--theme-bg-secondary)',
                 borderColor: 'var(--theme-border-primary)'
@@ -454,10 +544,11 @@ const Dashboard: React.FC = () => {
 
             {timeFilterOpen && (
               <div
-                className="absolute right-0 mt-2 w-56 rounded-lg border shadow-xl z-50"
+                className="absolute left-0 sm:right-0 mt-2 w-full sm:w-56 rounded-lg border shadow-xl"
                 style={{
                   backgroundColor: 'var(--theme-bg-secondary)',
-                  borderColor: 'var(--theme-border-primary)'
+                  borderColor: 'var(--theme-border-primary)',
+                  zIndex: 99999
                 }}
               >
                 <div className="p-2">
@@ -639,49 +730,118 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
+      {/* Touch instruction for mobile */}
+      {showDragHint && (
+        <div className="md:hidden">
+          {!isDragMode ? (
+            <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-themed-secondary text-themed-muted text-sm">
+              <div className="flex items-center gap-2">
+                <span>💡</span>
+                <span>Hold the grip icon (⋮⋮) in the top-left corner of any card for 0.5 seconds to start reordering</span>
+              </div>
+              <button
+                onClick={hideDragHint}
+                className="ml-2 p-1 rounded hover:bg-themed-hover transition-colors flex-shrink-0"
+                style={{ color: 'var(--theme-text-muted)' }}
+                title="Hide this hint"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="text-center py-2 px-4 rounded-lg bg-primary text-white text-sm animate-pulse">
+              🔄 Drag mode active - Tap another card to move here, or tap anywhere to cancel
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {visibleCards.map((card: StatCardData) => (
           <div
             key={card.key}
-            className="relative group"
+            data-card-key={card.key}
+            className={`relative group transition-all duration-200 ${
+              isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg' : ''
+            } ${
+              isDragMode && dragOverCard === card.key ? 'transform translate-y-1' : ''
+            }`}
             style={{
               boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
-              cursor: draggedCard === card.key ? 'grabbing' : 'default'
+              cursor: draggedCard === card.key ? 'grabbing' : 'default',
+              opacity: isDragMode && draggedCard === card.key ? 0.8 : 1
             }}
-            draggable
+            draggable={!isDragMode}
             onDragStart={(e) => handleDragStart(e, card.key)}
             onDragEnd={handleDragEnd}
             onDragOver={handleDragOver}
             onDragEnter={(e) => handleDragEnter(e, card.key)}
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, card.key)}
+            onTouchStart={() => handleTouchStart(card.key)}
+            onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchMove}
+            onClick={() => isDragMode && handleTouchDrop(card.key)}
           >
-            <div 
-              className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all p-1 rounded"
-              style={{ 
-                cursor: 'grab',
-                zIndex: 10
-              }}
-              title="Drag to reorder"
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              <GripVertical 
-                className="w-4 h-4 transition-colors" 
-                style={{ color: 'var(--theme-drag-handle)' }}
+            {/* Desktop drag handle - smaller, hover-triggered */}
+            {!timeFilterOpen && (
+              <div
+                className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all p-1 rounded hidden md:block"
+                style={{
+                  cursor: 'grab',
+                  zIndex: 5
+                }}
+                title="Drag to reorder"
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
+                  e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--theme-drag-handle)';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+              >
+                <GripVertical
+                  className="w-4 h-4 transition-colors"
+                  style={{ color: 'var(--theme-drag-handle)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--theme-drag-handle)';
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Mobile drag handle - small, transparent, always visible in top-left */}
+            {!timeFilterOpen && (
+              <div
+                className="absolute top-2 left-2 transition-all p-1 rounded md:hidden opacity-60"
+                style={{
+                  cursor: 'grab',
+                  zIndex: 5,
+                  backgroundColor: 'transparent'
+                }}
+                title="Hold to reorder"
+              >
+                <GripVertical
+                  className="w-4 h-4 transition-colors"
+                  style={{ color: 'var(--theme-drag-handle)' }}
+                />
+              </div>
+            )}
+
+            {/* Touch feedback overlay */}
+            {isDragMode && draggedCard === card.key && (
+              <div
+                className="absolute inset-0 rounded-lg border-2 border-dashed md:hidden"
+                style={{
+                  borderColor: 'var(--theme-primary)',
+                  backgroundColor: 'rgba(var(--theme-primary-rgb), 0.1)',
+                  zIndex: 5
                 }}
               />
-            </div>
+            )}
 
             <StatCard
               title={card.title}
