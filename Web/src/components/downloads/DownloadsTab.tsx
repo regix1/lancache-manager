@@ -82,18 +82,46 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
 }) => {
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setHasError(false);
     setIsLoading(true);
+
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
+    // Set a timeout for image loading (10 seconds)
+    timeoutRef.current = setTimeout(() => {
+      if (isLoading) {
+        setHasError(true);
+        setIsLoading(false);
+        onError?.();
+      }
+    }, 10000);
+
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
   }, [src]);
 
   const handleLoad = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
     setIsLoading(false);
     onLoad?.();
   };
 
-  const handleError = () => {
+  const handleError = (error?: React.SyntheticEvent<HTMLImageElement>) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    console.warn(`Failed to load image: ${src}`, error);
     setHasError(true);
     setIsLoading(false);
     onError?.();
@@ -144,6 +172,8 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
         }}
         onLoad={handleLoad}
         onError={handleError}
+        loading="lazy"
+        crossOrigin="anonymous"
       />
     </div>
   );
@@ -637,8 +667,9 @@ const DownloadsTab: React.FC = () => {
           marginBottom: isExpanded ? '24px' : '0' // Add space when expanded
         }}
       >
+        {/* Desktop Compact View */}
         <div
-          className={`px-4 py-2 transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}`}
+          className={`hidden md:block px-4 py-2 transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}`}
           onClick={() => canExpand ? handleDownloadClick(download) : undefined}
         >
           <div className="flex items-center">
@@ -677,7 +708,7 @@ const DownloadsTab: React.FC = () => {
             </div>
 
             {/* Client */}
-            <div className="hidden md:block w-32">
+            <div className="w-32">
               <div className="flex items-center gap-1.5">
                 <Users size={14} className="text-themed-muted" />
                 <span className="text-sm text-themed-secondary">{download.clientIp}</span>
@@ -685,7 +716,7 @@ const DownloadsTab: React.FC = () => {
             </div>
 
             {/* Time */}
-            <div className="hidden md:block w-24">
+            <div className="w-24">
               <div className="flex items-center gap-1.5">
                 <Clock size={14} className="text-themed-muted" />
                 <span className="text-sm text-themed-secondary">{formatRelativeTime(download.startTime)}</span>
@@ -708,6 +739,62 @@ const DownloadsTab: React.FC = () => {
           </div>
         </div>
 
+        {/* Mobile Compact View */}
+        <div
+          className={`md:hidden px-3 py-2 transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}`}
+          onClick={() => canExpand ? handleDownloadClick(download) : undefined}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {canExpand && (
+                <ChevronRight
+                  size={14}
+                  className={`transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-90' : ''} flex-shrink-0`}
+                />
+              )}
+              <span className={`text-xs font-bold px-2 py-0.5 rounded shadow-sm flex-shrink-0 ${getServiceBadgeClasses(download.service)}`}>
+                {download.service.toUpperCase()}
+              </span>
+              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
+                <span className="text-sm text-themed-primary truncate">
+                  {download.gameName}
+                </span>
+              )}
+            </div>
+            <div className="text-right flex-shrink-0">
+              <div className="text-sm font-semibold text-themed-primary">
+                {formatBytes(download.totalBytes || 0)}
+              </div>
+              {download.cacheHitBytes > 0 && (
+                <div className="text-xs text-green-500 font-medium">
+                  {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between mt-1 text-xs text-[var(--theme-text-muted)]">
+            <div className="flex items-center gap-3">
+              <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
+                downloadType.label === 'Cached' ? 'bg-green-500/10 text-green-500' :
+                downloadType.label === 'Partial' ? 'bg-yellow-500/10 text-yellow-500' :
+                'bg-gray-500/10 text-gray-400'
+              }`}>
+                <IconComponent size={10} />
+                <span>{downloadType.label}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Users size={10} />
+                <span>{download.clientIp}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <Clock size={10} />
+              <span>{formatRelativeTime(download.startTime)}</span>
+            </div>
+          </div>
+        </div>
+
         {/* Expanded content */}
         {isExpanded && canExpand && (
           <div className="px-4 pb-4 bg-[var(--theme-bg-secondary)]/50">
@@ -717,38 +804,77 @@ const DownloadsTab: React.FC = () => {
                 <Loader className="w-6 h-6 animate-spin" />
               </div>
             ) : game ? (
-              <div className="flex gap-6 items-start">
-                <div className="flex-shrink-0">
-                  <ImageWithFallback
-                    src={game.headerImage || ''}
-                    alt={game.gameName || 'Game'}
-                    className="rounded shadow-lg"
-                    style={{ width: '224px', height: '107px', objectFit: 'cover' }}
-                  />
+              <>
+                {/* Desktop Expanded View */}
+                <div className="hidden md:flex gap-6 items-start">
+                  <div className="flex-shrink-0">
+                    <ImageWithFallback
+                      src={game.headerImage || ''}
+                      alt={game.gameName || 'Game'}
+                      className="rounded shadow-lg"
+                      style={{ width: '224px', height: '107px', objectFit: 'cover' }}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
+                      {game.gameName || 'Unknown Game'}
+                    </h3>
+                    {game.description && (
+                      <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
+                        {game.description}
+                      </p>
+                    )}
+                    {isSteam && (
+                      <a
+                        href={`https://store.steampowered.com/app/${game.appId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
+                      >
+                        View on Steam
+                        <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
-                    {game.gameName || 'Unknown Game'}
-                  </h3>
+
+                {/* Mobile Expanded View */}
+                <div className="md:hidden">
+                  <div className="flex gap-3 mb-3">
+                    <div className="flex-shrink-0">
+                      <ImageWithFallback
+                        src={game.headerImage || ''}
+                        alt={game.gameName || 'Game'}
+                        className="rounded shadow-lg"
+                        style={{ width: '120px', height: '56px', objectFit: 'cover' }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-semibold text-themed-primary mb-2 line-clamp-2">
+                        {game.gameName || 'Unknown Game'}
+                      </h3>
+                      {isSteam && (
+                        <a
+                          href={`https://store.steampowered.com/app/${game.appId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
+                        >
+                          View on Steam
+                          <ExternalLink size={10} />
+                        </a>
+                      )}
+                    </div>
+                  </div>
                   {game.description && (
-                    <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
+                    <p className="text-xs text-themed-secondary line-clamp-3">
                       {game.description}
                     </p>
                   )}
-                  {isSteam && (
-                    <a
-                      href={`https://store.steampowered.com/app/${game.appId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
-                    >
-                      View on Steam
-                      <ExternalLink size={12} />
-                    </a>
-                  )}
                 </div>
-              </div>
+              </>
             ) : null}
           </div>
         )}
@@ -776,7 +902,8 @@ const DownloadsTab: React.FC = () => {
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)'
           }}
         >
-          <div className="flex">
+          {/* Desktop Layout */}
+          <div className="hidden sm:flex">
             {/* Game header on the left */}
             <div className="flex-shrink-0">
               <ImageWithFallback
@@ -787,24 +914,24 @@ const DownloadsTab: React.FC = () => {
             </div>
 
             {/* Content on the right */}
-            <div className="flex-1 p-4 min-w-0">
-              <div className="flex items-start justify-between mb-3">
+            <div className="flex-1 p-3 min-w-0 h-[108px] flex flex-col justify-between">
+              <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(download.service)}`}>
+                    <span className={`px-2.5 py-1 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(download.service)}`}>
                       {download.service.toUpperCase()}
                     </span>
-                    <h3 className="text-base font-bold text-[var(--theme-text-primary)] truncate">
+                    <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate">
                       {download.gameName}
                     </h3>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-[var(--theme-text-muted)]">
+                  <div className="flex items-center gap-3 text-xs text-[var(--theme-text-muted)]">
                     <div className="flex items-center gap-1">
-                      <Users size={12} />
+                      <Users size={11} />
                       <span>{download.clientIp}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Clock size={12} />
+                      <Clock size={11} />
                       <span>{formatRelativeTime(download.startTime)}</span>
                     </div>
                   </div>
@@ -814,36 +941,36 @@ const DownloadsTab: React.FC = () => {
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  className="p-1.5 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)] hover:text-[var(--theme-primary)]"
+                  className="p-1 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)] hover:text-[var(--theme-primary)]"
                   title="View in Steam Store"
                 >
-                  <ExternalLink size={14} />
+                  <ExternalLink size={13} />
                 </a>
               </div>
 
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4">
                   <div>
                     <div className="text-xs text-[var(--theme-text-muted)]">Size</div>
-                    <div className="text-lg font-bold text-[var(--theme-text-primary)]">
+                    <div className="text-sm font-bold text-[var(--theme-text-primary)]">
                       {formatBytes(download.totalBytes || 0)}
                     </div>
                   </div>
                   <div>
                     <div className="text-xs text-[var(--theme-text-muted)]">Cache Hit</div>
-                    <div className="text-lg font-bold text-green-500">
+                    <div className="text-sm font-bold text-green-500">
                       {formatPercent(hitPercent)}
                     </div>
                   </div>
                   <div>
                     <div className="text-xs text-[var(--theme-text-muted)]">Saved</div>
-                    <div className="text-lg font-bold text-blue-500">
+                    <div className="text-sm font-bold text-blue-500">
                       {formatBytes(download.cacheHitBytes || 0)}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex-1 max-w-[200px]">
+                <div className="flex-1 max-w-[180px]">
                   <div className="w-full h-2 rounded-full overflow-hidden"
                        style={{
                          backgroundColor: 'rgba(0, 0, 0, 0.15)',
@@ -861,6 +988,84 @@ const DownloadsTab: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Mobile Layout */}
+          <div className="sm:hidden p-4">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-1 text-xs font-bold rounded shadow-sm ${getServiceBadgeClasses(download.service)}`}>
+                  {download.service.toUpperCase()}
+                </span>
+                <a
+                  href={`https://store.steampowered.com/app/${download.gameAppId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-1 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)]"
+                  title="View in Steam Store"
+                >
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+              <div className="text-right">
+                <div className="text-sm font-bold text-[var(--theme-text-primary)]">
+                  {formatBytes(download.totalBytes || 0)}
+                </div>
+                {download.cacheHitBytes > 0 && (
+                  <div className="text-xs text-green-500 font-medium">
+                    {formatPercent(hitPercent)}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-3 mb-3">
+              <div className="flex-shrink-0">
+                <ImageWithFallback
+                  src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
+                  alt={download.gameName || 'Game'}
+                  className="w-[120px] h-[56px] rounded object-cover"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-bold text-[var(--theme-text-primary)] mb-1 line-clamp-2">
+                  {download.gameName}
+                </h3>
+                <div className="flex items-center gap-3 text-xs text-[var(--theme-text-muted)]">
+                  <div className="flex items-center gap-1">
+                    <Users size={10} />
+                    <span>{download.clientIp}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Clock size={10} />
+                    <span>{formatRelativeTime(download.startTime)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {download.totalBytes > 0 && (
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-[var(--theme-text-muted)] mb-1">
+                  <span>Cache Efficiency</span>
+                  <span className="font-semibold">{formatPercent(hitPercent)}</span>
+                </div>
+                <div className="w-full h-2 rounded-full overflow-hidden"
+                     style={{
+                       backgroundColor: 'rgba(0, 0, 0, 0.15)',
+                       boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                     }}>
+                  <div
+                    className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                    style={{
+                      width: `${Math.min(hitPercent, 100)}%`,
+                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       );
     }
@@ -876,7 +1081,8 @@ const DownloadsTab: React.FC = () => {
           boxShadow: '0 1px 4px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.03)'
         }}
       >
-        <div className="p-4">
+        {/* Desktop Layout */}
+        <div className="hidden sm:block p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
               <span className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(download.service)}`}>
@@ -944,6 +1150,64 @@ const DownloadsTab: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Mobile Layout */}
+        <div className="sm:hidden p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className={`px-2 py-1 text-xs font-bold rounded shadow-sm ${getServiceBadgeClasses(download.service)}`}>
+              {download.service.toUpperCase()}
+            </span>
+            <div className="text-right">
+              <div className="text-lg font-bold text-[var(--theme-text-primary)]">
+                {formatBytes(download.totalBytes || 0)}
+              </div>
+              {download.cacheHitBytes > 0 && (
+                <div className="text-xs text-green-500 font-medium">
+                  {formatPercent(hitPercent)}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {download.gameName && download.gameName !== 'Unknown Steam Game' && (
+            <h3 className="text-sm font-semibold text-[var(--theme-text-primary)] mb-2">
+              {download.gameName}
+            </h3>
+          )}
+
+          <div className="flex items-center justify-between text-xs text-[var(--theme-text-muted)] mb-2">
+            <div className="flex items-center gap-1">
+              <Users size={10} />
+              <span>{download.clientIp}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Clock size={10} />
+              <span>{formatRelativeTime(download.startTime)}</span>
+            </div>
+          </div>
+
+          {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
+            <div className="mt-2">
+              <div className="flex items-center justify-between text-xs text-[var(--theme-text-muted)] mb-1">
+                <span>Cache: {formatPercent(hitPercent)}</span>
+                <span>Saved: {formatBytes(download.cacheHitBytes || 0)}</span>
+              </div>
+              <div className="w-full h-2 rounded-full overflow-hidden"
+                   style={{
+                     backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                     boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                   }}>
+                <div
+                  className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                  style={{
+                    width: `${Math.min(hitPercent, 100)}%`,
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -965,9 +1229,10 @@ const DownloadsTab: React.FC = () => {
           marginBottom: '20px' // Proper spacing between groups
         }}
       >
+        {/* Desktop Layout */}
         <div
           onClick={() => handleGroupClick(group.id)}
-          className="p-4 cursor-pointer hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+          className="hidden sm:block p-4 cursor-pointer hover:bg-[var(--theme-bg-tertiary)] transition-colors"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -1029,6 +1294,65 @@ const DownloadsTab: React.FC = () => {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Mobile Layout */}
+        <div
+          onClick={() => handleGroupClick(group.id)}
+          className="sm:hidden p-3 cursor-pointer hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <ChevronRight
+                size={14}
+                className={`transition-transform text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''} flex-shrink-0`}
+              />
+              <span className={`px-2 py-1 text-xs font-bold rounded shadow-sm flex-shrink-0 ${getServiceBadgeClasses(group.service)}`}>
+                {group.service.toUpperCase()}
+              </span>
+              <h3 className="text-sm font-semibold text-[var(--theme-text-primary)] truncate">
+                {group.name}
+              </h3>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <div className="text-sm font-semibold text-[var(--theme-text-primary)]">
+                {formatBytes(group.totalBytes)}
+              </div>
+              {savedAmount > 0 && (
+                <div className="text-xs text-green-500">
+                  {formatBytes(savedAmount)}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
+            <div className="flex items-center gap-3">
+              <span>{group.count} {group.count === 1 ? 'download' : 'downloads'}</span>
+              <span>{totalClients} {totalClients === 1 ? 'client' : 'clients'}</span>
+            </div>
+            {group.totalBytes > 0 && (
+              <span className="font-semibold">{formatPercent(hitPercent)} cached</span>
+            )}
+          </div>
+
+          {group.totalBytes > 0 && (
+            <div className="mt-2">
+              <div className="w-full h-2 rounded-full overflow-hidden"
+                   style={{
+                     backgroundColor: 'rgba(0, 0, 0, 0.12)',
+                     boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                   }}>
+                <div
+                  className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                  style={{
+                    width: `${Math.min(hitPercent, 100)}%`,
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         {isExpanded && (
@@ -1345,7 +1669,7 @@ const DownloadsTab: React.FC = () => {
 
       {/* Downloads list */}
       <div>
-        {/* Table Header for Compact View */}
+        {/* Table Header for Compact View - Desktop Only */}
         {settings.viewMode === 'compact' && (
           <div className="hidden md:flex items-center px-4 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>
             <div className="w-24">Service</div>
@@ -1354,6 +1678,13 @@ const DownloadsTab: React.FC = () => {
             <div className="w-32">Client</div>
             <div className="w-24">Time</div>
             <div className="w-24 text-right">Size</div>
+          </div>
+        )}
+
+        {/* Mobile Header for Compact View */}
+        {settings.viewMode === 'compact' && (
+          <div className="md:hidden px-3 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>
+            Downloads
           </div>
         )}
 
