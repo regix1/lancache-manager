@@ -16,6 +16,29 @@ public class SteamService
     private static readonly Regex DepotRegex = new(@"/depot/(\d+)/", RegexOptions.Compiled);
     private static readonly Regex ChunkAppIdRegex = new(@"/(\d{3,7})_depot_\d+", RegexOptions.Compiled);
 
+    // Known shared/system App IDs that should not be treated as games
+    private static readonly HashSet<uint> SharedAppIds = new()
+    {
+        228980, // Steamworks Common Redistributables
+        1007,   // Steam Client Bootstrapper
+        7,      // Steam (client)
+        1,      // Steam (legacy)
+        1391110, // Steamworks SDK Redist
+        1070560, // Steam Audio
+
+        // Additional common redistributables and system apps
+        228985, // DirectX Runtime (part of redistributables)
+        228990, // Visual C++ Redistributables
+        413850, // Steamworks Common Redistributables (alternate)
+        4000,   // Garry's Mod Dedicated Server
+        90,     // Half-Life Dedicated Server (old)
+        70,     // Half-Life (legacy system entry)
+
+        // Microsoft packages commonly downloaded with games
+        1454400, // Microsoft .NET Framework
+        1454401, // Microsoft Visual C++
+    };
+
     public SteamService(
         ILogger<SteamService> logger, 
         HttpClient httpClient,
@@ -47,7 +70,12 @@ public class SteamService
             var appMatch = AppIdRegex.Match(url);
             if (appMatch.Success && uint.TryParse(appMatch.Groups[1].Value, out var appId))
             {
-                return appId;
+                // Filter out known shared/system App IDs
+                if (!SharedAppIds.Contains(appId))
+                {
+                    return appId;
+                }
+                _logger.LogDebug($"Filtered out shared App ID {appId} from URL: {url}");
             }
 
             var depotMatch = DepotRegex.Match(url);
@@ -56,17 +84,30 @@ public class SteamService
                 var appIdFromDepot = _depotMappingService.GetAppIdFromDepot(depotId);
                 if (appIdFromDepot.HasValue)
                 {
-                    _logger.LogDebug($"Mapped depot {depotId} to app {appIdFromDepot.Value}");
-                    return appIdFromDepot.Value;
+                    // Filter out shared/system App IDs from depot mappings too
+                    if (!SharedAppIds.Contains(appIdFromDepot.Value) && IsValidGameAppId(appIdFromDepot.Value))
+                    {
+                        _logger.LogDebug($"Mapped depot {depotId} to valid game App ID {appIdFromDepot.Value}");
+                        return appIdFromDepot.Value;
+                    }
+                    _logger.LogDebug($"Filtered out shared/invalid App ID {appIdFromDepot.Value} from depot {depotId}");
                 }
-                
-                _logger.LogDebug($"No mapping found for depot {depotId}");
+                else
+                {
+                    _logger.LogDebug($"No mapping found for depot {depotId} in URL: {url}");
+                }
             }
             
             var chunkMatch = ChunkAppIdRegex.Match(url);
             if (chunkMatch.Success && uint.TryParse(chunkMatch.Groups[1].Value, out var chunkAppId))
             {
-                return chunkAppId;
+                // Filter out known shared/system App IDs and validate range
+                if (!SharedAppIds.Contains(chunkAppId) && IsValidGameAppId(chunkAppId))
+                {
+                    _logger.LogDebug($"Extracted App ID {chunkAppId} from chunk URL: {url}");
+                    return chunkAppId;
+                }
+                _logger.LogDebug($"Filtered out invalid/shared App ID {chunkAppId} from chunk URL: {url}");
             }
         }
         catch (Exception ex)
@@ -77,8 +118,40 @@ public class SteamService
         return null;
     }
 
+    /// <summary>
+    /// Validates if an App ID is likely to be a real game based on known patterns
+    /// </summary>
+    private static bool IsValidGameAppId(uint appId)
+    {
+        // App IDs below 100 are typically system/reserved
+        if (appId < 100)
+            return false;
+
+        // App IDs above 2,000,000 are uncommon for games (as of 2025)
+        if (appId > 2000000)
+            return false;
+
+        // Known ranges for non-games that should be filtered out
+        // 228980-228999: Steamworks redistributables range
+        if (appId >= 228980 && appId <= 228999)
+            return false;
+
+        // 1000-1099: Old Steam client/system range
+        if (appId >= 1000 && appId <= 1099)
+            return false;
+
+        return true;
+    }
+
     public async Task<GameInfo?> GetGameInfoAsync(uint appId)
     {
+        // Don't fetch game info for known shared/system App IDs
+        if (SharedAppIds.Contains(appId) || !IsValidGameAppId(appId))
+        {
+            _logger.LogDebug($"Skipping game info fetch for shared/invalid App ID: {appId}");
+            return null;
+        }
+
         if (_gameCache.TryGetValue(appId, out var cached))
         {
             if (DateTime.UtcNow - cached.CacheTime < TimeSpan.FromHours(24))
