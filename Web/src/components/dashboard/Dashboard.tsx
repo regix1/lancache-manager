@@ -209,65 +209,74 @@ const Dashboard: React.FC = () => {
     dragCounter.current = 0;
   }, []);
 
-  // Touch-friendly drag handlers
+  // Touch-friendly select and swap handlers
   const handleTouchStart = useCallback((cardKey: string) => {
     const timeout = setTimeout(() => {
-      setIsDragMode(true);
-      setDraggedCard(cardKey);
-      // Add haptic feedback if available
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
+      // If we already have a selected card, swap them
+      if (draggedCard && draggedCard !== cardKey) {
+        // Perform the swap
+        setCardOrder((prevOrder: string[]) => {
+          const newOrder = [...prevOrder];
+          const draggedIndex = newOrder.indexOf(draggedCard);
+          const targetIndex = newOrder.indexOf(cardKey);
+          newOrder.splice(draggedIndex, 1);
+          newOrder.splice(targetIndex, 0, draggedCard);
+          return newOrder;
+        });
+
+        // Add haptic feedback for successful swap
+        if (navigator.vibrate) {
+          navigator.vibrate([50, 50, 50]);
+        }
+
+        // Clear selection
+        setDraggedCard(null);
+        setIsDragMode(false);
+      } else {
+        // Select this card
+        setIsDragMode(true);
+        setDraggedCard(cardKey);
+        // Add haptic feedback if available
+        if (navigator.vibrate) {
+          navigator.vibrate(50);
+        }
       }
-    }, 500); // 500ms hold to activate drag mode
+    }, 500); // 500ms hold to activate selection mode
     setHoldTimeout(timeout);
-  }, []);
+  }, [draggedCard]);
 
   const handleTouchEnd = useCallback(() => {
     if (holdTimeout) {
       clearTimeout(holdTimeout);
       setHoldTimeout(null);
     }
-    if (isDragMode) {
-      setIsDragMode(false);
+  }, [holdTimeout]);
+
+  const handleCardTap = useCallback((cardKey: string) => {
+    if (isDragMode && draggedCard) {
+      if (cardKey !== draggedCard) {
+        // Swap the cards
+        setCardOrder((prevOrder: string[]) => {
+          const newOrder = [...prevOrder];
+          const draggedIndex = newOrder.indexOf(draggedCard);
+          const targetIndex = newOrder.indexOf(cardKey);
+          newOrder.splice(draggedIndex, 1);
+          newOrder.splice(targetIndex, 0, draggedCard);
+          return newOrder;
+        });
+
+        // Add haptic feedback for successful swap
+        if (navigator.vibrate) {
+          navigator.vibrate([50, 50, 50]);
+        }
+      }
+
+      // Clear selection
       setDraggedCard(null);
+      setIsDragMode(false);
       setDragOverCard(null);
     }
-  }, [holdTimeout, isDragMode]);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDragMode || !draggedCard) return;
-
-    e.preventDefault();
-    const touch = e.touches[0];
-    const elementBelow = document.elementFromPoint(touch.clientX, touch.clientY);
-    const cardElement = elementBelow?.closest('[data-card-key]');
-
-    if (cardElement) {
-      const targetCardKey = cardElement.getAttribute('data-card-key');
-      if (targetCardKey && targetCardKey !== draggedCard) {
-        setDragOverCard(targetCardKey);
-      }
-    }
   }, [isDragMode, draggedCard]);
-
-  const handleTouchDrop = useCallback((targetCardKey: string) => {
-    if (isDragMode && draggedCard && targetCardKey !== draggedCard) {
-      setCardOrder((prevOrder: string[]) => {
-        const newOrder = [...prevOrder];
-        const draggedIndex = newOrder.indexOf(draggedCard);
-        const targetIndex = newOrder.indexOf(targetCardKey);
-        newOrder.splice(draggedIndex, 1);
-        newOrder.splice(targetIndex, 0, draggedCard);
-        return newOrder;
-      });
-
-      // Add haptic feedback for successful drop
-      if (navigator.vibrate) {
-        navigator.vibrate([50, 50, 50]);
-      }
-    }
-    handleTouchEnd();
-  }, [isDragMode, draggedCard, handleTouchEnd]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -736,7 +745,7 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-themed-secondary text-themed-muted text-sm">
               <div className="flex items-center gap-2">
                 <span>💡</span>
-                <span>Hold the grip icon (⋮⋮) in the top-left corner of any card for 0.5 seconds to start reordering</span>
+                <span>Hold any card for 0.5 seconds to select it, then tap another card to swap positions</span>
               </div>
               <button
                 onClick={hideDragHint}
@@ -780,8 +789,7 @@ const Dashboard: React.FC = () => {
             onDrop={(e) => handleDrop(e, card.key)}
             onTouchStart={() => handleTouchStart(card.key)}
             onTouchEnd={handleTouchEnd}
-            onTouchMove={handleTouchMove}
-            onClick={() => isDragMode && handleTouchDrop(card.key)}
+            onClick={() => handleCardTap(card.key)}
           >
             {/* Desktop drag handle - smaller, hover-triggered */}
             {!timeFilterOpen && (
