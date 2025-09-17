@@ -128,6 +128,10 @@ interface DataProviderProps {
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
   const [mockMode, setMockMode] = useState(false);
+  const [lastCustomDates, setLastCustomDates] = useState<{start: Date | null, end: Date | null}>({
+    start: null,
+    end: null
+  });
   const [mockDownloadCount, setMockDownloadCount] = useState<number | 'unlimited'>(20);
   const [apiDownloadCount, setApiDownloadCount] = useState<number | 'unlimited'>(20);
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
@@ -394,7 +398,36 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         }
       };
     }
-  }, [isProcessingLogs, mockMode, apiDownloadCount, timeRange, customStartDate, customEndDate]);
+  }, [isProcessingLogs, mockMode, apiDownloadCount, timeRange]);
+
+  // Debounced custom date changes - only refetch when both dates are set and different from last
+  useEffect(() => {
+    if (timeRange === 'custom' && !mockMode) {
+      // Only proceed if both dates are set
+      if (customStartDate && customEndDate) {
+        // Check if dates actually changed
+        const datesChanged =
+          lastCustomDates.start?.getTime() !== customStartDate.getTime() ||
+          lastCustomDates.end?.getTime() !== customEndDate.getTime();
+
+        if (datesChanged) {
+          // Debounce the fetch to avoid multiple rapid calls
+          const debounceTimer = setTimeout(() => {
+            setLastCustomDates({
+              start: customStartDate,
+              end: customEndDate
+            });
+            fetchData();
+          }, 500); // 500ms debounce
+
+          return () => clearTimeout(debounceTimer);
+        }
+      }
+    } else if (timeRange !== 'custom') {
+      // Clear stored custom dates when switching away from custom
+      setLastCustomDates({ start: null, end: null });
+    }
+  }, [customStartDate, customEndDate, timeRange, mockMode]);
 
   // Mock mode changes
   useEffect(() => {
@@ -459,7 +492,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
       fetchData();
     }
-  }, [mockMode, mockDownloadCount, timeRange, customStartDate, customEndDate]);
+  }, [mockMode, mockDownloadCount]);
 
   // Cleanup on unmount
   useEffect(() => {

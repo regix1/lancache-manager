@@ -310,6 +310,7 @@ const DownloadsTab: React.FC = () => {
   const [gameInfo, setGameInfo] = useState<Record<number, GameInfo>>({});
   const [loadingGame, setLoadingGame] = useState<number | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
+  const [filterLoading, setFilterLoading] = useState(false);
 
   const [settings, setSettings] = useState(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
@@ -436,6 +437,20 @@ const DownloadsTab: React.FC = () => {
       updateApiDownloadCount(count);
     }
   }, [settings.itemsPerPage, mockMode, updateMockDataCount, updateApiDownloadCount]);
+
+  // Track filter changes and show loading state
+  useEffect(() => {
+    if (!loading && latestDownloads.length > 0) {
+      setFilterLoading(true);
+
+      // Clear loading state after a short delay to show spinner briefly
+      const timer = setTimeout(() => {
+        setFilterLoading(false);
+      }, 300);
+
+      return () => clearTimeout(timer);
+    }
+  }, [settings.selectedService, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode]);
 
   // Persist settings
   useEffect(() => {
@@ -1668,7 +1683,17 @@ const DownloadsTab: React.FC = () => {
       )}
 
       {/* Downloads list */}
-      <div>
+      <div className="relative">
+        {/* Loading overlay for filter changes */}
+        {filterLoading && (
+          <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
+            <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-lg" style={{ borderColor: 'var(--theme-border-primary)' }}>
+              <Loader className="w-5 h-5 animate-spin text-[var(--theme-primary)]" />
+              <span className="text-sm font-medium text-[var(--theme-text-primary)]">Applying filters...</span>
+            </div>
+          </div>
+        )}
+
         {/* Table Header for Compact View - Desktop Only */}
         {settings.viewMode === 'compact' && (
           <div className="hidden md:flex items-center px-4 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>

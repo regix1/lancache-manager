@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Clock, Calendar, ChevronDown } from 'lucide-react';
+import { Clock, Calendar, ChevronDown, Loader } from 'lucide-react';
 import { useTimeFilter, TimeRange } from '@contexts/TimeFilterContext';
 import DateRangePicker from './DateRangePicker';
 
@@ -15,6 +15,7 @@ const TimeFilter: React.FC = () => {
 
   const [showDropdown, setShowDropdown] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [timeFilterLoading, setTimeFilterLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const timeOptions: { value: TimeRange; label: string; shortLabel?: string }[] = [
@@ -48,8 +49,19 @@ const TimeFilter: React.FC = () => {
       setShowDropdown(false);
     } else {
       setShowDropdown(false);
+      // Show loading for non-custom filters
+      setTimeFilterLoading(true);
+      setTimeout(() => setTimeFilterLoading(false), 1000);
     }
   };
+
+  // Show loading for custom date changes
+  useEffect(() => {
+    if (timeRange === 'custom' && customStartDate && customEndDate) {
+      setTimeFilterLoading(true);
+      setTimeout(() => setTimeFilterLoading(false), 1000);
+    }
+  }, [customStartDate, customEndDate, timeRange]);
 
   const getCurrentLabel = () => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
@@ -78,9 +90,13 @@ const TimeFilter: React.FC = () => {
             border: showDropdown ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-primary)'
           }}
         >
-          <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
+          {timeFilterLoading ? (
+            <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
+          ) : (
+            <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
+          )}
           <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-primary)]">
-            {getCurrentLabel()}
+            {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
           </span>
           <ChevronDown
             className={`w-3 h-3 text-[var(--theme-text-secondary)] transition-transform ${
