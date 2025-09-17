@@ -35,8 +35,8 @@ const MockModeManager: React.FC<{
   return (
     <Card>
       <h3 className="text-lg font-semibold text-themed-primary mb-4">Mock Mode</h3>
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex-1">
           <p className="text-themed-secondary">Enable mock data for demonstration</p>
           <p className="text-sm text-themed-muted mt-1">
             Simulates realistic cache data and download activity
@@ -50,6 +50,7 @@ const MockModeManager: React.FC<{
           leftSection={
             mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />
           }
+          className="w-full sm:w-auto"
         >
           {mockMode ? 'Enabled' : 'Disabled'}
         </Button>
@@ -99,11 +100,11 @@ const DatabaseManager: React.FC<{
 
   return (
     <Card>
-      <div className="flex items-center space-x-2 mb-4">
-        <Database className="w-5 h-5 text-themed-accent" />
+      <div className="flex items-center gap-2 mb-4">
+        <Database className="w-5 h-5 text-themed-accent flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
       </div>
-      <p className="text-themed-muted text-sm mb-4">Manage download history and statistics</p>
+      <p className="text-themed-muted text-sm mb-4 break-words">Manage download history and statistics</p>
       <Button
         onClick={handleResetDatabase}
         disabled={loading || mockMode || !isAuthenticated}
@@ -242,20 +243,20 @@ const LogFileManager: React.FC<{
 
   return (
     <Card>
-      <div className="flex items-center space-x-2 mb-4">
-        <FileText className="w-5 h-5 text-themed-accent" />
+      <div className="flex items-center gap-2 mb-4">
+        <FileText className="w-5 h-5 text-themed-accent flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
       </div>
-      <p className="text-themed-muted text-sm mb-4">
+      <p className="text-themed-muted text-sm mb-4 break-words">
         Remove service entries from{' '}
-        <code className="bg-themed-tertiary px-2 py-1 rounded">{config.logPath}</code>
+        <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
       </p>
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
           <Loader className="w-6 h-6 animate-spin text-themed-muted" />
         </div>
       ) : services.length > 0 ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {services.map((service) => {
           const isRemoving = activeServiceRemoval === service;
           return (
@@ -267,12 +268,12 @@ const LogFileManager: React.FC<{
               }
               variant="default"
               loading={isRemoving || serviceRemovalOp.loading}
-              className="flex flex-col items-center"
+              className="flex flex-col items-center min-h-[60px] justify-center"
               fullWidth
             >
               {!isRemoving && !serviceRemovalOp.loading ? (
                 <>
-                  <span className="capitalize font-medium">Clear {service}</span>
+                  <span className="capitalize font-medium text-sm sm:text-base">Clear {service}</span>
                   {serviceCounts[service] !== undefined && (
                     <span className="text-xs text-themed-muted mt-1">
                       ({serviceCounts[service].toLocaleString()} entries)
@@ -280,7 +281,7 @@ const LogFileManager: React.FC<{
                   )}
                 </>
               ) : (
-                <span className="capitalize font-medium">Removing...</span>
+                <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
               )}
             </Button>
           );
@@ -377,7 +378,7 @@ const ManagementTab: React.FC = () => {
         {/* Cache Clearing Background Operation */}
         {backgroundOperations.cacheClearing && (
           <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin" />}>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex-1">
                 <p className="font-medium">Cache clearing in progress...</p>
                 {backgroundOperations.cacheClearing.bytesDeleted > 0 && (
@@ -395,6 +396,7 @@ const ManagementTab: React.FC = () => {
                 size="sm"
                 leftSection={<Eye className="w-4 h-4" />}
                 onClick={backgroundOperations.cacheClearing.showModal}
+                className="w-full sm:w-auto"
               >
                 View Details
               </Button>
@@ -414,11 +416,11 @@ const ManagementTab: React.FC = () => {
               )
             }
           >
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
               <div className="flex-1">
-                <p className="font-medium">{backgroundOperations.logProcessing.message}</p>
+                <p className="font-medium break-words">{backgroundOperations.logProcessing.message}</p>
                 {backgroundOperations.logProcessing.detailMessage && (
-                  <p className="text-sm mt-1 opacity-75">
+                  <p className="text-sm mt-1 opacity-75 break-words">
                     {backgroundOperations.logProcessing.detailMessage}
                   </p>
                 )}
@@ -433,7 +435,7 @@ const ManagementTab: React.FC = () => {
                           }}
                         />
                       </div>
-                      <p className="text-xs opacity-75 mt-1">
+                      <p className="text-xs opacity-75 mt-1 break-words">
                         {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
                         {backgroundOperations.logProcessing.estimatedTime &&
                           ` • ${backgroundOperations.logProcessing.estimatedTime} remaining`}
@@ -449,6 +451,7 @@ const ManagementTab: React.FC = () => {
                     size="sm"
                     leftSection={<StopCircle className="w-4 h-4" />}
                     onClick={backgroundOperations.logProcessing.onCancel}
+                    className="w-full sm:w-auto"
                   >
                     Cancel
                   </Button>
