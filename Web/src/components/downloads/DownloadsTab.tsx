@@ -71,6 +71,16 @@ interface ImageWithFallbackProps {
   onError?: () => void;
 }
 
+// Helper to get Steam CDN fallback URL
+const getSteamCdnUrl = (originalUrl: string): string | null => {
+  const appIdMatch = originalUrl.match(/\/gameimages\/(\d+)\//);
+  if (appIdMatch) {
+    const appId = appIdMatch[1];
+    return `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
+  }
+  return null;
+};
+
 const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   src,
   fallback,
@@ -82,11 +92,15 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
 }) => {
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentSrc, setCurrentSrc] = useState(src);
+  const [triedFallback, setTriedFallback] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     setHasError(false);
     setIsLoading(true);
+    setCurrentSrc(src);
+    setTriedFallback(false);
 
     // Clear any existing timeout
     if (timeoutRef.current) {
@@ -121,7 +135,32 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-    console.warn(`Failed to load image: ${src}`, error);
+
+    // Try Steam CDN fallback for Steam game images
+    if (!triedFallback && currentSrc.includes('/gameimages/')) {
+      const steamCdnUrl = getSteamCdnUrl(currentSrc);
+      if (steamCdnUrl) {
+        const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
+        const appId = appIdMatch ? appIdMatch[1] : 'unknown';
+        console.warn(`Failed to load Steam game header from local API. AppID: ${appId}, trying Steam CDN fallback...`);
+
+        setTriedFallback(true);
+        setCurrentSrc(steamCdnUrl);
+        setIsLoading(true);
+        return; // Don't show error yet, try fallback first
+      }
+    }
+
+    // Enhanced logging for final failures
+    if (currentSrc.includes('/gameimages/')) {
+      const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
+      const appId = appIdMatch ? appIdMatch[1] : 'unknown';
+      const source = triedFallback ? 'Steam CDN' : 'local API';
+      console.warn(`Failed to load Steam game header image from ${source}. AppID: ${appId}, URL: ${currentSrc}, Alt: ${alt}`, error);
+    } else {
+      console.warn(`Failed to load image: ${currentSrc}`, error);
+    }
+
     setHasError(true);
     setIsLoading(false);
     onError?.();
@@ -162,7 +201,7 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
         </div>
       )}
       <img
-        src={src}
+        src={currentSrc}
         alt={alt}
         className={className}
         style={{
@@ -535,6 +574,19 @@ const DownloadsTab: React.FC = () => {
 
     return filtered;
   }, [latestDownloads, settings]);
+
+  // Calculate service-only filtered downloads for correct count display
+  const serviceFilteredDownloads = useMemo(() => {
+    if (!Array.isArray(latestDownloads)) {
+      return [];
+    }
+
+    if (settings.selectedService === 'all') {
+      return latestDownloads;
+    }
+
+    return latestDownloads.filter((d) => d.service.toLowerCase() === settings.selectedService);
+  }, [latestDownloads, settings.selectedService]);
 
   const groupedDownloads = useMemo((): DownloadGroup[] => {
     if (settings.viewMode !== 'grouped') return [];
@@ -1675,9 +1727,9 @@ const DownloadsTab: React.FC = () => {
       </Card>
 
       {/* Stats */}
-      {filteredDownloads.length !== latestDownloads.length && (
+      {filteredDownloads.length !== serviceFilteredDownloads.length && (
         <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-          Showing {filteredDownloads.length} of {latestDownloads.length} downloads
+          Showing {filteredDownloads.length} of {serviceFilteredDownloads.length} downloads
           {settings.selectedService !== 'all' && ` for ${settings.selectedService}`}
         </Alert>
       )}
