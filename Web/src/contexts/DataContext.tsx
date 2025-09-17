@@ -126,7 +126,7 @@ interface DataProviderProps {
 }
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
-  const { getTimeRangeParams, timeRange } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
   const [mockMode, setMockMode] = useState(false);
   const [mockDownloadCount, setMockDownloadCount] = useState<number | 'unlimited'>(20);
   const [apiDownloadCount, setApiDownloadCount] = useState<number | 'unlimited'>(20);
@@ -394,7 +394,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         }
       };
     }
-  }, [isProcessingLogs, mockMode, apiDownloadCount, timeRange]);
+  }, [isProcessingLogs, mockMode, apiDownloadCount, timeRange, customStartDate, customEndDate]);
 
   // Mock mode changes
   useEffect(() => {
@@ -459,7 +459,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
       fetchData();
     }
-  }, [mockMode, mockDownloadCount]);
+  }, [mockMode, mockDownloadCount, timeRange, customStartDate, customEndDate]);
 
   // Cleanup on unmount
   useEffect(() => {
