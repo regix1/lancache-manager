@@ -21,16 +21,31 @@ public class StatsController : ControllerBase
 
     [HttpGet("clients")]
     [ResponseCache(Duration = 10)] // Cache for 10 seconds
-    public async Task<IActionResult> GetClients()
+    public async Task<IActionResult> GetClients([FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
         {
-            var stats = await _context.ClientStats
-                .AsNoTracking()
+            var query = _context.ClientStats.AsNoTracking();
+
+            // Apply time filtering if provided (Unix timestamps)
+            if (startTime.HasValue || endTime.HasValue)
+            {
+                var startDate = startTime.HasValue
+                    ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                    : DateTime.MinValue;
+                var endDate = endTime.HasValue
+                    ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                    : DateTime.UtcNow;
+
+                // Filter based on LastSeen date
+                query = query.Where(c => c.LastSeen >= startDate && c.LastSeen <= endDate);
+            }
+
+            var stats = await query
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .Take(100) // Limit results
                 .ToListAsync();
-                
+
             return Ok(stats);
         }
         catch (Exception ex)
@@ -42,14 +57,26 @@ public class StatsController : ControllerBase
 
     [HttpGet("services")]
     [ResponseCache(Duration = 10)] // Cache for 10 seconds
-    public async Task<IActionResult> GetServices([FromQuery] string? since = null)
+    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
         {
             var query = _context.ServiceStats.AsNoTracking();
             
-            // Add time filtering if requested (but not for "all")
-            if (!string.IsNullOrEmpty(since) && since != "all")
+            // Apply time filtering if provided (Unix timestamps take priority)
+            if (startTime.HasValue || endTime.HasValue)
+            {
+                var startDate = startTime.HasValue
+                    ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                    : DateTime.MinValue;
+                var endDate = endTime.HasValue
+                    ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                    : DateTime.UtcNow;
+
+                query = query.Where(s => s.LastActivity >= startDate && s.LastActivity <= endDate);
+            }
+            // Fall back to period-based filtering if no timestamps provided
+            else if (!string.IsNullOrEmpty(since) && since != "all")
             {
                 var cutoffTime = ParseTimePeriod(since);
                 if (cutoffTime.HasValue)

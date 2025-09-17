@@ -63,6 +63,31 @@ interface ProcessingStatus {
   downloadCount?: number;
 }
 
+interface DashboardStats {
+  totalBandwidthSaved: number;
+  totalAddedToCache: number;
+  totalServed: number;
+  cacheHitRatio: number;
+  activeDownloads: number;
+  uniqueClients: number;
+  topService: string;
+  period: {
+    duration: string;
+    since?: Date | null;
+    bandwidthSaved: number;
+    addedToCache: number;
+    totalServed: number;
+    hitRatio: number;
+    downloads: number;
+  };
+  serviceBreakdown?: Array<{
+    service: string;
+    bytes: number;
+    percentage: number;
+  }>;
+  lastUpdated?: Date;
+}
+
 interface DataContextType {
   mockMode: boolean;
   setMockMode: (mode: boolean) => void;
@@ -75,6 +100,7 @@ interface DataContextType {
   latestDownloads: Download[];
   clientStats: ClientStat[];
   serviceStats: ServiceStat[];
+  dashboardStats: DashboardStats | null;
   loading: boolean;
   error: string | null;
   fetchData: () => Promise<void>;
@@ -109,6 +135,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
   const [clientStats, setClientStats] = useState<ClientStat[]>([]);
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -214,12 +241,27 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                 if (abortControllerRef.current?.signal.aborted) return;
 
                 try {
-                  const [clients, services] = await Promise.all([
+                  // Get the appropriate period string for the dashboard stats
+                  const periodMap: Record<string, string> = {
+                    '1h': '1h',
+                    '6h': '6h',
+                    '12h': '12h',
+                    '24h': '24h',
+                    '7d': '7d',
+                    '30d': '30d',
+                    'all': 'all',
+                    'custom': 'custom'
+                  };
+                  const period = periodMap[timeRange] || '24h';
+
+                  const [clients, services, dashboard] = await Promise.all([
                     ApiService.getClientStats(abortControllerRef.current!.signal, startTime, endTime),
-                    ApiService.getServiceStats(abortControllerRef.current!.signal, null, startTime, endTime)
+                    ApiService.getServiceStats(abortControllerRef.current!.signal, null, startTime, endTime),
+                    ApiService.getDashboardStats(period, abortControllerRef.current!.signal)
                   ]);
                   if (clients) setClientStats(clients);
                   if (services) setServiceStats(services);
+                  if (dashboard) setDashboardStats(dashboard);
                 } catch (err) {
                 }
               }, 100);
@@ -227,12 +269,26 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
               // Regular updates - use user-specified count but cap at 100 for unlimited
               const cappedCount = apiDownloadCount === 'unlimited' ? 100 : apiDownloadCount;
 
-              const [cache, active, latest, clients, services] = await Promise.allSettled([
+              // Get the appropriate period string for the dashboard stats
+              const periodMap: Record<string, string> = {
+                '1h': '1h',
+                '6h': '6h',
+                '12h': '12h',
+                '24h': '24h',
+                '7d': '7d',
+                '30d': '30d',
+                'all': 'all',
+                'custom': 'custom'
+              };
+              const period = periodMap[timeRange] || '24h';
+
+              const [cache, active, latest, clients, services, dashboard] = await Promise.allSettled([
                 ApiService.getCacheInfo(abortControllerRef.current.signal),
                 ApiService.getActiveDownloads(abortControllerRef.current.signal),
                 ApiService.getLatestDownloads(abortControllerRef.current.signal, cappedCount, startTime, endTime),
                 ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
-                ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime)
+                ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime),
+                ApiService.getDashboardStats(period, abortControllerRef.current.signal)
               ]);
 
               if (cache.status === 'fulfilled' && cache.value !== undefined) {
@@ -262,6 +318,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
               if (services.status === 'fulfilled' && services.value !== undefined) {
                 setServiceStats(services.value);
+              }
+
+              if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+                setDashboardStats(dashboard.value);
               }
             }
 
@@ -434,6 +494,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     latestDownloads,
     clientStats,
     serviceStats,
+    dashboardStats,
     loading,
     error,
     fetchData,

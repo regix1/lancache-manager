@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'custom';
+export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'all' | 'custom';
 
 interface TimeFilterContextType {
   timeRange: TimeRange;
@@ -46,6 +46,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         return 168;
       case '30d':
         return 720;
+      case 'all':
+        return 999999; // Large number to represent all time
       case 'custom':
         if (customStartDate && customEndDate) {
           const diffMs = customEndDate.getTime() - customStartDate.getTime();
@@ -63,6 +65,11 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         startTime: Math.floor(customStartDate.getTime() / 1000),
         endTime: Math.floor(customEndDate.getTime() / 1000)
       };
+    }
+
+    // Return empty params for 'all' time to fetch everything
+    if (timeRange === 'all') {
+      return {};
     }
 
     const now = Date.now();

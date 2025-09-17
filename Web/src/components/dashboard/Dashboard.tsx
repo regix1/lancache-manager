@@ -21,7 +21,7 @@ import { useData } from '../../contexts/DataContext';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
-import { type StatCardData, type DashboardStats } from '../../types';
+import { type StatCardData } from '../../types';
 import StatCard from '../common/StatCard';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
@@ -66,9 +66,8 @@ const StatTooltips: Record<string, string> = {
 };
 
 const Dashboard: React.FC = () => {
-  const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats } = useData();
+  const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats, dashboardStats } = useData();
   const { timeRange } = useTimeFilter();
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,6 +111,7 @@ const Dashboard: React.FC = () => {
       case '24h': return 'Last 24 hours';
       case '7d': return 'Last 7 days';
       case '30d': return 'Last 30 days';
+      case 'all': return 'All time';
       case 'custom': return 'Custom range';
       default: return 'Last 24 hours';
     }
@@ -146,40 +146,7 @@ const Dashboard: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const generateDashboardStats = useCallback(
-    (downloads: any[], services: any[]): DashboardStats => {
-      const totalHits = services.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
-      const totalMisses = services.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
-      const total = totalHits + totalMisses;
-
-      return {
-        totalBandwidthSaved: totalHits,
-        totalAddedToCache: totalMisses,
-        totalServed: total,
-        cacheHitRatio: total > 0 ? totalHits / total : 0,
-        activeDownloads: activeDownloads.length,
-        uniqueClients: [...new Set(downloads.map((d) => d.clientIp))].length,
-        topService: services[0]?.service || 'steam',
-        period: {
-          duration: timeRange,
-          bandwidthSaved: totalHits,
-          addedToCache: totalMisses,
-          totalServed: total,
-          hitRatio: total > 0 ? totalHits / total : 0,
-          downloads: downloads.length
-        }
-      };
-    },
-    [timeRange, activeDownloads]
-  );
-
-  // Generate dashboard stats whenever data changes
-  useEffect(() => {
-    if (latestDownloads && serviceStats) {
-      const stats = generateDashboardStats(latestDownloads, serviceStats);
-      setDashboardStats(stats);
-    }
-  }, [latestDownloads, serviceStats, generateDashboardStats]);
+  // Dashboard stats now come from the context which fetches them from the API with proper time filtering
 
   const toggleCardVisibility = useCallback((cardKey: string) => {
     setCardVisibility((prev: CardVisibility) => ({

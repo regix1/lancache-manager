@@ -24,6 +24,7 @@ const TimeFilter: React.FC = () => {
     { value: '24h', label: 'Last 24 Hours', shortLabel: '24H' },
     { value: '7d', label: 'Last 7 Days', shortLabel: '7D' },
     { value: '30d', label: 'Last 30 Days', shortLabel: '30D' },
+    { value: 'all', label: 'All Time', shortLabel: 'All' },
     { value: 'custom', label: 'Custom Range', shortLabel: 'Custom' }
   ];
 

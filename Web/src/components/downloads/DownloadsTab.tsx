@@ -678,8 +678,11 @@ const DownloadsTab: React.FC = () => {
     return (
       <div
         key={group.id}
-        className="bg-[var(--theme-bg-secondary)] rounded-lg overflow-hidden transition-all duration-200 hover:shadow-md mb-3"
-        style={{ border: '1px solid var(--theme-border-primary)' }}
+        className="bg-[var(--theme-bg-secondary)] rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5 mb-4"
+        style={{
+          border: '1px solid var(--theme-border-primary)',
+          boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)'
+        }}
       >
         <div
           onClick={() => handleGroupClick(group.id)}
@@ -728,10 +731,17 @@ const DownloadsTab: React.FC = () => {
                     <span>Cache</span>
                     <span>{formatPercent(hitPercent)}</span>
                   </div>
-                  <div className="w-full h-2 bg-[var(--theme-bg-tertiary)] rounded-full overflow-hidden">
+                  <div className="w-full h-2 rounded-full overflow-hidden"
+                       style={{
+                         backgroundColor: 'rgba(0, 0, 0, 0.12)',
+                         boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                       }}>
                     <div
-                      className="h-full bg-green-500 transition-all duration-300"
-                      style={{ width: `${Math.min(hitPercent, 100)}%` }}
+                      className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                      style={{
+                        width: `${Math.min(hitPercent, 100)}%`,
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                      }}
                     />
                   </div>
                 </div>
@@ -752,16 +762,16 @@ const DownloadsTab: React.FC = () => {
                   return (
                     <div
                       key={d.id}
-                      className={`p-3 ${
+                      className={`p-3 transition-all duration-200 ${
                         index % 2 === 0 ? 'bg-[var(--theme-bg-secondary)]' : 'bg-[var(--theme-bg-tertiary)]'
-                      } hover:bg-[var(--theme-bg-primary)] transition-colors`}
+                      } hover:bg-[var(--theme-bg-primary)] hover:shadow-sm`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 flex-1">
-                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg shadow-sm ${
                             d.endTime
-                              ? 'bg-green-500/20 text-green-400'
-                              : 'bg-yellow-500/20 text-yellow-400'
+                              ? 'bg-gradient-to-r from-green-500/20 to-green-400/15 text-green-400 border border-green-500/25'
+                              : 'bg-gradient-to-r from-yellow-500/20 to-yellow-400/15 text-yellow-400 border border-yellow-500/25'
                           }`}>
                             {d.endTime ? 'complete' : 'in-progress'}
                           </span>
@@ -781,12 +791,12 @@ const DownloadsTab: React.FC = () => {
                             {formatBytes(d.totalBytes || 0)}
                           </span>
                           {d.totalBytes && d.totalBytes > 0 && (
-                            <span className={`text-xs ${
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
                               downloadHitPercent > 75
-                                ? 'text-green-500'
+                                ? 'bg-green-500/10 text-green-500'
                                 : downloadHitPercent > 25
-                                ? 'text-yellow-500'
-                                : 'text-red-500'
+                                ? 'bg-yellow-500/10 text-yellow-500'
+                                : 'bg-red-500/10 text-red-500'
                             }`}>
                               {formatPercent(downloadHitPercent)}
                             </span>
@@ -837,10 +847,12 @@ const DownloadsTab: React.FC = () => {
         return (
           <div
             key={download.id}
-            className={`rounded-lg mb-3 border transition-all hover:shadow-lg ${
-              isEvenRow ? 'bg-[var(--theme-bg-secondary)]/30' : 'bg-[var(--theme-bg-primary)]'
-            }`}
-            style={{ borderColor: 'var(--theme-border-primary)' }}
+            className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
+            style={{
+              borderColor: 'var(--theme-border-primary)',
+              marginBottom: '16px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)'
+            }}
           >
             <div className="flex">
               {/* Game header on the left - native aspect ratio */}
@@ -848,11 +860,13 @@ const DownloadsTab: React.FC = () => {
                 <ImageWithFallback
                   src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
                   alt={download.gameName || 'Game'}
-                  className="w-[230px] h-[108px] rounded-l-lg object-cover"
+                  className="w-[230px] h-[108px] rounded-l-xl object-cover"
                   fallback={
                     <div
-                      className="w-[230px] h-[108px] rounded-l-lg flex items-center justify-center"
-                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      className="w-[230px] h-[108px] rounded-l-xl flex items-center justify-center"
+                      style={{
+                        background: 'linear-gradient(135deg, var(--theme-bg-tertiary), var(--theme-bg-secondary))'
+                      }}
                     >
                       <Gamepad2 className="w-10 h-10" style={{ color: 'var(--theme-text-muted)' }} />
                     </div>
@@ -921,10 +935,17 @@ const DownloadsTab: React.FC = () => {
 
                   {/* Progress bar */}
                   <div className="flex-1 max-w-[200px]">
-                    <div className="w-full h-2 bg-[var(--theme-bg-tertiary)] rounded-full overflow-hidden">
+                    <div className="w-full h-2 rounded-full overflow-hidden"
+                         style={{
+                           backgroundColor: 'rgba(0, 0, 0, 0.15)',
+                           boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                         }}>
                       <div
-                        className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300"
-                        style={{ width: `${Math.min(hitPercent, 100)}%` }}
+                        className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                        style={{
+                          width: `${Math.min(hitPercent, 100)}%`,
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                        }}
                       />
                     </div>
                   </div>
@@ -939,10 +960,12 @@ const DownloadsTab: React.FC = () => {
       return (
         <div
           key={download.id}
-          className={`rounded-lg mb-3 border transition-all hover:shadow-md ${
-            isEvenRow ? 'bg-[var(--theme-bg-secondary)]/30' : 'bg-[var(--theme-bg-primary)]'
-          }`}
-          style={{ borderColor: 'var(--theme-border-primary)' }}
+          className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
+          style={{
+            borderColor: 'var(--theme-border-primary)',
+            marginBottom: '16px',
+            boxShadow: '0 1px 4px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.03)'
+          }}
         >
           <div className="p-4">
             {/* Header */}
@@ -1000,10 +1023,17 @@ const DownloadsTab: React.FC = () => {
             {/* Progress bar for items with cache */}
             {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
               <div className="mt-3">
-                <div className="w-full h-2 bg-[var(--theme-bg-tertiary)] rounded-full overflow-hidden">
+                <div className="w-full h-2 rounded-full overflow-hidden"
+                     style={{
+                       backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                       boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                     }}>
                   <div
-                    className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300"
-                    style={{ width: `${Math.min(hitPercent, 100)}%` }}
+                    className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                    style={{
+                      width: `${Math.min(hitPercent, 100)}%`,
+                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                    }}
                   />
                 </div>
               </div>
@@ -1027,27 +1057,27 @@ const DownloadsTab: React.FC = () => {
       >
         <div className="px-4 py-2">
           <div className="flex items-center">
-            {/* Service - Fixed width */}
+            {/* Service - Fixed width with badge styling */}
             <div className="w-24 flex items-center gap-2">
               {canExpand && (
                 <ChevronRight
                   size={16}
-                  className={`transition-transform text-themed-muted ${isExpanded ? 'rotate-90' : ''}`}
+                  className={`transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-90' : ''}`}
                 />
               )}
-              <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
-                {download.service}
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-md shadow-sm ${getServiceBadgeClasses(download.service)}`}>
+                {download.service.toUpperCase()}
               </span>
             </div>
 
-            {/* Status - Fixed width */}
+            {/* Status - Fixed width with enhanced styling */}
             <div className="w-28 flex items-center">
-              <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
-                downloadType.label === 'Cached' ? 'bg-green-500/10 text-green-500' :
-                downloadType.label.includes('%') ? 'bg-yellow-500/10 text-yellow-500' :
-                'bg-gray-500/10 text-gray-400'
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shadow-sm transition-all duration-200 ${
+                downloadType.label === 'Cached' ? 'bg-gradient-to-r from-green-500/15 to-green-400/10 text-green-500 border border-green-500/20' :
+                downloadType.label.includes('%') ? 'bg-gradient-to-r from-yellow-500/15 to-yellow-400/10 text-yellow-500 border border-yellow-500/20' :
+                'bg-gradient-to-r from-gray-500/10 to-gray-400/5 text-gray-400 border border-gray-500/10'
               }`}>
-                <IconComponent size={12} />
+                <IconComponent size={12} className="drop-shadow-sm" />
                 <span>{downloadType.label}</span>
               </div>
             </div>
@@ -1079,14 +1109,16 @@ const DownloadsTab: React.FC = () => {
 
             {/* Size - Fixed width */}
             <div className="w-24 text-right">
-              <div className="text-sm font-medium text-themed-primary">
-                {formatBytes(download.totalBytes || 0)}
-              </div>
-              {download.cacheHitBytes > 0 && (
-                <div className="text-xs text-themed-secondary">
-                  {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
+              <div>
+                <div className="text-sm font-semibold text-themed-primary">
+                  {formatBytes(download.totalBytes || 0)}
                 </div>
-              )}
+                {download.cacheHitBytes > 0 && (
+                  <div className="text-xs text-green-500 font-medium">
+                    {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1478,8 +1510,8 @@ const DownloadsTab: React.FC = () => {
 
       {/* Downloads list */}
       <div>
-        {/* Table Header for Compact View */}
-        {settings.viewMode === 'compact' && (
+        {/* Table Header for Compact View - only show when NOT grouping by games */}
+        {settings.viewMode === 'compact' && !settings.groupGames && (
           <div className="hidden md:flex items-center px-4 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>
             <div className="w-24">Service</div>
             <div className="w-28">Status</div>
@@ -1498,7 +1530,7 @@ const DownloadsTab: React.FC = () => {
             overscan={5}
           />
         ) : (
-          <div className={`flex flex-col ${settings.viewMode === 'compact' ? '' : 'gap-2'}`}>
+          <div className={`flex flex-col ${settings.viewMode === 'compact' ? '' : 'gap-0'}`}>
             {itemsToDisplay.map((item) => {
               if ('downloads' in item) {
                 return renderGroup(item as DownloadGroup);

@@ -22,7 +22,7 @@ public class DownloadsController : ControllerBase
 
     [HttpGet("latest")]
     [ResponseCache(Duration = 5)] // Cache for 5 seconds
-    public async Task<IActionResult> GetLatest([FromQuery] int count = 50)
+    public async Task<IActionResult> GetLatest([FromQuery] int count = 50, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         const int maxRetries = 3;
         for (int retry = 0; retry < maxRetries; retry++)
@@ -30,8 +30,22 @@ public class DownloadsController : ControllerBase
             try
             {
                 // Use AsNoTracking for read-only query
-                var downloads = await _context.Downloads
-                    .AsNoTracking()
+                var query = _context.Downloads.AsNoTracking();
+
+                // Apply time filtering if provided (Unix timestamps)
+                if (startTime.HasValue || endTime.HasValue)
+                {
+                    var startDate = startTime.HasValue
+                        ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                        : DateTime.MinValue;
+                    var endDate = endTime.HasValue
+                        ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                        : DateTime.UtcNow;
+
+                    query = query.Where(d => d.StartTime >= startDate && d.StartTime <= endDate);
+                }
+
+                var downloads = await query
                     .OrderByDescending(d => d.StartTime)
                     .Take(count)
                     .ToListAsync();
