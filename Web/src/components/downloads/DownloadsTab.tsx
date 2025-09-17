@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -14,13 +14,13 @@ import {
   Loader,
   List,
   Grid3x3,
-  Clock
+  Clock,
+  Layers
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { API_BASE } from '../../utils/constants';
 import { getServiceBadgeClasses } from '../../utils/serviceColors';
-import VirtualizedList from '../common/VirtualizedList';
 import { Alert } from '../ui/Alert';
 import { Card } from '../ui/Card';
 import type {
@@ -33,7 +33,6 @@ import type {
 const STORAGE_KEYS = {
   SERVICE_FILTER: 'lancache_downloads_service',
   ITEMS_PER_PAGE: 'lancache_downloads_items',
-  GROUP_GAMES: 'lancache_downloads_group',
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
   HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
@@ -41,6 +40,9 @@ const STORAGE_KEYS = {
   VIEW_MODE: 'lancache_downloads_view_mode',
   SORT_ORDER: 'lancache_downloads_sort_order'
 };
+
+// View modes
+type ViewMode = 'compact' | 'normal' | 'grouped';
 
 // Helper function to format relative time
 const formatRelativeTime = (dateString: string): string => {
@@ -82,7 +84,6 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Reset states when src changes
     setHasError(false);
     setIsLoading(true);
   }, [src]);
@@ -102,15 +103,14 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
     return (
       <>
         {fallback || (
-          <div 
+          <div
             className={`${className} flex items-center justify-center`}
             style={{
               ...style,
-              backgroundColor: 'var(--theme-bg-tertiary)',
-              border: '1px solid var(--theme-border-primary)'
+              background: 'linear-gradient(135deg, var(--theme-bg-tertiary), var(--theme-bg-secondary))'
             }}
           >
-            <Gamepad2 
+            <Gamepad2
               className="w-12 h-12"
               style={{ color: 'var(--theme-text-muted)' }}
             />
@@ -123,7 +123,7 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   return (
     <div className="relative">
       {isLoading && (
-        <div 
+        <div
           className={`${className} flex items-center justify-center absolute inset-0`}
           style={{
             ...style,
@@ -149,7 +149,7 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
   );
 };
 
-// Enhanced Dropdown with Portal rendering
+// Enhanced Dropdown Component
 interface DropdownOption {
   value: string;
   label: string;
@@ -173,14 +173,13 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  
+
   const selectedOption = options.find((opt) => opt.value === value);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
-        dropdownRef.current && 
+        dropdownRef.current &&
         !dropdownRef.current.contains(event.target as Node) &&
         buttonRef.current &&
         !buttonRef.current.contains(event.target as Node)
@@ -210,20 +209,12 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     setIsOpen(false);
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      setIsOpen(!isOpen);
-    }
-  };
-
   return (
     <div className={`relative ${className}`}>
       <button
         ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={handleKeyDown}
         className="w-full px-3 py-2 rounded-lg border text-themed-primary text-left focus:outline-none transition-colors flex items-center justify-between"
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
@@ -235,13 +226,11 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         onMouseLeave={(e) =>
           (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
         }
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
       >
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
         <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
-      
+
       {isOpen && (
         <div
           ref={dropdownRef}
@@ -277,12 +266,12 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 
 // Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
-  const { 
-    latestDownloads = [], 
-    loading, 
-    mockMode, 
-    updateMockDataCount, 
-    updateApiDownloadCount 
+  const {
+    latestDownloads = [],
+    loading,
+    mockMode,
+    updateMockDataCount,
+    updateApiDownloadCount
   } = useData();
 
   // State management
@@ -298,12 +287,11 @@ const DownloadsTab: React.FC = () => {
     hideLocalhost: localStorage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
     hideUnknownGames: localStorage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
     selectedService: localStorage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
-    groupGames: localStorage.getItem(STORAGE_KEYS.GROUP_GAMES) === 'true',
     itemsPerPage:
       localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
         ? 'unlimited' as const
         : parseInt(localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50'),
-    viewMode: (localStorage.getItem(STORAGE_KEYS.VIEW_MODE) || 'compact') as 'compact' | 'normal',
+    viewMode: (localStorage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode,
     sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service'
   }));
 
@@ -351,7 +339,6 @@ const DownloadsTab: React.FC = () => {
   };
 
   const fetchGameInfo = async (download: Download) => {
-    // Since there's no Steam API endpoint, we'll create mock game info from the download data
     if (!download.id || !download.gameName || download.service.toLowerCase() !== 'steam') {
       return;
     }
@@ -361,11 +348,8 @@ const DownloadsTab: React.FC = () => {
     }
 
     setLoadingGame(download.id);
-
-    // Simulate loading delay
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    // Create game info from download data
     const mockGameInfo: GameInfo = {
       downloadId: download.id!,
       service: download.service,
@@ -380,19 +364,19 @@ const DownloadsTab: React.FC = () => {
       ...prev,
       [download.id!]: mockGameInfo
     }));
-    
+
     setLoadingGame(null);
   };
 
   // Pre-populate game info for Steam games
   useEffect(() => {
     const steamDownloads = latestDownloads.filter(
-      d => d.service.toLowerCase() === 'steam' && 
-      d.gameName && 
+      d => d.service.toLowerCase() === 'steam' &&
+      d.gameName &&
       d.gameName !== 'Unknown Steam Game' &&
       d.gameAppId
     );
-    
+
     const preloadedInfo: Record<number, GameInfo> = {};
     steamDownloads.forEach(download => {
       if (download.id && !gameInfo[download.id]) {
@@ -407,7 +391,7 @@ const DownloadsTab: React.FC = () => {
         };
       }
     });
-    
+
     if (Object.keys(preloadedInfo).length > 0) {
       setGameInfo(prev => ({ ...prev, ...preloadedInfo }));
     }
@@ -430,12 +414,11 @@ const DownloadsTab: React.FC = () => {
       STORAGE_KEYS.ITEMS_PER_PAGE,
       settings.itemsPerPage === 'unlimited' ? 'unlimited' : settings.itemsPerPage.toString()
     );
-    localStorage.setItem(STORAGE_KEYS.GROUP_GAMES, settings.groupGames.toString());
+    localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
     localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
     localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
     localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
     localStorage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
-    localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
     localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
   }, [settings]);
 
@@ -494,7 +477,6 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter(
         (d) => {
           if (!d.gameName) return true;
-          // Hide "Unknown Steam Game" and "Steam App XXXXX" patterns
           if (d.gameName === 'Unknown Steam Game') return false;
           if (d.gameName.match(/^Steam App \d+$/)) return false;
           return true;
@@ -509,8 +491,8 @@ const DownloadsTab: React.FC = () => {
     return filtered;
   }, [latestDownloads, settings]);
 
-  const groupedDownloads = useMemo((): DownloadGroup[] | null => {
-    if (!settings.groupGames) return null;
+  const groupedDownloads = useMemo((): DownloadGroup[] => {
+    if (settings.viewMode !== 'grouped') return [];
 
     const groups: Record<string, DownloadGroup> = {};
 
@@ -558,8 +540,7 @@ const DownloadsTab: React.FC = () => {
       groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
       groups[groupKey].clientsSet.add(download.clientIp);
       groups[groupKey].count++;
-      
-      // Update first and last seen times
+
       if (download.startTime < groups[groupKey].firstSeen) {
         groups[groupKey].firstSeen = download.startTime;
       }
@@ -573,15 +554,13 @@ const DownloadsTab: React.FC = () => {
       if (a.type !== 'game' && b.type === 'game') return 1;
       return b.totalBytes - a.totalBytes;
     });
-  }, [filteredDownloads, settings.groupGames]);
+  }, [filteredDownloads, settings.viewMode]);
 
   const itemsToDisplay = useMemo(() => {
-    try {
-    let items = settings.groupGames ? groupedDownloads || [] : filteredDownloads;
+    let items = settings.viewMode === 'grouped' ? groupedDownloads : filteredDownloads;
 
     // Apply sorting
-    if (!settings.groupGames) {
-      // Sort individual downloads
+    if (settings.viewMode !== 'grouped') {
       const downloads = [...items] as Download[];
       switch (settings.sortOrder) {
         case 'oldest':
@@ -606,45 +585,14 @@ const DownloadsTab: React.FC = () => {
           break;
       }
       items = downloads;
-    } else {
-      // Sort grouped downloads
-      const groups = [...items] as DownloadGroup[];
-      switch (settings.sortOrder) {
-        case 'oldest':
-          groups.sort((a, b) => new Date(a.firstSeen).getTime() - new Date(b.firstSeen).getTime());
-          break;
-        case 'largest':
-          groups.sort((a, b) => b.totalBytes - a.totalBytes);
-          break;
-        case 'smallest':
-          groups.sort((a, b) => a.totalBytes - b.totalBytes);
-          break;
-        case 'service':
-          groups.sort((a, b) => {
-            const serviceCompare = a.service.localeCompare(b.service);
-            if (serviceCompare !== 0) return serviceCompare;
-            return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
-          });
-          break;
-        case 'latest':
-        default:
-          groups.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
-          break;
-      }
-      items = groups;
     }
 
     if (settings.itemsPerPage === 'unlimited') {
-      // No cap - load all available items
       return items;
     }
     const limit = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 50;
     return items.slice(0, limit);
-    } catch (error) {
-      console.error('Error preparing items to display:', error);
-      return [];
-    }
-  }, [settings.groupGames, settings.itemsPerPage, groupedDownloads, filteredDownloads, settings.sortOrder]);
+  }, [settings.viewMode, settings.itemsPerPage, settings.sortOrder, groupedDownloads, filteredDownloads]);
 
   // Event handlers
   const handleDownloadClick = async (download: Download) => {
@@ -653,12 +601,12 @@ const DownloadsTab: React.FC = () => {
     const canExpand = isSteam && hasData && download.gameName &&
                        download.gameName !== 'Unknown Steam Game' &&
                        !download.gameName.match(/^Steam App \d+$/);
-    
+
     if (!canExpand) return;
-    
+
     const newExpanded = expandedDownload === download.id ? null : download.id;
     setExpandedDownload(newExpanded);
-    
+
     if (newExpanded && !gameInfo[download.id!]) {
       await fetchGameInfo(download);
     }
@@ -668,8 +616,340 @@ const DownloadsTab: React.FC = () => {
     setExpandedGroup(expandedGroup === groupId ? null : groupId);
   };
 
-  // Render functions
-  const renderGroup = useCallback((group: DownloadGroup) => {
+  // Render function for compact view
+  const renderCompactView = (download: Download) => {
+    const isExpanded = expandedDownload === download.id;
+    const isSteam = download.service.toLowerCase() === 'steam';
+    const hasData = (download.totalBytes || 0) > 0;
+    const canExpand = isSteam && hasData && download.gameName &&
+                       download.gameName !== 'Unknown Steam Game' &&
+                       !download.gameName.match(/^Steam App \d+$/);
+    const downloadType = getDownloadTypeInfo(download);
+    const IconComponent = downloadType.icon;
+    const game = download.id ? gameInfo[download.id] : undefined;
+
+    return (
+      <div
+        key={download.id}
+        className="border-b transition-all duration-200"
+        style={{
+          borderColor: 'var(--theme-border-primary)',
+          marginBottom: isExpanded ? '24px' : '0' // Add space when expanded
+        }}
+      >
+        <div
+          className={`px-4 py-2 transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}`}
+          onClick={() => canExpand ? handleDownloadClick(download) : undefined}
+        >
+          <div className="flex items-center">
+            {/* Service with expansion arrow */}
+            <div className="w-24 flex items-center gap-2">
+              {canExpand && (
+                <ChevronRight
+                  size={16}
+                  className={`transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-90' : ''}`}
+                />
+              )}
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-md shadow-sm ${getServiceBadgeClasses(download.service)}`}>
+                {download.service.toUpperCase()}
+              </span>
+            </div>
+
+            {/* Status */}
+            <div className="w-28 flex items-center">
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shadow-sm transition-all duration-200 ${
+                downloadType.label === 'Cached' ? 'bg-gradient-to-r from-green-500/15 to-green-400/10 text-green-500 border border-green-500/20' :
+                downloadType.label === 'Partial' ? 'bg-gradient-to-r from-yellow-500/15 to-yellow-400/10 text-yellow-500 border border-yellow-500/20' :
+                'bg-gradient-to-r from-gray-500/10 to-gray-400/5 text-gray-400 border border-gray-500/10'
+              }`}>
+                <IconComponent size={12} className="drop-shadow-sm" />
+                <span>{downloadType.label}</span>
+              </div>
+            </div>
+
+            {/* Game Name */}
+            <div className="flex-1 min-w-0 px-2">
+              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
+                <span className="text-sm text-themed-primary truncate block">
+                  {download.gameName}
+                </span>
+              )}
+            </div>
+
+            {/* Client */}
+            <div className="hidden md:block w-32">
+              <div className="flex items-center gap-1.5">
+                <Users size={14} className="text-themed-muted" />
+                <span className="text-sm text-themed-secondary">{download.clientIp}</span>
+              </div>
+            </div>
+
+            {/* Time */}
+            <div className="hidden md:block w-24">
+              <div className="flex items-center gap-1.5">
+                <Clock size={14} className="text-themed-muted" />
+                <span className="text-sm text-themed-secondary">{formatRelativeTime(download.startTime)}</span>
+              </div>
+            </div>
+
+            {/* Size */}
+            <div className="w-24 text-right">
+              <div>
+                <div className="text-sm font-semibold text-themed-primary">
+                  {formatBytes(download.totalBytes || 0)}
+                </div>
+                {download.cacheHitBytes > 0 && (
+                  <div className="text-xs text-green-500 font-medium">
+                    {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Expanded content */}
+        {isExpanded && canExpand && (
+          <div className="px-4 pb-4 bg-[var(--theme-bg-secondary)]/50">
+            <div className="border-t border-[var(--theme-border-primary)]/20 my-3" />
+            {loadingGame === download.id ? (
+              <div className="flex justify-center py-4">
+                <Loader className="w-6 h-6 animate-spin" />
+              </div>
+            ) : game ? (
+              <div className="flex gap-6 items-start">
+                <div className="flex-shrink-0">
+                  <ImageWithFallback
+                    src={game.headerImage || ''}
+                    alt={game.gameName || 'Game'}
+                    className="rounded shadow-lg"
+                    style={{ width: '224px', height: '107px', objectFit: 'cover' }}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
+                    {game.gameName || 'Unknown Game'}
+                  </h3>
+                  {game.description && (
+                    <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
+                      {game.description}
+                    </p>
+                  )}
+                  {isSteam && (
+                    <a
+                      href={`https://store.steampowered.com/app/${game.appId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
+                    >
+                      View on Steam
+                      <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Render function for normal view
+  const renderNormalView = (download: Download) => {
+    const hitPercent = download.totalBytes > 0 ? ((download.cacheHitBytes || 0) / download.totalBytes) * 100 : 0;
+    const showGameImage = download.service.toLowerCase() === 'steam' &&
+                          download.gameName &&
+                          download.gameName !== 'Unknown Steam Game' &&
+                          !download.gameName.match(/^Steam App \d+$/);
+
+    // Steam games with headers
+    if (showGameImage) {
+      return (
+        <div
+          key={download.id}
+          className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
+          style={{
+            borderColor: 'var(--theme-border-primary)',
+            marginBottom: '20px', // Proper spacing between cards
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)'
+          }}
+        >
+          <div className="flex">
+            {/* Game header on the left */}
+            <div className="flex-shrink-0">
+              <ImageWithFallback
+                src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
+                alt={download.gameName || 'Game'}
+                className="w-[230px] h-[108px] rounded-l-xl object-cover"
+              />
+            </div>
+
+            {/* Content on the right */}
+            <div className="flex-1 p-4 min-w-0">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(download.service)}`}>
+                      {download.service.toUpperCase()}
+                    </span>
+                    <h3 className="text-base font-bold text-[var(--theme-text-primary)] truncate">
+                      {download.gameName}
+                    </h3>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-[var(--theme-text-muted)]">
+                    <div className="flex items-center gap-1">
+                      <Users size={12} />
+                      <span>{download.clientIp}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Clock size={12} />
+                      <span>{formatRelativeTime(download.startTime)}</span>
+                    </div>
+                  </div>
+                </div>
+                <a
+                  href={`https://store.steampowered.com/app/${download.gameAppId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="p-1.5 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)] hover:text-[var(--theme-primary)]"
+                  title="View in Steam Store"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <div className="text-xs text-[var(--theme-text-muted)]">Size</div>
+                    <div className="text-lg font-bold text-[var(--theme-text-primary)]">
+                      {formatBytes(download.totalBytes || 0)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-[var(--theme-text-muted)]">Cache Hit</div>
+                    <div className="text-lg font-bold text-green-500">
+                      {formatPercent(hitPercent)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-[var(--theme-text-muted)]">Saved</div>
+                    <div className="text-lg font-bold text-blue-500">
+                      {formatBytes(download.cacheHitBytes || 0)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 max-w-[200px]">
+                  <div className="w-full h-2 rounded-full overflow-hidden"
+                       style={{
+                         backgroundColor: 'rgba(0, 0, 0, 0.15)',
+                         boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                       }}>
+                    <div
+                      className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                      style={{
+                        width: `${Math.min(hitPercent, 100)}%`,
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Non-Steam or downloads without game headers
+    return (
+      <div
+        key={download.id}
+        className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
+        style={{
+          borderColor: 'var(--theme-border-primary)',
+          marginBottom: '20px', // Proper spacing between cards
+          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.03)'
+        }}
+      >
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <span className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(download.service)}`}>
+                {download.service.toUpperCase()}
+              </span>
+              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
+                <h3 className="text-base font-semibold text-[var(--theme-text-primary)]">
+                  {download.gameName}
+                </h3>
+              )}
+            </div>
+            <div className="text-right">
+              <div className="text-xl font-bold text-[var(--theme-text-primary)]">
+                {formatBytes(download.totalBytes || 0)}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Users size={14} className="text-[var(--theme-text-muted)]" />
+                <span className="text-[var(--theme-text-secondary)]">Client:</span>
+                <span className="font-medium text-[var(--theme-text-primary)]">{download.clientIp}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock size={14} className="text-[var(--theme-text-muted)]" />
+                <span className="font-medium text-[var(--theme-text-primary)]">
+                  {formatRelativeTime(download.startTime)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              {download.cacheHitBytes > 0 && (
+                <>
+                  <div className="text-sm">
+                    <span className="text-[var(--theme-text-muted)]">Cache: </span>
+                    <span className="font-bold text-green-500">{formatPercent(hitPercent)}</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-[var(--theme-text-muted)]">Saved: </span>
+                    <span className="font-bold text-blue-500">{formatBytes(download.cacheHitBytes || 0)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
+            <div className="mt-3">
+              <div className="w-full h-2 rounded-full overflow-hidden"
+                   style={{
+                     backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                     boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
+                   }}>
+                <div
+                  className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                  style={{
+                    width: `${Math.min(hitPercent, 100)}%`,
+                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Render function for grouped view
+  const renderGroupedView = (group: DownloadGroup) => {
     const isExpanded = expandedGroup === group.id;
     const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
     const savedAmount = group.cacheHitBytes || 0;
@@ -678,10 +958,11 @@ const DownloadsTab: React.FC = () => {
     return (
       <div
         key={group.id}
-        className="bg-[var(--theme-bg-secondary)] rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5 mb-4"
+        className="bg-[var(--theme-bg-secondary)] rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
         style={{
           border: '1px solid var(--theme-border-primary)',
-          boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)'
+          boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)',
+          marginBottom: '20px' // Proper spacing between groups
         }}
       >
         <div
@@ -695,8 +976,8 @@ const DownloadsTab: React.FC = () => {
                 className={`transition-transform text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''}`}
               />
               <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 text-xs font-medium rounded ${getServiceBadgeClasses(group.service)}`}>
-                  {group.service}
+                <span className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(group.service)}`}>
+                  {group.service.toUpperCase()}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
@@ -812,467 +1093,7 @@ const DownloadsTab: React.FC = () => {
         )}
       </div>
     );
-  }, [expandedGroup]);
-
-  const renderDownload = useCallback((download: Download) => {
-    try {
-      if (!download) {
-        console.error('Undefined download in renderDownload');
-        return null;
-      }
-      const isExpanded = expandedDownload === download.id;
-    const isSteam = download.service.toLowerCase() === 'steam';
-    const hasData = (download.totalBytes || 0) > 0;
-    const canExpand = isSteam && hasData && download.gameName &&
-                       download.gameName !== 'Unknown Steam Game' &&
-                       !download.gameName.match(/^Steam App \d+$/);
-    const downloadType = getDownloadTypeInfo(download);
-    const IconComponent = downloadType.icon;
-    const game = download.id ? gameInfo[download.id] : undefined;
-
-    // Find the index only among downloads (not groups)
-    const downloads = itemsToDisplay.filter(item => !('downloads' in item)) as Download[];
-    const rowIndex = downloads.indexOf(download);
-    const isEvenRow = rowIndex % 2 === 0;
-
-    // Normal view - game header alongside content
-    if (settings.viewMode === 'normal') {
-      const hitPercent = download.totalBytes > 0 ? ((download.cacheHitBytes || 0) / download.totalBytes) * 100 : 0;
-      const showGameImage = isSteam && download.gameName &&
-                           download.gameName !== 'Unknown Steam Game' &&
-                           !download.gameName.match(/^Steam App \d+$/);
-
-      // For Steam games with headers - use header at native aspect ratio
-      if (showGameImage) {
-        return (
-          <div
-            key={download.id}
-            className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
-            style={{
-              borderColor: 'var(--theme-border-primary)',
-              marginBottom: '16px',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)'
-            }}
-          >
-            <div className="flex">
-              {/* Game header on the left - native aspect ratio */}
-              <div className="flex-shrink-0">
-                <ImageWithFallback
-                  src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
-                  alt={download.gameName || 'Game'}
-                  className="w-[230px] h-[108px] rounded-l-xl object-cover"
-                  fallback={
-                    <div
-                      className="w-[230px] h-[108px] rounded-l-xl flex items-center justify-center"
-                      style={{
-                        background: 'linear-gradient(135deg, var(--theme-bg-tertiary), var(--theme-bg-secondary))'
-                      }}
-                    >
-                      <Gamepad2 className="w-10 h-10" style={{ color: 'var(--theme-text-muted)' }} />
-                    </div>
-                  }
-                />
-              </div>
-
-              {/* Content on the right */}
-              <div className="flex-1 p-4 min-w-0">
-                {/* Header with service and name */}
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`px-2 py-0.5 text-xs font-bold rounded ${getServiceBadgeClasses(download.service)}`}>
-                        {download.service.toUpperCase()}
-                      </span>
-                      <h3 className="text-base font-bold text-[var(--theme-text-primary)] truncate">
-                        {download.gameName}
-                      </h3>
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-[var(--theme-text-muted)]">
-                      <div className="flex items-center gap-1">
-                        <Users size={12} />
-                        <span>{download.clientIp}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Clock size={12} />
-                        <span>{formatRelativeTime(download.startTime)}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <a
-                    href={`https://store.steampowered.com/app/${download.gameAppId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="p-1.5 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)] hover:text-[var(--theme-primary)]"
-                    title="View in Steam Store"
-                  >
-                    <ExternalLink size={14} />
-                  </a>
-                </div>
-
-                {/* Stats row */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-6">
-                    <div>
-                      <div className="text-xs text-[var(--theme-text-muted)]">Size</div>
-                      <div className="text-lg font-bold text-[var(--theme-text-primary)]">
-                        {formatBytes(download.totalBytes || 0)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-[var(--theme-text-muted)]">Cache Hit</div>
-                      <div className="text-lg font-bold text-green-500">
-                        {formatPercent(hitPercent)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-[var(--theme-text-muted)]">Saved</div>
-                      <div className="text-lg font-bold text-blue-500">
-                        {formatBytes(download.cacheHitBytes || 0)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="flex-1 max-w-[200px]">
-                    <div className="w-full h-2 rounded-full overflow-hidden"
-                         style={{
-                           backgroundColor: 'rgba(0, 0, 0, 0.15)',
-                           boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                         }}>
-                      <div
-                        className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
-                        style={{
-                          width: `${Math.min(hitPercent, 100)}%`,
-                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // For non-Steam or downloads without game headers
-      return (
-        <div
-          key={download.id}
-          className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
-          style={{
-            borderColor: 'var(--theme-border-primary)',
-            marginBottom: '16px',
-            boxShadow: '0 1px 4px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.03)'
-          }}
-        >
-          <div className="p-4">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <span className={`px-3 py-1 text-xs font-bold rounded ${getServiceBadgeClasses(download.service)}`}>
-                  {download.service.toUpperCase()}
-                </span>
-                {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                  <h3 className="text-base font-semibold text-[var(--theme-text-primary)]">
-                    {download.gameName}
-                  </h3>
-                )}
-              </div>
-              <div className="text-right">
-                <div className="text-xl font-bold text-[var(--theme-text-primary)]">
-                  {formatBytes(download.totalBytes || 0)}
-                </div>
-              </div>
-            </div>
-
-            {/* Client info */}
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Users size={14} className="text-[var(--theme-text-muted)]" />
-                  <span className="text-[var(--theme-text-secondary)]">Client:</span>
-                  <span className="font-medium text-[var(--theme-text-primary)]">{download.clientIp}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock size={14} className="text-[var(--theme-text-muted)]" />
-                  <span className="font-medium text-[var(--theme-text-primary)]">
-                    {formatRelativeTime(download.startTime)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Stats */}
-              <div className="flex items-center gap-4">
-                {download.cacheHitBytes > 0 && (
-                  <>
-                    <div className="text-sm">
-                      <span className="text-[var(--theme-text-muted)]">Cache: </span>
-                      <span className="font-bold text-green-500">{formatPercent(hitPercent)}</span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-[var(--theme-text-muted)]">Saved: </span>
-                      <span className="font-bold text-blue-500">{formatBytes(download.cacheHitBytes || 0)}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Progress bar for items with cache */}
-            {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
-              <div className="mt-3">
-                <div className="w-full h-2 rounded-full overflow-hidden"
-                     style={{
-                       backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                       boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                     }}>
-                  <div
-                    className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
-                    style={{
-                      width: `${Math.min(hitPercent, 100)}%`,
-                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Compact view with aligned columns
-    return (
-      <div
-        key={download.id}
-        className={`
-          group transition-all duration-200 border-b
-          ${isEvenRow ? 'bg-[var(--theme-bg-primary)]' : 'bg-[var(--theme-bg-secondary)]/30'}
-          ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}
-        `}
-        style={{ borderColor: 'var(--theme-border-primary)' }}
-        onClick={() => canExpand ? handleDownloadClick(download) : undefined}
-      >
-        <div className="px-4 py-2">
-          <div className="flex items-center">
-            {/* Service - Fixed width with badge styling */}
-            <div className="w-24 flex items-center gap-2">
-              {canExpand && (
-                <ChevronRight
-                  size={16}
-                  className={`transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-90' : ''}`}
-                />
-              )}
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-md shadow-sm ${getServiceBadgeClasses(download.service)}`}>
-                {download.service.toUpperCase()}
-              </span>
-            </div>
-
-            {/* Status - Fixed width with enhanced styling */}
-            <div className="w-28 flex items-center">
-              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shadow-sm transition-all duration-200 ${
-                downloadType.label === 'Cached' ? 'bg-gradient-to-r from-green-500/15 to-green-400/10 text-green-500 border border-green-500/20' :
-                downloadType.label.includes('%') ? 'bg-gradient-to-r from-yellow-500/15 to-yellow-400/10 text-yellow-500 border border-yellow-500/20' :
-                'bg-gradient-to-r from-gray-500/10 to-gray-400/5 text-gray-400 border border-gray-500/10'
-              }`}>
-                <IconComponent size={12} className="drop-shadow-sm" />
-                <span>{downloadType.label}</span>
-              </div>
-            </div>
-
-            {/* Game Name - Flexible width */}
-            <div className="flex-1 min-w-0 px-2">
-              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                <span className="text-sm text-themed-primary truncate block">
-                  {download.gameName}
-                </span>
-              )}
-            </div>
-
-            {/* Client - Fixed width, hidden mobile */}
-            <div className="hidden md:block w-32">
-              <div className="flex items-center gap-1.5">
-                <Users size={14} className="text-themed-muted" />
-                <span className="text-sm text-themed-secondary">{download.clientIp}</span>
-              </div>
-            </div>
-
-            {/* Time - Fixed width, hidden mobile */}
-            <div className="hidden md:block w-24">
-              <div className="flex items-center gap-1.5">
-                <Clock size={14} className="text-themed-muted" />
-                <span className="text-sm text-themed-secondary">{formatRelativeTime(download.startTime)}</span>
-              </div>
-            </div>
-
-            {/* Size - Fixed width */}
-            <div className="w-24 text-right">
-              <div>
-                <div className="text-sm font-semibold text-themed-primary">
-                  {formatBytes(download.totalBytes || 0)}
-                </div>
-                {download.cacheHitBytes > 0 && (
-                  <div className="text-xs text-green-500 font-medium">
-                    {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {isExpanded && canExpand && (
-          <div className="px-4 pb-4 pt-2">
-            <div className="border-t border-[var(--theme-border-primary)]/20 my-3" />
-              {loadingGame === download.id ? (
-                <div className="flex justify-center py-4">
-                  <Loader className="w-6 h-6 animate-spin" />
-                </div>
-              ) : game ? (
-                <div className="flex gap-6 items-start">
-                  <div className="flex-shrink-0">
-                    <ImageWithFallback
-                      src={game.headerImage || ''}
-                      alt={game.gameName || 'Game'}
-                      className="rounded shadow-lg"
-                      style={{ width: '224px', height: '107px', objectFit: 'cover' }}
-                      fallback={
-                        <div
-                          className="rounded flex items-center justify-center shadow-lg"
-                          style={{
-                            width: '224px',
-                            height: '107px',
-                            backgroundColor: 'var(--theme-bg-tertiary)',
-                            border: '1px solid var(--theme-border-primary)'
-                          }}
-                        >
-                          <Gamepad2
-                            className="w-12 h-12"
-                            style={{ color: 'var(--theme-text-muted)' }}
-                          />
-                        </div>
-                      }
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
-                      {game.gameName || 'Unknown Game'}
-                    </h3>
-                    {game.description && (
-                      <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
-                        {game.description}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-4 text-xs text-themed-muted">
-                      {game.gameType && (
-                        <span>Type: {game.gameType}</span>
-                      )}
-                    </div>
-                    {isSteam && (
-                      <a
-                        href={`https://store.steampowered.com/app/${game.appId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
-                      >
-                        View on Steam
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex gap-6 items-start">
-                  <div className="flex-shrink-0">
-                    <div
-                      className="rounded flex items-center justify-center shadow-lg"
-                      style={{
-                        width: '224px',
-                        height: '107px',
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        border: '1px solid var(--theme-border-primary)'
-                      }}
-                    >
-                      <Gamepad2
-                        className="w-12 h-12"
-                        style={{ color: 'var(--theme-text-muted)' }}
-                      />
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
-                      {download.gameName || 'Loading...'}
-                    </h3>
-                    <p className="text-sm text-themed-secondary mb-4">
-                      Loading game information...
-                    </p>
-                    {isSteam && download.gameAppId && (
-                      <a
-                        href={`https://store.steampowered.com/app/${download.gameAppId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
-                      >
-                        View on Steam
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              )}
-          </div>
-        )}
-      </div>
-    );
-    } catch (error) {
-      console.error('Error rendering download:', error, download);
-      return (
-        <Card key={download?.id || Math.random()} padding="sm">
-          <div className="text-themed-muted">Error rendering download</div>
-        </Card>
-      );
-    }
-  }, [expandedDownload, gameInfo, loadingGame, settings.viewMode]);
-
-  const renderVirtualItem = useCallback((item: any) => {
-    if ('downloads' in item) {
-      return renderGroup(item as DownloadGroup);
-    }
-    return renderDownload(item as Download);
-  }, [renderGroup, renderDownload]);
-
-  // Calculate dynamic height for virtualized list items based on content
-  const getItemHeight = useCallback((_index: number, item: any): number => {
-    if ('downloads' in item) {
-      // Group height
-      return settings.viewMode === 'normal' ? 220 : 180;
-    }
-
-    const download = item as Download;
-    // Check if download has a displayable game image (not hardcoded to service type)
-    const hasDisplayableGameInfo = download.gameAppId &&
-                                   download.gameName &&
-                                   download.gameName !== 'Unknown Steam Game' &&
-                                   !download.gameName.match(/^Steam App \d+$/);
-
-    if (settings.viewMode === 'normal') {
-      // Downloads with images/game info have larger height
-      if (hasDisplayableGameInfo) {
-        return 120; // Height for downloads with header image
-      }
-      return 95; // Height for downloads without images
-    } else {
-      // Compact mode heights
-      if (hasDisplayableGameInfo) {
-        return 80; // Expandable items with game info
-      }
-      return 72; // Standard compact items
-    }
-  }, [settings.viewMode]);
+  };
 
   // Loading state
   if (loading) {
@@ -1297,52 +1118,19 @@ const DownloadsTab: React.FC = () => {
       {/* Controls */}
       <Card padding="sm">
         <div className="flex flex-col gap-3">
-          {/* Mobile: View controls at top */}
+          {/* Mobile view controls at top */}
           <div className="flex sm:hidden items-center justify-between">
             <span className="text-sm font-medium text-themed-primary">Downloads</span>
-            <div className="flex gap-2">
-              {/* View Mode Toggle */}
-              <div className="flex rounded-lg bg-themed-tertiary p-1">
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
-                  className={`px-2 py-1 rounded-md transition-colors ${
-                    settings.viewMode === 'compact'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary hover:text-themed-primary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
-                  }}
-                  title="Compact View"
-                >
-                  <List size={16} />
-                </button>
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
-                  className={`px-2 py-1 rounded-md transition-colors ${
-                    settings.viewMode === 'normal'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary hover:text-themed-primary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
-                  }}
-                  title="Normal View"
-                >
-                  <Grid3x3 size={16} />
-                </button>
-              </div>
-              <button
-                onClick={() => setSettingsOpened(!settingsOpened)}
-                className="p-1.5 rounded hover:bg-themed-hover transition-colors"
-                title="Settings"
-              >
-                <Settings size={18} />
-              </button>
-            </div>
+            <button
+              onClick={() => setSettingsOpened(!settingsOpened)}
+              className="p-1.5 rounded hover:bg-themed-hover transition-colors"
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
           </div>
 
-          {/* Dropdowns and Desktop View Controls */}
+          {/* Dropdowns and View Controls */}
           <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
             <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1 w-full sm:w-auto">
               <EnhancedDropdown
@@ -1386,9 +1174,9 @@ const DownloadsTab: React.FC = () => {
               />
             </div>
 
-            {/* Desktop only view controls */}
+            {/* Desktop view controls */}
             <div className="hidden sm:flex gap-2 justify-end w-auto">
-              {/* View Mode Toggle */}
+              {/* View Mode Toggle - Three options */}
               <div className="flex rounded-lg bg-themed-tertiary p-1">
                 <button
                   onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
@@ -1420,6 +1208,21 @@ const DownloadsTab: React.FC = () => {
                   <Grid3x3 size={16} />
                   <span className="text-xs">Normal</span>
                 </button>
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'grouped' })}
+                  className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                    settings.viewMode === 'grouped'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary hover:text-themed-primary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'grouped' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Grouped View"
+                >
+                  <Layers size={16} />
+                  <span className="text-xs">Grouped</span>
+                </button>
               </div>
 
               <button
@@ -1431,24 +1234,55 @@ const DownloadsTab: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* Mobile view mode selector */}
+          <div className="flex sm:hidden rounded-lg bg-themed-tertiary p-1">
+            <button
+              onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
+              className={`flex-1 px-2 py-1.5 rounded-md transition-colors ${
+                settings.viewMode === 'compact'
+                  ? 'bg-primary'
+                  : 'text-themed-secondary'
+              }`}
+              style={{
+                color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
+              }}
+            >
+              <List size={16} className="mx-auto" />
+            </button>
+            <button
+              onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
+              className={`flex-1 px-2 py-1.5 rounded-md transition-colors ${
+                settings.viewMode === 'normal'
+                  ? 'bg-primary'
+                  : 'text-themed-secondary'
+              }`}
+              style={{
+                color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
+              }}
+            >
+              <Grid3x3 size={16} className="mx-auto" />
+            </button>
+            <button
+              onClick={() => setSettings({ ...settings, viewMode: 'grouped' })}
+              className={`flex-1 px-2 py-1.5 rounded-md transition-colors ${
+                settings.viewMode === 'grouped'
+                  ? 'bg-primary'
+                  : 'text-themed-secondary'
+              }`}
+              style={{
+                color: settings.viewMode === 'grouped' ? 'var(--theme-button-text)' : undefined
+              }}
+            >
+              <Layers size={16} className="mx-auto" />
+            </button>
+          </div>
         </div>
 
         {settingsOpened && (
           <>
             <div className="border-t border-themed-secondary my-3" />
             <div className="space-y-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.groupGames}
-                  onChange={(e) =>
-                    setSettings({ ...settings, groupGames: e.target.checked })
-                  }
-                  className="themed-checkbox"
-                />
-                <span className="text-sm text-themed-secondary">Group by games</span>
-              </label>
-              
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -1460,7 +1294,7 @@ const DownloadsTab: React.FC = () => {
                 />
                 <span className="text-sm text-themed-secondary">Show metadata (0 bytes)</span>
               </label>
-              
+
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -1472,6 +1306,7 @@ const DownloadsTab: React.FC = () => {
                 />
                 <span className="text-sm text-themed-secondary">Show small files (&lt; 1MB)</span>
               </label>
+
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -1510,8 +1345,8 @@ const DownloadsTab: React.FC = () => {
 
       {/* Downloads list */}
       <div>
-        {/* Table Header for Compact View - only show when NOT grouping by games */}
-        {settings.viewMode === 'compact' && !settings.groupGames && (
+        {/* Table Header for Compact View */}
+        {settings.viewMode === 'compact' && (
           <div className="hidden md:flex items-center px-4 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>
             <div className="w-24">Service</div>
             <div className="w-28">Status</div>
@@ -1521,30 +1356,33 @@ const DownloadsTab: React.FC = () => {
             <div className="w-24 text-right">Size</div>
           </div>
         )}
-        {(settings.itemsPerPage === 'unlimited' || settings.itemsPerPage >= 200) && itemsToDisplay.length >= 200 ? (
-          <VirtualizedList
-            items={itemsToDisplay}
-            height={window.innerHeight - 250}
-            itemHeight={getItemHeight}
-            renderItem={renderVirtualItem}
-            overscan={5}
-          />
-        ) : (
-          <div className={`flex flex-col ${settings.viewMode === 'compact' ? '' : 'gap-0'}`}>
-            {itemsToDisplay.map((item) => {
-              if ('downloads' in item) {
-                return renderGroup(item as DownloadGroup);
-              }
-              return renderDownload(item as Download);
-            })}
-          </div>
-        )}
+
+        {/* Content based on view mode */}
+        <div>
+          {settings.viewMode === 'compact' && (
+            <div>
+              {itemsToDisplay.map((item) => renderCompactView(item as Download))}
+            </div>
+          )}
+
+          {settings.viewMode === 'normal' && (
+            <div>
+              {itemsToDisplay.map((item) => renderNormalView(item as Download))}
+            </div>
+          )}
+
+          {settings.viewMode === 'grouped' && (
+            <div>
+              {itemsToDisplay.map((item) => renderGroupedView(item as DownloadGroup))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Performance warning */}
       {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
         <Alert color="yellow" icon={<AlertTriangle className="w-5 h-5" />}>
-          Loading {itemsToDisplay.length} items. Virtual scrolling enabled for optimal performance.
+          Loading {itemsToDisplay.length} items. Consider using pagination for better performance.
         </Alert>
       )}
     </div>
