@@ -8,7 +8,6 @@ import {
   CloudOff,
   Check,
   AlertTriangle,
-  Layers,
   Users,
   Settings,
   Download as DownloadIcon,
@@ -20,6 +19,7 @@ import {
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { API_BASE } from '../../utils/constants';
+import { getServiceBadgeClasses } from '../../utils/serviceColors';
 import VirtualizedList from '../common/VirtualizedList';
 import { Alert } from '../ui/Alert';
 import { Card } from '../ui/Card';
@@ -672,65 +672,135 @@ const DownloadsTab: React.FC = () => {
   const renderGroup = useCallback((group: DownloadGroup) => {
     const isExpanded = expandedGroup === group.id;
     const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+    const savedAmount = group.cacheHitBytes || 0;
+    const totalClients = group.clientsSet.size;
 
     return (
-      <Card key={group.id} padding="sm">
-        <div onClick={() => handleGroupClick(group.id)} className="cursor-pointer">
-          <div className="flex items-center justify-between py-1 min-w-0">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div
+        key={group.id}
+        className="bg-[var(--theme-bg-secondary)] rounded-lg overflow-hidden transition-all duration-200 hover:shadow-md mb-3"
+        style={{ border: '1px solid var(--theme-border-primary)' }}
+      >
+        <div
+          onClick={() => handleGroupClick(group.id)}
+          className="p-4 cursor-pointer hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <ChevronRight
+                size={16}
+                className={`transition-transform text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''}`}
+              />
               <div className="flex items-center gap-2">
-                <ChevronRight
-                  size={16}
-                  className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                />
-                <div className="w-6 h-6 rounded bg-themed-secondary flex items-center justify-center">
-                  <Layers size={14} className="text-themed-accent" />
-                </div>
-                <span className="text-sm font-medium text-themed-accent truncate">{group.name}</span>
+                <span className={`px-2 py-1 text-xs font-medium rounded ${getServiceBadgeClasses(group.service)}`}>
+                  {group.service}
+                </span>
               </div>
-              <span className="text-xs text-themed-muted flex-shrink-0">({group.count} items)</span>
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-[var(--theme-text-primary)] truncate">
+                  {group.name}
+                </h3>
+                <div className="flex items-center gap-4 mt-1">
+                  <span className="text-xs text-[var(--theme-text-secondary)]">
+                    {group.count} {group.count === 1 ? 'download' : 'downloads'}
+                  </span>
+                  <span className="text-xs text-[var(--theme-text-secondary)]">
+                    {totalClients} {totalClients === 1 ? 'client' : 'clients'}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center gap-6 flex-shrink-0">
-              <div className="text-right">
-                <div className="text-sm font-medium text-themed-primary">
+            <div className="flex items-center gap-4">
+              <div className="flex flex-col items-end">
+                <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
                   {formatBytes(group.totalBytes)}
-                </div>
-                {group.totalBytes > 0 && (
-                  <div className="text-xs text-themed-muted">
-                    {formatPercent(hitPercent)} cached
-                  </div>
+                </span>
+                {savedAmount > 0 && (
+                  <span className="text-xs text-green-500">
+                    Saved: {formatBytes(savedAmount)}
+                  </span>
                 )}
               </div>
+              {group.totalBytes > 0 && (
+                <div className="w-24">
+                  <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] mb-1">
+                    <span>Cache</span>
+                    <span>{formatPercent(hitPercent)}</span>
+                  </div>
+                  <div className="w-full h-2 bg-[var(--theme-bg-tertiary)] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 transition-all duration-300"
+                      style={{ width: `${Math.min(hitPercent, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {isExpanded && (
-          <>
-            <div className="border-t border-themed-secondary my-4" />
+          <div className="border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
             <div className="max-h-96 overflow-y-auto">
-              <div className="space-y-1">
-                {group.downloads.map((d) => (
-                  <div key={d.id} className="p-3 rounded bg-themed-secondary">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`text-xs font-medium service-${d.service.toLowerCase()}`}>
-                          {d.service}
-                        </span>
-                        <span className="text-xs text-themed-muted truncate">{d.clientIp}</span>
-                      </div>
-                      <div className="text-xs text-themed-muted">
-                        {formatBytes(d.totalBytes || 0)}
+              <div className="divide-y divide-[var(--theme-border-primary)]">
+                {group.downloads.map((d, index) => {
+                  const downloadHitPercent = d.totalBytes && d.totalBytes > 0
+                    ? ((d.cacheHitBytes || 0) / d.totalBytes) * 100
+                    : 0;
+
+                  return (
+                    <div
+                      key={d.id}
+                      className={`p-3 ${
+                        index % 2 === 0 ? 'bg-[var(--theme-bg-secondary)]' : 'bg-[var(--theme-bg-tertiary)]'
+                      } hover:bg-[var(--theme-bg-primary)] transition-colors`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 flex-1">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                            d.endTime
+                              ? 'bg-green-500/20 text-green-400'
+                              : 'bg-yellow-500/20 text-yellow-400'
+                          }`}>
+                            {d.endTime ? 'complete' : 'in-progress'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-[var(--theme-text-secondary)]">
+                                {d.clientIp}
+                              </span>
+                              <span className="text-xs text-[var(--theme-text-muted)]">
+                                {formatRelativeTime(d.startTime)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xs font-medium text-[var(--theme-text-primary)]">
+                            {formatBytes(d.totalBytes || 0)}
+                          </span>
+                          {d.totalBytes && d.totalBytes > 0 && (
+                            <span className={`text-xs ${
+                              downloadHitPercent > 75
+                                ? 'text-green-500'
+                                : downloadHitPercent > 25
+                                ? 'text-yellow-500'
+                                : 'text-red-500'
+                            }`}>
+                              {formatPercent(downloadHitPercent)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
-          </>
+          </div>
         )}
-      </Card>
+      </div>
     );
   }, [expandedGroup]);
 
@@ -750,223 +820,280 @@ const DownloadsTab: React.FC = () => {
     const IconComponent = downloadType.icon;
     const game = download.id ? gameInfo[download.id] : undefined;
 
-    // Normal view - show more details inline
+    // Find the index only among downloads (not groups)
+    const downloads = itemsToDisplay.filter(item => !('downloads' in item)) as Download[];
+    const rowIndex = downloads.indexOf(download);
+    const isEvenRow = rowIndex % 2 === 0;
+
+    // Normal view - game header alongside content
     if (settings.viewMode === 'normal') {
-      // For Steam games with names, show the full experience
-      if (isSteam && download.gameName &&
-          download.gameName !== 'Unknown Steam Game' &&
-          !download.gameName.match(/^Steam App \d+$/)) {
-      return (
-        <Card key={download.id} padding="md" className="mb-3">
-          <div className="flex flex-col sm:flex-row gap-4 items-start">
-            {/* Game header image */}
-            <div className="flex-shrink-0 w-full sm:w-auto">
-              <ImageWithFallback
-                src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
-                alt={download.gameName || 'Game'}
-                className="rounded shadow-md w-full sm:w-[184px] h-[88px]"
-                style={{ objectFit: 'cover' }}
-                fallback={
-                  <div
-                    className="rounded flex items-center justify-center shadow-md w-full sm:w-[184px] h-[88px]"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      border: '1px solid var(--theme-border-primary)'
-                    }}
-                  >
-                    <Gamepad2
-                      className="w-10 h-10"
-                      style={{ color: 'var(--theme-text-muted)' }}
-                    />
-                  </div>
-                }
-              />
-            </div>
+      const hitPercent = download.totalBytes > 0 ? ((download.cacheHitBytes || 0) / download.totalBytes) * 100 : 0;
+      const showGameImage = isSteam && download.gameName &&
+                           download.gameName !== 'Unknown Steam Game' &&
+                           !download.gameName.match(/^Steam App \d+$/);
 
-            {/* Game details */}
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                <div className="flex-1">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-1">
-                    <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
-                      {download.service}
-                    </span>
-                    <h3 className="text-base font-semibold text-themed-primary truncate">
-                      {download.gameName}
-                    </h3>
-                  </div>
+      // For Steam games with headers - use header at native aspect ratio
+      if (showGameImage) {
+        return (
+          <div
+            key={download.id}
+            className={`rounded-lg mb-3 border transition-all hover:shadow-lg ${
+              isEvenRow ? 'bg-[var(--theme-bg-secondary)]/30' : 'bg-[var(--theme-bg-primary)]'
+            }`}
+            style={{ borderColor: 'var(--theme-border-primary)' }}
+          >
+            <div className="flex">
+              {/* Game header on the left - native aspect ratio */}
+              <div className="flex-shrink-0">
+                <ImageWithFallback
+                  src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
+                  alt={download.gameName || 'Game'}
+                  className="w-[230px] h-[108px] rounded-l-lg object-cover"
+                  fallback={
+                    <div
+                      className="w-[230px] h-[108px] rounded-l-lg flex items-center justify-center"
+                      style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                    >
+                      <Gamepad2 className="w-10 h-10" style={{ color: 'var(--theme-text-muted)' }} />
+                    </div>
+                  }
+                />
+              </div>
 
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-sm text-themed-secondary mb-2">
-                    <div className="flex items-center gap-2">
-                      <IconComponent size={14} className={downloadType.iconColor} />
-                      <span>{downloadType.description}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Users size={14} />
-                      <span className="truncate">{download.clientIp}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock size={14} />
-                      <span>{formatRelativeTime(download.startTime)}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6">
-                    <div>
-                      <span className="text-xs text-themed-muted">Size: </span>
-                      <span className="text-sm font-medium text-themed-primary">
-                        {formatBytes(download.totalBytes || 0)}
+              {/* Content on the right */}
+              <div className="flex-1 p-4 min-w-0">
+                {/* Header with service and name */}
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`px-2 py-0.5 text-xs font-bold rounded ${getServiceBadgeClasses(download.service)}`}>
+                        {download.service.toUpperCase()}
                       </span>
+                      <h3 className="text-base font-bold text-[var(--theme-text-primary)] truncate">
+                        {download.gameName}
+                      </h3>
                     </div>
-                    {download.totalBytes && download.totalBytes > 0 && (
-                      <div>
-                        <span className="text-xs text-themed-muted">Cache Hit: </span>
-                        <span className="text-sm font-medium text-themed-primary">
-                          {formatPercent((download.cacheHitBytes || 0) / download.totalBytes * 100)}
-                        </span>
+                    <div className="flex items-center gap-4 text-xs text-[var(--theme-text-muted)]">
+                      <div className="flex items-center gap-1">
+                        <Users size={12} />
+                        <span>{download.clientIp}</span>
                       </div>
-                    )}
-                    {download.cacheHitBytes > 0 && (
-                      <div>
-                        <span className="text-xs text-themed-muted">Saved: </span>
-                        <span className="text-sm font-medium text-green-500">
-                          {formatBytes(download.cacheHitBytes)}
-                        </span>
+                      <div className="flex items-center gap-1">
+                        <Clock size={12} />
+                        <span>{formatRelativeTime(download.startTime)}</span>
                       </div>
-                    )}
+                    </div>
                   </div>
-                </div>
-
-                {/* Steam link button */}
-                <div className="ml-0 sm:ml-4">
                   <a
                     href={`https://store.steampowered.com/app/${download.gameAppId}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
+                    className="p-1.5 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)] hover:text-[var(--theme-primary)]"
+                    title="View in Steam Store"
                   >
                     <ExternalLink size={14} />
-                    <span>View on Steam</span>
                   </a>
+                </div>
+
+                {/* Stats row */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-6">
+                    <div>
+                      <div className="text-xs text-[var(--theme-text-muted)]">Size</div>
+                      <div className="text-lg font-bold text-[var(--theme-text-primary)]">
+                        {formatBytes(download.totalBytes || 0)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[var(--theme-text-muted)]">Cache Hit</div>
+                      <div className="text-lg font-bold text-green-500">
+                        {formatPercent(hitPercent)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-[var(--theme-text-muted)]">Saved</div>
+                      <div className="text-lg font-bold text-blue-500">
+                        {formatBytes(download.cacheHitBytes || 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="flex-1 max-w-[200px]">
+                    <div className="w-full h-2 bg-[var(--theme-bg-tertiary)] rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300"
+                        style={{ width: `${Math.min(hitPercent, 100)}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </Card>
-      );
+        );
       }
 
-      // Normal view for non-Steam or other downloads
+      // For non-Steam or downloads without game headers
       return (
-        <Card key={download.id} padding="md" className="mb-3">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
-                  {download.service}
+        <div
+          key={download.id}
+          className={`rounded-lg mb-3 border transition-all hover:shadow-md ${
+            isEvenRow ? 'bg-[var(--theme-bg-secondary)]/30' : 'bg-[var(--theme-bg-primary)]'
+          }`}
+          style={{ borderColor: 'var(--theme-border-primary)' }}
+        >
+          <div className="p-4">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <span className={`px-3 py-1 text-xs font-bold rounded ${getServiceBadgeClasses(download.service)}`}>
+                  {download.service.toUpperCase()}
                 </span>
                 {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                  <h3 className="text-base font-semibold text-themed-primary">
+                  <h3 className="text-base font-semibold text-[var(--theme-text-primary)]">
                     {download.gameName}
                   </h3>
                 )}
+              </div>
+              <div className="text-right">
+                <div className="text-xl font-bold text-[var(--theme-text-primary)]">
+                  {formatBytes(download.totalBytes || 0)}
+                </div>
+              </div>
+            </div>
+
+            {/* Client info */}
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <IconComponent size={14} className={downloadType.iconColor} />
-                  <span className="text-sm text-themed-secondary">{downloadType.description}</span>
+                  <Users size={14} className="text-[var(--theme-text-muted)]" />
+                  <span className="text-[var(--theme-text-secondary)]">Client:</span>
+                  <span className="font-medium text-[var(--theme-text-primary)]">{download.clientIp}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock size={14} className="text-[var(--theme-text-muted)]" />
+                  <span className="font-medium text-[var(--theme-text-primary)]">
+                    {formatRelativeTime(download.startTime)}
+                  </span>
                 </div>
               </div>
 
-              <div className="flex items-center gap-6 text-sm text-themed-secondary">
-                <div className="flex items-center gap-2">
-                  <Users size={14} />
-                  <span>{download.clientIp}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock size={14} />
-                  <span>{formatRelativeTime(download.startTime)}</span>
-                </div>
-                <div>
-                  <span className="text-xs text-themed-muted">Size: </span>
-                  <span className="font-medium text-themed-primary">
-                    {formatBytes(download.totalBytes || 0)}
-                  </span>
-                </div>
-                {download.totalBytes && download.totalBytes > 0 && (
-                  <div>
-                    <span className="text-xs text-themed-muted">Cache Hit: </span>
-                    <span className="font-medium text-themed-primary">
-                      {formatPercent((download.cacheHitBytes || 0) / download.totalBytes * 100)}
-                    </span>
-                  </div>
-                )}
+              {/* Stats */}
+              <div className="flex items-center gap-4">
                 {download.cacheHitBytes > 0 && (
-                  <div>
-                    <span className="text-xs text-themed-muted">Saved: </span>
-                    <span className="font-medium text-green-500">
-                      {formatBytes(download.cacheHitBytes)}
-                    </span>
-                  </div>
+                  <>
+                    <div className="text-sm">
+                      <span className="text-[var(--theme-text-muted)]">Cache: </span>
+                      <span className="font-bold text-green-500">{formatPercent(hitPercent)}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-[var(--theme-text-muted)]">Saved: </span>
+                      <span className="font-bold text-blue-500">{formatBytes(download.cacheHitBytes || 0)}</span>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
+
+            {/* Progress bar for items with cache */}
+            {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
+              <div className="mt-3">
+                <div className="w-full h-2 bg-[var(--theme-bg-tertiary)] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300"
+                    style={{ width: `${Math.min(hitPercent, 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
-        </Card>
+        </div>
       );
     }
 
-    // Compact view - original expandable layout
+    // Compact view with aligned columns
     return (
-      <Card key={download.id} padding="sm">
-        <div onClick={() => canExpand ? handleDownloadClick(download) : undefined} className={canExpand ? 'cursor-pointer' : ''}>
-          <div className="flex items-center justify-between py-1 min-w-0">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                {canExpand && (
-                  <ChevronRight
-                    size={16}
-                    className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                  />
-                )}
-                <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
-                  {download.service}
-                </span>
-              </div>
+      <div
+        key={download.id}
+        className={`
+          group transition-all duration-200 border-b
+          ${isEvenRow ? 'bg-[var(--theme-bg-primary)]' : 'bg-[var(--theme-bg-secondary)]/30'}
+          ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}
+        `}
+        style={{ borderColor: 'var(--theme-border-primary)' }}
+        onClick={() => canExpand ? handleDownloadClick(download) : undefined}
+      >
+        <div className="px-4 py-2">
+          <div className="flex items-center">
+            {/* Service - Fixed width */}
+            <div className="w-24 flex items-center gap-2">
+              {canExpand && (
+                <ChevronRight
+                  size={16}
+                  className={`transition-transform text-themed-muted ${isExpanded ? 'rotate-90' : ''}`}
+                />
+              )}
+              <span className={`text-sm font-medium service-${download.service.toLowerCase()}`}>
+                {download.service}
+              </span>
+            </div>
 
+            {/* Status - Fixed width */}
+            <div className="w-28 flex items-center">
+              <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                downloadType.label === 'Cached' ? 'bg-green-500/10 text-green-500' :
+                downloadType.label.includes('%') ? 'bg-yellow-500/10 text-yellow-500' :
+                'bg-gray-500/10 text-gray-400'
+              }`}>
+                <IconComponent size={12} />
+                <span>{downloadType.label}</span>
+              </div>
+            </div>
+
+            {/* Game Name - Flexible width */}
+            <div className="flex-1 min-w-0 px-2">
               {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                <span className="text-sm text-themed-primary font-medium truncate">
+                <span className="text-sm text-themed-primary truncate block">
                   {download.gameName}
                 </span>
               )}
+            </div>
 
-              <div className="flex items-center gap-2">
-                <IconComponent size={14} className={downloadType.iconColor} />
-                <span className="text-xs text-themed-muted">{downloadType.description}</span>
+            {/* Client - Fixed width, hidden mobile */}
+            <div className="hidden md:block w-32">
+              <div className="flex items-center gap-1.5">
+                <Users size={14} className="text-themed-muted" />
+                <span className="text-sm text-themed-secondary">{download.clientIp}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-6 flex-shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <Users size={14} className="text-themed-muted flex-shrink-0" />
-                <span className="text-xs text-themed-muted truncate">{download.clientIp}</span>
+            {/* Time - Fixed width, hidden mobile */}
+            <div className="hidden md:block w-24">
+              <div className="flex items-center gap-1.5">
+                <Clock size={14} className="text-themed-muted" />
+                <span className="text-sm text-themed-secondary">{formatRelativeTime(download.startTime)}</span>
               </div>
+            </div>
 
-              <div className="text-right min-w-0">
-                <div className="text-sm font-medium text-themed-primary">
-                  {formatBytes(download.totalBytes || 0)}
-                </div>
-                {download.totalBytes && download.totalBytes > 0 && (
-                  <div className="text-xs text-themed-muted">
-                    {formatPercent((download.cacheHitBytes || 0) / download.totalBytes * 100)} hit
-                  </div>
-                )}
+            {/* Size - Fixed width */}
+            <div className="w-24 text-right">
+              <div className="text-sm font-medium text-themed-primary">
+                {formatBytes(download.totalBytes || 0)}
               </div>
+              {download.cacheHitBytes > 0 && (
+                <div className="text-xs text-themed-secondary">
+                  {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
+                </div>
+              )}
             </div>
           </div>
+        </div>
 
-          {isExpanded && canExpand && (
-            <>
-              <div className="border-t border-themed-secondary my-4" />
+        {isExpanded && canExpand && (
+          <div className="px-4 pb-4 pt-2">
+            <div className="border-t border-[var(--theme-border-primary)]/20 my-3" />
               {loadingGame === download.id ? (
                 <div className="flex justify-center py-4">
                   <Loader className="w-6 h-6 animate-spin" />
@@ -1065,10 +1192,9 @@ const DownloadsTab: React.FC = () => {
                   </div>
                 </div>
               )}
-            </>
-          )}
-        </div>
-      </Card>
+          </div>
+        )}
+      </div>
     );
     } catch (error) {
       console.error('Error rendering download:', error, download);
@@ -1138,91 +1264,140 @@ const DownloadsTab: React.FC = () => {
     <div className="space-y-4">
       {/* Controls */}
       <Card padding="sm">
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center w-full">
-            <EnhancedDropdown
-              options={serviceOptions}
-              value={settings.selectedService}
-              onChange={(value) =>
-                setSettings({ ...settings, selectedService: value })
-              }
-              className="w-full sm:w-40"
-            />
-
-            <EnhancedDropdown
-              options={itemsPerPageOptions}
-              value={
-                settings.itemsPerPage === 'unlimited'
-                  ? 'unlimited'
-                  : settings.itemsPerPage.toString()
-              }
-              onChange={(value) =>
-                setSettings({
-                  ...settings,
-                  itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
-                })
-              }
-              className="w-full sm:w-32"
-            />
-
-            <EnhancedDropdown
-              options={[
-                { value: 'latest', label: 'Latest First' },
-                { value: 'oldest', label: 'Oldest First' },
-                { value: 'largest', label: 'Largest First' },
-                { value: 'smallest', label: 'Smallest First' },
-                { value: 'service', label: 'By Service' }
-              ]}
-              value={settings.sortOrder}
-              onChange={(value) =>
-                setSettings({ ...settings, sortOrder: value as any })
-              }
-              className="w-full sm:w-40"
-            />
-          </div>
-
-          <div className="flex gap-2 justify-end sm:justify-start w-full sm:w-auto">
-            {/* View Mode Toggle */}
-            <div className="flex rounded-lg bg-themed-tertiary p-1">
+        <div className="flex flex-col gap-3">
+          {/* Mobile: View controls at top */}
+          <div className="flex sm:hidden items-center justify-between">
+            <span className="text-sm font-medium text-themed-primary">Downloads</span>
+            <div className="flex gap-2">
+              {/* View Mode Toggle */}
+              <div className="flex rounded-lg bg-themed-tertiary p-1">
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
+                  className={`px-2 py-1 rounded-md transition-colors ${
+                    settings.viewMode === 'compact'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary hover:text-themed-primary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Compact View"
+                >
+                  <List size={16} />
+                </button>
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
+                  className={`px-2 py-1 rounded-md transition-colors ${
+                    settings.viewMode === 'normal'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary hover:text-themed-primary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Normal View"
+                >
+                  <Grid3x3 size={16} />
+                </button>
+              </div>
               <button
-                onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
-                className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
-                  settings.viewMode === 'compact'
-                    ? 'bg-primary'
-                    : 'text-themed-secondary hover:text-themed-primary'
-                }`}
-                style={{
-                  color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
-                }}
-                title="Compact View"
+                onClick={() => setSettingsOpened(!settingsOpened)}
+                className="p-1.5 rounded hover:bg-themed-hover transition-colors"
+                title="Settings"
               >
-                <List size={16} />
-                <span className="text-xs hidden sm:inline">Compact</span>
-              </button>
-              <button
-                onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
-                className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
-                  settings.viewMode === 'normal'
-                    ? 'bg-primary'
-                    : 'text-themed-secondary hover:text-themed-primary'
-                }`}
-                style={{
-                  color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
-                }}
-                title="Normal View"
-              >
-                <Grid3x3 size={16} />
-                <span className="text-xs hidden sm:inline">Normal</span>
+                <Settings size={18} />
               </button>
             </div>
+          </div>
 
-            <button
-              onClick={() => setSettingsOpened(!settingsOpened)}
-              className="p-2 rounded hover:bg-themed-hover transition-colors"
-              title="Settings"
-            >
-              <Settings size={18} />
-            </button>
+          {/* Dropdowns and Desktop View Controls */}
+          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
+            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1 w-full sm:w-auto">
+              <EnhancedDropdown
+                options={serviceOptions}
+                value={settings.selectedService}
+                onChange={(value) =>
+                  setSettings({ ...settings, selectedService: value })
+                }
+                className="w-full sm:w-40"
+              />
+
+              <EnhancedDropdown
+                options={itemsPerPageOptions}
+                value={
+                  settings.itemsPerPage === 'unlimited'
+                    ? 'unlimited'
+                    : settings.itemsPerPage.toString()
+                }
+                onChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
+                  })
+                }
+                className="w-full sm:w-32"
+              />
+
+              <EnhancedDropdown
+                options={[
+                  { value: 'latest', label: 'Date (Newest)' },
+                  { value: 'oldest', label: 'Date (Oldest)' },
+                  { value: 'largest', label: 'Size (Largest)' },
+                  { value: 'smallest', label: 'Size (Smallest)' },
+                  { value: 'service', label: 'By Service' }
+                ]}
+                value={settings.sortOrder}
+                onChange={(value) =>
+                  setSettings({ ...settings, sortOrder: value as any })
+                }
+                className="w-full sm:w-40"
+              />
+            </div>
+
+            {/* Desktop only view controls */}
+            <div className="hidden sm:flex gap-2 justify-end w-auto">
+              {/* View Mode Toggle */}
+              <div className="flex rounded-lg bg-themed-tertiary p-1">
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
+                  className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                    settings.viewMode === 'compact'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary hover:text-themed-primary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Compact View"
+                >
+                  <List size={16} />
+                  <span className="text-xs">Compact</span>
+                </button>
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
+                  className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
+                    settings.viewMode === 'normal'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary hover:text-themed-primary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Normal View"
+                >
+                  <Grid3x3 size={16} />
+                  <span className="text-xs">Normal</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setSettingsOpened(!settingsOpened)}
+                className="p-2 rounded hover:bg-themed-hover transition-colors"
+                title="Settings"
+              >
+                <Settings size={18} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1303,6 +1478,17 @@ const DownloadsTab: React.FC = () => {
 
       {/* Downloads list */}
       <div>
+        {/* Table Header for Compact View */}
+        {settings.viewMode === 'compact' && (
+          <div className="hidden md:flex items-center px-4 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>
+            <div className="w-24">Service</div>
+            <div className="w-28">Status</div>
+            <div className="flex-1 px-2">Game</div>
+            <div className="w-32">Client</div>
+            <div className="w-24">Time</div>
+            <div className="w-24 text-right">Size</div>
+          </div>
+        )}
         {(settings.itemsPerPage === 'unlimited' || settings.itemsPerPage >= 200) && itemsToDisplay.length >= 200 ? (
           <VirtualizedList
             items={itemsToDisplay}
@@ -1312,7 +1498,7 @@ const DownloadsTab: React.FC = () => {
             overscan={5}
           />
         ) : (
-          <div className="flex flex-col gap-3">
+          <div className={`flex flex-col ${settings.viewMode === 'compact' ? '' : 'gap-2'}`}>
             {itemsToDisplay.map((item) => {
               if ('downloads' in item) {
                 return renderGroup(item as DownloadGroup);

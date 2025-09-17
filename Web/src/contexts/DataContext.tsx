@@ -9,6 +9,7 @@ import React, {
 import ApiService from '@services/api.service';
 import MockDataService from '@services/mockData.service';
 import { REFRESH_INTERVAL } from '@utils/constants';
+import { useTimeFilter } from './TimeFilterContext';
 
 interface CacheInfo {
   totalCacheSize: number;
@@ -99,6 +100,7 @@ interface DataProviderProps {
 }
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
+  const { getTimeRangeParams, timeRange } = useTimeFilter();
   const [mockMode, setMockMode] = useState(false);
   const [mockDownloadCount, setMockDownloadCount] = useState<number | 'unlimited'>(20);
   const [apiDownloadCount, setApiDownloadCount] = useState<number | 'unlimited'>(20);
@@ -146,6 +148,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   };
 
   const fetchData = async () => {
+    const { startTime, endTime } = getTimeRangeParams();
     if (fetchInProgress.current && !isInitialLoad.current) {
       return;
     }
@@ -197,7 +200,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
               // Phase 2: Limited downloads for initial display (cap at 20)
               const latest = await ApiService.getLatestDownloads(
                 abortControllerRef.current.signal,
-                20
+                20,
+                startTime,
+                endTime
               );
               if (latest) {
                 setLatestDownloads(latest);
@@ -210,8 +215,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
                 try {
                   const [clients, services] = await Promise.all([
-                    ApiService.getClientStats(abortControllerRef.current!.signal),
-                    ApiService.getServiceStats(abortControllerRef.current!.signal)
+                    ApiService.getClientStats(abortControllerRef.current!.signal, startTime, endTime),
+                    ApiService.getServiceStats(abortControllerRef.current!.signal, null, startTime, endTime)
                   ]);
                   if (clients) setClientStats(clients);
                   if (services) setServiceStats(services);
@@ -225,9 +230,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
               const [cache, active, latest, clients, services] = await Promise.allSettled([
                 ApiService.getCacheInfo(abortControllerRef.current.signal),
                 ApiService.getActiveDownloads(abortControllerRef.current.signal),
-                ApiService.getLatestDownloads(abortControllerRef.current.signal, cappedCount),
-                ApiService.getClientStats(abortControllerRef.current.signal),
-                ApiService.getServiceStats(abortControllerRef.current.signal)
+                ApiService.getLatestDownloads(abortControllerRef.current.signal, cappedCount, startTime, endTime),
+                ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
+                ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime)
               ]);
 
               if (cache.status === 'fulfilled' && cache.value !== undefined) {
@@ -329,7 +334,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         }
       };
     }
-  }, [isProcessingLogs, mockMode, apiDownloadCount]);
+  }, [isProcessingLogs, mockMode, apiDownloadCount, timeRange]);
 
   // Mock mode changes
   useEffect(() => {

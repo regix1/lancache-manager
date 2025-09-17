@@ -3,21 +3,10 @@ import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { CacheInfoTooltip } from '../common/Tooltip';
+import { getServiceColorClass } from '../../utils/serviceColors';
 
 const ServicesTab: React.FC = () => {
   const { serviceStats } = useData();
-
-  const getServiceColor = (service: string): string => {
-    const colors: Record<string, string> = {
-      steam: 'service-steam',
-      epic: 'service-epic',
-      origin: 'service-origin',
-      blizzard: 'service-blizzard',
-      wsus: 'service-wsus',
-      riot: 'service-riot'
-    };
-    return colors[service.toLowerCase()] || 'text-themed-muted';
-  };
 
   return (
     <Card>
@@ -43,7 +32,7 @@ const ServicesTab: React.FC = () => {
             {serviceStats.length > 0 ? (
               serviceStats.map((service, idx) => (
                 <tr key={idx} className="border-t border-themed-secondary">
-                  <td className={`py-3 font-medium text-sm ${getServiceColor(service.service)}`}>
+                  <td className={`py-3 font-medium text-sm ${getServiceColorClass(service.service)}`}>
                     {service.service}
                   </td>
                   <td className="py-3 text-themed-secondary hidden sm:table-cell">{service.totalDownloads}</td>

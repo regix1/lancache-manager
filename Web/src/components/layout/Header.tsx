@@ -1,5 +1,6 @@
 import React from 'react';
 import { Monitor, Wifi } from 'lucide-react';
+import TimeFilter from '../common/TimeFilter';
 
 interface HeaderProps {
   title?: string;
@@ -63,7 +64,8 @@ const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <TimeFilter />
             <div className={`flex items-center space-x-1 ${status.color}`}>
               {status.icon}
               <span className="text-xs sm:text-sm font-medium hidden sm:inline">{status.text}</span>

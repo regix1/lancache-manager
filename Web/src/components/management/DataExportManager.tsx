@@ -312,11 +312,14 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
             <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
           </div>
           {metricsSecured !== null && (
-            <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${
+            <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium ${
               metricsSecured
                 ? 'access-indicator-secured'
                 : 'access-indicator-public'
-            }`}>
+            }`}
+            style={{
+              border: '1px solid var(--theme-border)'
+            }}>
               {metricsSecured ? (
                 <>
                   <Lock className="w-3 h-3" />
@@ -339,7 +342,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
         </p>
 
         <div className="space-y-3">
-          <div className="p-3 rounded-lg border themed-card">
+          <div className="p-3 rounded-lg themed-card" style={{ border: '1px solid var(--theme-border)' }}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
               <Button
@@ -355,7 +358,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
             <p className="text-xs text-themed-muted mt-1">OpenMetrics format for Prometheus scraping</p>
           </div>
 
-          <div className="p-3 rounded-lg border themed-card">
+          <div className="p-3 rounded-lg themed-card" style={{ border: '1px solid var(--theme-border)' }}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-themed-primary">JSON Metrics</span>
               <Button
@@ -421,15 +424,15 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
                       setSelectedFormat(option.formats[0]);
                     }
                   }}
-                  className={`p-3 rounded-lg border-2 transition-all text-left relative overflow-hidden themed-card ${
-                    selectedType === option.type 
-                      ? 'bg-themed-tertiary' 
+                  className={`p-3 rounded-lg transition-all text-left relative overflow-hidden themed-card ${
+                    selectedType === option.type
+                      ? 'bg-themed-tertiary'
                       : 'hover:bg-themed-hover'
                   }`}
                   style={{
-                    borderColor: selectedType === option.type 
-                      ? 'var(--theme-primary)' 
-                      : 'var(--theme-card-border)'
+                    border: selectedType === option.type
+                      ? '2px solid var(--theme-primary)'
+                      : '2px solid var(--theme-border)'
                   }}
                 >
                   <div className="flex items-start space-x-3 relative z-10">

@@ -70,11 +70,16 @@ class ApiService {
 
   static async getLatestDownloads(
     signal?: AbortSignal,
-    count: number | 'unlimited' = 50
+    count: number | 'unlimited' = 50,
+    startTime?: number,
+    endTime?: number
   ): Promise<Download[]> {
     try {
       const actualCount = count === 'unlimited' ? 9999 : count;
-      const res = await fetch(`${API_BASE}/downloads/latest?count=${actualCount}`, {
+      let url = `${API_BASE}/downloads/latest?count=${actualCount}`;
+      if (startTime) url += `&startTime=${startTime}`;
+      if (endTime) url += `&endTime=${endTime}`;
+      const res = await fetch(url, {
         signal,
         headers: this.getHeaders()
       });
@@ -88,9 +93,14 @@ class ApiService {
     }
   }
 
-  static async getClientStats(signal?: AbortSignal): Promise<ClientStat[]> {
+  static async getClientStats(signal?: AbortSignal, startTime?: number, endTime?: number): Promise<ClientStat[]> {
     try {
-      const res = await fetch(`${API_BASE}/stats/clients`, {
+      let url = `${API_BASE}/stats/clients`;
+      const params = new URLSearchParams();
+      if (startTime) params.append('startTime', startTime.toString());
+      if (endTime) params.append('endTime', endTime.toString());
+      if (params.toString()) url += `?${params}`;
+      const res = await fetch(url, {
         signal,
         headers: this.getHeaders()
       });
@@ -106,12 +116,17 @@ class ApiService {
 
   static async getServiceStats(
     signal?: AbortSignal,
-    since: string | null = null
+    since: string | null = null,
+    startTime?: number,
+    endTime?: number
   ): Promise<ServiceStat[]> {
     try {
-      const url = since
-        ? `${API_BASE}/stats/services?since=${since}`
-        : `${API_BASE}/stats/services`;
+      let url = `${API_BASE}/stats/services`;
+      const params = new URLSearchParams();
+      if (since) params.append('since', since);
+      if (startTime) params.append('startTime', startTime.toString());
+      if (endTime) params.append('endTime', endTime.toString());
+      if (params.toString()) url += `?${params}`;
       const res = await fetch(url, {
         signal,
         headers: this.getHeaders()

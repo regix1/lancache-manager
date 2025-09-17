@@ -2181,14 +2181,15 @@ content = """
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 mb-6 border-b border-themed-border">
+        <div className="flex gap-2 mb-6 border-b" style={{ borderColor: 'var(--theme-border)' }}>
           <button
             onClick={() => setActiveTab('themes')}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === 'themes'
-                ? 'text-themed-accent border-b-2 border-themed-accent'
+                ? 'text-themed-accent'
                 : 'text-themed-muted hover:text-themed-primary'
             }`}
+            style={activeTab === 'themes' ? { borderBottom: '2px solid var(--theme-primary)' } : {}}
           >
             <Layers className="w-4 h-4 inline-block mr-2" />
             Themes ({themes.length})
@@ -2197,9 +2198,10 @@ content = """
             onClick={() => setActiveTab('customize')}
             className={`px-4 py-2 font-medium transition-colors ${
               activeTab === 'customize'
-                ? 'text-themed-accent border-b-2 border-themed-accent'
+                ? 'text-themed-accent'
                 : 'text-themed-muted hover:text-themed-primary'
             }`}
+            style={activeTab === 'customize' ? { borderBottom: '2px solid var(--theme-primary)' } : {}}
           >
             <Brush className="w-4 h-4 inline-block mr-2" />
             Customize
@@ -2249,11 +2251,11 @@ content = """
                   return (
                     <div
                       key={theme.meta.id}
-                      className="rounded-lg p-4 border-2 transition-all hover:shadow-lg themed-card relative"
+                      className="rounded-lg p-4 transition-all hover:shadow-lg themed-card relative"
                       style={{
-                        borderColor: isActive ? 'var(--theme-primary)' :
+                        border: `2px solid ${isActive ? 'var(--theme-primary)' :
                                     isPreviewing ? 'var(--theme-warning)' :
-                                    'var(--theme-border-primary)'
+                                    'var(--theme-border-primary)'}`
                       }}
                     >
                       {/* Theme Header */}
@@ -2390,8 +2392,11 @@ content = """
                           title="Background"
                         />
                         <div
-                          className="flex-1 h-6 rounded border border-themed-border"
-                          style={{ backgroundColor: theme.colors.textPrimary || '#ffffff' }}
+                          className="flex-1 h-6 rounded"
+                          style={{
+                            border: '1px solid var(--theme-border)',
+                            backgroundColor: theme.colors.textPrimary || '#ffffff'
+                          }}
                           title="Text"
                         />
                       </div>
@@ -2408,13 +2413,11 @@ content = """
                 Upload Custom Theme
               </h4>
               <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive ? 'border-purple-500 bg-purple-900 bg-opacity-20' : ''
+                className={`border-dashed rounded-lg p-8 text-center transition-colors ${
+                  dragActive ? 'bg-purple-900 bg-opacity-20' : ''
                 }`}
                 style={{
-                  borderColor: dragActive
-                    ? 'var(--theme-secondary)'
-                    : 'var(--theme-border-secondary)'
+                  border: dragActive ? '2px dashed var(--theme-primary)' : '2px dashed var(--theme-border-secondary)'
                 }}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
@@ -2722,7 +2725,8 @@ content = """
               return (
                 <div
                   key={group.name}
-                  className="border themed-card rounded-lg"
+                  className="themed-card rounded-lg"
+                  style={{ border: '1px solid var(--theme-border)' }}
                 >
                   <button
                     onClick={() => toggleGroup(group.name)}
@@ -2749,7 +2753,8 @@ content = """
 
                   {isExpanded && (
                     <div
-                      className="p-4 border-t themed-card space-y-4"
+                      className="p-4 themed-card space-y-4"
+                      style={{ borderTop: '1px solid var(--theme-border)' }}
                     >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">
@@ -3099,7 +3104,8 @@ content = """
               return (
                 <div
                   key={group.name}
-                  className="border themed-card rounded-lg"
+                  className="themed-card rounded-lg"
+                  style={{ border: '1px solid var(--theme-border)' }}
                 >
                   <button
                     onClick={() => toggleGroup(group.name)}
@@ -3126,7 +3132,8 @@ content = """
 
                   {isExpanded && (
                     <div
-                      className="p-4 border-t themed-card space-y-4"
+                      className="p-4 themed-card space-y-4"
+                      style={{ borderTop: '1px solid var(--theme-border)' }}
                     >
                       {group.colors.map((color) => (
                         <div key={color.key} className="space-y-2">

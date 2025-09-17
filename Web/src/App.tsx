@@ -1,5 +1,6 @@
 import React, { useState, Suspense, lazy } from 'react';
 import { DataProvider } from '@contexts/DataContext';
+import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import ErrorBoundary from '@components/common/ErrorBoundary';
@@ -42,19 +43,21 @@ const App: React.FC = () => {
 
   return (
     <ErrorBoundary>
-      <DataProvider>
-        <div
-          className="min-h-screen"
-          style={{
-            backgroundColor: 'var(--theme-bg-primary)',
-            color: 'var(--theme-text-primary)'
-          }}
-        >
-          <Header />
-          <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
-          <main className="container mx-auto px-4 py-6">{renderContent()}</main>
-        </div>
-      </DataProvider>
+      <TimeFilterProvider>
+        <DataProvider>
+          <div
+            className="min-h-screen"
+            style={{
+              backgroundColor: 'var(--theme-bg-primary)',
+              color: 'var(--theme-text-primary)'
+            }}
+          >
+            <Header />
+            <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+            <main className="container mx-auto px-4 py-6">{renderContent()}</main>
+          </div>
+        </DataProvider>
+      </TimeFilterProvider>
     </ErrorBoundary>
   );
 };

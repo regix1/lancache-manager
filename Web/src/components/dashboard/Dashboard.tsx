@@ -11,7 +11,6 @@ import {
   Eye,
   EyeOff,
   ChevronDown,
-  Clock,
   Search,
   GripVertical,
   Loader,
@@ -19,6 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
+import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
 import { type StatCardData, type DashboardStats } from '../../types';
@@ -67,14 +67,12 @@ const StatTooltips: Record<string, string> = {
 
 const Dashboard: React.FC = () => {
   const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats } = useData();
+  const { timeRange } = useTimeFilter();
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [loading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [timeFilterOpen, setTimeFilterOpen] = useState(false);
-  const [selectedTimeRange, setSelectedTimeRange] = useState('24h');
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const timeFilterRef = useRef<HTMLDivElement>(null);
 
   const [draggedCard, setDraggedCard] = useState<string | null>(null);
   const [dragOverCard, setDragOverCard] = useState<string | null>(null);
@@ -105,23 +103,19 @@ const Dashboard: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER, JSON.stringify(cardOrder));
   }, [cardOrder]);
 
-  const timeRanges = [
-    { label: 'Last 15 minutes', value: '15m' },
-    { label: 'Last 30 minutes', value: '30m' },
-    { label: 'Last 1 hour', value: '1h' },
-    { label: 'Last 6 hours', value: '6h' },
-    { label: 'Last 12 hours', value: '12h' },
-    { label: 'Last 24 hours', value: '24h' },
-    { label: 'Last 7 days', value: '7d' },
-    { label: 'Last 30 days', value: '30d' },
-    { label: 'Last 90 days', value: '90d' },
-    { label: 'All time', value: 'all' }
-  ];
 
-  const getTimeRangeLabel = useCallback((value: string) => {
-    const range = timeRanges.find((r) => r.value === value);
-    return range ? range.label : 'Last 24 hours';
-  }, []);
+  const getTimeRangeLabel = useCallback(() => {
+    switch (timeRange) {
+      case '1h': return 'Last hour';
+      case '6h': return 'Last 6 hours';
+      case '12h': return 'Last 12 hours';
+      case '24h': return 'Last 24 hours';
+      case '7d': return 'Last 7 days';
+      case '30d': return 'Last 30 days';
+      case 'custom': return 'Custom range';
+      default: return 'Last 24 hours';
+    }
+  }, [timeRange]);
 
   const [cardVisibility, setCardVisibility] = useState<CardVisibility>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY);
@@ -146,9 +140,6 @@ const Dashboard: React.FC = () => {
         setDropdownOpen(false);
         setSearchQuery('');
       }
-      if (timeFilterRef.current && !timeFilterRef.current.contains(event.target as Node)) {
-        setTimeFilterOpen(false);
-      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
@@ -170,7 +161,7 @@ const Dashboard: React.FC = () => {
         uniqueClients: [...new Set(downloads.map((d) => d.clientIp))].length,
         topService: services[0]?.service || 'steam',
         period: {
-          duration: selectedTimeRange,
+          duration: timeRange,
           bandwidthSaved: totalHits,
           addedToCache: totalMisses,
           totalServed: total,
@@ -179,7 +170,7 @@ const Dashboard: React.FC = () => {
         }
       };
     },
-    [selectedTimeRange, activeDownloads]
+    [timeRange, activeDownloads]
   );
 
   // Generate dashboard stats whenever data changes
@@ -378,10 +369,7 @@ const Dashboard: React.FC = () => {
         key: 'bandwidthSaved',
         title: 'Bandwidth Saved',
         value: formatBytes(stats.bandwidthSaved),
-        subtitle:
-          selectedTimeRange === 'all'
-            ? 'All-time saved'
-            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        subtitle: getTimeRangeLabel().toLowerCase(),
         icon: TrendingUp,
         color: 'emerald' as const,
         visible: cardVisibility.bandwidthSaved,
@@ -391,10 +379,7 @@ const Dashboard: React.FC = () => {
         key: 'addedToCache',
         title: 'Added to Cache',
         value: formatBytes(stats.addedToCache),
-        subtitle:
-          selectedTimeRange === 'all'
-            ? 'All-time cached'
-            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Zap,
         color: 'purple' as const,
         visible: cardVisibility.addedToCache,
@@ -404,10 +389,7 @@ const Dashboard: React.FC = () => {
         key: 'totalServed',
         title: 'Total Served',
         value: formatBytes(stats.totalServed),
-        subtitle:
-          selectedTimeRange === 'all'
-            ? 'All-time served'
-            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Server,
         color: 'indigo' as const,
         visible: cardVisibility.totalServed,
@@ -437,10 +419,7 @@ const Dashboard: React.FC = () => {
         key: 'cacheHitRatio',
         title: 'Cache Hit Ratio',
         value: formatPercent(stats.cacheHitRatio * 100),
-        subtitle:
-          selectedTimeRange === 'all'
-            ? 'Overall'
-            : getTimeRangeLabel(selectedTimeRange).toLowerCase(),
+        subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Activity,
         color: 'cyan' as const,
         visible: cardVisibility.cacheHitRatio,
@@ -451,7 +430,7 @@ const Dashboard: React.FC = () => {
       cacheInfo,
       cardVisibility,
       stats,
-      selectedTimeRange,
+      timeRange,
       getTimeRangeLabel,
       dashboardStats,
       latestDownloads
@@ -525,91 +504,6 @@ const Dashboard: React.FC = () => {
             <span className="sm:hidden">Reset Card Layout</span>
           </button>
 
-          <div className="relative order-1 sm:order-2 w-full sm:w-auto" ref={timeFilterRef}>
-            <button
-              onClick={() => setTimeFilterOpen(!timeFilterOpen)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors w-full sm:w-auto justify-between"
-              style={{
-                backgroundColor: 'var(--theme-bg-secondary)',
-                borderColor: 'var(--theme-border-primary)'
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
-              }
-            >
-              <Clock className="w-4 h-4" style={{ color: 'var(--theme-text-muted)' }} />
-              <span className="text-sm text-themed-secondary">
-                {getTimeRangeLabel(selectedTimeRange)}
-              </span>
-              <ChevronDown
-                className={`w-4 h-4 transition-transform ${timeFilterOpen ? 'rotate-180' : ''}`}
-                style={{ color: 'var(--theme-text-muted)' }}
-              />
-            </button>
-
-            {timeFilterOpen && (
-              <div
-                className="absolute left-0 sm:right-0 mt-2 w-full sm:w-56 rounded-lg border shadow-xl"
-                style={{
-                  backgroundColor: 'var(--theme-bg-secondary)',
-                  borderColor: 'var(--theme-border-primary)',
-                  zIndex: 99999
-                }}
-              >
-                <div className="p-2">
-                  <div className="text-xs font-semibold px-2 py-1.5 text-themed-muted">
-                    Time Range
-                  </div>
-                  {timeRanges.map((range) => (
-                    <button
-                      key={range.value}
-                      onClick={() => {
-                        setSelectedTimeRange(range.value);
-                        setTimeFilterOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
-                        selectedTimeRange === range.value
-                          ? 'text-themed-accent'
-                          : 'text-themed-secondary'
-                      }`}
-                      style={{
-                        backgroundColor:
-                          selectedTimeRange === range.value
-                            ? 'var(--theme-bg-hover)'
-                            : 'transparent'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (selectedTimeRange !== range.value) {
-                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (selectedTimeRange !== range.value) {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                        }
-                      }}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span>{range.label}</span>
-                        {selectedTimeRange === range.value && (
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path
-                              fillRule="evenodd"
-                              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                              clipRule="evenodd"
-                            />
-                          </svg>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -733,7 +627,7 @@ const Dashboard: React.FC = () => {
         <div className="text-center py-4">
           <div className="inline-flex items-center gap-2 text-themed-muted">
             <Loader className="animate-spin h-5 w-5" />
-            <span>Loading {getTimeRangeLabel(selectedTimeRange).toLowerCase()} data...</span>
+            <span>Loading {getTimeRangeLabel().toLowerCase()} data...</span>
           </div>
         </div>
       )}
@@ -792,7 +686,7 @@ const Dashboard: React.FC = () => {
             onClick={() => handleCardTap(card.key)}
           >
             {/* Desktop drag handle - smaller, hover-triggered */}
-            {!timeFilterOpen && (
+            {(
               <div
                 className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all p-1 rounded hidden md:block"
                 style={{
@@ -821,7 +715,7 @@ const Dashboard: React.FC = () => {
             )}
 
             {/* Mobile drag handle - small, transparent, always visible in top-left */}
-            {!timeFilterOpen && (
+            {(
               <div
                 className="absolute top-2 left-2 transition-all p-1 rounded md:hidden opacity-60"
                 style={{
@@ -875,15 +769,15 @@ const Dashboard: React.FC = () => {
 
       {/* Charts Row - Pass the actual data arrays */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EnhancedServiceChart serviceStats={serviceStats || []} timeRange={selectedTimeRange} />
-        <RecentDownloadsPanel downloads={latestDownloads || []} timeRange={selectedTimeRange} />
+        <EnhancedServiceChart serviceStats={serviceStats || []} timeRange={timeRange} />
+        <RecentDownloadsPanel downloads={latestDownloads || []} timeRange={timeRange} />
       </div>
 
       {/* Top Clients - Pass the actual data arrays */}
       <TopClientsTable
         clientStats={clientStats || []}
         downloads={latestDownloads || []}
-        timeRange={selectedTimeRange}
+        timeRange={timeRange}
       />
     </div>
   );
