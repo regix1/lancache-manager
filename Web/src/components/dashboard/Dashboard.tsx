@@ -420,18 +420,21 @@ const Dashboard: React.FC = () => {
       (card.subtitle && card.subtitle.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const getIconGradient = (color: string) => {
-    const gradients: Record<string, string> = {
-      blue: 'from-blue-500 to-blue-600',
-      green: 'from-green-500 to-green-600',
-      emerald: 'from-emerald-500 to-emerald-600',
-      purple: 'from-purple-500 to-purple-600',
-      indigo: 'from-indigo-500 to-indigo-600',
-      orange: 'from-orange-500 to-orange-600',
-      yellow: 'from-yellow-500 to-yellow-600',
-      cyan: 'from-cyan-500 to-cyan-600'
+  const getIconStyle = (color: string): React.CSSProperties => {
+    const iconColors: Record<string, string> = {
+      blue: 'var(--theme-icon-blue)',
+      green: 'var(--theme-icon-green)',
+      emerald: 'var(--theme-icon-emerald)',
+      purple: 'var(--theme-icon-purple)',
+      indigo: 'var(--theme-icon-indigo)',
+      orange: 'var(--theme-icon-orange)',
+      yellow: 'var(--theme-icon-yellow)',
+      cyan: 'var(--theme-icon-cyan)'
     };
-    return gradients[color] || 'from-gray-500 to-gray-600';
+
+    return {
+      backgroundColor: iconColors[color] || 'var(--theme-icon-gray)'
+    };
   };
 
   return (
@@ -564,7 +567,8 @@ const Dashboard: React.FC = () => {
                         }
                       >
                         <div
-                          className={`p-2 rounded-lg bg-gradient-to-br ${getIconGradient(card.color)} group-hover:scale-110 transition-transform`}
+                          className="p-2 rounded-lg group-hover:scale-110 transition-transform"
+                          style={getIconStyle(card.color)}
                         >
                           <Icon className="w-5 h-5 text-white" />
                         </div>
