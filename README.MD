@@ -7,6 +7,28 @@ A modern, real-time monitoring interface for LanCache deployments. Track bandwid
 Dashboard:
 <img width="1513" height="1243" alt="Image" src="https://github.com/user-attachments/assets/ad649ed7-2be6-40b5-961f-01f74e8ab5f8" />
 
+Downloads: 
+Compact:
+<img width="1514" height="1013" alt="Image" src="https://github.com/user-attachments/assets/2f21d574-af3a-4657-819f-33a3de2035dc" />
+Normal:
+<img width="1524" height="815" alt="Image" src="https://github.com/user-attachments/assets/bac42c75-6ff0-4d13-ad58-1f95f7762784" />
+Grouped:
+<img width="1520" height="758" alt="Image" src="https://github.com/user-attachments/assets/5f292a26-6cfe-4b46-91aa-605bc9c161d2" />
+
+Clients:
+<img width="1534" height="1070" alt="Image" src="https://github.com/user-attachments/assets/f4b73c9a-d736-4623-be9d-ca6b906be628" />
+
+Management:
+<img width="1521" height="1159" alt="Image" src="https://github.com/user-attachments/assets/67cf91ce-545d-4139-9ba0-15e039e25498" />
+<img width="1513" height="754" alt="Image" src="https://github.com/user-attachments/assets/826af5c3-f8ee-47b8-992e-52f6c8884d1f" />
+
+Theme:
+<img width="1519" height="1061" alt="Image" src="https://github.com/user-attachments/assets/7720781a-4a35-4f68-8b7e-1c196c8ac1ec" />
+<img width="893" height="1120" alt="Image" src="https://github.com/user-attachments/assets/9b251b7b-0a8d-42ac-b646-bf7fd4d09a15" />
+
+Sage Wood Screenshot Example:
+<img width="1518" height="1019" alt="Image" src="https://github.com/user-attachments/assets/c2a90c2b-70d8-4e8f-83cb-d851c5a3063e" />
+
 ### Real-time Dashboard
 - Live bandwidth monitoring with interactive charts
 - Cache hit rate tracking and analysis
