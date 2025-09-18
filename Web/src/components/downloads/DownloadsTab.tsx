@@ -110,6 +110,19 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
     // Set a timeout for image loading (10 seconds)
     timeoutRef.current = setTimeout(() => {
       if (isLoading) {
+        const timestamp = new Date().toISOString();
+        if (currentSrc.includes('/gameimages/')) {
+          const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
+          const appId = appIdMatch ? appIdMatch[1] : 'unknown';
+          const source = triedFallback ? 'Steam CDN' : 'local API';
+          console.error(`[${timestamp}] TIMEOUT: Steam header for "${alt}" (AppID: ${appId}) timed out after 10 seconds from ${source}`, {
+            url: currentSrc,
+            gameName: alt,
+            appId,
+            source,
+            triedFallback
+          });
+        }
         setHasError(true);
         setIsLoading(false);
         onError?.();
@@ -127,6 +140,16 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
+
+    // Enhanced success logging to compare with failures
+    const timestamp = new Date().toISOString();
+    if (currentSrc.includes('/gameimages/')) {
+      const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
+      const appId = appIdMatch ? appIdMatch[1] : 'unknown';
+      const source = triedFallback ? 'Steam CDN' : 'local API';
+      console.log(`[${timestamp}] SUCCESS: Loaded Steam header for "${alt}" (AppID: ${appId}) from ${source}`);
+    }
+
     setIsLoading(false);
     onLoad?.();
   };
@@ -136,13 +159,17 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
       clearTimeout(timeoutRef.current);
     }
 
+    // Enhanced debugging for identical game failures
+    const timestamp = new Date().toISOString();
+    const loadTime = Date.now() - (timeoutRef.current ? 0 : Date.now()); // Approximate
+
     // Try Steam CDN fallback for Steam game images
     if (!triedFallback && currentSrc.includes('/gameimages/')) {
       const steamCdnUrl = getSteamCdnUrl(currentSrc);
       if (steamCdnUrl) {
         const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
         const appId = appIdMatch ? appIdMatch[1] : 'unknown';
-        console.warn(`Failed to load Steam game header from local API. AppID: ${appId}, trying Steam CDN fallback...`);
+        console.warn(`[${timestamp}] Failed to load Steam game header from local API. AppID: ${appId}, Game: ${alt}, trying Steam CDN fallback...`);
 
         setTriedFallback(true);
         setCurrentSrc(steamCdnUrl);
@@ -151,14 +178,22 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
       }
     }
 
-    // Enhanced logging for final failures
+    // Enhanced logging for final failures with more context
     if (currentSrc.includes('/gameimages/')) {
       const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
       const appId = appIdMatch ? appIdMatch[1] : 'unknown';
       const source = triedFallback ? 'Steam CDN' : 'local API';
-      console.warn(`Failed to load Steam game header image from ${source}. AppID: ${appId}, URL: ${currentSrc}, Alt: ${alt}`, error);
+      console.error(`[${timestamp}] CRITICAL: Failed to load Steam header for "${alt}" (AppID: ${appId}) from ${source}`, {
+        url: currentSrc,
+        gameName: alt,
+        appId,
+        source,
+        triedFallback,
+        error: error?.type || 'unknown',
+        loadTime: `${loadTime}ms`
+      });
     } else {
-      console.warn(`Failed to load image: ${currentSrc}`, error);
+      console.warn(`[${timestamp}] Failed to load image: ${currentSrc} for ${alt}`, error);
     }
 
     setHasError(true);
@@ -201,6 +236,7 @@ const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
         </div>
       )}
       <img
+        key={`${src}-${triedFallback ? 'fallback' : 'original'}`}
         src={currentSrc}
         alt={alt}
         className={className}
