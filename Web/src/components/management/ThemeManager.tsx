@@ -2237,6 +2237,24 @@ content = """
               )}
             </div>
 
+            {/* Sharp Corners Toggle */}
+            <div className="mb-6 p-4 rounded-lg bg-themed-tertiary">
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <span className="text-sm font-medium text-themed-secondary">Sharp Corners</span>
+                  <p className="text-xs text-themed-muted mt-1">
+                    Use sharp corners instead of rounded ones throughout the interface
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={themeService.getSharpCorners()}
+                  onChange={(e) => themeService.setSharpCorners(e.target.checked)}
+                  className="themed-checkbox ml-3"
+                />
+              </label>
+            </div>
+
             {/* Theme Cards Grid */}
             <div className="mb-6">
               <h4 className="text-sm font-medium mb-3 text-themed-secondary">

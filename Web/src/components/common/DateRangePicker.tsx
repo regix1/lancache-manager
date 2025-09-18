@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, X, ChevronDown } from 'lucide-react';
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -18,6 +18,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 }) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectingStart, setSelectingStart] = useState(true);
+  const [showYearDropdown, setShowYearDropdown] = useState(false);
+  const [showMonthDropdown, setShowMonthDropdown] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -31,6 +33,12 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [onClose]);
 
+  // Close dropdowns when clicking elsewhere
+  const closeDropdowns = () => {
+    setShowYearDropdown(false);
+    setShowMonthDropdown(false);
+  };
+
   const getDaysInMonth = (date: Date): number => {
     return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
   };
@@ -40,14 +48,38 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const handleDateClick = (day: number) => {
+    closeDropdowns(); // Close any open dropdowns when selecting a date
+
     const selectedDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     selectedDate.setHours(0, 0, 0, 0);
 
+    // Check if clicking the same date to deselect
     if (selectingStart || !startDate) {
+      // If clicking the same start date, deselect it
+      if (startDate && selectedDate.getTime() === startDate.getTime()) {
+        onStartDateChange(null);
+        onEndDateChange(null);
+        setSelectingStart(true);
+        return;
+      }
       onStartDateChange(selectedDate);
       onEndDateChange(null);
       setSelectingStart(false);
     } else {
+      // If clicking the same end date, deselect it
+      if (endDate && selectedDate.getTime() === endDate.getTime()) {
+        onEndDateChange(null);
+        setSelectingStart(false);
+        return;
+      }
+      // If clicking the same start date while selecting end, deselect both
+      if (selectedDate.getTime() === startDate.getTime()) {
+        onStartDateChange(null);
+        onEndDateChange(null);
+        setSelectingStart(true);
+        return;
+      }
+
       if (selectedDate < startDate) {
         onStartDateChange(selectedDate);
         onEndDateChange(startDate);
@@ -59,8 +91,30 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const changeMonth = (increment: number) => {
+    closeDropdowns(); // Close dropdowns when navigating with arrows
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + increment, 1));
   };
+
+  const changeYear = (year: number) => {
+    setCurrentMonth(new Date(year, currentMonth.getMonth(), 1));
+    setShowYearDropdown(false);
+  };
+
+  const changeToMonth = (month: number) => {
+    setCurrentMonth(new Date(currentMonth.getFullYear(), month, 1));
+    setShowMonthDropdown(false);
+  };
+
+  // Generate year options (1999 to 2 years forward)
+  const currentYear = new Date().getFullYear();
+  const startYear = 1999;
+  const endYear = currentYear + 2;
+  const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => startYear + i);
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
 
   const isDateInRange = (day: number): boolean => {
     if (!startDate || !endDate) return false;
@@ -91,11 +145,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       day === today.getDate()
     );
   };
-
-  const monthYearString = currentMonth.toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric'
-  });
 
   const daysInMonth = getDaysInMonth(currentMonth);
   const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
@@ -131,7 +180,73 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             >
               <ChevronLeft className="w-5 h-5 text-[var(--theme-text-primary)]" />
             </button>
-            <h4 className="text-[var(--theme-text-primary)] font-medium">{monthYearString}</h4>
+
+            <div className="flex items-center gap-2">
+              {/* Month Dropdown */}
+              <div className="relative" style={{ zIndex: 100002 }}>
+                <button
+                  onClick={() => {
+                    setShowMonthDropdown(!showMonthDropdown);
+                    setShowYearDropdown(false);
+                  }}
+                  className="flex items-center gap-1 px-3 py-1 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
+                >
+                  {monthNames[currentMonth.getMonth()]}
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+
+                {showMonthDropdown && (
+                  <div className="absolute top-full left-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg max-h-48 overflow-y-auto" style={{ zIndex: 100003 }}>
+                    {monthNames.map((month, index) => (
+                      <button
+                        key={month}
+                        onClick={() => changeToMonth(index)}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
+                          index === currentMonth.getMonth()
+                            ? 'bg-[var(--theme-primary)] text-white'
+                            : 'text-[var(--theme-text-primary)]'
+                        }`}
+                      >
+                        {month}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Year Dropdown */}
+              <div className="relative" style={{ zIndex: 100002 }}>
+                <button
+                  onClick={() => {
+                    setShowYearDropdown(!showYearDropdown);
+                    setShowMonthDropdown(false);
+                  }}
+                  className="flex items-center gap-1 px-3 py-1 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
+                >
+                  {currentMonth.getFullYear()}
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+
+                {showYearDropdown && (
+                  <div className="absolute top-full right-0 mt-1 bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)] rounded-lg shadow-lg max-h-48 overflow-y-auto" style={{ zIndex: 100003 }}>
+                    {yearOptions.map((year) => (
+                      <button
+                        key={year}
+                        onClick={() => changeYear(year)}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
+                          year === currentMonth.getFullYear()
+                            ? 'bg-[var(--theme-primary)] text-white'
+                            : 'text-[var(--theme-text-primary)]'
+                        }`}
+                      >
+                        {year}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
             <button
               onClick={() => changeMonth(1)}
               className="p-2 hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
@@ -179,7 +294,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   `}
                 >
                   {day}
-                  {today && (
+                  {today && !showYearDropdown && !showMonthDropdown && (
                     <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
                   )}
                 </button>
@@ -215,6 +330,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 onStartDateChange(null);
                 onEndDateChange(null);
                 setSelectingStart(true);
+                closeDropdowns();
+                // Reset calendar to current month/year
+                setCurrentMonth(new Date());
               }}
               className="flex-1 px-3 py-2 text-sm bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
             >

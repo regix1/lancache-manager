@@ -21,12 +21,12 @@
 
   *::-webkit-scrollbar-track {
     background: var(--theme-scrollbar-track, #374151);
-    border-radius: 4px;
+    border-radius: var(--theme-border-radius, 0.5rem);
   }
 
   *::-webkit-scrollbar-thumb {
     background: var(--theme-scrollbar-thumb, #6B7280);
-    border-radius: 4px;
+    border-radius: var(--theme-border-radius, 0.5rem);
   }
 
   *::-webkit-scrollbar-thumb:hover {
@@ -234,12 +234,12 @@
 
   .custom-scrollbar::-webkit-scrollbar-track {
     background: var(--theme-scrollbar-track, #374151);
-    border-radius: 4px;
+    border-radius: var(--theme-border-radius, 0.5rem);
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
     background: var(--theme-scrollbar-thumb, #6B7280);
-    border-radius: 4px;
+    border-radius: var(--theme-border-radius, 0.5rem);
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -264,12 +264,12 @@
 
   .main-scrollbar::-webkit-scrollbar-track {
     background: var(--theme-bg-secondary, #1f2937);
-    border-radius: 6px;
+    border-radius: var(--theme-border-radius-lg, 0.75rem);
   }
 
   .main-scrollbar::-webkit-scrollbar-thumb {
     background: var(--theme-scrollbar-thumb, #6B7280);
-    border-radius: 6px;
+    border-radius: var(--theme-border-radius-lg, 0.75rem);
     border: 2px solid var(--theme-bg-secondary, #1f2937);
   }
 
@@ -705,6 +705,98 @@
     background-color: var(--theme-secured-access-bg, rgba(245, 158, 11, 0.2));
     color: var(--theme-secured-access-text, #fbbf24);
     border-color: var(--theme-secured-access-border, rgba(245, 158, 11, 0.3));
+  }
+
+  /* ===== BORDER RADIUS OVERRIDES - Theme Aware ===== */
+  /* Override common Tailwind rounded classes with theme variables */
+  .rounded,
+  .rounded-md {
+    border-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-lg {
+    border-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-xl {
+    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-2xl {
+    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-3xl {
+    border-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-sm {
+    border-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  /* Corner-specific overrides */
+  .rounded-t,
+  .rounded-t-md {
+    border-top-left-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-top-right-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-t-lg {
+    border-top-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-t-xl {
+    border-top-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-top-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-b,
+  .rounded-b-md {
+    border-bottom-left-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-b-lg {
+    border-bottom-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-b-xl {
+    border-bottom-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-l,
+  .rounded-l-md {
+    border-top-left-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-l-lg {
+    border-top-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-l-xl {
+    border-top-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-bottom-left-radius: var(--theme-border-radius-xl, 1rem) !important;
+  }
+
+  .rounded-r,
+  .rounded-r-md {
+    border-top-right-radius: var(--theme-border-radius, 0.5rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius, 0.5rem) !important;
+  }
+
+  .rounded-r-lg {
+    border-top-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg, 0.75rem) !important;
+  }
+
+  .rounded-r-xl {
+    border-top-right-radius: var(--theme-border-radius-xl, 1rem) !important;
+    border-bottom-right-radius: var(--theme-border-radius-xl, 1rem) !important;
   }
 }
 

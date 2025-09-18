@@ -607,6 +607,11 @@ class ThemeService {
   }
 
   private applyDefaultVariables(): void {
+    const sharpCorners = localStorage.getItem('lancache_sharp_corners') === 'true';
+    const borderRadius = sharpCorners ? '0px' : '0.5rem';
+    const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
+    const borderRadiusXl = sharpCorners ? '0px' : '1rem';
+
     const defaultStyles = `
       :root {
         --theme-primary: #3b82f6;
@@ -625,6 +630,9 @@ class ThemeService {
         --theme-border-primary: #374151;
         --theme-border-secondary: #4b5563;
         --theme-border-focus: #3b82f6;
+        --theme-border-radius: ${borderRadius};
+        --theme-border-radius-lg: ${borderRadiusLg};
+        --theme-border-radius-xl: ${borderRadiusXl};
         --theme-nav-bg: #1f2937;
         --theme-nav-border: #374151;
         --theme-nav-tab-active: #3b82f6;
@@ -743,19 +751,25 @@ class ThemeService {
       this.styleElement.remove();
       this.styleElement = null;
     }
-    
+
     // Remove preload styles since we're applying the real theme
     const preloadStyle = document.getElementById('lancache-theme-preload');
     if (preloadStyle) {
       preloadStyle.remove();
     }
-    
+
     const defaultPreload = document.getElementById('lancache-default-preload');
     if (defaultPreload) {
       defaultPreload.remove();
     }
 
     const colors = theme.colors;
+
+    // Get border radius settings
+    const sharpCorners = localStorage.getItem('lancache_sharp_corners') === 'true';
+    const borderRadius = sharpCorners ? '0px' : '0.5rem';
+    const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
+    const borderRadiusXl = sharpCorners ? '0px' : '1rem';
 
     // Create clean theme styles with only CSS variables - no Tailwind overrides
     const themeStyles = `
@@ -777,6 +791,9 @@ class ThemeService {
       --theme-border-primary: ${colors.borderPrimary || '#374151'};
       --theme-border-secondary: ${colors.borderSecondary || '#4b5563'};
       --theme-border-focus: ${colors.borderFocus || '#3b82f6'};
+      --theme-border-radius: ${borderRadius};
+      --theme-border-radius-lg: ${borderRadiusLg};
+      --theme-border-radius-xl: ${borderRadiusXl};
       
       /* Navigation Variables */
       --theme-nav-bg: ${colors.navBg || colors.bgSecondary || '#1f2937'};
@@ -1008,6 +1025,21 @@ class ThemeService {
     }
 
     return toml;
+  }
+
+  setSharpCorners(enabled: boolean): void {
+    localStorage.setItem('lancache_sharp_corners', enabled.toString());
+
+    // Re-apply current theme to update border radius variables
+    if (this.currentTheme) {
+      this.applyTheme(this.currentTheme);
+    } else {
+      this.applyDefaultVariables();
+    }
+  }
+
+  getSharpCorners(): boolean {
+    return localStorage.getItem('lancache_sharp_corners') === 'true';
   }
 }
 
