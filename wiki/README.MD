@@ -113,9 +113,6 @@ environment:
 ## Quick Links
 
 - [Main README](../README.MD) - Project overview and quick setup
-- [Live Demo](http://localhost:8080) - Access your running instance
-- [Report Issues](../../issues) - Bug reports and feature requests
-- [Discussions](../../discussions) - Community support and questions
 - [Themes](../community-themes/) - Custom theme collection
 
 ---
