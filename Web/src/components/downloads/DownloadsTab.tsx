@@ -976,7 +976,7 @@ const DownloadsTab: React.FC = () => {
       >
         {/* Desktop Compact View */}
         <div
-          className={`hidden md:block px-4 py-2 transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}`}
+          className={`hidden md:block px-4 py-2 transition-all duration-200 ease-in-out ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50 hover:transform hover:scale-[1.01] hover:shadow-sm' : ''}`}
           onClick={() => canExpand ? handleDownloadClick(download) : undefined}
         >
           <div className="flex items-center">
@@ -1048,7 +1048,7 @@ const DownloadsTab: React.FC = () => {
 
         {/* Mobile Compact View */}
         <div
-          className={`md:hidden px-3 py-2 transition-colors ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50' : ''}`}
+          className={`md:hidden px-3 py-2 transition-all duration-200 ease-in-out ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50 active:scale-[0.98]' : ''}`}
           onClick={() => canExpand ? handleDownloadClick(download) : undefined}
         >
           <div className="flex items-center justify-between">
@@ -1729,8 +1729,10 @@ const DownloadsTab: React.FC = () => {
   // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader className="w-8 h-8 animate-spin" />
+      <div className="flex items-center justify-center min-h-[400px] transition-opacity duration-300">
+        <div className="animate-pulse">
+          <Loader className="w-8 h-8 animate-spin text-themed-primary" />
+        </div>
       </div>
     );
   }
@@ -1745,9 +1747,9 @@ const DownloadsTab: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-in">
       {/* Controls */}
-      <Card padding="sm">
+      <Card padding="sm" className="transition-all duration-300">
         <div className="flex flex-col gap-3">
           {/* Mobile view controls at top */}
           <div className="flex sm:hidden items-center justify-between">
@@ -1954,8 +1956,8 @@ const DownloadsTab: React.FC = () => {
 
         {settingsOpened && (
           <>
-            <div className="border-t border-themed-secondary my-3" />
-            <div className="space-y-2">
+            <div className="border-t border-themed-secondary my-3 animate-fade-in" />
+            <div className="space-y-2 animate-slide-in-top">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -2020,8 +2022,8 @@ const DownloadsTab: React.FC = () => {
       <div className="relative">
         {/* Loading overlay for filter changes */}
         {filterLoading && (
-          <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg">
-            <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-lg" style={{ borderColor: 'var(--theme-border-primary)' }}>
+          <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg animate-fade-in">
+            <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-lg animate-zoom-in" style={{ borderColor: 'var(--theme-border-primary)' }}>
               <Loader className="w-5 h-5 animate-spin text-[var(--theme-primary)]" />
               <span className="text-sm font-medium text-[var(--theme-text-primary)]">Applying filters...</span>
             </div>
@@ -2048,22 +2050,43 @@ const DownloadsTab: React.FC = () => {
         )}
 
         {/* Content based on view mode */}
-        <div>
+        <div className="transition-all duration-300 ease-in-out">
           {settings.viewMode === 'compact' && (
-            <div>
-              {itemsToDisplay.map((item) => renderCompactView(item as Download))}
+            <div className="space-y-1 animate-fade-in-up">
+              {itemsToDisplay.map((item, index) => (
+                <div
+                  key={`compact-${(item as Download).id}`}
+                  className={`animate-slide-in-bottom ${index < 10 ? `animate-stagger-${Math.min(index + 1, 10)}` : ''}`}
+                >
+                  {renderCompactView(item as Download)}
+                </div>
+              ))}
             </div>
           )}
 
           {settings.viewMode === 'normal' && (
-            <div>
-              {itemsToDisplay.map((item) => renderNormalView(item as Download))}
+            <div className="space-y-3 animate-fade-in-up">
+              {itemsToDisplay.map((item, index) => (
+                <div
+                  key={`normal-${(item as Download).id}`}
+                  className={`animate-slide-in-bottom ${index < 10 ? `animate-stagger-${Math.min(index + 1, 10)}` : ''}`}
+                >
+                  {renderNormalView(item as Download)}
+                </div>
+              ))}
             </div>
           )}
 
           {settings.viewMode === 'grouped' && (
-            <div>
-              {itemsToDisplay.map((item) => renderGroupedView(item as DownloadGroup))}
+            <div className="space-y-4 animate-fade-in-up">
+              {itemsToDisplay.map((item, index) => (
+                <div
+                  key={`grouped-${(item as DownloadGroup).id}`}
+                  className={`animate-slide-in-bottom ${index < 10 ? `animate-stagger-${Math.min(index + 1, 10)}` : ''}`}
+                >
+                  {renderGroupedView(item as DownloadGroup)}
+                </div>
+              ))}
             </div>
           )}
         </div>
