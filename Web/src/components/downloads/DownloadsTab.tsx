@@ -1037,7 +1037,7 @@ const DownloadsTab: React.FC = () => {
                   {formatBytes(download.totalBytes || 0)}
                 </div>
                 {download.cacheHitBytes > 0 && (
-                  <div className="text-xs text-green-500 font-medium">
+                  <div className="text-xs cache-hit font-medium">
                     {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
                   </div>
                 )}
@@ -1073,7 +1073,7 @@ const DownloadsTab: React.FC = () => {
                 {formatBytes(download.totalBytes || 0)}
               </div>
               {download.cacheHitBytes > 0 && (
-                <div className="text-xs text-green-500 font-medium">
+                <div className="text-xs cache-hit font-medium">
                   {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
                 </div>
               )}
@@ -1265,26 +1265,22 @@ const DownloadsTab: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs text-[var(--theme-text-muted)]">Cache Hit</div>
-                    <div className="text-sm font-bold text-green-500">
+                    <div className="text-sm font-bold cache-hit">
                       {formatPercent(hitPercent)}
                     </div>
                   </div>
                   <div>
                     <div className="text-xs text-[var(--theme-text-muted)]">Saved</div>
-                    <div className="text-sm font-bold text-blue-500">
+                    <div className="text-sm font-bold cache-hit">
                       {formatBytes(download.cacheHitBytes || 0)}
                     </div>
                   </div>
                 </div>
 
                 <div className="flex-1 max-w-[180px]">
-                  <div className="w-full h-2 rounded-full overflow-hidden"
-                       style={{
-                         backgroundColor: 'rgba(0, 0, 0, 0.15)',
-                         boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                       }}>
+                  <div className="w-full progress-track rounded-full h-2">
                     <div
-                      className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                      className="progress-bar-high h-2 rounded-full transition-all duration-300"
                       style={{
                         width: `${Math.min(hitPercent, 100)}%`,
                         boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
@@ -1319,7 +1315,7 @@ const DownloadsTab: React.FC = () => {
                   {formatBytes(download.totalBytes || 0)}
                 </div>
                 {download.cacheHitBytes > 0 && (
-                  <div className="text-xs text-green-500 font-medium">
+                  <div className="text-xs cache-hit font-medium">
                     {formatPercent(hitPercent)}
                   </div>
                 )}
@@ -1357,16 +1353,11 @@ const DownloadsTab: React.FC = () => {
                   <span>Cache Efficiency</span>
                   <span className="font-semibold">{formatPercent(hitPercent)}</span>
                 </div>
-                <div className="w-full h-2 rounded-full overflow-hidden"
-                     style={{
-                       backgroundColor: 'rgba(0, 0, 0, 0.15)',
-                       boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                     }}>
+                <div className="w-full progress-track rounded-full h-2">
                   <div
-                    className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                    className="progress-bar-high h-2 rounded-full transition-all duration-300"
                     style={{
-                      width: `${Math.min(hitPercent, 100)}%`,
-                      boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                      width: `${Math.min(hitPercent, 100)}%`
                     }}
                   />
                 </div>
@@ -1428,11 +1419,11 @@ const DownloadsTab: React.FC = () => {
                 <>
                   <div className="text-sm">
                     <span className="text-[var(--theme-text-muted)]">Cache: </span>
-                    <span className="font-bold text-green-500">{formatPercent(hitPercent)}</span>
+                    <span className="font-bold cache-hit">{formatPercent(hitPercent)}</span>
                   </div>
                   <div className="text-sm">
                     <span className="text-[var(--theme-text-muted)]">Saved: </span>
-                    <span className="font-bold text-blue-500">{formatBytes(download.cacheHitBytes || 0)}</span>
+                    <span className="font-bold cache-hit">{formatBytes(download.cacheHitBytes || 0)}</span>
                   </div>
                 </>
               )}
@@ -1441,16 +1432,11 @@ const DownloadsTab: React.FC = () => {
 
           {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
             <div className="mt-3">
-              <div className="w-full h-2 rounded-full overflow-hidden"
-                   style={{
-                     backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                     boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                   }}>
+              <div className="w-full progress-track rounded-full h-2">
                 <div
-                  className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                  className="progress-bar-high h-2 rounded-full transition-all duration-300"
                   style={{
-                    width: `${Math.min(hitPercent, 100)}%`,
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                    width: `${Math.min(hitPercent, 100)}%`
                   }}
                 />
               </div>
@@ -1469,7 +1455,7 @@ const DownloadsTab: React.FC = () => {
                 {formatBytes(download.totalBytes || 0)}
               </div>
               {download.cacheHitBytes > 0 && (
-                <div className="text-xs text-green-500 font-medium">
+                <div className="text-xs cache-hit font-medium">
                   {formatPercent(hitPercent)}
                 </div>
               )}
@@ -1499,16 +1485,11 @@ const DownloadsTab: React.FC = () => {
                 <span>Cache: {formatPercent(hitPercent)}</span>
                 <span>Saved: {formatBytes(download.cacheHitBytes || 0)}</span>
               </div>
-              <div className="w-full h-2 rounded-full overflow-hidden"
-                   style={{
-                     backgroundColor: 'rgba(0, 0, 0, 0.1)',
-                     boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                   }}>
+              <div className="w-full progress-track rounded-full h-2">
                 <div
-                  className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                  className="progress-bar-high h-2 rounded-full transition-all duration-300"
                   style={{
-                    width: `${Math.min(hitPercent, 100)}%`,
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                    width: `${Math.min(hitPercent, 100)}%`
                   }}
                 />
               </div>
@@ -1573,7 +1554,7 @@ const DownloadsTab: React.FC = () => {
                   {formatBytes(group.totalBytes)}
                 </span>
                 {savedAmount > 0 && (
-                  <span className="text-xs text-green-500">
+                  <span className="text-xs cache-hit">
                     Saved: {formatBytes(savedAmount)}
                   </span>
                 )}
@@ -1584,16 +1565,11 @@ const DownloadsTab: React.FC = () => {
                     <span>Cache</span>
                     <span>{formatPercent(hitPercent)}</span>
                   </div>
-                  <div className="w-full h-2 rounded-full overflow-hidden"
-                       style={{
-                         backgroundColor: 'rgba(0, 0, 0, 0.12)',
-                         boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                       }}>
+                  <div className="w-full progress-track rounded-full h-2">
                     <div
-                      className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                      className="progress-bar-high h-2 rounded-full transition-all duration-300"
                       style={{
-                        width: `${Math.min(hitPercent, 100)}%`,
-                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                        width: `${Math.min(hitPercent, 100)}%`
                       }}
                     />
                   </div>
@@ -1626,7 +1602,7 @@ const DownloadsTab: React.FC = () => {
                 {formatBytes(group.totalBytes)}
               </div>
               {savedAmount > 0 && (
-                <div className="text-xs text-green-500">
+                <div className="text-xs cache-hit">
                   {formatBytes(savedAmount)}
                 </div>
               )}
@@ -1645,16 +1621,11 @@ const DownloadsTab: React.FC = () => {
 
           {group.totalBytes > 0 && (
             <div className="mt-2">
-              <div className="w-full h-2 rounded-full overflow-hidden"
-                   style={{
-                     backgroundColor: 'rgba(0, 0, 0, 0.12)',
-                     boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.15)'
-                   }}>
+              <div className="w-full progress-track rounded-full h-2">
                 <div
-                  className="h-full bg-gradient-to-r from-green-500 to-green-400 transition-all duration-300 rounded-full"
+                  className="progress-bar-high h-2 rounded-full transition-all duration-300"
                   style={{
-                    width: `${Math.min(hitPercent, 100)}%`,
-                    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                    width: `${Math.min(hitPercent, 100)}%`
                   }}
                 />
               </div>
