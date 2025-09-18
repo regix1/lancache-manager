@@ -941,10 +941,13 @@ class ThemeService {
   }
 
   async loadSavedTheme(): Promise<void> {
+    // Check for feature migrations
+    this.migrateLocalStorageFeatures();
+
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
     const savedThemeId = localStorage.getItem('lancache_selected_theme');
-    
+
     if (preloadStyle && savedThemeId) {
       // We have a preloaded theme, load the fresh version from server
       const theme = await this.getTheme(savedThemeId);
@@ -959,10 +962,10 @@ class ThemeService {
       localStorage.removeItem('lancache_theme_css');
       localStorage.removeItem('lancache_theme_dark');
     }
-    
+
     // No preload or theme not found, apply defaults
     this.applyDefaultVariables();
-    
+
     // Check if user has a saved theme preference without preload
     if (savedThemeId) {
       const theme = await this.getTheme(savedThemeId);
@@ -971,11 +974,26 @@ class ThemeService {
         return;
       }
     }
-    
+
     // Default to dark theme if no saved preference or theme not found
     const darkDefault = await this.getTheme('dark-default');
     if (darkDefault) {
       this.applyTheme(darkDefault);
+    }
+  }
+
+  private migrateLocalStorageFeatures(): void {
+    const migrationVersion = localStorage.getItem('lancache_migration_version');
+    const currentVersion = '1.1.0'; // Update this when adding new features
+
+    if (migrationVersion !== currentVersion) {
+      // Migration for sharp corners feature (added in v1.1.0)
+      if (!localStorage.getItem('lancache_sharp_corners')) {
+        localStorage.setItem('lancache_sharp_corners', 'false'); // Default to rounded
+      }
+
+      // Set migration version to prevent future runs
+      localStorage.setItem('lancache_migration_version', currentVersion);
     }
   }
 
