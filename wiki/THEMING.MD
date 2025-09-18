@@ -242,4 +242,4 @@ var(--theme-border-primary)
 
 ## Example Themes
 
-See [community-themes](../community-themes/) folder for complete theme examples. The application includes several built-in themes including Sage Wood.
+See the [community-themes](../community-themes/) folder for complete theme examples. The application includes several built-in themes including Sage Wood.

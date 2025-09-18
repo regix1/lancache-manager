@@ -49,7 +49,7 @@ LanCache__ProcessHistoricalLogs=false     # Don't process old logs on startup
 ### Configuration and Setup
 - [Environment Variables](DOCKER_ENVIRONMENT_REFERENCE.MD) - Complete variable reference
 - [Performance Tuning](PERFORMANCE_TUNING.MD) - Optimize for your deployment size
-- [Security Settings](DOCKER_ENVIRONMENT_REFERENCE.MD#security) - Authentication and API keys
+- [Security Settings](DOCKER_ENVIRONMENT_REFERENCE.MD#security-settings) - Authentication and API keys
 
 ### Customization
 - [Theming Guide](THEMING.MD) - Create custom themes and modify appearance
@@ -60,7 +60,7 @@ LanCache__ProcessHistoricalLogs=false     # Don't process old logs on startup
 - [API Reference](DOCKER_ENVIRONMENT_REFERENCE.MD#api-endpoints) - Available endpoints and usage
 
 ### Advanced Topics
-- [Troubleshooting](PERFORMANCE_TUNING.MD#troubleshooting) - Common issues and solutions
+- [Troubleshooting](PERFORMANCE_TUNING.MD#troubleshooting-guide) - Common issues and solutions
 - [Development Setup](../README.MD#development) - Build from source
 
 ## Common Use Cases
