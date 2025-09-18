@@ -1,10 +1,13 @@
-# Theming
+# LanCache Manager Theming Guide
+
+Customize the appearance of your LanCache Manager interface with powerful theming capabilities.
 
 ## Quick Start
 
-1. Management → Theme Management
-2. Select theme from dropdown
-3. Apply Theme
+1. Navigate to Management → Theme Management
+2. Browse available themes in the dropdown
+3. Preview themes instantly with live preview
+4. Click Apply Theme to activate
 
 ## Theme Structure
 

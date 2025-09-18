@@ -1,38 +1,81 @@
 # LanCache Manager
 
-Real-time monitoring and management interface for LanCache.
+A modern, real-time monitoring interface for LanCache deployments. Track bandwidth usage, analyze cache performance, and manage your gaming content cache through an intuitive web interface.
 
-## Features
+## Key Features
 
-- **Real-time Stats** - Live bandwidth monitoring, cache hit rates, client tracking
-- **Download History** - Steam depot detection with game identification
-- **Cache Management** - Direct cache manipulation and cleanup tools
-- **Performance** - Parallel log processing with configurable workers
-- **Theming** - Full UI customization with 20+ built-in themes
+### Real-time Dashboard
+- Live bandwidth monitoring with interactive charts
+- Cache hit rate tracking and analysis
+- Active download monitoring
+- Client usage statistics
+- Service breakdown (Steam, Epic, Origin, etc.)
 
-## Requirements
+### Smart Game Detection
+- Automatic Steam game identification with cover art
+- Steam depot mapping and App ID resolution
+- Game download history with visual previews
+- Filters out system and redistributable downloads
 
-- Docker
-- LanCache instance with accessible logs
-- 2GB RAM minimum (4GB+ recommended for large deployments)
+### Advanced Analytics
+- Multiple time range filters (1h, 6h, 12h, 24h, 7d, 30d, all time, custom)
+- Detailed download statistics with sorting and filtering
+- Export data in JSON/CSV formats with applied filters
+- Service-specific performance metrics
+
+### Modern Interface
+- Three view modes: Compact, Normal, and Grouped
+- Mobile-responsive design with touch-friendly controls
+- 20+ built-in themes with custom theme creation
+- Smooth animations and transitions
+- Dark and light theme support
+
+### Management Tools
+- Cache directory management and cleanup
+- Log processing controls with real-time feedback
+- Performance tuning and monitoring
+- Authentication and security settings
+
+### Integrations
+- Prometheus metrics endpoint for Grafana
+- JSON API for custom integrations
+- Real-time WebSocket updates
+- Docker-friendly configuration
 
 ## Quick Start
+
+### Prerequisites
+- Docker and Docker Compose
+- Existing LanCache deployment with accessible logs
+- System Requirements:
+  - Home (1-10 clients): 2GB RAM, 2 CPU cores
+  - LAN Party (10-50 clients): 4GB RAM, 4 CPU cores
+  - Large Event (50+ clients): 8GB+ RAM, 8+ CPU cores
+
+### One-Line Setup
 
 ```bash
 docker run -d \
   --name lancache-manager \
   -p 8080:80 \
   -v ./data:/data \
-  -v /path/to/cache/logs:/logs:ro \
-  -v /path/to/cache/data:/cache:ro \
+  -v /path/to/lancache/logs:/logs:ro \
+  -v /path/to/lancache/cache:/cache:ro \
+  -e TZ=America/Chicago \
+  -e LanCache__LogPath=/logs/access.log \
+  -e LanCache__CachePath=/cache \
   ghcr.io/regix1/lancache-manager:latest
 ```
 
-Access at `http://localhost:8080`
+Access your dashboard at `http://localhost:8080`
+
+Replace `/path/to/lancache/` with your actual LanCache paths. The logs should point to your nginx access.log file.
 
 ## Configuration
 
-### docker-compose.yml
+### Docker Compose (Recommended)
+
+Create a `docker-compose.yml` file:
 
 ```yaml
 version: '3.8'
@@ -42,88 +85,205 @@ services:
     image: ghcr.io/regix1/lancache-manager:latest
     container_name: lancache-manager
     restart: unless-stopped
+    user: root
     ports:
       - "8080:80"
     volumes:
+      # Data persistence
       - ./data:/data
-      - /path/to/logs:/logs:ro
-      - /path/to/cache:/cache:ro
+
+      # Your actual LanCache paths (read-only)
+      - /mnt/logs:/logs:ro
+      - /mnt/cache/cache:/cache:ro
     environment:
+      # System Configuration
+      - PUID=1000
+      - PGID=1000
       - TZ=America/Chicago
+      - ASPNETCORE_URLS=http://+:80
+
+      # LanCache Paths
       - LanCache__LogPath=/logs/access.log
       - LanCache__CachePath=/cache
+      - LanCache__StartFromEndOfLog=true
+      - LanCache__ProcessHistoricalLogs=false
+
+      # Security Settings
+      - Security__RequireAuthForMetrics=false  # Set to 'true' to require API key for Grafana
+      - Security__EnableAuthentication=true    # Set to 'false' to disable management auth
 ```
 
-See [wiki/DOCKER_ENVIRONMENT_REFERENCE.MD](wiki/DOCKER_ENVIRONMENT_REFERENCE.MD) for all options.
+Start with: `docker-compose up -d`
+
+See the [Environment Variables Reference](wiki/DOCKER_ENVIRONMENT_REFERENCE.MD) for all configuration options.
 
 ## Performance Tuning
 
-Default configuration handles 10-50 clients. For larger deployments:
+The application automatically adjusts for your deployment size:
 
+| Deployment Size | Clients | Configuration |
+|----------------|---------|---------------|
+| Home | 1-10 | Default settings |
+| LAN Party | 10-50 | Default settings |
+| Large Event | 50-200 | Performance boost needed |
+| Enterprise | 200+ | High-performance config |
+
+### Large Event Configuration
+Add to your docker-compose.yml:
 ```yaml
 environment:
-  # 200+ clients configuration
+  # High-performance settings for 50+ clients
   - LanCache__ConsumerCount=8
   - LanCache__ParserParallelism=16
   - LanCache__BatchSize=10000
+  - LanCache__UseHighThroughputMode=true
 ```
 
-See [wiki/PERFORMANCE_TUNING.MD](wiki/PERFORMANCE_TUNING.MD) for details.
+See the [Performance Tuning Guide](wiki/PERFORMANCE_TUNING.MD) for detailed optimization.
 
-## API
+## Authentication and Security
 
-### Metrics Endpoint
-```bash
-curl http://localhost:8080/metrics
-```
+### First Run Setup
+1. Start the container and check logs for your auto-generated API key:
+   ```bash
+   docker logs lancache-manager | grep "API Key"
+   ```
+2. Access the web interface at `http://localhost:8080`
+3. Go to the Management tab and use the API key to access admin features
 
-### Performance Stats
-```bash
-curl http://localhost:8080/api/performance/stats
-```
-
-## Authentication
-
-Management operations require authentication by default. On first run, check logs for API key:
-
-```bash
-docker logs lancache-manager | grep "API Key"
-```
-
-To disable authentication (local networks only):
+### Security Options
 ```yaml
 environment:
+  # Disable all authentication (local networks only)
   - Security__EnableAuthentication=false
+
+  # Require API key for Grafana/Prometheus metrics
+  - Security__RequireAuthForMetrics=true
 ```
+
+### API Key Usage
+For Grafana or custom integrations, add header:
+```bash
+curl -H "X-Api-Key: your-api-key-here" http://localhost:8080/api/metrics
+```
+
+## API Endpoints
+
+### Metrics (Grafana/Prometheus)
+```bash
+# Prometheus format
+curl http://localhost:8080/api/metrics
+
+# JSON format
+curl http://localhost:8080/api/metrics/json
+
+# Check if authentication is required
+curl http://localhost:8080/api/metrics/status
+```
+
+### Performance Monitoring
+```bash
+# Real-time performance stats
+curl http://localhost:8080/api/performance/stats
+
+# Detailed metrics
+curl http://localhost:8080/api/performance/metrics
+```
+
+### Data Export
+All data can be exported directly from the Downloads tab in JSON or CSV format with applied filters.
+
+## User Interface Guide
+
+### Dashboard Tab
+- Real-time Stats: Bandwidth, cache hit rates, active downloads
+- Interactive Charts: Click and drag to zoom, hover for details
+- Custom Cards: Drag and drop to rearrange, hide/show stats
+- Time Filters: Switch between time ranges instantly
+
+### Downloads Tab
+- View Modes: Switch between Compact, Normal, and Grouped views
+- Game Detection: Automatic Steam game identification with cover art
+- Advanced Filters: Filter by service, time, size, hide localhost
+- Data Export: Export filtered data as JSON or CSV
+- Mobile Responsive: Touch-friendly interface on all devices
+
+### Management Tab
+- Authentication: Manage API keys and security settings
+- Cache Management: Clean and organize cache directories
+- Performance: Monitor system performance and tune settings
+- Themes: Customize appearance with 20+ built-in themes
+- Grafana: Get metrics endpoints for external monitoring
 
 ## Development
 
 ### Tech Stack
-- **Backend**: .NET 8, SignalR, SQLite
-- **Frontend**: React, TypeScript, Vite
-- **Charts**: Recharts
-- **Styling**: Tailwind CSS
+- **Backend**: .NET 8, ASP.NET Core, SignalR, Entity Framework, SQLite
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+- **Charts**: Recharts with custom animations
+- **Real-time**: SignalR WebSocket connections
+- **Containerization**: Docker with multi-stage builds
 
-### Building
+### Building from Source
 
 ```bash
-# Frontend
-cd Web && npm install && npm run build
+# Clone repository
+git clone https://github.com/regix1/lancache-manager.git
+cd lancache-manager
 
-# Backend
-cd Api/LancacheManager && dotnet build
+# Build frontend
+cd Web
+npm install
+npm run build
 
-# Docker
+# Build backend
+cd ../Api/LancacheManager
+dotnet build
+
+# Build Docker image
+cd ../..
 docker build -t lancache-manager .
+```
+
+### Development Mode
+```bash
+# Run backend (http://localhost:5000)
+cd Api/LancacheManager
+dotnet run
+
+# Run frontend with hot reload (http://localhost:3000)
+cd Web
+npm run dev
 ```
 
 ## Documentation
 
-- [Environment Variables](wiki/DOCKER_ENVIRONMENT_REFERENCE.MD)
-- [Performance Tuning](wiki/PERFORMANCE_TUNING.MD)
-- [Grafana Integration](wiki/GRAFANA.MD)
-- [Custom Themes](wiki/THEMING.MD)
+- [Quick Start Guide](wiki/README.MD) - Get up and running in minutes
+- [Environment Variables](wiki/DOCKER_ENVIRONMENT_REFERENCE.MD) - Complete configuration reference
+- [Performance Tuning](wiki/PERFORMANCE_TUNING.MD) - Optimize for your deployment size
+- [Grafana Integration](wiki/GRAFANA.MD) - Set up monitoring dashboards
+- [Custom Themes](wiki/THEMING.MD) - Create and share custom themes
+- [Community Themes](community-themes/README.MD) - Download community themes
+
+## Contributing
+
+We welcome contributions! Whether it's:
+- Bug reports and fixes
+- New features and improvements
+- Custom themes
+- Documentation improvements
+- Performance optimizations
 
 ## License
 
-MIT
+MIT License - feel free to use in personal and commercial projects.
+
+---
+
+<div align="center">
+
+Star this repo if LanCache Manager helped you!
+
+[Documentation](wiki/) • [Issues](../../issues) • [Discussions](../../discussions) • [Themes](community-themes/)
+
+</div>
