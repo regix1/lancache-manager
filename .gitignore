@@ -98,7 +98,3 @@ CLAUDE.md
 .claude/
 *.claude
 .claude.json
-
-# Version update scripts (optional - remove if you want to keep them in repo)
-update-version.sh
-update-version.bat
