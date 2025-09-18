@@ -16,10 +16,32 @@ const GrafanaEndpoints: React.FC = () => {
       .catch(() => setMetricsSecured(false));
   }, []);
 
-  const copyToClipboard = (text: string, endpoint: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedEndpoint(endpoint);
-    setTimeout(() => setCopiedEndpoint(null), 2000);
+  const copyToClipboard = async (text: string, endpoint: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedEndpoint(endpoint);
+      setTimeout(() => setCopiedEndpoint(null), 2000);
+    } catch (err) {
+      // Fallback for older browsers or when clipboard API fails
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+
+      try {
+        document.execCommand('copy');
+        setCopiedEndpoint(endpoint);
+        setTimeout(() => setCopiedEndpoint(null), 2000);
+      } catch (copyErr) {
+        console.error('Failed to copy text: ', copyErr);
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    }
   };
 
   const apiBaseUrl = window.location.origin;
