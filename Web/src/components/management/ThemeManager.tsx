@@ -2727,12 +2727,6 @@ content = """
             )}
           </div>
 
-          {/* Color Groups Info */}
-          {createSearchQuery === '' && expandedGroups.length === 1 && (
-            <div className="text-xs text-themed-muted p-3 bg-themed-tertiary rounded-lg">
-              💡 Tip: Only "Foundation" colors are expanded by default. Click group headers to expand more color options.
-            </div>
-          )}
 
           {/* Color Groups */}
           <div className="space-y-4 max-h-96 overflow-y-auto">
