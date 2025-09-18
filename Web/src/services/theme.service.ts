@@ -1,6 +1,7 @@
 import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
 import * as TOML from 'toml';
+import packageJson from '../../package.json';
 
 interface ThemeColors {
   // Core colors
@@ -984,7 +985,7 @@ class ThemeService {
 
   private migrateLocalStorageFeatures(): void {
     const migrationVersion = localStorage.getItem('lancache_migration_version');
-    const currentVersion = '1.1.0'; // Update this when adding new features
+    const currentVersion = packageJson.version;
 
     if (migrationVersion !== currentVersion) {
       // Migration for sharp corners feature (added in v1.1.0)

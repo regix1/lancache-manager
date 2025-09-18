@@ -1,5 +1,7 @@
 # Multi-stage build for Lancache Manager
 
+ARG VERSION=1.2.0
+
 # Stage 1: Build Frontend
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
@@ -28,7 +30,20 @@ COPY --from=frontend-builder /app/dist /app/publish/wwwroot
 
 # Stage 3: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
+ARG VERSION
 WORKDIR /app
+
+# Metadata labels
+LABEL org.opencontainers.image.title="LanCache Manager"
+LABEL org.opencontainers.image.description="Modern monitoring interface for LanCache deployments"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.vendor="LanCache Manager"
+LABEL org.opencontainers.image.source="https://github.com/regix1/lancache-manager"
+LABEL org.opencontainers.image.documentation="https://github.com/regix1/lancache-manager/wiki"
+LABEL org.opencontainers.image.licenses="MIT"
+
+# Set version as environment variable for runtime access
+ENV LANCACHE_MANAGER_VERSION=${VERSION}
 
 # Install runtime dependencies including tools for fast cache clearing
 RUN apt-get update && \
