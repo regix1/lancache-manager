@@ -718,7 +718,44 @@ const DownloadsTab: React.FC = () => {
     let items = settings.viewMode === 'grouped' ? groupedDownloads : filteredDownloads;
 
     // Apply sorting
-    if (settings.viewMode !== 'grouped') {
+    if (settings.viewMode === 'grouped') {
+      // Sort grouped downloads
+      const groups = [...items] as DownloadGroup[];
+      switch (settings.sortOrder) {
+        case 'oldest':
+          groups.sort((a, b) => {
+            const aOldest = Math.min(...a.downloads.map(d => new Date(d.startTime).getTime()));
+            const bOldest = Math.min(...b.downloads.map(d => new Date(d.startTime).getTime()));
+            return aOldest - bOldest;
+          });
+          break;
+        case 'largest':
+          groups.sort((a, b) => b.totalBytes - a.totalBytes);
+          break;
+        case 'smallest':
+          groups.sort((a, b) => a.totalBytes - b.totalBytes);
+          break;
+        case 'service':
+          groups.sort((a, b) => {
+            const serviceCompare = a.service.localeCompare(b.service);
+            if (serviceCompare !== 0) return serviceCompare;
+            const aLatest = Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()));
+            const bLatest = Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()));
+            return bLatest - aLatest;
+          });
+          break;
+        case 'latest':
+        default:
+          groups.sort((a, b) => {
+            const aLatest = Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()));
+            const bLatest = Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()));
+            return bLatest - aLatest;
+          });
+          break;
+      }
+      items = groups;
+    } else {
+      // Sort individual downloads
       const downloads = [...items] as Download[];
       switch (settings.sortOrder) {
         case 'oldest':
