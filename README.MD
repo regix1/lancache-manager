@@ -4,6 +4,9 @@ A modern, real-time monitoring interface for LanCache deployments. Track bandwid
 
 ## Key Features
 
+Dashboard:
+<img width="1513" height="1243" alt="Image" src="https://github.com/user-attachments/assets/ad649ed7-2be6-40b5-961f-01f74e8ab5f8" />
+
 ### Real-time Dashboard
 - Live bandwidth monitoring with interactive charts
 - Cache hit rate tracking and analysis
