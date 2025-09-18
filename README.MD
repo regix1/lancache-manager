@@ -14,11 +14,6 @@ A modern, real-time monitoring interface for LanCache deployments. Track bandwid
 
 <div align="center">
 
-### 📊 Real-time Dashboard
-Monitor your cache performance with live charts and statistics
-
-<img width="1513" height="1243" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/ad649ed7-2be6-40b5-961f-01f74e8ab5f8" />
-
 ### 📥 Download Monitoring
 Track game downloads across different view modes
 
