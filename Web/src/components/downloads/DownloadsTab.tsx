@@ -394,6 +394,67 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   );
 };
 
+// Export helper functions
+const convertDownloadsToCSV = (downloads: Download[]): string => {
+  if (!downloads || downloads.length === 0) return '';
+
+  const headers = [
+    'id', 'service', 'clientIp', 'startTime', 'endTime', 'cacheHitBytes',
+    'cacheMissBytes', 'totalBytes', 'cacheHitPercent', 'isActive', 'gameName', 'gameAppId'
+  ];
+  const csvHeaders = headers.join(',');
+
+  const csvRows = downloads.map(download => {
+    return headers.map(header => {
+      const value = download[header as keyof Download];
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'string' && value.includes(',')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    }).join(',');
+  });
+
+  return [csvHeaders, ...csvRows].join('\n');
+};
+
+const convertGroupsToCSV = (groups: DownloadGroup[]): string => {
+  if (!groups || groups.length === 0) return '';
+
+  const headers = [
+    'name', 'type', 'service', 'downloadCount', 'totalBytes', 'cacheHitBytes',
+    'cacheMissBytes', 'cacheHitPercent', 'uniqueClients', 'firstSeen', 'lastSeen'
+  ];
+  const csvHeaders = headers.join(',');
+
+  const csvRows = groups.map(group => {
+    const cacheHitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+    const row = [
+      group.name,
+      group.type,
+      group.service,
+      group.count,
+      group.totalBytes,
+      group.cacheHitBytes,
+      group.cacheMissBytes,
+      cacheHitPercent.toFixed(1),
+      group.clientsSet.size,
+      group.firstSeen,
+      group.lastSeen
+    ];
+
+    return row.map(value => {
+      if (value === null || value === undefined) return '';
+      if (typeof value === 'string' && value.includes(',')) {
+        return `"${value.replace(/"/g, '""')}"`;
+      }
+      return value;
+    }).join(',');
+  });
+
+  return [csvHeaders, ...csvRows].join('\n');
+};
+
 // Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
   const {
@@ -411,6 +472,8 @@ const DownloadsTab: React.FC = () => {
   const [loadingGame, setLoadingGame] = useState<number | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [filterLoading, setFilterLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [showExportOptions, setShowExportOptions] = useState(false);
 
   const [settings, setSettings] = useState(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
@@ -566,6 +629,21 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
   }, [settings]);
+
+  // Close export dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.relative')) {
+        setShowExportOptions(false);
+      }
+    };
+
+    if (showExportOptions) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showExportOptions]);
 
   // Memoized values
   const availableServices = useMemo(() => {
@@ -788,6 +866,70 @@ const DownloadsTab: React.FC = () => {
     const limit = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 50;
     return items.slice(0, limit);
   }, [settings.viewMode, settings.itemsPerPage, settings.sortOrder, groupedDownloads, filteredDownloads]);
+
+  // Export handler
+  const handleExport = async (format: 'json' | 'csv') => {
+    if (!itemsToDisplay || itemsToDisplay.length === 0) {
+      return;
+    }
+
+    setExportLoading(true);
+    setShowExportOptions(false);
+
+    try {
+      let content: string;
+      let filename: string;
+      let mimeType: string;
+
+      const timestamp = new Date().toISOString().split('T')[0];
+      const isGrouped = settings.viewMode === 'grouped';
+      const baseFilename = `lancache_downloads_${isGrouped ? 'grouped_' : ''}${timestamp}`;
+
+      if (format === 'csv') {
+        if (isGrouped) {
+          content = convertGroupsToCSV(itemsToDisplay as DownloadGroup[]);
+        } else {
+          content = convertDownloadsToCSV(itemsToDisplay as Download[]);
+        }
+        filename = `${baseFilename}.csv`;
+        mimeType = 'text/csv';
+      } else {
+        // JSON format
+        if (isGrouped) {
+          // Convert groups to JSON, excluding Set objects
+          const exportData = (itemsToDisplay as DownloadGroup[]).map(group => ({
+            ...group,
+            clientsSet: undefined, // Remove Set
+            uniqueClients: group.clientsSet.size,
+            downloads: group.downloads.map(download => ({
+              ...download,
+              // Include all download properties for detailed export
+            }))
+          }));
+          content = JSON.stringify(exportData, null, 2);
+        } else {
+          content = JSON.stringify(itemsToDisplay, null, 2);
+        }
+        filename = `${baseFilename}.json`;
+        mimeType = 'application/json';
+      }
+
+      // Create and trigger download
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export failed:', error);
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   // Event handlers
   const handleDownloadClick = async (download: Download) => {
@@ -1712,6 +1854,48 @@ const DownloadsTab: React.FC = () => {
                   <Layers size={16} />
                   <span className="text-xs">Grouped</span>
                 </button>
+              </div>
+
+              {/* Export Button */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowExportOptions(!showExportOptions)}
+                  disabled={exportLoading || itemsToDisplay.length === 0}
+                  className="p-2 rounded hover:bg-themed-hover transition-colors disabled:opacity-50"
+                  title="Export filtered data"
+                >
+                  {exportLoading ? (
+                    <Loader size={18} className="animate-spin" />
+                  ) : (
+                    <DownloadIcon size={18} />
+                  )}
+                </button>
+
+                {/* Export Options Dropdown */}
+                {showExportOptions && (
+                  <div
+                    className="absolute right-0 top-full mt-1 w-32 rounded-lg border shadow-xl z-[9999]"
+                    style={{
+                      backgroundColor: 'var(--theme-bg-secondary)',
+                      borderColor: 'var(--theme-border-primary)'
+                    }}
+                  >
+                    <div className="py-1">
+                      <button
+                        onClick={() => handleExport('json')}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-themed-hover transition-colors text-themed-secondary"
+                      >
+                        Export JSON
+                      </button>
+                      <button
+                        onClick={() => handleExport('csv')}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-themed-hover transition-colors text-themed-secondary"
+                      >
+                        Export CSV
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button

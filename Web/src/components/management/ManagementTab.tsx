@@ -21,7 +21,7 @@ import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
-import DataExportManager from './DataExportManager';
+import GrafanaEndpoints from './GrafanaEndpoints';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -524,13 +524,8 @@ const ManagementTab: React.FC = () => {
         }
       />
 
-      {/* Data Export Manager */}
-      <DataExportManager
-        isAuthenticated={isAuthenticated}
-        mockMode={mockMode}
-        onError={addError}
-        onSuccess={setSuccess}
-      />
+      {/* Grafana Endpoints */}
+      <GrafanaEndpoints />
 
       {/* Theme Manager */}
       <ThemeManager isAuthenticated={isAuthenticated} />

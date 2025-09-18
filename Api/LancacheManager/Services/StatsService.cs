@@ -25,10 +25,13 @@ public class StatsService
     /// </summary>
     public async Task<List<ServiceStats>> GetServiceStatsAsync(CancellationToken cancellationToken = default)
     {
-        return await _context.ServiceStats
+        // Order by database columns, then sort by computed property on client side
+        var stats = await _context.ServiceStats
             .AsNoTracking()
-            .OrderByDescending(s => s.TotalBytes)
+            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
             .ToListAsync(cancellationToken);
+
+        return stats;
     }
 
     /// <summary>
@@ -36,10 +39,13 @@ public class StatsService
     /// </summary>
     public async Task<List<ClientStats>> GetClientStatsAsync(CancellationToken cancellationToken = default)
     {
-        return await _context.ClientStats
+        // Order by database columns, then sort by computed property on client side
+        var stats = await _context.ClientStats
             .AsNoTracking()
-            .OrderByDescending(c => c.TotalBytes)
+            .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
             .ToListAsync(cancellationToken);
+
+        return stats;
     }
 
     /// <summary>
