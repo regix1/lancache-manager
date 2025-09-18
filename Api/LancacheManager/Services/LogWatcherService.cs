@@ -21,7 +21,6 @@ public class LogWatcherService : BackgroundService
     private FileSystemWatcher? _markerWatcher;
     private volatile bool _restartProcessing = false;
     private DateTime _bulkProcessingStartTime = default; // Track when bulk processing started
-    private readonly bool _useHighThroughputMode;
 
     public LogWatcherService(
         IServiceProvider serviceProvider,
@@ -36,7 +35,6 @@ public class LogWatcherService : BackgroundService
         _logger = logger;
         _hubContext = hubContext;
         _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
-        _useHighThroughputMode = configuration.GetValue<bool>("LanCache:UseHighThroughputMode", false);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -414,9 +412,9 @@ public class LogWatcherService : BackgroundService
                             _logger.LogInformation($"Enqueued line {entriesProcessed} for processing");
                         }
                     }
-                    else if (!_useHighThroughputMode)
+                    else
                     {
-                        // In normal mode, log if we couldn't enqueue (channel full)
+                        // Log if we couldn't enqueue (channel full)
                         _logger.LogWarning($"Failed to enqueue log line (channel full), line: {line.Substring(0, Math.Min(100, line.Length))}");
                     }
 

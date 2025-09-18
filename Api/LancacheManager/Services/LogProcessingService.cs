@@ -6,97 +6,45 @@ using LancacheManager.Models;
 namespace LancacheManager.Services;
 
 /// <summary>
-/// High-performance log processing service with configurable parallelism
+/// Simple log processing service
 /// </summary>
 public class LogProcessingService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<LogProcessingService> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly LogParserService _parser;
 
-    // Performance configuration
-    private readonly int _channelCapacity;
-    private readonly int _batchSize;
-    private readonly int _batchTimeoutMs;
-    private readonly int _consumerCount;
-    private readonly int _parserParallelism;
-    private readonly bool _useHighThroughputMode;
-
-    // Processing channels
-    private Channel<string> _rawLogChannel;
-    private Channel<LogEntry> _parsedLogChannel;
-    private readonly List<Task> _consumers = new();
-    private readonly SemaphoreSlim _parserSemaphore;
-
-    // Batch processing
+    // Simple processing queue
+    private readonly Channel<string> _logChannel;
     private readonly List<LogEntry> _batchBuffer = new();
     private readonly object _batchLock = new();
     private Timer? _batchTimer;
 
     public LogProcessingService(
         IServiceProvider serviceProvider,
-        IConfiguration configuration,
         ILogger<LogProcessingService> logger,
         IHubContext<DownloadHub> hubContext,
         LogParserService parser)
     {
         _serviceProvider = serviceProvider;
-        _configuration = configuration;
         _logger = logger;
         _hubContext = hubContext;
         _parser = parser;
 
-        // Load performance configuration
-        _channelCapacity = configuration.GetValue<int>("LanCache:ChannelCapacity", 100000);
-        _batchSize = configuration.GetValue<int>("LanCache:BatchSize", 5000);
-        _batchTimeoutMs = configuration.GetValue<int>("LanCache:BatchTimeoutMs", 500);
-        _consumerCount = configuration.GetValue<int>("LanCache:ConsumerCount", 4);
-        _parserParallelism = configuration.GetValue<int>("LanCache:ParserParallelism", 8);
-        _useHighThroughputMode = configuration.GetValue<bool>("LanCache:UseHighThroughputMode", false);
+        // Simple unbounded channel
+        _logChannel = Channel.CreateUnbounded<string>();
 
-        // Initialize channels with configured capacity
-        var channelOptions = new BoundedChannelOptions(_channelCapacity)
-        {
-            FullMode = _useHighThroughputMode ? BoundedChannelFullMode.Wait : BoundedChannelFullMode.DropOldest,
-            SingleReader = false,
-            SingleWriter = false
-        };
-
-        _rawLogChannel = Channel.CreateBounded<string>(channelOptions);
-        _parsedLogChannel = Channel.CreateBounded<LogEntry>(channelOptions);
-
-        // Initialize parser semaphore for parallel parsing
-        _parserSemaphore = new SemaphoreSlim(_parserParallelism, _parserParallelism);
-
-        _logger.LogInformation($"LogProcessingService initialized with: ChannelCapacity={_channelCapacity}, BatchSize={_batchSize}, " +
-            $"BatchTimeout={_batchTimeoutMs}ms, Consumers={_consumerCount}, ParserParallelism={_parserParallelism}, " +
-            $"HighThroughputMode={_useHighThroughputMode}");
+        _logger.LogInformation("LogProcessingService initialized");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Start batch timer
-        _batchTimer = new Timer(async _ => await FlushBatch(), null, _batchTimeoutMs, _batchTimeoutMs);
+        // Start batch timer (flush every 5 seconds)
+        _batchTimer = new Timer(async _ => await FlushBatch(), null, 5000, 5000);
 
-        // Start parser tasks
-        var parserTasks = new List<Task>();
-        for (int i = 0; i < _parserParallelism; i++)
-        {
-            int parserId = i;
-            parserTasks.Add(Task.Run(async () => await ParseLogLines(parserId, stoppingToken), stoppingToken));
-        }
-
-        // Start consumer tasks
-        for (int i = 0; i < _consumerCount; i++)
-        {
-            int consumerId = i;
-            _consumers.Add(Task.Run(async () => await ConsumeLogEntries(consumerId, stoppingToken), stoppingToken));
-        }
-
-        // Wait for all tasks
-        await Task.WhenAll(parserTasks.Concat(_consumers));
+        // Process log lines
+        await ProcessLogLines(stoppingToken);
     }
 
     /// <summary>
@@ -106,17 +54,7 @@ public class LogProcessingService : BackgroundService
     {
         try
         {
-            if (_useHighThroughputMode)
-            {
-                // In high throughput mode, wait if channel is full
-                await _rawLogChannel.Writer.WriteAsync(logLine);
-            }
-            else
-            {
-                // In normal mode, try to write without waiting
-                return _rawLogChannel.Writer.TryWrite(logLine);
-            }
-            return true;
+            return _logChannel.Writer.TryWrite(logLine);
         }
         catch (Exception ex)
         {
@@ -126,63 +64,43 @@ public class LogProcessingService : BackgroundService
     }
 
     /// <summary>
-    /// Parse log lines in parallel
+    /// Process log lines sequentially
     /// </summary>
-    private async Task ParseLogLines(int parserId, CancellationToken cancellationToken)
+    private async Task ProcessLogLines(CancellationToken cancellationToken)
     {
-        _logger.LogInformation($"Parser {parserId} started");
+        _logger.LogInformation("Log processor started");
 
-        await foreach (var logLine in _rawLogChannel.Reader.ReadAllAsync(cancellationToken))
+        await foreach (var logLine in _logChannel.Reader.ReadAllAsync(cancellationToken))
         {
-            await _parserSemaphore.WaitAsync(cancellationToken);
             try
             {
                 // Parse the log line
                 var entry = _parser.ParseLine(logLine);
                 if (entry != null && entry.BytesServed > 0)
                 {
-                    await _parsedLogChannel.Writer.WriteAsync(entry, cancellationToken);
+                    lock (_batchLock)
+                    {
+                        _batchBuffer.Add(entry);
+
+                        // Process batch when it reaches 100 entries
+                        if (_batchBuffer.Count >= 100)
+                        {
+                            var batch = _batchBuffer.ToList();
+                            _batchBuffer.Clear();
+
+                            // Process batch asynchronously
+                            Task.Run(async () => await ProcessBatch(batch), cancellationToken);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Parser {parserId} error processing line");
-            }
-            finally
-            {
-                _parserSemaphore.Release();
+                _logger.LogError(ex, "Error processing log line");
             }
         }
 
-        _logger.LogInformation($"Parser {parserId} stopped");
-    }
-
-    /// <summary>
-    /// Consume parsed log entries and batch them for database processing
-    /// </summary>
-    private async Task ConsumeLogEntries(int consumerId, CancellationToken cancellationToken)
-    {
-        _logger.LogInformation($"Consumer {consumerId} started");
-
-        await foreach (var entry in _parsedLogChannel.Reader.ReadAllAsync(cancellationToken))
-        {
-            lock (_batchLock)
-            {
-                _batchBuffer.Add(entry);
-
-                // Check if batch is full
-                if (_batchBuffer.Count >= _batchSize)
-                {
-                    var batch = _batchBuffer.ToList();
-                    _batchBuffer.Clear();
-
-                    // Process batch asynchronously
-                    Task.Run(async () => await ProcessBatch(batch, consumerId), cancellationToken);
-                }
-            }
-        }
-
-        _logger.LogInformation($"Consumer {consumerId} stopped");
+        _logger.LogInformation("Log processor stopped");
     }
 
     /// <summary>
@@ -204,19 +122,18 @@ public class LogProcessingService : BackgroundService
 
         if (batch != null)
         {
-            await ProcessBatch(batch, -1); // -1 indicates timer-based flush
+            await ProcessBatch(batch);
         }
     }
 
     /// <summary>
     /// Process a batch of log entries
     /// </summary>
-    private async Task ProcessBatch(List<LogEntry> entries, int consumerId)
+    private async Task ProcessBatch(List<LogEntry> entries)
     {
         if (entries.Count == 0) return;
 
-        var processorId = consumerId >= 0 ? $"Consumer-{consumerId}" : "Timer";
-        _logger.LogDebug($"{processorId}: Processing batch of {entries.Count} entries");
+        _logger.LogDebug($"Processing batch of {entries.Count} entries");
 
         try
         {
@@ -230,23 +147,20 @@ public class LogProcessingService : BackgroundService
             {
                 try
                 {
-                    await dbService.ProcessLogEntryBatch(group.ToList(), !_useHighThroughputMode);
+                    await dbService.ProcessLogEntryBatch(group.ToList(), true);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"{processorId}: Error processing batch for {group.Key.ClientIp}/{group.Key.Service}");
+                    _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}");
                 }
             }
 
-            // Send real-time updates if not in high throughput mode
-            if (!_useHighThroughputMode)
-            {
-                await SendRealtimeUpdate(entries);
-            }
+            // Send real-time updates
+            await SendRealtimeUpdate(entries);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"{processorId}: Error processing batch");
+            _logger.LogError(ex, "Error processing batch");
         }
     }
 
@@ -279,39 +193,18 @@ public class LogProcessingService : BackgroundService
         }
     }
 
-    /// <summary>
-    /// Get current queue statistics
-    /// </summary>
-    public object GetQueueStats()
-    {
-        return new
-        {
-            RawQueueCount = _rawLogChannel.Reader.Count,
-            ParsedQueueCount = _parsedLogChannel.Reader.Count,
-            BatchBufferCount = _batchBuffer.Count,
-            ChannelCapacity = _channelCapacity,
-            ActiveConsumers = _consumerCount,
-            ActiveParsers = _parserParallelism,
-            HighThroughputMode = _useHighThroughputMode
-        };
-    }
-
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Stopping LogProcessingService");
 
         // Stop accepting new items
-        _rawLogChannel.Writer.TryComplete();
-        _parsedLogChannel.Writer.TryComplete();
+        _logChannel.Writer.TryComplete();
 
         // Stop batch timer
         _batchTimer?.Dispose();
 
         // Flush remaining batch
         await FlushBatch();
-
-        // Wait for consumers to finish
-        await Task.WhenAll(_consumers);
 
         await base.StopAsync(cancellationToken);
     }

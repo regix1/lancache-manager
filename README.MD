@@ -1,6 +1,6 @@
 # LanCache Manager
 
-A modern, real-time monitoring interface for LanCache deployments. Track bandwidth usage, analyze cache performance, and manage your gaming content cache through an intuitive web interface.
+A modern, real-time monitoring interface for LanCache deployments. Track bandwidth usage, analyze cache usage, and manage your gaming content cache through an intuitive web interface.
 
 ## Key Features
 
@@ -21,7 +21,7 @@ A modern, real-time monitoring interface for LanCache deployments. Track bandwid
 - Multiple time range filters (1h, 6h, 12h, 24h, 7d, 30d, all time, custom)
 - Detailed download statistics with sorting and filtering
 - Export data in JSON/CSV formats with applied filters
-- Service-specific performance metrics
+- Service-specific usage metrics
 
 ### Modern Interface
 - Three view modes: Compact, Normal, and Grouped
@@ -33,7 +33,6 @@ A modern, real-time monitoring interface for LanCache deployments. Track bandwid
 ### Management Tools
 - Cache directory management and cleanup
 - Log processing controls with real-time feedback
-- Performance tuning and monitoring
 - Authentication and security settings
 
 ### Integrations
@@ -117,30 +116,6 @@ Start with: `docker-compose up -d`
 
 See the [Environment Variables Reference](wiki/DOCKER_ENVIRONMENT_REFERENCE.MD) for all configuration options.
 
-## Performance Tuning
-
-The application automatically adjusts for your deployment size:
-
-| Deployment Size | Clients | Configuration |
-|----------------|---------|---------------|
-| Home | 1-10 | Default settings |
-| LAN Party | 10-50 | Default settings |
-| Large Event | 50-200 | Performance boost needed |
-| Enterprise | 200+ | High-performance config |
-
-### Large Event Configuration
-Add to your docker-compose.yml:
-```yaml
-environment:
-  # High-performance settings for 50+ clients
-  - LanCache__ConsumerCount=8
-  - LanCache__ParserParallelism=16
-  - LanCache__BatchSize=10000
-  - LanCache__UseHighThroughputMode=true
-```
-
-See the [Performance Tuning Guide](wiki/PERFORMANCE_TUNING.MD) for detailed optimization.
-
 ## Authentication and Security
 
 ### First Run Setup
@@ -181,15 +156,6 @@ curl http://localhost:8080/api/metrics/json
 curl http://localhost:8080/api/metrics/status
 ```
 
-### Performance Monitoring
-```bash
-# Real-time performance stats
-curl http://localhost:8080/api/performance/stats
-
-# Detailed metrics
-curl http://localhost:8080/api/performance/metrics
-```
-
 ### Data Export
 All data can be exported directly from the Downloads tab in JSON or CSV format with applied filters.
 
@@ -211,7 +177,7 @@ All data can be exported directly from the Downloads tab in JSON or CSV format w
 ### Management Tab
 - Authentication: Manage API keys and security settings
 - Cache Management: Clean and organize cache directories
-- Performance: Monitor system performance and tune settings
+- Logs: Monitor log processing status
 - Themes: Customize appearance with 20+ built-in themes
 - Grafana: Get metrics endpoints for external monitoring
 
@@ -260,7 +226,6 @@ npm run dev
 
 - [Quick Start Guide](wiki/README.MD) - Get up and running in minutes
 - [Environment Variables](wiki/DOCKER_ENVIRONMENT_REFERENCE.MD) - Complete configuration reference
-- [Performance Tuning](wiki/PERFORMANCE_TUNING.MD) - Optimize for your deployment size
 - [Grafana Integration](wiki/GRAFANA.MD) - Set up monitoring dashboards
 - [Custom Themes](wiki/THEMING.MD) - Create and share custom themes
 - [Community Themes](community-themes/README.MD) - Download community themes
@@ -272,7 +237,7 @@ We welcome contributions! Whether it's:
 - New features and improvements
 - Custom themes
 - Documentation improvements
-- Performance optimizations
+- Feature improvements
 
 ## License
 
