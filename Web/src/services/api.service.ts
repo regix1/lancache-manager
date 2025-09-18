@@ -141,7 +141,7 @@ class ApiService {
     }
   }
 
-  // NEW: Dashboard aggregated stats
+  // Dashboard aggregated stats
   static async getDashboardStats(period = '24h', signal?: AbortSignal): Promise<DashboardStats> {
     try {
       const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, {
@@ -158,7 +158,7 @@ class ApiService {
     }
   }
 
-  // NEW: Cache effectiveness stats
+  // Cache effectiveness stats
   static async getCacheEffectiveness(period = '24h', signal?: AbortSignal): Promise<any> {
     try {
       const res = await fetch(`${API_BASE}/stats/cache-effectiveness?period=${period}`, {
@@ -175,7 +175,7 @@ class ApiService {
     }
   }
 
-  // NEW: Timeline stats
+  // Timeline stats
   static async getTimelineStats(
     period = '24h',
     interval = 'hourly',
@@ -196,7 +196,7 @@ class ApiService {
     }
   }
 
-  // NEW: Bandwidth saved stats
+  // Bandwidth saved stats
   static async getBandwidthSaved(period = 'all', signal?: AbortSignal): Promise<any> {
     try {
       const res = await fetch(`${API_BASE}/stats/bandwidth-saved?period=${period}`, {
@@ -213,7 +213,7 @@ class ApiService {
     }
   }
 
-  // NEW: Top games stats
+  // Top games stats
   static async getTopGames(limit = 10, period = '7d', signal?: AbortSignal): Promise<any> {
     try {
       const res = await fetch(`${API_BASE}/stats/top-games?limit=${limit}&period=${period}`, {

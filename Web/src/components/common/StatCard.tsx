@@ -1,4 +1,4 @@
-// StatCard.tsx - Updated component without gradient backgrounds
+// StatCard.tsx - Component without gradient backgrounds
 import React from 'react';
 import { type LucideIcon } from 'lucide-react';
 

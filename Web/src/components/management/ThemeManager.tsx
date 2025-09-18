@@ -1086,7 +1086,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     
   }, []);
 
-  // Update newTheme colors when create modal opens
+  // Update theme colors when create modal opens
   useEffect(() => {
     if (createModalOpen) {
       // Get current theme's colors from computed styles

@@ -988,7 +988,7 @@ class ThemeService {
     const currentVersion = packageJson.version;
 
     if (migrationVersion !== currentVersion) {
-      // Migration for sharp corners feature (added in v1.1.0)
+      // Migration for sharp corners feature
       if (!localStorage.getItem('lancache_sharp_corners')) {
         localStorage.setItem('lancache_sharp_corners', 'false'); // Default to rounded
       }
