@@ -74,7 +74,7 @@ const StatCard: React.FC<StatCardProps> = ({
             backgroundColor: getIconBackground(color)
           }}
         >
-          <Icon className="w-6 h-6" style={{ color: '#ffffff' }} />
+          <Icon className="w-6 h-6" style={{ color: 'var(--theme-button-text)' }} />
         </div>
       </div>
     </div>

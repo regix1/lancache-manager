@@ -239,6 +239,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
     const computedStyle = getComputedStyle(document.documentElement);
     const borderColor = computedStyle.getPropertyValue('--theme-chart-border').trim() || '#1f2937';
     const textColor = computedStyle.getPropertyValue('--theme-chart-text').trim() || '#9ca3af';
+    const titleColor = computedStyle.getPropertyValue('--theme-text-primary').trim() || '#ffffff';
 
     // Create new chart
     const ctx = chartRef.current.getContext('2d');
@@ -317,7 +318,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
           },
           tooltip: {
             backgroundColor: 'rgba(0, 0, 0, 0.9)',
-            titleColor: '#ffffff',
+            titleColor: titleColor,
             bodyColor: textColor,
             borderColor: borderColor,
             borderWidth: 1,

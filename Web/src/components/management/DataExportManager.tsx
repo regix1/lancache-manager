@@ -444,8 +444,8 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
                   </div>
                   {loadingProgress[option.type] !== undefined && (
                     <div className="absolute bottom-0 left-0 w-full h-1 bg-themed-secondary">
-                      <div 
-                        className="h-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-300"
+                      <div
+                        className="progress-bar-medium h-full transition-all duration-300"
                         style={{ width: `${loadingProgress[option.type]}%` }}
                       />
                     </div>

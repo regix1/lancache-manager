@@ -501,7 +501,7 @@ const DownloadsTab: React.FC = () => {
       return {
         type: 'metadata' as const,
         icon: Database,
-        iconColor: 'text-purple-400',
+        iconColor: 'text-themed-accent',
         description: 'Metadata/Configuration',
         label: 'Metadata'
       };
@@ -509,7 +509,7 @@ const DownloadsTab: React.FC = () => {
       return {
         type: 'content' as const,
         icon: Check,
-        iconColor: 'text-green-400',
+        iconColor: 'cache-hit',
         description: 'Fully Cached',
         label: 'Cached'
       };
@@ -517,7 +517,7 @@ const DownloadsTab: React.FC = () => {
       return {
         type: 'content' as const,
         icon: DownloadIcon,
-        iconColor: 'text-yellow-400',
+        iconColor: 'cache-miss',
         description: `${cachePercentage.toFixed(0)}% Cached`,
         label: 'Partial'
       };
@@ -525,7 +525,7 @@ const DownloadsTab: React.FC = () => {
       return {
         type: 'content' as const,
         icon: CloudOff,
-        iconColor: 'text-gray-400',
+        iconColor: 'text-themed-muted',
         description: 'Not Cached',
         label: 'Uncached'
       };
@@ -995,10 +995,10 @@ const DownloadsTab: React.FC = () => {
 
             {/* Status */}
             <div className="w-28 flex items-center">
-              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shadow-sm transition-all duration-200 ${
-                downloadType.label === 'Cached' ? 'bg-gradient-to-r from-green-500/15 to-green-400/10 text-green-500 border border-green-500/20' :
-                downloadType.label === 'Partial' ? 'bg-gradient-to-r from-yellow-500/15 to-yellow-400/10 text-yellow-500 border border-yellow-500/20' :
-                'bg-gradient-to-r from-gray-500/10 to-gray-400/5 text-gray-400 border border-gray-500/10'
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shadow-sm transition-all duration-200 border ${
+                downloadType.label === 'Cached' ? 'download-game' :
+                downloadType.label === 'Partial' ? 'download-content' :
+                'download-metadata'
               }`}>
                 <IconComponent size={12} className="drop-shadow-sm" />
                 <span>{downloadType.label}</span>
@@ -1083,9 +1083,9 @@ const DownloadsTab: React.FC = () => {
           <div className="flex items-center justify-between mt-1 text-xs text-[var(--theme-text-muted)]">
             <div className="flex items-center gap-3">
               <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-                downloadType.label === 'Cached' ? 'bg-green-500/10 text-green-500' :
-                downloadType.label === 'Partial' ? 'bg-yellow-500/10 text-yellow-500' :
-                'bg-gray-500/10 text-gray-400'
+                downloadType.label === 'Cached' ? 'download-game' :
+                downloadType.label === 'Partial' ? 'download-content' :
+                'download-metadata'
               }`}>
                 <IconComponent size={10} />
                 <span>{downloadType.label}</span>
@@ -1651,10 +1651,8 @@ const DownloadsTab: React.FC = () => {
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 flex-1">
-                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg shadow-sm ${
-                            d.endTime
-                              ? 'bg-gradient-to-r from-green-500/20 to-green-400/15 text-green-400 border border-green-500/25'
-                              : 'bg-gradient-to-r from-yellow-500/20 to-yellow-400/15 text-yellow-400 border border-yellow-500/25'
+                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg shadow-sm border ${
+                            d.endTime ? 'status-completed' : 'status-active'
                           }`}>
                             {d.endTime ? 'complete' : 'in-progress'}
                           </span>
@@ -1674,12 +1672,9 @@ const DownloadsTab: React.FC = () => {
                             {formatBytes(d.totalBytes || 0)}
                           </span>
                           {d.totalBytes && d.totalBytes > 0 && (
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-md ${
-                              downloadHitPercent > 75
-                                ? 'bg-green-500/10 text-green-500'
-                                : downloadHitPercent > 25
-                                ? 'bg-yellow-500/10 text-yellow-500'
-                                : 'bg-red-500/10 text-red-500'
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-md hit-rate-badge ${
+                              downloadHitPercent > 75 ? 'high' :
+                              downloadHitPercent > 25 ? 'warning' : 'low'
                             }`}>
                               {formatPercent(downloadHitPercent)}
                             </span>
