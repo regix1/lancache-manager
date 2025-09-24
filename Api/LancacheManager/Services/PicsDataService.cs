@@ -1,0 +1,339 @@
+using System.Text.Json;
+using LancacheManager.Constants;
+using LancacheManager.Models;
+using LancacheManager.Data;
+using Microsoft.EntityFrameworkCore;
+
+namespace LancacheManager.Services;
+
+/// <summary>
+/// Service for managing PICS depot mapping data in JSON format
+/// </summary>
+public class PicsDataService
+{
+    private readonly ILogger<PicsDataService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly string _picsJsonFile;
+    private readonly object _fileLock = new object();
+
+    public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory)
+    {
+        _logger = logger;
+        _scopeFactory = scopeFactory;
+        _picsJsonFile = Path.Combine(LancacheConstants.DATA_DIRECTORY, "pics_depot_mappings.json");
+    }
+
+    /// <summary>
+    /// Save PICS depot mappings to JSON file
+    /// </summary>
+    public async Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0)
+    {
+        try
+        {
+            var picsData = new PicsJsonData
+            {
+                Metadata = new PicsMetadata
+                {
+                    LastUpdated = DateTime.UtcNow,
+                    TotalMappings = depotMappings.Sum(kvp => kvp.Value.Count),
+                    Version = "1.0",
+                    NextUpdateDue = DateTime.UtcNow.AddHours(24),
+                    LastChangeNumber = lastChangeNumber
+                },
+                DepotMappings = new Dictionary<string, PicsDepotMapping>()
+            };
+
+            foreach (var (depotId, appIds) in depotMappings)
+            {
+                var appIdsList = appIds.ToList();
+                var appNamesList = appIdsList.Select(appId =>
+                    appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
+                ).ToList();
+
+                picsData.DepotMappings[depotId.ToString()] = new PicsDepotMapping
+                {
+                    AppIds = appIdsList,
+                    AppNames = appNamesList,
+                    Source = "SteamKit2-PICS",
+                    Confidence = 100,
+                    DiscoveredAt = DateTime.UtcNow
+                };
+            }
+
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            var jsonContent = JsonSerializer.Serialize(picsData, jsonOptions);
+
+            // Ensure data directory exists
+            var dataDir = Path.GetDirectoryName(_picsJsonFile);
+            if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+            }
+
+            lock (_fileLock)
+            {
+                File.WriteAllText(_picsJsonFile, jsonContent);
+            }
+
+            _logger.LogInformation($"Saved {picsData.Metadata.TotalMappings} PICS depot mappings to JSON file: {_picsJsonFile}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving PICS data to JSON file");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Load PICS depot mappings from JSON file
+    /// </summary>
+    public async Task<PicsJsonData?> LoadPicsDataFromJsonAsync()
+    {
+        try
+        {
+            if (!File.Exists(_picsJsonFile))
+            {
+                _logger.LogDebug("PICS JSON file not found: {FilePath}", _picsJsonFile);
+                return null;
+            }
+
+            string jsonContent;
+            lock (_fileLock)
+            {
+                jsonContent = File.ReadAllText(_picsJsonFile);
+            }
+
+            if (string.IsNullOrWhiteSpace(jsonContent))
+            {
+                _logger.LogWarning("PICS JSON file is empty");
+                return null;
+            }
+
+            var jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            var picsData = JsonSerializer.Deserialize<PicsJsonData>(jsonContent, jsonOptions);
+
+            if (picsData != null)
+            {
+                _logger.LogDebug($"Loaded PICS data with {picsData.Metadata?.TotalMappings ?? 0} mappings from JSON file");
+            }
+
+            return picsData;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading PICS data from JSON file");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Check if PICS JSON data needs updating (older than 24 hours)
+    /// </summary>
+    public async Task<bool> NeedsUpdateAsync()
+    {
+        try
+        {
+            var picsData = await LoadPicsDataFromJsonAsync();
+            if (picsData?.Metadata == null)
+            {
+                return true; // No data exists, needs initial update
+            }
+
+            var timeSinceUpdate = DateTime.UtcNow - picsData.Metadata.LastUpdated;
+            var needsUpdate = timeSinceUpdate >= TimeSpan.FromHours(24);
+
+            _logger.LogDebug($"PICS data age: {timeSinceUpdate.TotalHours:F1} hours, needs update: {needsUpdate}");
+            return needsUpdate;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking if PICS data needs update, assuming it does");
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Get app IDs for a depot from JSON data
+    /// </summary>
+    public async Task<List<uint>> GetAppIdsForDepotFromJsonAsync(uint depotId)
+    {
+        try
+        {
+            var picsData = await LoadPicsDataFromJsonAsync();
+            if (picsData?.DepotMappings == null)
+            {
+                return new List<uint>();
+            }
+
+            var depotKey = depotId.ToString();
+            if (picsData.DepotMappings.TryGetValue(depotKey, out var mapping))
+            {
+                return mapping.AppIds ?? new List<uint>();
+            }
+
+            return new List<uint>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Error getting app IDs for depot {depotId} from JSON");
+            return new List<uint>();
+        }
+    }
+
+    /// <summary>
+    /// Import PICS data from JSON file to database
+    /// </summary>
+    public async Task ImportJsonDataToDatabaseAsync()
+    {
+        try
+        {
+            var picsData = await LoadPicsDataFromJsonAsync();
+            if (picsData?.DepotMappings == null)
+            {
+                _logger.LogWarning("No PICS JSON data to import");
+                return;
+            }
+
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var mappingsToImport = new List<SteamDepotMapping>();
+
+            foreach (var (depotIdStr, mapping) in picsData.DepotMappings)
+            {
+                if (!uint.TryParse(depotIdStr, out var depotId))
+                {
+                    continue;
+                }
+
+                if (mapping.AppIds != null)
+                {
+                    for (int i = 0; i < mapping.AppIds.Count; i++)
+                    {
+                        var appId = mapping.AppIds[i];
+                        var appName = mapping.AppNames?.ElementAtOrDefault(i) ?? $"App {appId}";
+
+                        mappingsToImport.Add(new SteamDepotMapping
+                        {
+                            DepotId = depotId,
+                            AppId = appId,
+                            AppName = appName,
+                            Source = mapping.Source ?? "JSON-Import",
+                            Confidence = mapping.Confidence,
+                            DiscoveredAt = mapping.DiscoveredAt
+                        });
+                    }
+                }
+            }
+
+            // Get existing mappings to avoid duplicates
+            var depotIds = mappingsToImport.Select(m => m.DepotId).Distinct().ToList();
+            var existingMappings = await context.SteamDepotMappings
+                .Where(m => depotIds.Contains(m.DepotId))
+                .ToDictionaryAsync(m => $"{m.DepotId}_{m.AppId}");
+
+            var newMappings = new List<SteamDepotMapping>();
+            int updated = 0;
+
+            foreach (var mapping in mappingsToImport)
+            {
+                var key = $"{mapping.DepotId}_{mapping.AppId}";
+                if (existingMappings.TryGetValue(key, out var existing))
+                {
+                    // Update existing mapping if JSON data is newer or has higher confidence
+                    if (mapping.Confidence > existing.Confidence ||
+                        (mapping.DiscoveredAt > existing.DiscoveredAt && existing.Source != "SteamKit2-PICS"))
+                    {
+                        existing.AppName = mapping.AppName;
+                        existing.Source = GetCombinedSource(existing.Source, mapping.Source);
+                        existing.Confidence = Math.Max(existing.Confidence, mapping.Confidence);
+                        existing.DiscoveredAt = mapping.DiscoveredAt;
+                        updated++;
+                    }
+                }
+                else
+                {
+                    newMappings.Add(mapping);
+                }
+            }
+
+            if (newMappings.Any())
+            {
+                await context.SteamDepotMappings.AddRangeAsync(newMappings);
+            }
+
+            await context.SaveChangesAsync();
+
+            _logger.LogInformation($"Imported PICS data: {newMappings.Count} new mappings, {updated} updated");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error importing PICS JSON data to database");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Get file path for PICS JSON file
+    /// </summary>
+    public string GetPicsJsonFilePath() => _picsJsonFile;
+
+    /// <summary>
+    /// Combine source information for depot mappings
+    /// </summary>
+    private string GetCombinedSource(string existingSource, string newSource)
+    {
+        if (existingSource == newSource)
+            return existingSource;
+
+        if (newSource == "SteamKit2-PICS")
+            return "SteamKit2-PICS";
+
+        if (existingSource == "PatternMatching" && newSource == "JSON-Import")
+            return "PatternMatching+JSON";
+
+        return existingSource;
+    }
+}
+
+/// <summary>
+/// Root structure for PICS JSON data
+/// </summary>
+public class PicsJsonData
+{
+    public PicsMetadata? Metadata { get; set; }
+    public Dictionary<string, PicsDepotMapping>? DepotMappings { get; set; }
+}
+
+/// <summary>
+/// Metadata for PICS JSON file
+/// </summary>
+public class PicsMetadata
+{
+    public DateTime LastUpdated { get; set; }
+    public int TotalMappings { get; set; }
+    public string Version { get; set; } = "1.0";
+    public DateTime NextUpdateDue { get; set; }
+    public uint LastChangeNumber { get; set; }   // NEW: Track PICS changelist position
+}
+
+/// <summary>
+/// Depot mapping data in JSON format
+/// </summary>
+public class PicsDepotMapping
+{
+    public List<uint>? AppIds { get; set; }
+    public List<string>? AppNames { get; set; }
+    public string Source { get; set; } = "SteamKit2-PICS";
+    public int Confidence { get; set; } = 100;
+    public DateTime DiscoveredAt { get; set; }
+}
