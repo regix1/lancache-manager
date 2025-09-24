@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using LancacheManager.Constants;
 
 namespace LancacheManager.Security;
 
@@ -19,7 +20,7 @@ public class DeviceAuthService
     {
         _logger = logger;
         _apiKeyService = apiKeyService;
-        _devicesDirectory = configuration["Security:DevicesPath"] ?? "/data/devices";
+        _devicesDirectory = configuration["Security:DevicesPath"] ?? Path.Combine(LancacheConstants.DATA_DIRECTORY, "devices");
         
         // Ensure devices directory exists
         if (!Directory.Exists(_devicesDirectory))

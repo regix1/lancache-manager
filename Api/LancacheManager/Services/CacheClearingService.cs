@@ -15,7 +15,7 @@ public class CacheClearingService : IHostedService
     private readonly IConfiguration _configuration;
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
     private readonly string _cachePath;
-    private readonly string _statusFilePath = "/tmp/cache_clear_status.json";
+    private readonly string _statusFilePath;
     private Timer? _cleanupTimer;
 
     public CacheClearingService(
@@ -61,7 +61,11 @@ public class CacheClearingService : IHostedService
             _cachePath = configuration["LanCache:CachePath"] ?? "/mnt/cache/cache";
             _logger.LogWarning($"No cache detected, using configured path: {_cachePath}");
         }
-        
+
+        // Initialize status file path using the data directory
+        var dataDirectory = LancacheConstants.DATA_DIRECTORY;
+        _statusFilePath = Path.Combine(dataDirectory, "cache_clear_status.json");
+
         _logger.LogInformation($"CacheClearingService initialized with cache path: {_cachePath}");
     }
 
@@ -772,13 +776,20 @@ public class CacheClearingService : IHostedService
     {
         try
         {
+            // Ensure the directory exists
+            var directory = Path.GetDirectoryName(_statusFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
             var operations = _operations.Values.ToList();
-            var options = new JsonSerializerOptions 
-            { 
+            var options = new JsonSerializerOptions
+            {
                 WriteIndented = true,
                 Converters = { new JsonStringEnumConverter() }
             };
-            
+
             var json = JsonSerializer.Serialize(operations, options);
             File.WriteAllText(_statusFilePath, json);
         }

@@ -11,7 +11,6 @@ public class AppDbContext : DbContext
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
     public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
-    public DbSet<GameImage> GameImages { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,21 +49,16 @@ public class AppDbContext : DbContext
         // SteamDepotMapping indexes
         modelBuilder.Entity<SteamDepotMapping>()
             .HasIndex(m => m.DepotId)
-            .HasDatabaseName("IX_SteamDepotMappings_DepotId")
-            .IsUnique();
-            
+            .HasDatabaseName("IX_SteamDepotMappings_DepotId");
+
         modelBuilder.Entity<SteamDepotMapping>()
             .HasIndex(m => m.AppId)
             .HasDatabaseName("IX_SteamDepotMappings_AppId");
 
-        // GameImage indexes
-        modelBuilder.Entity<GameImage>()
-            .HasIndex(g => new { g.AppId, g.ImageType })
-            .HasDatabaseName("IX_GameImages_AppId_Type")
+        // Unique constraint on the combination of DepotId and AppId
+        modelBuilder.Entity<SteamDepotMapping>()
+            .HasIndex(m => new { m.DepotId, m.AppId })
+            .HasDatabaseName("IX_SteamDepotMappings_DepotId_AppId")
             .IsUnique();
-
-        modelBuilder.Entity<GameImage>()
-            .HasIndex(g => g.LastAccessed)
-            .HasDatabaseName("IX_GameImages_LastAccessed");
     }
 }

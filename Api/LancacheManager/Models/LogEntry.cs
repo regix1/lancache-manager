@@ -9,4 +9,5 @@ public class LogEntry
     public long BytesServed { get; set; }
     public string CacheStatus { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
+    public uint? DepotId { get; set; } // Steam depot ID extracted from URLs
 }

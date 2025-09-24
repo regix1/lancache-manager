@@ -18,6 +18,7 @@ public class Download
     public string? GameName { get; set; }
     public string? GameImageUrl { get; set; }
     public string? LastUrl { get; set; } // Store the last URL to extract game info
+    public uint? DepotId { get; set; } // Steam depot ID extracted from URLs
     
     // Computed properties need [JsonInclude] to be serialized
     [JsonInclude]

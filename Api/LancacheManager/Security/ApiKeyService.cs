@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using LancacheManager.Constants;
 
 namespace LancacheManager.Security;
 
@@ -13,8 +14,8 @@ public class ApiKeyService
     public ApiKeyService(ILogger<ApiKeyService> logger, IConfiguration configuration)
     {
         _logger = logger;
-        _apiKeyPath = configuration["Security:ApiKeyPath"] ?? "/data/api_key.txt";
-        
+        _apiKeyPath = configuration["Security:ApiKeyPath"] ?? Path.Combine(LancacheConstants.DATA_DIRECTORY, "api_key.txt");
+
         // Ensure data directory exists
         var dir = Path.GetDirectoryName(_apiKeyPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))

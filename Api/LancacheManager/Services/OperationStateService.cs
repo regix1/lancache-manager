@@ -1,12 +1,13 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LancacheManager.Constants;
 
 namespace LancacheManager.Services;
 
 public class OperationStateService : IHostedService
 {
     private readonly ILogger<OperationStateService> _logger;
-    private readonly string _stateFilePath = "/data/operation_states.json";
+    private readonly string _stateFilePath;
     private readonly ConcurrentDictionary<string, OperationState> _states = new();
     private Timer? _cleanupTimer;
     private readonly object _fileLock = new object();
@@ -14,6 +15,7 @@ public class OperationStateService : IHostedService
     public OperationStateService(ILogger<OperationStateService> logger)
     {
         _logger = logger;
+        _stateFilePath = Path.Combine(LancacheConstants.DATA_DIRECTORY, "operation_states.json");
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -98,9 +100,10 @@ public class OperationStateService : IHostedService
     {
         try
         {
-            if (!Directory.Exists("/data"))
+            var dataDirectory = LancacheConstants.DATA_DIRECTORY;
+            if (!Directory.Exists(dataDirectory))
             {
-                Directory.CreateDirectory("/data");
+                Directory.CreateDirectory(dataDirectory);
             }
 
             if (File.Exists(_stateFilePath))

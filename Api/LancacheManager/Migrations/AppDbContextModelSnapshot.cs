@@ -58,6 +58,9 @@ namespace LancacheManager.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<uint?>("DepotId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("EndTime")
                         .HasColumnType("TEXT");
 
@@ -99,52 +102,6 @@ namespace LancacheManager.Migrations
                         .HasDatabaseName("IX_Downloads_Client_Service_Active");
 
                     b.ToTable("Downloads");
-                });
-
-            modelBuilder.Entity("LancacheManager.Models.GameImage", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("AccessCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<uint>("AppId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CachedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("GameName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<byte[]>("ImageData")
-                        .IsRequired()
-                        .HasColumnType("BLOB");
-
-                    b.Property<string>("ImageType")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("LastAccessed")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LastAccessed")
-                        .HasDatabaseName("IX_GameImages_LastAccessed");
-
-                    b.HasIndex("AppId", "ImageType")
-                        .IsUnique()
-                        .HasDatabaseName("IX_GameImages_AppId_Type");
-
-                    b.ToTable("GameImages");
                 });
 
             modelBuilder.Entity("LancacheManager.Models.ServiceStats", b =>
@@ -203,8 +160,11 @@ namespace LancacheManager.Migrations
                         .HasDatabaseName("IX_SteamDepotMappings_AppId");
 
                     b.HasIndex("DepotId")
-                        .IsUnique()
                         .HasDatabaseName("IX_SteamDepotMappings_DepotId");
+
+                    b.HasIndex("DepotId", "AppId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_SteamDepotMappings_DepotId_AppId");
 
                     b.ToTable("SteamDepotMappings");
                 });

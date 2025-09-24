@@ -6,12 +6,15 @@ namespace LancacheManager.Services;
 public class LogParserService
 {
     private readonly ILogger<LogParserService> _logger;
-    
+
     // Updated regex to match your actual log format:
     // [service] IP / - - - [timestamp] "METHOD URL HTTP/version" status bytes "-" "user-agent" "HIT/MISS" "domain" "-"
     private static readonly Regex LogRegex = new(
         @"^\[(?<service>\w+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS|EXPIRED|UPDATING|STALE|BYPASS|REVALIDATED)""",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Regex pattern for Steam depot extraction
+    private static readonly Regex DepotRegex = new(@"/depot/(\d+)/", RegexOptions.Compiled);
 
     public LogParserService(ILogger<LogParserService> logger)
     {
@@ -47,7 +50,11 @@ public class LogParserService
                     return null;
                 }
 
-                _logger.LogTrace($"Parsed: {service} {clientIp} {bytesServed} bytes {cacheStatus}");
+                // Extract depot ID from Steam URLs only
+                var depotId = ExtractDepotIdFromUrl(url, service);
+
+                _logger.LogTrace($"Parsed: {service} {clientIp} {bytesServed} bytes {cacheStatus}" +
+                    (depotId.HasValue ? $" depot:{depotId.Value}" : ""));
 
                 return new LogEntry
                 {
@@ -57,7 +64,8 @@ public class LogParserService
                     StatusCode = statusCode,
                     BytesServed = bytesServed,
                     CacheStatus = cacheStatus,
-                    Timestamp = timestamp
+                    Timestamp = timestamp,
+                    DepotId = depotId
                 };
             }
             else
@@ -119,5 +127,44 @@ public class LogParserService
         
         _logger.LogWarning($"Failed to parse timestamp: {timestamp}");
         return DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Extract depot ID from Steam URLs only, ignoring WSUS URLs
+    /// </summary>
+    private uint? ExtractDepotIdFromUrl(string url, string service)
+    {
+        if (string.IsNullOrEmpty(url) || string.IsNullOrEmpty(service))
+            return null;
+
+        // Only process Steam service URLs
+        if (!service.Equals("steam", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        try
+        {
+            // Ignore WSUS URLs like /filestreamingservice/files/...
+            if (url.Contains("/filestreamingservice/", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogTrace($"Ignoring WSUS URL: {url}");
+                return null;
+            }
+
+            // Extract depot ID from Steam URLs like /depot/835575/chunk/...
+            var match = DepotRegex.Match(url);
+            if (match.Success && uint.TryParse(match.Groups[1].Value, out var depotId))
+            {
+                _logger.LogTrace($"Extracted depot {depotId} from Steam URL: {url}");
+                return depotId;
+            }
+
+            // No depot pattern found
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogTrace($"Error extracting depot ID from URL '{url}': {ex.Message}");
+            return null;
+        }
     }
 }

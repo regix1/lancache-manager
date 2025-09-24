@@ -2,6 +2,7 @@ using LancacheManager.Models;
 using System.Text;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
+using LancacheManager.Constants;
 
 namespace LancacheManager.Services;
 
@@ -13,8 +14,8 @@ public class LogWatcherService : BackgroundService
     private readonly ILogger<LogWatcherService> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
     private long _lastPosition = -1;
-    private readonly string _positionFile = "/data/logposition.txt";
-    private readonly string _processingMarker = "/data/bulk_processing.marker";
+    private readonly string _positionFile = LancacheConstants.POSITION_FILE;
+    private readonly string _processingMarker = LancacheConstants.PROCESSING_MARKER;
     private readonly string _logPath;
     private bool _isBulkProcessing = false;
     private DateTime _lastMarkerCheck = DateTime.MinValue;
@@ -34,7 +35,11 @@ public class LogWatcherService : BackgroundService
         _configuration = configuration;
         _logger = logger;
         _hubContext = hubContext;
-        _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
+        _logPath = configuration["LanCache:LogPath"] ?? LancacheConstants.LOG_PATH;
+        _logger.LogInformation($"LogWatcherService using log path: {_logPath}");
+        _logger.LogInformation($"Current directory: {Directory.GetCurrentDirectory()}");
+        _logger.LogInformation($"WindowsBasePath: {LancacheConstants.WindowsBasePath}");
+        _logger.LogInformation($"LOGS_DIRECTORY: {LancacheConstants.LOGS_DIRECTORY}");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -79,7 +84,7 @@ public class LogWatcherService : BackgroundService
     {
         try
         {
-            var directory = Path.GetDirectoryName(_processingMarker) ?? "/data";
+            var directory = Path.GetDirectoryName(_processingMarker) ?? LancacheConstants.DATA_DIRECTORY;
             if (!Directory.Exists(directory))
             {
                 Directory.CreateDirectory(directory);
@@ -484,13 +489,29 @@ public class LogWatcherService : BackgroundService
                         continue;
                     }
                     
-                    await Task.Delay(isBulkMode ? 100 : 1000, stoppingToken);
+                    try
+                    {
+                        await Task.Delay(isBulkMode ? 100 : 1000, stoppingToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected during shutdown
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error processing log line at position {stream.Position}");
-                await Task.Delay(5000, stoppingToken);
+                try
+                {
+                    await Task.Delay(5000, stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected during shutdown
+                    break;
+                }
             }
         }
         

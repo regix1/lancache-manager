@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { HardDrive, Trash2, Loader, CheckCircle, AlertCircle, StopCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
@@ -35,6 +35,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
 
+  // Use ref to store the callback to prevent infinite loop
+  const onBackgroundOperationRef = useRef(onBackgroundOperation);
+  useEffect(() => {
+    onBackgroundOperationRef.current = onBackgroundOperation;
+  });
+
   // Report cache clearing status to parent
   useEffect(() => {
     const isCacheClearingInBackground =
@@ -43,16 +49,16 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       cacheClearProgress &&
       ['Running', 'Preparing'].includes(cacheClearProgress.status);
 
-    if (isCacheClearingInBackground && onBackgroundOperation) {
-      onBackgroundOperation({
+    if (isCacheClearingInBackground && onBackgroundOperationRef.current) {
+      onBackgroundOperationRef.current({
         bytesDeleted: cacheClearProgress.bytesDeleted,
         progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
         showModal: () => setShowCacheClearModal(true)
       });
-    } else if (onBackgroundOperation) {
-      onBackgroundOperation(null);
+    } else if (onBackgroundOperationRef.current) {
+      onBackgroundOperationRef.current(null);
     }
-  }, [cacheOp.operation, showCacheClearModal, cacheClearProgress, onBackgroundOperation]);
+  }, [cacheOp.operation, showCacheClearModal, cacheClearProgress]);
 
   useEffect(() => {
     loadConfig();

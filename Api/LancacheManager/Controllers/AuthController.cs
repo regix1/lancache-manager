@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Security;
+using LancacheManager.Services;
 
 namespace LancacheManager.Controllers;
 
@@ -11,17 +12,20 @@ public class AuthController : ControllerBase
     private readonly DeviceAuthService _deviceAuthService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
+    private readonly PathResolverService _pathResolver;
 
     public AuthController(
         ApiKeyService apiKeyService,
         DeviceAuthService deviceAuthService,
         IConfiguration configuration,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        PathResolverService pathResolver)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
         _configuration = configuration;
         _logger = logger;
+        _pathResolver = pathResolver;
     }
 
     /// <summary>
@@ -185,7 +189,7 @@ public class AuthController : ControllerBase
             var oldKey = _apiKeyService.GetOrCreateApiKey();
             
             // Delete the existing key file to force regeneration
-            var keyPath = _configuration["Security:ApiKeyPath"] ?? "/data/api_key.txt";
+            var keyPath = _pathResolver.GetApiKeyPath();
             if (System.IO.File.Exists(keyPath))
             {
                 System.IO.File.Delete(keyPath);

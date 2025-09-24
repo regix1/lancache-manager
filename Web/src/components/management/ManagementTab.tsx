@@ -149,7 +149,7 @@ const LogFileManager: React.FC<{
 
   useEffect(() => {
     onBackgroundOperation?.(activeServiceRemoval);
-  }, [activeServiceRemoval, onBackgroundOperation]);
+  }, [activeServiceRemoval]);
 
   const loadConfig = async () => {
     try {

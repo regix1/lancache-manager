@@ -5,6 +5,7 @@ import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import PicsProgressBar from '@components/common/PicsProgressBar';
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
@@ -54,6 +55,7 @@ const App: React.FC = () => {
           >
             <Header />
             <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+            <PicsProgressBar />
             <main className="container mx-auto px-4 py-6">{renderContent()}</main>
           </div>
         </DataProvider>

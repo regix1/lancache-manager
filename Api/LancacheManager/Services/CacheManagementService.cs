@@ -7,47 +7,37 @@ public class CacheManagementService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<CacheManagementService> _logger;
+    private readonly PathResolverService _pathResolver;
     private readonly string _cachePath;
     private readonly string _logPath;
 
-    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger)
+    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, PathResolverService pathResolver)
     {
         _configuration = configuration;
         _logger = logger;
-        
-        // Check for cache directory in order of preference
-        _cachePath = null;
+        _pathResolver = pathResolver;
 
-        // First check config override
-        var configPath = configuration["LanCache:CachePath"];
-        if (!string.IsNullOrEmpty(configPath) && Directory.Exists(configPath))
+        // Use PathResolver to get properly resolved paths
+        _cachePath = _pathResolver.GetCachePath();
+        _logPath = _pathResolver.GetLogPath();
+
+        // Check if cache directory exists, create if it doesn't in development
+        if (!Directory.Exists(_cachePath))
         {
-            _cachePath = configPath;
-            _logger.LogInformation($"Using configured cache path: {_cachePath}");
-        }
-        else
-        {
-            // Check standard cache paths
-            foreach (var path in LancacheConstants.CACHE_PATHS)
+            if (_configuration.GetValue<string>("Environment") == "Development")
             {
-                if (Directory.Exists(path) && Directory.GetDirectories(path).Any(d => Path.GetFileName(d).Length == 2))
-                {
-                    _cachePath = path;
-                    _logger.LogInformation($"Detected cache directory at: {_cachePath}");
-                    break;
-                }
+                Directory.CreateDirectory(_cachePath);
+                _logger.LogInformation($"Created cache directory: {_cachePath}");
+            }
+            else
+            {
+                var errorMsg = $"Cache directory not found: {_cachePath}. " +
+                              "Ensure the cache directory exists and is properly configured.";
+                _logger.LogError(errorMsg);
+                throw new DirectoryNotFoundException(errorMsg);
             }
         }
 
-        // Fallback to config or default
-        if (string.IsNullOrEmpty(_cachePath))
-        {
-            _cachePath = configPath ?? "./cache";
-            _logger.LogInformation($"Using fallback cache path: {_cachePath}");
-        }
-        
-        _logPath = configuration["LanCache:LogPath"] ?? "/logs/access.log";
-        
         _logger.LogInformation($"CacheManagementService initialized - Cache: {_cachePath}, Logs: {_logPath}");
     }
 
@@ -253,7 +243,7 @@ public class CacheManagementService
                 throw new FileNotFoundException($"Log file not found: {_logPath}");
             }
 
-            var logDir = Path.GetDirectoryName(_logPath) ?? "/logs";
+            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.ResolvePath("logs");
             var backupFile = $"{_logPath}.bak";
             var tempFile = Path.Combine(logDir, $"access.log.tmp.{Guid.NewGuid()}");
             
@@ -263,63 +253,13 @@ public class CacheManagementService
                 await File.WriteAllTextAsync(Path.Combine(logDir, ".write_test"), "test");
                 File.Delete(Path.Combine(logDir, ".write_test"));
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Try /tmp as fallback
-                tempFile = $"/tmp/access.log.tmp.{Guid.NewGuid()}";
-                var tempBackup = $"/tmp/access.log.bak.{DateTime.Now:yyyyMMddHHmmss}";
-                
-                _logger.LogWarning($"Cannot write to {logDir}, using /tmp for processing");
-                
-                // Process in /tmp then try to copy back
-                await Task.Run(async () =>
-                {
-                    // Create backup in /tmp
-                    File.Copy(_logPath, tempBackup, true);
-                    _logger.LogInformation($"Backup created at {tempBackup}");
-                    
-                    using (var reader = new StreamReader(_logPath))
-                    using (var writer = new StreamWriter(tempFile))
-                    {
-                        string? line;
-                        int removedCount = 0;
-                        int totalLines = 0;
-                        
-                        while ((line = await reader.ReadLineAsync()) != null)
-                        {
-                            totalLines++;
-                            
-                            if (!line.StartsWith($"[{service}]", StringComparison.OrdinalIgnoreCase))
-                            {
-                                await writer.WriteLineAsync(line);
-                            }
-                            else
-                            {
-                                removedCount++;
-                            }
-                        }
-                        
-                        _logger.LogInformation($"Removed {removedCount} {service} entries from {totalLines} total lines");
-                    }
-                });
-                
-                // Try to replace the original file
-                try
-                {
-                    File.Delete(_logPath);
-                    File.Move(tempFile, _logPath);
-                    _logger.LogInformation("Successfully updated log file");
-                }
-                catch
-                {
-                    throw new UnauthorizedAccessException(
-                        $"Cannot modify {_logPath}. The logs directory may be mounted read-only or have permission issues. " +
-                        $"Processed file saved to {tempFile}. To fix: 1) Check docker logs, 2) Ensure logs mount has write permissions, " +
-                        $"3) Try running: docker exec lancache-manager chmod 777 /logs"
-                    );
-                }
-                
-                return;
+                var errorMsg = $"Cannot write to logs directory: {logDir}. " +
+                              "This may indicate: 1) Directory is mounted read-only, 2) Permission issues, 3) Directory doesn't exist. " +
+                              "Please ensure the logs directory exists and has write permissions.";
+                _logger.LogError(ex, errorMsg);
+                throw new UnauthorizedAccessException(errorMsg, ex);
             }
             
             _logger.LogInformation($"Removing {service} entries from log file");

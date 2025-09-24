@@ -42,11 +42,17 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const onBackgroundOperationRef = useRef(onBackgroundOperation);
+
+  // Keep the ref up to date
+  useEffect(() => {
+    onBackgroundOperationRef.current = onBackgroundOperation;
+  });
 
   // Report processing status to parent
   useEffect(() => {
-    if (isProcessingLogs && processingStatus && onBackgroundOperation) {
-      onBackgroundOperation({
+    if (isProcessingLogs && processingStatus && onBackgroundOperationRef.current) {
+      onBackgroundOperationRef.current({
         message: processingStatus.message,
         detailMessage: processingStatus.detailMessage,
         progress: processingStatus.progress,
@@ -54,10 +60,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         status: processingStatus.status,
         onCancel: handleCancelProcessing
       });
-    } else if (onBackgroundOperation) {
-      onBackgroundOperation(null);
+    } else if (onBackgroundOperationRef.current) {
+      onBackgroundOperationRef.current(null);
     }
-  }, [isProcessingLogs, processingStatus, onBackgroundOperation]);
+  }, [isProcessingLogs, processingStatus]);
 
   useEffect(() => {
     restoreLogProcessing();
