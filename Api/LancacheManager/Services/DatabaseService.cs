@@ -207,32 +207,6 @@ public class DatabaseService
                             });
                         }
                     }
-                    else if (!_steamKit2Service.IsReady)
-                    {
-                        // If PICS isn't ready yet, try basic pattern matching as fallback
-                        appId = TryBasicDepotPatternMatching(download.DepotId.Value);
-                        if (appId.HasValue)
-                        {
-                            _logger.LogDebug($"Mapped depot {download.DepotId} to app {appId} using pattern matching (PICS not ready)");
-
-                            // Store the discovered mapping to database with 75% confidence
-                            _ = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    await StoreDiscoveredMappingAsync(download.DepotId.Value, appId.Value, $"Steam App {appId}", "PatternMatching");
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogWarning(ex, $"Failed to store pattern matching discovery: depot {download.DepotId} -> app {appId}");
-                                }
-                            });
-                        }
-                        else
-                        {
-                            _logger.LogDebug($"No mapping found for depot {download.DepotId} - PICS not ready yet, will be updated later");
-                        }
-                    }
                     else
                     {
                         _logger.LogDebug($"No PICS mapping found for depot {download.DepotId} in database or JSON file");
@@ -435,51 +409,6 @@ public class DatabaseService
         }
     }
 
-    /// <summary>
-    /// Basic depot pattern matching for immediate mapping when PICS isn't ready yet
-    /// Steam depot IDs often follow patterns where depot 275851 maps to app 275850
-    /// </summary>
-    private uint? TryBasicDepotPatternMatching(uint depotId)
-    {
-        try
-        {
-            var candidateAppIds = new List<uint>();
-
-            // Pattern 1: Replace last digit with 0 (275851 -> 275850)
-            var basePattern = (depotId / 10) * 10;
-            candidateAppIds.Add(basePattern);
-
-            // Pattern 2: Try decrementing the depot ID by 1-5 (most common cases)
-            for (uint offset = 1; offset <= 5; offset++)
-            {
-                if (depotId > offset)
-                {
-                    candidateAppIds.Add(depotId - offset);
-                }
-            }
-
-            // Pattern 3: Try the depot ID itself as an app ID
-            candidateAppIds.Add(depotId);
-
-            // Return the first reasonable candidate (basic validation)
-            foreach (var candidateAppId in candidateAppIds)
-            {
-                // Basic validation: Steam app IDs are typically in certain ranges
-                if (candidateAppId >= 100 && candidateAppId <= 3000000)
-                {
-                    _logger.LogTrace($"Pattern matching: depot {depotId} -> app {candidateAppId} (candidate)");
-                    return candidateAppId;
-                }
-            }
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogTrace(ex, $"Error in basic pattern matching for depot {depotId}");
-            return null;
-        }
-    }
 
     /// <summary>
     /// Store a newly discovered depot mapping in the database

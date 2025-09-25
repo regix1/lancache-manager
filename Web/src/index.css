@@ -494,6 +494,17 @@
     outline-color: var(--theme-input-focus);
   }
 
+  /* Theme-aware focus outline utility for interactive controls */
+  .themed-outline {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+
+  .themed-outline:focus,
+  .themed-outline:focus-visible {
+    outline-color: var(--theme-border-focus);
+  }
+
   /* Checkbox styling - Modern and Pretty */
   input[type="checkbox"] {
     -webkit-appearance: none;

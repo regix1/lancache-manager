@@ -1,33 +1,24 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  ChevronRight,
   ChevronDown,
-  Gamepad2,
-  ExternalLink,
   Database,
-  CloudOff,
-  Check,
   AlertTriangle,
-  Users,
   Settings,
   Download as DownloadIcon,
   Loader,
   List,
   Grid3x3,
-  Clock,
-  Layers
 } from 'lucide-react';
-import { useData } from '../../contexts/DataContext';
-import { formatBytes, formatPercent } from '../../utils/formatters';
-import { API_BASE } from '../../utils/constants';
-import { getServiceBadgeClasses } from '../../utils/serviceColors';
-import { Alert } from '../ui/Alert';
-import { Card } from '../ui/Card';
-import type {
-  Download,
-  GameInfo,
-  DownloadGroup
-} from '../../types';
+import { useData } from '../../contexts/DataContext'; // Fixed import path
+import { formatBytes, formatPercent } from '../../utils/formatters'; // Fixed import path
+import { Alert } from '../ui/Alert'; // Fixed import path
+import { Card } from '../ui/Card'; // Fixed import path
+
+// Import view components
+import CompactView from './CompactView';
+import NormalView from './NormalView';
+
+import type { Download, DownloadGroup } from '../../types';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -42,242 +33,7 @@ const STORAGE_KEYS = {
 };
 
 // View modes
-type ViewMode = 'compact' | 'normal' | 'grouped';
-
-// Helper function to format relative time
-const formatRelativeTime = (dateString: string): string => {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffDays > 0) return `${diffDays}d ago`;
-  if (diffHours > 0) return `${diffHours}h ago`;
-  if (diffMins > 0) return `${diffMins}m ago`;
-  return 'Just now';
-};
-
-// Enhanced Image component with built-in fallback
-interface ImageWithFallbackProps {
-  src: string;
-  fallback?: React.ReactNode;
-  alt: string;
-  className?: string;
-  style?: React.CSSProperties;
-  onLoad?: () => void;
-  onError?: () => void;
-}
-
-// Helper to get Steam CDN fallback URL
-const getSteamCdnUrl = (originalUrl: string): string | null => {
-  const appIdMatch = originalUrl.match(/\/gameimages\/(\d+)\//);
-  if (appIdMatch) {
-    const appId = appIdMatch[1];
-    return `https://cdn.akamai.steamstatic.com/steam/apps/${appId}/header.jpg`;
-  }
-  return null;
-};
-
-// Global request deduplication cache
-const pendingImageRequests = new Map<string, Promise<string>>();
-const imageCache = new Map<string, { url: string; timestamp: number; success: boolean }>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
-// Helper to get cached or deduplicated image URL
-const getCachedImageUrl = async (originalUrl: string): Promise<string> => {
-  // Check cache first
-  const cached = imageCache.get(originalUrl);
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    if (cached.success) {
-      return cached.url;
-    } else {
-      // Use Steam CDN for known failures
-      const steamUrl = getSteamCdnUrl(originalUrl);
-      return steamUrl || originalUrl;
-    }
-  }
-
-  // Check if request is already pending
-  if (pendingImageRequests.has(originalUrl)) {
-    return pendingImageRequests.get(originalUrl)!;
-  }
-
-  // Create new request
-  const requestPromise = new Promise<string>((resolve) => {
-    const img = new Image();
-    const timeout = setTimeout(() => {
-      // On timeout, try Steam CDN
-      const steamUrl = getSteamCdnUrl(originalUrl);
-      imageCache.set(originalUrl, { url: steamUrl || originalUrl, timestamp: Date.now(), success: false });
-      resolve(steamUrl || originalUrl);
-    }, 3000); // Reduced timeout for faster fallback
-
-    img.onload = () => {
-      clearTimeout(timeout);
-      imageCache.set(originalUrl, { url: originalUrl, timestamp: Date.now(), success: true });
-      resolve(originalUrl);
-    };
-
-    img.onerror = () => {
-      clearTimeout(timeout);
-      const steamUrl = getSteamCdnUrl(originalUrl);
-      imageCache.set(originalUrl, { url: steamUrl || originalUrl, timestamp: Date.now(), success: false });
-      resolve(steamUrl || originalUrl);
-    };
-
-    img.src = originalUrl;
-  });
-
-  pendingImageRequests.set(originalUrl, requestPromise);
-
-  // Clean up pending request after completion
-  requestPromise.finally(() => {
-    pendingImageRequests.delete(originalUrl);
-  });
-
-  return requestPromise;
-};
-
-const ImageWithFallback: React.FC<ImageWithFallbackProps> = ({
-  src,
-  fallback,
-  alt,
-  className = '',
-  style = {},
-  onLoad,
-  onError
-}) => {
-  const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [currentSrc, setCurrentSrc] = useState(src);
-  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    setHasError(false);
-    setIsLoading(true);
-    setCurrentSrc(src);
-    setResolvedUrl(null);
-
-    // Use the deduplicated image loading system
-    getCachedImageUrl(src).then((url) => {
-      setResolvedUrl(url);
-      setCurrentSrc(url);
-
-      // Log the resolution
-      const timestamp = new Date().toISOString();
-      if (src.includes('/gameimages/')) {
-        const appIdMatch = src.match(/\/gameimages\/(\d+)\//);
-        const appId = appIdMatch ? appIdMatch[1] : 'unknown';
-        const usingFallback = url !== src;
-        const source = usingFallback ? 'Steam CDN (fallback)' : 'local API';
-        console.log(`[${timestamp}] RESOLVED: Steam header for "${alt}" (AppID: ${appId}) using ${source}`);
-      }
-    }).catch((error) => {
-      console.error(`Failed to resolve image URL for ${alt}:`, error);
-      setHasError(true);
-      setIsLoading(false);
-      onError?.();
-    });
-  }, [src, alt, onError]);
-
-  const handleLoad = () => {
-    const timestamp = new Date().toISOString();
-    if (currentSrc.includes('/gameimages/')) {
-      const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
-      const appId = appIdMatch ? appIdMatch[1] : 'unknown';
-      const usingFallback = currentSrc !== src;
-      const source = usingFallback ? 'Steam CDN' : 'local API';
-      console.log(`[${timestamp}] SUCCESS: Loaded Steam header for "${alt}" (AppID: ${appId}) from ${source}`);
-    }
-
-    setIsLoading(false);
-    onLoad?.();
-  };
-
-  const handleError = (error?: React.SyntheticEvent<HTMLImageElement>) => {
-    const timestamp = new Date().toISOString();
-
-    if (currentSrc.includes('/gameimages/')) {
-      const appIdMatch = currentSrc.match(/\/gameimages\/(\d+)\//);
-      const appId = appIdMatch ? appIdMatch[1] : 'unknown';
-      const usingFallback = currentSrc !== src;
-      const source = usingFallback ? 'Steam CDN' : 'local API';
-      console.error(`[${timestamp}] ERROR: Failed to load Steam header for "${alt}" (AppID: ${appId}) from ${source}`, {
-        url: currentSrc,
-        gameName: alt,
-        appId,
-        source,
-        usingFallback,
-        error: error?.type || 'unknown'
-      });
-    } else {
-      console.warn(`[${timestamp}] Failed to load image: ${currentSrc} for ${alt}`, error);
-    }
-
-    setHasError(true);
-    setIsLoading(false);
-    onError?.();
-  };
-
-  if (!src || hasError || !resolvedUrl) {
-    return (
-      <>
-        {fallback || (
-          <div
-            className={`${className} flex items-center justify-center`}
-            style={{
-              ...style,
-              background: 'linear-gradient(135deg, var(--theme-bg-tertiary), var(--theme-bg-secondary))'
-            }}
-          >
-            {!resolvedUrl && !hasError ? (
-              <Loader className="w-6 h-6 animate-spin" style={{ color: 'var(--theme-text-muted)' }} />
-            ) : (
-              <Gamepad2
-                className="w-12 h-12"
-                style={{ color: 'var(--theme-text-muted)' }}
-              />
-            )}
-          </div>
-        )}
-      </>
-    );
-  }
-
-  return (
-    <div className="relative">
-      {isLoading && (
-        <div
-          className={`${className} flex items-center justify-center absolute inset-0`}
-          style={{
-            ...style,
-            backgroundColor: 'var(--theme-bg-tertiary)'
-          }}
-        >
-          <Loader className="w-6 h-6 animate-spin" />
-        </div>
-      )}
-      <img
-        key={currentSrc}
-        src={currentSrc}
-        alt={alt}
-        className={className}
-        style={{
-          ...style,
-          opacity: isLoading ? 0 : 1,
-          transition: 'opacity 0.3s'
-        }}
-        onLoad={handleLoad}
-        onError={handleError}
-        loading="lazy"
-        crossOrigin="anonymous"
-      />
-    </div>
-  );
-};
+type ViewMode = 'compact' | 'normal';
 
 // Enhanced Dropdown Component
 interface DropdownOption {
@@ -345,13 +101,13 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         ref={buttonRef}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-3 py-2 rounded-lg border text-themed-primary text-left focus:outline-none transition-colors flex items-center justify-between"
+        className="w-full px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left focus:outline-none transition-colors flex items-center justify-between"
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
           borderColor: 'var(--theme-border-primary)'
         }}
         onMouseEnter={(e) =>
-          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
         }
         onMouseLeave={(e) =>
           (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
@@ -378,10 +134,10 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                 key={option.value}
                 type="button"
                 onClick={() => handleSelect(option.value)}
-                className={`w-full px-4 py-2 text-left text-sm hover:bg-themed-hover transition-colors ${
+                className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
                   option.value === value
-                    ? 'bg-themed-hover text-themed-accent'
-                    : 'text-themed-secondary'
+                    ? 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]'
+                    : 'text-[var(--theme-text-secondary)]'
                 }`}
               >
                 {option.label}
@@ -394,7 +150,7 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   );
 };
 
-// Export helper functions
+// CSV conversion utilities
 const convertDownloadsToCSV = (downloads: Download[]): string => {
   if (!downloads || downloads.length === 0) return '';
 
@@ -466,10 +222,7 @@ const DownloadsTab: React.FC = () => {
   } = useData();
 
   // State management
-  const [expandedDownload, setExpandedDownload] = useState<number | null>(null);
-  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const [gameInfo, setGameInfo] = useState<Record<number, GameInfo>>({});
-  const [loadingGame, setLoadingGame] = useState<number | null>(null);
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [filterLoading, setFilterLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
@@ -489,109 +242,19 @@ const DownloadsTab: React.FC = () => {
     sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service'
   }));
 
-  // Helper functions
-  const getDownloadTypeInfo = (download: Download) => {
-    const totalBytes = download.totalBytes || 0;
-    const isMissingData = totalBytes === 0;
-    const cachedBytes = download.cacheHitBytes || 0;
-    const isCached = cachedBytes > 0;
-    const cachePercentage = totalBytes > 0 ? (cachedBytes / totalBytes) * 100 : 0;
-
-    if (isMissingData) {
-      return {
-        type: 'metadata' as const,
-        icon: Database,
-        iconColor: 'text-themed-accent',
-        description: 'Metadata/Configuration',
-        label: 'Metadata'
-      };
-    } else if (cachePercentage === 100) {
-      return {
-        type: 'content' as const,
-        icon: Check,
-        iconColor: 'cache-hit',
-        description: 'Fully Cached',
-        label: 'Cached'
-      };
-    } else if (isCached) {
-      return {
-        type: 'content' as const,
-        icon: DownloadIcon,
-        iconColor: 'cache-miss',
-        description: `${cachePercentage.toFixed(0)}% Cached`,
-        label: 'Partial'
-      };
-    } else {
-      return {
-        type: 'content' as const,
-        icon: CloudOff,
-        iconColor: 'text-themed-muted',
-        description: 'Not Cached',
-        label: 'Uncached'
-      };
-    }
-  };
-
-  const fetchGameInfo = async (download: Download) => {
-    if (!download.id || !download.gameName || download.service.toLowerCase() !== 'steam') {
-      return;
-    }
-
-    if (gameInfo[download.id]) {
-      return;
-    }
-
-    setLoadingGame(download.id);
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const mockGameInfo: GameInfo = {
-      downloadId: download.id!,
-      service: download.service,
-      appId: download.gameAppId || 0,
-      gameName: download.gameName,
-      headerImage: `${API_BASE}/gameimages/${download.gameAppId}/header/`,
-      description: `${download.gameName} - Downloaded via ${download.service}`,
-      gameType: 'game'
-    };
-
-    setGameInfo(prev => ({
-      ...prev,
-      [download.id!]: mockGameInfo
-    }));
-
-    setLoadingGame(null);
-  };
-
-  // Pre-populate game info for Steam games
+  // Effect to save settings to localStorage
   useEffect(() => {
-    const steamDownloads = latestDownloads.filter(
-      d => d.service.toLowerCase() === 'steam' &&
-      d.gameName &&
-      d.gameName !== 'Unknown Steam Game' &&
-      d.gameAppId
-    );
+    localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
+    localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
+    localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
+    localStorage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
+    localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
+    localStorage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
+    localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
+    localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
+  }, [settings]);
 
-    const preloadedInfo: Record<number, GameInfo> = {};
-    steamDownloads.forEach(download => {
-      if (download.id && !gameInfo[download.id]) {
-        preloadedInfo[download.id] = {
-          downloadId: download.id,
-          service: download.service,
-          appId: download.gameAppId || 0,
-          gameName: download.gameName || 'Unknown Game',
-          headerImage: `${API_BASE}/gameimages/${download.gameAppId}/header/`,
-          description: `${download.gameName} - Downloaded via Steam`,
-          gameType: 'game'
-        };
-      }
-    });
-
-    if (Object.keys(preloadedInfo).length > 0) {
-      setGameInfo(prev => ({ ...prev, ...preloadedInfo }));
-    }
-  }, [latestDownloads]);
-
-  // Update download count when items per page changes
+  // FIXED: Update download count when items per page changes
   useEffect(() => {
     const count = settings.itemsPerPage === 'unlimited' ? 10000 : settings.itemsPerPage;
     if (mockMode && updateMockDataCount) {
@@ -615,37 +278,6 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settings.selectedService, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode]);
 
-  // Persist settings
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
-    localStorage.setItem(
-      STORAGE_KEYS.ITEMS_PER_PAGE,
-      settings.itemsPerPage === 'unlimited' ? 'unlimited' : settings.itemsPerPage.toString()
-    );
-    localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
-    localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
-    localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
-    localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
-    localStorage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
-    localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
-  }, [settings]);
-
-  // Close export dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.relative')) {
-        setShowExportOptions(false);
-      }
-    };
-
-    if (showExportOptions) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showExportOptions]);
-
-  // Memoized values
   const availableServices = useMemo(() => {
     const services = new Set(latestDownloads.map((d) => d.service.toLowerCase()));
     return Array.from(services).sort();
@@ -712,9 +344,8 @@ const DownloadsTab: React.FC = () => {
     }
 
     return filtered;
-  }, [latestDownloads, settings]);
+  }, [latestDownloads, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.selectedService]);
 
-  // Calculate service-only filtered downloads for correct count display
   const serviceFilteredDownloads = useMemo(() => {
     if (!Array.isArray(latestDownloads)) {
       return [];
@@ -727,12 +358,12 @@ const DownloadsTab: React.FC = () => {
     return latestDownloads.filter((d) => d.service.toLowerCase() === settings.selectedService);
   }, [latestDownloads, settings.selectedService]);
 
-  const groupedDownloads = useMemo((): DownloadGroup[] => {
-    if (settings.viewMode !== 'grouped') return [];
-
+  // Grouping logic for different view modes
+  const createGroups = (downloads: Download[]): { groups: DownloadGroup[], individuals: Download[] } => {
     const groups: Record<string, DownloadGroup> = {};
+    const individuals: Download[] = [];
 
-    filteredDownloads.forEach((download) => {
+    downloads.forEach(download => {
       let groupKey: string;
       let groupName: string;
       let groupType: 'game' | 'metadata' | 'content';
@@ -743,14 +374,17 @@ const DownloadsTab: React.FC = () => {
         groupKey = `game-${download.gameName}`;
         groupName = download.gameName;
         groupType = 'game';
-      } else if ((download.totalBytes || 0) === 0) {
-        groupKey = `metadata-${download.service}`;
-        groupName = `${download.service} Metadata`;
-        groupType = 'metadata';
-      } else {
-        groupKey = `content-${download.service}`;
-        groupName = `${download.service} Content`;
+      } else if (download.gameName && download.gameName.match(/^Steam App \d+$/)) {
+        groupKey = 'unmapped-steam-apps';
+        groupName = 'Unmapped Steam Apps';
         groupType = 'content';
+      } else if (download.service.toLowerCase() !== 'steam') {
+        groupKey = `service-${download.service.toLowerCase()}`;
+        groupName = `${download.service} Downloads`;
+        groupType = download.totalBytes === 0 ? 'metadata' : 'content';
+      } else {
+        individuals.push(download);
+        return;
       }
 
       if (!groups[groupKey]) {
@@ -785,136 +419,170 @@ const DownloadsTab: React.FC = () => {
       }
     });
 
-    return Object.values(groups).sort((a, b) => {
-      if (a.type === 'game' && b.type !== 'game') return -1;
-      if (a.type !== 'game' && b.type === 'game') return 1;
-      return b.totalBytes - a.totalBytes;
+    return { groups: Object.values(groups), individuals };
+  };
+
+
+  const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
+    if (settings.viewMode !== 'normal') return [];
+
+    const { groups, individuals } = createGroups(filteredDownloads);
+
+    // Convert single-download groups back to individual downloads
+    const finalGroups: DownloadGroup[] = [];
+    const finalIndividuals: Download[] = [...individuals];
+
+    groups.forEach(group => {
+      if (group.count === 1 && group.type === 'game') {
+        finalIndividuals.push(group.downloads[0]);
+      } else {
+        finalGroups.push(group);
+      }
+    });
+
+    const allItems: (Download | DownloadGroup)[] = [...finalGroups, ...finalIndividuals];
+
+    return allItems.sort((a, b) => {
+      const aTime = 'downloads' in a
+        ? Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()))
+        : new Date(a.startTime).getTime();
+      const bTime = 'downloads' in b
+        ? Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()))
+        : new Date(b.startTime).getTime();
+      return bTime - aTime;
+    });
+  }, [filteredDownloads, settings.viewMode]);
+
+  const compactViewItems = useMemo((): (Download | DownloadGroup)[] => {
+    if (settings.viewMode !== 'compact') return [];
+
+    const { groups, individuals } = createGroups(filteredDownloads);
+
+    // Convert single-download groups back to individual downloads
+    const finalGroups: DownloadGroup[] = [];
+    const finalIndividuals: Download[] = [...individuals];
+
+    groups.forEach(group => {
+      if (group.count === 1 && group.type === 'game') {
+        finalIndividuals.push(group.downloads[0]);
+      } else {
+        finalGroups.push(group);
+      }
+    });
+
+    const allItems: (Download | DownloadGroup)[] = [...finalGroups, ...finalIndividuals];
+
+    return allItems.sort((a, b) => {
+      const aTime = 'downloads' in a
+        ? Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()))
+        : new Date(a.startTime).getTime();
+      const bTime = 'downloads' in b
+        ? Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()))
+        : new Date(b.startTime).getTime();
+      return bTime - aTime;
     });
   }, [filteredDownloads, settings.viewMode]);
 
   const itemsToDisplay = useMemo(() => {
-    let items = settings.viewMode === 'grouped' ? groupedDownloads : filteredDownloads;
+    let items = settings.viewMode === 'normal' ? normalViewItems :
+                settings.viewMode === 'compact' ? compactViewItems :
+                filteredDownloads;
 
     // Apply sorting
-    if (settings.viewMode === 'grouped') {
-      // Sort grouped downloads
-      const groups = [...items] as DownloadGroup[];
+    if (settings.viewMode === 'normal' || settings.viewMode === 'compact') {
+      const mixedItems = [...items] as (Download | DownloadGroup)[];
       switch (settings.sortOrder) {
         case 'oldest':
-          groups.sort((a, b) => {
-            const aOldest = Math.min(...a.downloads.map(d => new Date(d.startTime).getTime()));
-            const bOldest = Math.min(...b.downloads.map(d => new Date(d.startTime).getTime()));
-            return aOldest - bOldest;
+          mixedItems.sort((a, b) => {
+            const aTime = 'downloads' in a
+              ? Math.min(...a.downloads.map(d => new Date(d.startTime).getTime()))
+              : new Date(a.startTime).getTime();
+            const bTime = 'downloads' in b
+              ? Math.min(...b.downloads.map(d => new Date(d.startTime).getTime()))
+              : new Date(b.startTime).getTime();
+            return aTime - bTime;
           });
           break;
         case 'largest':
-          groups.sort((a, b) => b.totalBytes - a.totalBytes);
+          mixedItems.sort((a, b) => {
+            const aBytes = 'downloads' in a ? a.totalBytes : (a.totalBytes || 0);
+            const bBytes = 'downloads' in b ? b.totalBytes : (b.totalBytes || 0);
+            return bBytes - aBytes;
+          });
           break;
         case 'smallest':
-          groups.sort((a, b) => a.totalBytes - b.totalBytes);
+          mixedItems.sort((a, b) => {
+            const aBytes = 'downloads' in a ? a.totalBytes : (a.totalBytes || 0);
+            const bBytes = 'downloads' in b ? b.totalBytes : (b.totalBytes || 0);
+            return aBytes - bBytes;
+          });
           break;
         case 'service':
-          groups.sort((a, b) => {
+          mixedItems.sort((a, b) => {
             const serviceCompare = a.service.localeCompare(b.service);
             if (serviceCompare !== 0) return serviceCompare;
-            const aLatest = Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()));
-            const bLatest = Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()));
+            const aLatest = 'downloads' in a
+              ? Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()))
+              : new Date(a.startTime).getTime();
+            const bLatest = 'downloads' in b
+              ? Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()))
+              : new Date(b.startTime).getTime();
             return bLatest - aLatest;
           });
           break;
         case 'latest':
         default:
-          groups.sort((a, b) => {
-            const aLatest = Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()));
-            const bLatest = Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()));
+          mixedItems.sort((a, b) => {
+            const aLatest = 'downloads' in a
+              ? Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()))
+              : new Date(a.startTime).getTime();
+            const bLatest = 'downloads' in b
+              ? Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()))
+              : new Date(b.startTime).getTime();
             return bLatest - aLatest;
           });
           break;
       }
-      items = groups;
-    } else {
-      // Sort individual downloads
-      const downloads = [...items] as Download[];
-      switch (settings.sortOrder) {
-        case 'oldest':
-          downloads.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-          break;
-        case 'largest':
-          downloads.sort((a, b) => (b.totalBytes || 0) - (a.totalBytes || 0));
-          break;
-        case 'smallest':
-          downloads.sort((a, b) => (a.totalBytes || 0) - (b.totalBytes || 0));
-          break;
-        case 'service':
-          downloads.sort((a, b) => {
-            const serviceCompare = a.service.localeCompare(b.service);
-            if (serviceCompare !== 0) return serviceCompare;
-            return new Date(b.startTime).getTime() - new Date(a.startTime).getTime();
-          });
-          break;
-        case 'latest':
-        default:
-          downloads.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-          break;
-      }
-      items = downloads;
+      items = mixedItems;
     }
 
-    if (settings.itemsPerPage === 'unlimited') {
-      return items;
-    }
-    const limit = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 50;
-    return items.slice(0, limit);
-  }, [settings.viewMode, settings.itemsPerPage, settings.sortOrder, groupedDownloads, filteredDownloads]);
-
-  // Export handler
-  const handleExport = async (format: 'json' | 'csv') => {
-    if (!itemsToDisplay || itemsToDisplay.length === 0) {
-      return;
+    // Apply pagination
+    if (settings.itemsPerPage !== 'unlimited') {
+      return items.slice(0, settings.itemsPerPage);
     }
 
+    return items;
+  }, [
+    filteredDownloads,
+    normalViewItems,
+    compactViewItems,
+    settings.viewMode,
+    settings.sortOrder,
+    settings.itemsPerPage
+  ]);
+
+  const handleExport = (format: 'json' | 'csv') => {
     setExportLoading(true);
-    setShowExportOptions(false);
-
     try {
-      let content: string;
-      let filename: string;
-      let mimeType: string;
+      let content = '';
+      let filename = '';
+      let mimeType = '';
 
-      const timestamp = new Date().toISOString().split('T')[0];
-      const isGrouped = settings.viewMode === 'grouped';
-      const baseFilename = `lancache_downloads_${isGrouped ? 'grouped_' : ''}${timestamp}`;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const baseFilename = `lancache_downloads_${timestamp}`;
 
       if (format === 'csv') {
-        if (isGrouped) {
-          content = convertGroupsToCSV(itemsToDisplay as DownloadGroup[]);
-        } else {
-          content = convertDownloadsToCSV(itemsToDisplay as Download[]);
-        }
+        // Filter out groups from mixed items for CSV export
+        const downloads = itemsToDisplay.filter(item => !('downloads' in item)) as Download[];
+        content = convertDownloadsToCSV(downloads);
         filename = `${baseFilename}.csv`;
         mimeType = 'text/csv';
       } else {
-        // JSON format
-        if (isGrouped) {
-          // Convert groups to JSON, excluding Set objects
-          const exportData = (itemsToDisplay as DownloadGroup[]).map(group => ({
-            ...group,
-            clientsSet: undefined, // Remove Set
-            uniqueClients: group.clientsSet.size,
-            downloads: group.downloads.map(download => ({
-              ...download,
-              // Include all download properties for detailed export
-            }))
-          }));
-          content = JSON.stringify(exportData, null, 2);
-        } else {
-          content = JSON.stringify(itemsToDisplay, null, 2);
-        }
+        content = JSON.stringify(itemsToDisplay, null, 2);
         filename = `${baseFilename}.json`;
         mimeType = 'application/json';
       }
 
-      // Create and trigger download
       const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -928,774 +596,18 @@ const DownloadsTab: React.FC = () => {
       console.error('Export failed:', error);
     } finally {
       setExportLoading(false);
+      setShowExportOptions(false);
     }
   };
 
-  // Event handlers
-  const handleDownloadClick = async (download: Download) => {
-    const isSteam = download.service.toLowerCase() === 'steam';
-    const hasData = (download.totalBytes || 0) > 0;
-    const canExpand = isSteam && hasData && download.gameName &&
-                       download.gameName !== 'Unknown Steam Game' &&
-                       !download.gameName.match(/^Steam App \d+$/);
-
-    if (!canExpand) return;
-
-    const newExpanded = expandedDownload === download.id ? null : download.id;
-    setExpandedDownload(newExpanded);
-
-    if (newExpanded && !gameInfo[download.id!]) {
-      await fetchGameInfo(download);
-    }
-  };
-
-  const handleGroupClick = (groupId: string) => {
-    setExpandedGroup(expandedGroup === groupId ? null : groupId);
-  };
-
-  // Render function for compact view
-  const renderCompactView = (download: Download) => {
-    const isExpanded = expandedDownload === download.id;
-    const isSteam = download.service.toLowerCase() === 'steam';
-    const hasData = (download.totalBytes || 0) > 0;
-    const canExpand = isSteam && hasData && download.gameName &&
-                       download.gameName !== 'Unknown Steam Game' &&
-                       !download.gameName.match(/^Steam App \d+$/);
-    const downloadType = getDownloadTypeInfo(download);
-    const IconComponent = downloadType.icon;
-    const game = download.id ? gameInfo[download.id] : undefined;
-
-    return (
-      <div
-        key={download.id}
-        className="border-b transition-all duration-200"
-        style={{
-          borderColor: 'var(--theme-border-primary)',
-          marginBottom: isExpanded ? '24px' : '0' // Add space when expanded
-        }}
-      >
-        {/* Desktop Compact View */}
-        <div
-          className={`hidden md:block px-4 py-2 transition-all duration-200 ease-in-out ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50 hover:transform hover:scale-[1.01] hover:shadow-sm' : ''}`}
-          onClick={() => canExpand ? handleDownloadClick(download) : undefined}
-        >
-          <div className="flex items-center">
-            {/* Service with expansion arrow */}
-            <div className="w-24 flex items-center gap-2">
-              {canExpand && (
-                <ChevronRight
-                  size={16}
-                  className={`transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-90' : ''}`}
-                />
-              )}
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-md shadow-sm ${getServiceBadgeClasses(download.service)}`}>
-                {download.service.toUpperCase()}
-              </span>
-            </div>
-
-            {/* Status */}
-            <div className="w-28 flex items-center">
-              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium shadow-sm transition-all duration-200 border ${
-                downloadType.label === 'Cached' ? 'download-game' :
-                downloadType.label === 'Partial' ? 'download-content' :
-                'download-metadata'
-              }`}>
-                <IconComponent size={12} className="drop-shadow-sm" />
-                <span>{downloadType.label}</span>
-              </div>
-            </div>
-
-            {/* Game Name */}
-            <div className="flex-1 min-w-0 px-2">
-              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                <span className="text-sm text-themed-primary truncate block">
-                  {download.gameName}
-                </span>
-              )}
-            </div>
-
-            {/* Client */}
-            <div className="w-32">
-              <div className="flex items-center gap-1.5">
-                <Users size={14} className="text-themed-muted" />
-                <span className="text-sm text-themed-secondary">{download.clientIp}</span>
-              </div>
-            </div>
-
-            {/* Time */}
-            <div className="w-24">
-              <div className="flex items-center gap-1.5">
-                <Clock size={14} className="text-themed-muted" />
-                <span className="text-sm text-themed-secondary">{formatRelativeTime(download.startTime)}</span>
-              </div>
-            </div>
-
-            {/* Size */}
-            <div className="w-24 text-right">
-              <div>
-                <div className="text-sm font-semibold text-themed-primary">
-                  {formatBytes(download.totalBytes || 0)}
-                </div>
-                {download.cacheHitBytes > 0 && (
-                  <div className="text-xs cache-hit font-medium">
-                    {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Compact View */}
-        <div
-          className={`md:hidden px-3 py-2 transition-all duration-200 ease-in-out ${canExpand ? 'cursor-pointer hover:bg-[var(--theme-bg-tertiary)]/50 active:scale-[0.98]' : ''}`}
-          onClick={() => canExpand ? handleDownloadClick(download) : undefined}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              {canExpand && (
-                <ChevronRight
-                  size={14}
-                  className={`transition-transform duration-200 text-themed-muted ${isExpanded ? 'rotate-90' : ''} flex-shrink-0`}
-                />
-              )}
-              <span className={`text-xs font-bold px-2 py-0.5 rounded shadow-sm flex-shrink-0 ${getServiceBadgeClasses(download.service)}`}>
-                {download.service.toUpperCase()}
-              </span>
-              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                <span className="text-sm text-themed-primary truncate">
-                  {download.gameName}
-                </span>
-              )}
-            </div>
-            <div className="text-right flex-shrink-0">
-              <div className="text-sm font-semibold text-themed-primary">
-                {formatBytes(download.totalBytes || 0)}
-              </div>
-              {download.cacheHitBytes > 0 && (
-                <div className="text-xs cache-hit font-medium">
-                  {formatPercent((download.cacheHitBytes || 0) / (download.totalBytes || 1) * 100)}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between mt-1 text-xs text-[var(--theme-text-muted)]">
-            <div className="flex items-center gap-3">
-              <div className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-                downloadType.label === 'Cached' ? 'download-game' :
-                downloadType.label === 'Partial' ? 'download-content' :
-                'download-metadata'
-              }`}>
-                <IconComponent size={10} />
-                <span>{downloadType.label}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Users size={10} />
-                <span>{download.clientIp}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <Clock size={10} />
-              <span>{formatRelativeTime(download.startTime)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Expanded content */}
-        {isExpanded && canExpand && (
-          <div className="px-4 pb-4 bg-[var(--theme-bg-secondary)]/50">
-            <div className="border-t border-[var(--theme-border-primary)]/20 my-3" />
-            {loadingGame === download.id ? (
-              <div className="flex justify-center py-4">
-                <Loader className="w-6 h-6 animate-spin" />
-              </div>
-            ) : game ? (
-              <>
-                {/* Desktop Expanded View */}
-                <div className="hidden md:flex gap-6 items-start">
-                  <div className="flex-shrink-0">
-                    <ImageWithFallback
-                      src={game.headerImage || ''}
-                      alt={game.gameName || 'Game'}
-                      className="rounded shadow-lg"
-                      style={{ width: '224px', height: '107px', objectFit: 'cover' }}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-semibold text-themed-primary mb-3 truncate">
-                      {game.gameName || 'Unknown Game'}
-                    </h3>
-                    {game.description && (
-                      <p className="text-sm text-themed-secondary mb-4 line-clamp-2">
-                        {game.description}
-                      </p>
-                    )}
-                    {isSteam && (
-                      <a
-                        href={`https://store.steampowered.com/app/${game.appId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-2 mt-4 px-3 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
-                      >
-                        View on Steam
-                        <ExternalLink size={12} />
-                      </a>
-                    )}
-                  </div>
-                </div>
-
-                {/* Mobile Expanded View */}
-                <div className="md:hidden">
-                  <div className="flex gap-3 mb-3">
-                    <div className="flex-shrink-0">
-                      <ImageWithFallback
-                        src={game.headerImage || ''}
-                        alt={game.gameName || 'Game'}
-                        className="rounded shadow-lg"
-                        style={{ width: '120px', height: '56px', objectFit: 'cover' }}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-semibold text-themed-primary mb-2 line-clamp-2">
-                        {game.gameName || 'Unknown Game'}
-                      </h3>
-                      {isSteam && (
-                        <a
-                          href={`https://store.steampowered.com/app/${game.appId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-themed-secondary hover:bg-themed-hover transition-colors text-xs text-themed-accent"
-                        >
-                          View on Steam
-                          <ExternalLink size={10} />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                  {game.description && (
-                    <p className="text-xs text-themed-secondary line-clamp-3">
-                      {game.description}
-                    </p>
-                  )}
-                </div>
-              </>
-            ) : null}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Render function for normal view
-  const renderNormalView = (download: Download) => {
-    const hitPercent = download.totalBytes > 0 ? ((download.cacheHitBytes || 0) / download.totalBytes) * 100 : 0;
-    const showGameImage = download.service.toLowerCase() === 'steam' &&
-                          download.gameName &&
-                          download.gameName !== 'Unknown Steam Game' &&
-                          !download.gameName.match(/^Steam App \d+$/);
-
-    // Steam games with headers
-    if (showGameImage) {
-      return (
-        <div
-          key={download.id}
-          className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
-          style={{
-            borderColor: 'var(--theme-border-primary)',
-            marginBottom: '20px', // Proper spacing between cards
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)'
-          }}
-        >
-          {/* Desktop Layout */}
-          <div className="hidden sm:flex">
-            {/* Game header on the left */}
-            <div className="flex-shrink-0">
-              <ImageWithFallback
-                src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
-                alt={download.gameName || 'Game'}
-                className="w-[230px] h-[108px] rounded-l-xl object-cover"
-              />
-            </div>
-
-            {/* Content on the right */}
-            <div className="flex-1 p-3 min-w-0 h-[108px] flex flex-col justify-between">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-2.5 py-1 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(download.service)}`}>
-                      {download.service.toUpperCase()}
-                    </span>
-                    <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate">
-                      {download.gameName}
-                    </h3>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-[var(--theme-text-muted)]">
-                    <div className="flex items-center gap-1">
-                      <Users size={11} />
-                      <span>{download.clientIp}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Clock size={11} />
-                      <span>{formatRelativeTime(download.startTime)}</span>
-                    </div>
-                  </div>
-                </div>
-                <a
-                  href={`https://store.steampowered.com/app/${download.gameAppId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="p-1 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)] hover:text-[var(--theme-primary)]"
-                  title="View in Steam Store"
-                >
-                  <ExternalLink size={13} />
-                </a>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div>
-                    <div className="text-xs text-[var(--theme-text-muted)]">Size</div>
-                    <div className="text-sm font-bold text-[var(--theme-text-primary)]">
-                      {formatBytes(download.totalBytes || 0)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-[var(--theme-text-muted)]">Cache Hit</div>
-                    <div className="text-sm font-bold cache-hit">
-                      {formatPercent(hitPercent)}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-[var(--theme-text-muted)]">Saved</div>
-                    <div className="text-sm font-bold cache-hit">
-                      {formatBytes(download.cacheHitBytes || 0)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex-1 max-w-[180px]">
-                  <div className="w-full progress-track rounded-full h-2">
-                    <div
-                      className="progress-bar-high h-2 rounded-full transition-all duration-300"
-                      style={{
-                        width: `${Math.min(hitPercent, 100)}%`,
-                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Mobile Layout */}
-          <div className="sm:hidden p-4">
-            <div className="flex items-start justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 text-xs font-bold rounded shadow-sm ${getServiceBadgeClasses(download.service)}`}>
-                  {download.service.toUpperCase()}
-                </span>
-                <a
-                  href={`https://store.steampowered.com/app/${download.gameAppId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="p-1 rounded hover:bg-[var(--theme-bg-tertiary)] transition-colors text-[var(--theme-text-muted)]"
-                  title="View in Steam Store"
-                >
-                  <ExternalLink size={12} />
-                </a>
-              </div>
-              <div className="text-right">
-                <div className="text-sm font-bold text-[var(--theme-text-primary)]">
-                  {formatBytes(download.totalBytes || 0)}
-                </div>
-                {download.cacheHitBytes > 0 && (
-                  <div className="text-xs cache-hit font-medium">
-                    {formatPercent(hitPercent)}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-3 mb-3">
-              <div className="flex-shrink-0">
-                <ImageWithFallback
-                  src={`${API_BASE}/gameimages/${download.gameAppId}/header/`}
-                  alt={download.gameName || 'Game'}
-                  className="w-[120px] h-[56px] rounded object-cover"
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-bold text-[var(--theme-text-primary)] mb-1 line-clamp-2">
-                  {download.gameName}
-                </h3>
-                <div className="flex items-center gap-3 text-xs text-[var(--theme-text-muted)]">
-                  <div className="flex items-center gap-1">
-                    <Users size={10} />
-                    <span>{download.clientIp}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Clock size={10} />
-                    <span>{formatRelativeTime(download.startTime)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {download.totalBytes > 0 && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-xs text-[var(--theme-text-muted)] mb-1">
-                  <span>Cache Efficiency</span>
-                  <span className="font-semibold">{formatPercent(hitPercent)}</span>
-                </div>
-                <div className="w-full progress-track rounded-full h-2">
-                  <div
-                    className="progress-bar-high h-2 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${Math.min(hitPercent, 100)}%`
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    // Non-Steam or downloads without game headers
-    return (
-      <div
-        key={download.id}
-        className="rounded-xl bg-[var(--theme-bg-secondary)] border transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
-        style={{
-          borderColor: 'var(--theme-border-primary)',
-          marginBottom: '20px', // Proper spacing between cards
-          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.03)'
-        }}
-      >
-        {/* Desktop Layout */}
-        <div className="hidden sm:block p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <span className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(download.service)}`}>
-                {download.service.toUpperCase()}
-              </span>
-              {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-                <h3 className="text-base font-semibold text-[var(--theme-text-primary)]">
-                  {download.gameName}
-                </h3>
-              )}
-            </div>
-            <div className="text-right">
-              <div className="text-xl font-bold text-[var(--theme-text-primary)]">
-                {formatBytes(download.totalBytes || 0)}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Users size={14} className="text-[var(--theme-text-muted)]" />
-                <span className="text-[var(--theme-text-secondary)]">Client:</span>
-                <span className="font-medium text-[var(--theme-text-primary)]">{download.clientIp}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock size={14} className="text-[var(--theme-text-muted)]" />
-                <span className="font-medium text-[var(--theme-text-primary)]">
-                  {formatRelativeTime(download.startTime)}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              {download.cacheHitBytes > 0 && (
-                <>
-                  <div className="text-sm">
-                    <span className="text-[var(--theme-text-muted)]">Cache: </span>
-                    <span className="font-bold cache-hit">{formatPercent(hitPercent)}</span>
-                  </div>
-                  <div className="text-sm">
-                    <span className="text-[var(--theme-text-muted)]">Saved: </span>
-                    <span className="font-bold cache-hit">{formatBytes(download.cacheHitBytes || 0)}</span>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
-            <div className="mt-3">
-              <div className="w-full progress-track rounded-full h-2">
-                <div
-                  className="progress-bar-high h-2 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${Math.min(hitPercent, 100)}%`
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Mobile Layout */}
-        <div className="sm:hidden p-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className={`px-2 py-1 text-xs font-bold rounded shadow-sm ${getServiceBadgeClasses(download.service)}`}>
-              {download.service.toUpperCase()}
-            </span>
-            <div className="text-right">
-              <div className="text-lg font-bold text-[var(--theme-text-primary)]">
-                {formatBytes(download.totalBytes || 0)}
-              </div>
-              {download.cacheHitBytes > 0 && (
-                <div className="text-xs cache-hit font-medium">
-                  {formatPercent(hitPercent)}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {download.gameName && download.gameName !== 'Unknown Steam Game' && (
-            <h3 className="text-sm font-semibold text-[var(--theme-text-primary)] mb-2">
-              {download.gameName}
-            </h3>
-          )}
-
-          <div className="flex items-center justify-between text-xs text-[var(--theme-text-muted)] mb-2">
-            <div className="flex items-center gap-1">
-              <Users size={10} />
-              <span>{download.clientIp}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Clock size={10} />
-              <span>{formatRelativeTime(download.startTime)}</span>
-            </div>
-          </div>
-
-          {download.totalBytes > 0 && download.cacheHitBytes > 0 && (
-            <div className="mt-2">
-              <div className="flex items-center justify-between text-xs text-[var(--theme-text-muted)] mb-1">
-                <span>Cache: {formatPercent(hitPercent)}</span>
-                <span>Saved: {formatBytes(download.cacheHitBytes || 0)}</span>
-              </div>
-              <div className="w-full progress-track rounded-full h-2">
-                <div
-                  className="progress-bar-high h-2 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${Math.min(hitPercent, 100)}%`
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Render function for grouped view
-  const renderGroupedView = (group: DownloadGroup) => {
-    const isExpanded = expandedGroup === group.id;
-    const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
-    const savedAmount = group.cacheHitBytes || 0;
-    const totalClients = group.clientsSet.size;
-
-    return (
-      <div
-        key={group.id}
-        className="bg-[var(--theme-bg-secondary)] rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl hover:-translate-y-0.5"
-        style={{
-          border: '1px solid var(--theme-border-primary)',
-          boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04)',
-          marginBottom: '20px' // Proper spacing between groups
-        }}
-      >
-        {/* Desktop Layout */}
-        <div
-          onClick={() => handleGroupClick(group.id)}
-          className="hidden sm:block p-4 cursor-pointer hover:bg-[var(--theme-bg-tertiary)] transition-colors"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 flex-1 min-w-0">
-              <ChevronRight
-                size={16}
-                className={`transition-transform text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''}`}
-              />
-              <div className="flex items-center gap-2">
-                <span className={`px-3 py-1.5 text-xs font-bold rounded-lg shadow-sm ${getServiceBadgeClasses(group.service)}`}>
-                  {group.service.toUpperCase()}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold text-[var(--theme-text-primary)] truncate">
-                  {group.name}
-                </h3>
-                <div className="flex items-center gap-4 mt-1">
-                  <span className="text-xs text-[var(--theme-text-secondary)]">
-                    {group.count} {group.count === 1 ? 'download' : 'downloads'}
-                  </span>
-                  <span className="text-xs text-[var(--theme-text-secondary)]">
-                    {totalClients} {totalClients === 1 ? 'client' : 'clients'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="flex flex-col items-end">
-                <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
-                  {formatBytes(group.totalBytes)}
-                </span>
-                {savedAmount > 0 && (
-                  <span className="text-xs cache-hit">
-                    Saved: {formatBytes(savedAmount)}
-                  </span>
-                )}
-              </div>
-              {group.totalBytes > 0 && (
-                <div className="w-24">
-                  <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] mb-1">
-                    <span>Cache</span>
-                    <span>{formatPercent(hitPercent)}</span>
-                  </div>
-                  <div className="w-full progress-track rounded-full h-2">
-                    <div
-                      className="progress-bar-high h-2 rounded-full transition-all duration-300"
-                      style={{
-                        width: `${Math.min(hitPercent, 100)}%`
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Mobile Layout */}
-        <div
-          onClick={() => handleGroupClick(group.id)}
-          className="sm:hidden p-3 cursor-pointer hover:bg-[var(--theme-bg-tertiary)] transition-colors"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <ChevronRight
-                size={14}
-                className={`transition-transform text-[var(--theme-text-secondary)] ${isExpanded ? 'rotate-90' : ''} flex-shrink-0`}
-              />
-              <span className={`px-2 py-1 text-xs font-bold rounded shadow-sm flex-shrink-0 ${getServiceBadgeClasses(group.service)}`}>
-                {group.service.toUpperCase()}
-              </span>
-              <h3 className="text-sm font-semibold text-[var(--theme-text-primary)] truncate">
-                {group.name}
-              </h3>
-            </div>
-            <div className="text-right flex-shrink-0">
-              <div className="text-sm font-semibold text-[var(--theme-text-primary)]">
-                {formatBytes(group.totalBytes)}
-              </div>
-              {savedAmount > 0 && (
-                <div className="text-xs cache-hit">
-                  {formatBytes(savedAmount)}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)]">
-            <div className="flex items-center gap-3">
-              <span>{group.count} {group.count === 1 ? 'download' : 'downloads'}</span>
-              <span>{totalClients} {totalClients === 1 ? 'client' : 'clients'}</span>
-            </div>
-            {group.totalBytes > 0 && (
-              <span className="font-semibold">{formatPercent(hitPercent)} cached</span>
-            )}
-          </div>
-
-          {group.totalBytes > 0 && (
-            <div className="mt-2">
-              <div className="w-full progress-track rounded-full h-2">
-                <div
-                  className="progress-bar-high h-2 rounded-full transition-all duration-300"
-                  style={{
-                    width: `${Math.min(hitPercent, 100)}%`
-                  }}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {isExpanded && (
-          <div className="border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
-            <div className="max-h-96 overflow-y-auto">
-              <div className="divide-y divide-[var(--theme-border-primary)]">
-                {group.downloads.map((d, index) => {
-                  const downloadHitPercent = d.totalBytes && d.totalBytes > 0
-                    ? ((d.cacheHitBytes || 0) / d.totalBytes) * 100
-                    : 0;
-
-                  return (
-                    <div
-                      key={d.id}
-                      className={`p-3 transition-all duration-200 ${
-                        index % 2 === 0 ? 'bg-[var(--theme-bg-secondary)]' : 'bg-[var(--theme-bg-tertiary)]'
-                      } hover:bg-[var(--theme-bg-primary)] hover:shadow-sm`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 flex-1">
-                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-lg shadow-sm border ${
-                            d.endTime ? 'status-completed' : 'status-active'
-                          }`}>
-                            {d.endTime ? 'complete' : 'in-progress'}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-[var(--theme-text-secondary)]">
-                                {d.clientIp}
-                              </span>
-                              <span className="text-xs text-[var(--theme-text-muted)]">
-                                {formatRelativeTime(d.startTime)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-xs font-medium text-[var(--theme-text-primary)]">
-                            {formatBytes(d.totalBytes || 0)}
-                          </span>
-                          {d.totalBytes && d.totalBytes > 0 && (
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-md hit-rate-badge ${
-                              downloadHitPercent > 75 ? 'high' :
-                              downloadHitPercent > 25 ? 'warning' : 'low'
-                            }`}>
-                              {formatPercent(downloadHitPercent)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+  const handleItemClick = (id: string) => {
+    setExpandedItem(expandedItem === id ? null : id);
   };
 
   // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px] transition-opacity duration-300">
+      <div className="flex items-center justify-center min-h-[400px] animate-fade-in">
         <div className="animate-pulse">
           <Loader className="w-8 h-8 animate-spin text-themed-primary" />
         </div>
@@ -1775,7 +687,7 @@ const DownloadsTab: React.FC = () => {
 
             {/* Desktop view controls */}
             <div className="hidden sm:flex gap-2 justify-end w-auto">
-              {/* View Mode Toggle - Three options */}
+              {/* View Mode Toggle */}
               <div className="flex rounded-lg bg-themed-tertiary p-1">
                 <button
                   onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
@@ -1807,56 +719,44 @@ const DownloadsTab: React.FC = () => {
                   <Grid3x3 size={16} />
                   <span className="text-xs">Normal</span>
                 </button>
-                <button
-                  onClick={() => setSettings({ ...settings, viewMode: 'grouped' })}
-                  className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1 ${
-                    settings.viewMode === 'grouped'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary hover:text-themed-primary'
-                  }`}
-                  style={{
-                    color: settings.viewMode === 'grouped' ? 'var(--theme-button-text)' : undefined
-                  }}
-                  title="Grouped View"
-                >
-                  <Layers size={16} />
-                  <span className="text-xs">Grouped</span>
-                </button>
               </div>
 
               {/* Export Button */}
               <div className="relative">
                 <button
                   onClick={() => setShowExportOptions(!showExportOptions)}
+                  className="p-2 rounded hover:bg-themed-hover transition-colors"
+                  title="Export Data"
                   disabled={exportLoading || itemsToDisplay.length === 0}
-                  className="p-2 rounded hover:bg-themed-hover transition-colors disabled:opacity-50"
-                  title="Export filtered data"
                 >
                   {exportLoading ? (
-                    <Loader size={18} className="animate-spin" />
+                    <Loader className="w-4 h-4 animate-spin" />
                   ) : (
                     <DownloadIcon size={18} />
                   )}
                 </button>
-
-                {/* Export Options Dropdown */}
                 {showExportOptions && (
                   <div
-                    className="absolute right-0 top-full mt-1 w-32 rounded-lg border shadow-xl z-[9999]"
+                    className="absolute right-0 mt-2 w-48 rounded-lg shadow-lg bg-themed-primary border z-50"
                     style={{
-                      backgroundColor: 'var(--theme-bg-secondary)',
                       borderColor: 'var(--theme-border-primary)'
                     }}
                   >
                     <div className="py-1">
                       <button
-                        onClick={() => handleExport('json')}
+                        onClick={() => {
+                          handleExport('json');
+                          setShowExportOptions(false);
+                        }}
                         className="w-full text-left px-4 py-2 text-sm hover:bg-themed-hover transition-colors text-themed-secondary"
                       >
                         Export JSON
                       </button>
                       <button
-                        onClick={() => handleExport('csv')}
+                        onClick={() => {
+                          handleExport('csv');
+                          setShowExportOptions(false);
+                        }}
                         className="w-full text-left px-4 py-2 text-sm hover:bg-themed-hover transition-colors text-themed-secondary"
                       >
                         Export CSV
@@ -1903,19 +803,6 @@ const DownloadsTab: React.FC = () => {
               }}
             >
               <Grid3x3 size={16} className="mx-auto" />
-            </button>
-            <button
-              onClick={() => setSettings({ ...settings, viewMode: 'grouped' })}
-              className={`flex-1 px-2 py-1.5 rounded-md transition-colors ${
-                settings.viewMode === 'grouped'
-                  ? 'bg-primary'
-                  : 'text-themed-secondary'
-              }`}
-              style={{
-                color: settings.viewMode === 'grouped' ? 'var(--theme-button-text)' : undefined
-              }}
-            >
-              <Layers size={16} className="mx-auto" />
             </button>
           </div>
         </div>
@@ -1996,65 +883,24 @@ const DownloadsTab: React.FC = () => {
           </div>
         )}
 
-        {/* Table Header for Compact View - Desktop Only */}
-        {settings.viewMode === 'compact' && (
-          <div className="hidden md:flex items-center px-4 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>
-            <div className="w-24">Service</div>
-            <div className="w-28">Status</div>
-            <div className="flex-1 px-2">Game</div>
-            <div className="w-32">Client</div>
-            <div className="w-24">Time</div>
-            <div className="w-24 text-right">Size</div>
-          </div>
-        )}
-
-        {/* Mobile Header for Compact View */}
-        {settings.viewMode === 'compact' && (
-          <div className="md:hidden px-3 py-2 text-xs font-medium uppercase tracking-wider text-themed-muted border-b bg-[var(--theme-bg-secondary)]/50" style={{ borderColor: 'var(--theme-border-primary)' }}>
-            Downloads
-          </div>
-        )}
-
         {/* Content based on view mode */}
         <div className="transition-all duration-300 ease-in-out">
           {settings.viewMode === 'compact' && (
-            <div className="space-y-1 animate-fade-in-up">
-              {itemsToDisplay.map((item, index) => (
-                <div
-                  key={`compact-${(item as Download).id}`}
-                  className={`animate-slide-in-bottom ${index < 10 ? `animate-stagger-${Math.min(index + 1, 10)}` : ''}`}
-                >
-                  {renderCompactView(item as Download)}
-                </div>
-              ))}
-            </div>
+            <CompactView
+              items={itemsToDisplay as (Download | DownloadGroup)[]}
+              expandedItem={expandedItem}
+              onItemClick={handleItemClick}
+            />
           )}
 
           {settings.viewMode === 'normal' && (
-            <div className="space-y-3 animate-fade-in-up">
-              {itemsToDisplay.map((item, index) => (
-                <div
-                  key={`normal-${(item as Download).id}`}
-                  className={`animate-slide-in-bottom ${index < 10 ? `animate-stagger-${Math.min(index + 1, 10)}` : ''}`}
-                >
-                  {renderNormalView(item as Download)}
-                </div>
-              ))}
-            </div>
+            <NormalView
+              items={itemsToDisplay as (Download | DownloadGroup)[]}
+              expandedItem={expandedItem}
+              onItemClick={handleItemClick}
+            />
           )}
 
-          {settings.viewMode === 'grouped' && (
-            <div className="space-y-4 animate-fade-in-up">
-              {itemsToDisplay.map((item, index) => (
-                <div
-                  key={`grouped-${(item as DownloadGroup).id}`}
-                  className={`animate-slide-in-bottom ${index < 10 ? `animate-stagger-${Math.min(index + 1, 10)}` : ''}`}
-                >
-                  {renderGroupedView(item as DownloadGroup)}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 

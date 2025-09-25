@@ -239,12 +239,12 @@ public class SteamKit2Service : IHostedService, IDisposable
         });
     }
 
-    private async Task ConnectAndBuildIndexAsync(CancellationToken ct)
+    private async Task ConnectAndBuildIndexAsync(CancellationToken ct, bool incrementalOnly = false)
     {
         try
         {
             await ConnectAndLoginAsync(ct);
-            await BuildDepotIndexAsync(ct);
+            await BuildDepotIndexAsync(ct, incrementalOnly);
         }
         catch (Exception ex)
         {
@@ -352,7 +352,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     /// <summary>
     /// Build depot index by querying PICS for all apps
     /// </summary>
-    private async Task BuildDepotIndexAsync(CancellationToken ct)
+    private async Task BuildDepotIndexAsync(CancellationToken ct, bool incrementalOnly = false)
     {
         try
         {
@@ -360,11 +360,11 @@ public class SteamKit2Service : IHostedService, IDisposable
             _logger.LogInformation("Starting to build depot index via Steam PICS (no keys)...");
 
             // Enumerate every appid by crawling the PICS changelist
-            var appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct);
+            var appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
             _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
 
-            // Fallback / merge to ensure completeness
-            if (appIds.Count < 200_000) // heuristic: too few => seed
+            // Fallback / merge to ensure completeness (skip in incremental mode)
+            if (!incrementalOnly && appIds.Count < 200_000) // heuristic: too few => seed
             {
                 _logger.LogWarning("PICS enumeration returned {Count} apps; seeding with Web API applist", appIds.Count);
                 try
@@ -462,7 +462,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                             (_processedBatches * 100.0 / allBatches.Count),
                             _depotToAppMappings.Count);
 
-                        await SaveAllMappingsToJsonAsync();
+                        await SaveAllMappingsToJsonAsync(incrementalOnly);
                     }
 
                     // Adaptive delay based on current performance
@@ -478,10 +478,22 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             _currentStatus = "Saving PICS data to JSON";
             _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
-            await SaveAllMappingsToJsonAsync();
+            await SaveAllMappingsToJsonAsync(incrementalOnly);
 
-            _currentStatus = "Importing JSON to database";
-            await ImportJsonToDatabase();
+            _currentStatus = "Starting background database import";
+            // Run database import on background thread to prevent blocking HTTP server
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await ImportJsonToDatabase();
+                    _logger.LogInformation("Background database import completed successfully");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Background database import failed");
+                }
+            });
 
             _currentStatus = "Updating downloads";
             await UpdateDownloadsWithDepotMappings();
@@ -564,7 +576,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
-    private async Task<List<uint>> EnumerateAllAppIdsViaPicsChangesAsync(CancellationToken ct)
+    private async Task<List<uint>> EnumerateAllAppIdsViaPicsChangesAsync(CancellationToken ct, bool incrementalOnly = false)
     {
         if (_steamApps is null)
         {
@@ -669,18 +681,25 @@ public class SteamKit2Service : IHostedService, IDisposable
             await Task.Delay(100, ct); // Slightly longer delay to be more respectful
         }
 
-        // Always add dynamic app discovery to ensure comprehensive coverage
+        // Add dynamic app discovery only when not in incremental mode
         var initialAppCount = allApps.Count;
-        await AddDynamicAppDiscoveryAsync(allApps, ct);
-
-        var discoveredApps = allApps.Count - initialAppCount;
-        if (discoveredApps > 0)
+        if (!incrementalOnly)
         {
-            _logger.LogInformation($"PICS enumeration found {initialAppCount} apps via changes, plus {discoveredApps} apps via dynamic discovery.");
+            await AddDynamicAppDiscoveryAsync(allApps, ct);
+
+            var discoveredApps = allApps.Count - initialAppCount;
+            if (discoveredApps > 0)
+            {
+                _logger.LogInformation($"PICS enumeration found {initialAppCount} apps via changes, plus {discoveredApps} apps via dynamic discovery.");
+            }
+            else
+            {
+                _logger.LogInformation($"PICS enumeration found {initialAppCount} apps via changes.");
+            }
         }
         else
         {
-            _logger.LogInformation($"PICS enumeration found {initialAppCount} apps via changes.");
+            _logger.LogInformation($"Incremental PICS enumeration found {initialAppCount} changed apps (skipping dynamic discovery).");
         }
 
         var list = allApps.ToList();
@@ -951,7 +970,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         return callbacks.AsReadOnly();
     }
 
-    private async Task SaveAllMappingsToJsonAsync()
+    private async Task SaveAllMappingsToJsonAsync(bool incrementalOnly = false)
     {
         try
         {
@@ -968,8 +987,16 @@ public class SteamKit2Service : IHostedService, IDisposable
                 appNamesDict[kvp.Key] = kvp.Value;
             }
 
-            await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen);
-            _logger.LogInformation($"Saved {_depotToAppMappings.Count} depot mappings to JSON file");
+            if (incrementalOnly)
+            {
+                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen);
+                _logger.LogInformation($"Merged {_depotToAppMappings.Count} depot mappings to JSON file (incremental)");
+            }
+            else
+            {
+                await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen);
+                _logger.LogInformation($"Saved {_depotToAppMappings.Count} depot mappings to JSON file (full)");
+            }
         }
         catch (Exception ex)
         {
@@ -1235,7 +1262,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
-    public bool TryStartRebuild(CancellationToken cancellationToken = default)
+    public bool TryStartRebuild(CancellationToken cancellationToken = default, bool incrementalOnly = false)
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
@@ -1264,7 +1291,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         {
             try
             {
-                await ConnectAndBuildIndexAsync(linkedCts.Token).ConfigureAwait(false);
+                await ConnectAndBuildIndexAsync(linkedCts.Token, incrementalOnly).ConfigureAwait(false);
                 _logger.LogInformation("PICS crawl completed successfully");
             }
             catch (OperationCanceledException)

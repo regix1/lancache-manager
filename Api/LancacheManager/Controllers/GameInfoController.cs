@@ -104,13 +104,6 @@ public class GameInfoController : ControllerBase
                 }
             }
 
-            // Only use pattern matching if SteamKit2 is not ready or no PICS crawl has completed
-            // Pattern matching can return incorrect results (e.g., depot 377239 -> app 377230 instead of 359550)
-            if (!appId.HasValue && !_steamKit2Service.IsReady)
-            {
-                appId = await TryDepotPatternMatchingAsync(id);
-                source = "PatternMatching";
-            }
 
             if (!appId.HasValue)
             {
@@ -167,12 +160,13 @@ public class GameInfoController : ControllerBase
     /// <summary>
     /// Trigger a background Steam PICS crawl to rebuild depot mappings.
     /// </summary>
+    /// <param name="incremental">If true, performs incremental update (only changed apps), otherwise full rebuild</param>
     [HttpPost("steamkit/rebuild")]
-    public IActionResult TriggerSteamKitRebuild(CancellationToken cancellationToken)
+    public IActionResult TriggerSteamKitRebuild(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
         try
         {
-            var started = _steamKit2Service.TryStartRebuild(cancellationToken);
+            var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental);
 
             return Ok(new
             {
@@ -245,11 +239,6 @@ public class GameInfoController : ControllerBase
                         }
                     }
 
-                    // Only use pattern matching if SteamKit2 is not ready (avoid incorrect mappings)
-                    if (!appId.HasValue && !_steamKit2Service.IsReady)
-                    {
-                        appId = await TryDepotPatternMatchingAsync(download.DepotId.Value);
-                    }
 
                     if (appId.HasValue)
                     {
@@ -497,145 +486,9 @@ public class GameInfoController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Try to resolve depot ID to app ID using pattern matching
-    /// Steam depot IDs often follow patterns where depot 275851 maps to app 275850
-    /// </summary>
-    private async Task<uint?> TryDepotPatternMatchingAsync(uint depotId)
-    {
-        try
-        {
-            var candidateAppIds = new List<uint>();
 
-            // Pattern 1: Replace last digit with 0 (275851 -> 275850)
-            var basePattern = (depotId / 10) * 10;
-            candidateAppIds.Add(basePattern);
 
-            // Pattern 2: Try decrementing the depot ID by 1-20 (covers more cases)
-            for (uint offset = 1; offset <= 20; offset++)
-            {
-                if (depotId > offset)
-                {
-                    candidateAppIds.Add(depotId - offset);
-                }
-            }
 
-            // Pattern 3: Try the depot ID itself as an app ID
-            candidateAppIds.Add(depotId);
-
-            // Test each candidate app ID with Steam API and collect all valid matches
-            var validMatches = new List<(uint appId, LancacheManager.Services.SteamService.GameInfo gameInfo)>();
-
-            foreach (var candidateAppId in candidateAppIds)
-            {
-                try
-                {
-                    var gameInfo = await _steamService.GetGameInfoAsync(candidateAppId);
-                    if (gameInfo != null && !string.IsNullOrEmpty(gameInfo.Name))
-                    {
-                        validMatches.Add((candidateAppId, gameInfo));
-                        _logger.LogDebug($"Pattern matching found: depot {depotId} -> app {candidateAppId} ({gameInfo.Name})");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogTrace($"Pattern matching failed for depot {depotId} -> app {candidateAppId}: {ex.Message}");
-                }
-
-                // Add small delay to avoid overwhelming Steam API
-                await Task.Delay(50);
-            }
-
-            // Prioritize matches: prefer main games over trials/demos/DLC
-            if (validMatches.Any())
-            {
-                var bestMatch = validMatches
-                    .OrderBy(match => GetGameTypePriority(match.gameInfo))
-                    .ThenBy(match => match.appId) // Fallback to lower app ID
-                    .First();
-
-                _logger.LogInformation($"Pattern matching success: depot {depotId} -> app {bestMatch.appId} ({bestMatch.gameInfo.Name}) [selected from {validMatches.Count} matches]");
-
-                // Store the best discovered mapping
-                await StoreDiscoveredMappingAsync(depotId, bestMatch.appId, bestMatch.gameInfo.Name, "PatternMatching");
-
-                return bestMatch.appId;
-            }
-
-            _logger.LogDebug($"Pattern matching failed for depot {depotId} - no valid app IDs found");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, $"Error in pattern matching for depot {depotId}");
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Get priority for game type selection (lower = better)
-    /// Based on Steam's depot mounting order principles
-    /// </summary>
-    private static int GetGameTypePriority(LancacheManager.Services.SteamService.GameInfo gameInfo)
-    {
-        var name = gameInfo.Name?.ToLower() ?? "";
-        var type = gameInfo.Type?.ToLower() ?? "";
-
-        // Highest priority: Base/Main games (Steam's base app principle)
-        if (type == "game" && !IsTrialOrDemo(name) && !IsDlcContent(name))
-        {
-            return 1;
-        }
-
-        // Medium-high priority: Non-trial DLC content
-        if ((type == "dlc" || type == "content") && !IsTrialOrDemo(name))
-        {
-            return 2;
-        }
-
-        // Low priority: Trial DLC and demo content (per Steam DLC research)
-        if (IsTrialOrDemo(name) || type == "demo" || type == "beta")
-        {
-            return 3;
-        }
-
-        // Very low priority: Tools, servers, etc.
-        if (type == "tool" || type == "server" || name.Contains("dedicated server"))
-        {
-            return 4;
-        }
-
-        // Default priority for unknown types
-        return 2;
-    }
-
-    /// <summary>
-    /// Check if a game name indicates it's DLC content
-    /// </summary>
-    private static bool IsDlcContent(string name)
-    {
-        var lowerName = name.ToLower();
-        return lowerName.Contains("dlc") ||
-               lowerName.Contains("expansion") ||
-               lowerName.Contains("season pass") ||
-               lowerName.Contains("add-on") ||
-               lowerName.Contains("downloadable content");
-    }
-
-    /// <summary>
-    /// Check if a game name indicates it's a trial, demo, or beta
-    /// </summary>
-    private static bool IsTrialOrDemo(string name)
-    {
-        var lowerName = name.ToLower();
-        return lowerName.Contains("trial") ||
-               lowerName.Contains("demo") ||
-               lowerName.Contains("beta") ||
-               lowerName.Contains("free weekend") ||
-               lowerName.Contains("test") ||
-               lowerName.Contains("preview") ||
-               lowerName.Contains("alpha");
-    }
 
     /// <summary>
     /// Store a newly discovered depot mapping in the database
@@ -669,6 +522,53 @@ public class GameInfoController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, $"Failed to store discovered mapping: depot {depotId} -> app {appId}");
+        }
+    }
+
+    /// <summary>
+    /// Simple test endpoint
+    /// </summary>
+    [HttpGet("test")]
+    public IActionResult Test()
+    {
+        return Ok(new { message = "GameInfoController is working", timestamp = DateTime.UtcNow });
+    }
+
+    /// <summary>
+    /// Proxy Steam game header images to avoid CORS issues
+    /// </summary>
+    [HttpGet("gameimages/{appId}/header")]
+    public async Task<IActionResult> GetGameHeaderImage(uint appId)
+    {
+        try
+        {
+            var imageUrl = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
+
+            var response = await httpClient.GetAsync(imageUrl);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var imageBytes = await response.Content.ReadAsByteArrayAsync();
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+
+                // Add cache headers
+                Response.Headers["Cache-Control"] = "public, max-age=3600"; // Cache for 1 hour
+
+                return File(imageBytes, contentType);
+            }
+            else
+            {
+                _logger.LogWarning($"Failed to fetch Steam header image for app {appId}, status: {response.StatusCode}");
+                return NotFound(new { error = $"Steam header image not found for app {appId}" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error proxying Steam header image for app {appId}");
+            return StatusCode(500, new { error = "Failed to fetch game header image" });
         }
     }
 }

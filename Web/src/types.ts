@@ -47,7 +47,7 @@ export interface DownloadSettings {
   showSmallFiles: boolean;
   hideLocalhost: boolean;
   selectedService: string;
-  itemsPerPage: number | 'unlimited';
+  itemsPerPage?: number | 'all';
   groupGames: boolean;
   viewMode: 'compact' | 'normal';
   sortOrder: 'latest' | 'oldest' | 'largest' | 'smallest' | 'service';
@@ -74,7 +74,7 @@ export interface DownloadSettings {
   showSmallFiles: boolean;
   hideLocalhost: boolean;
   selectedService: string;
-  itemsPerPage: number | 'unlimited';
+  itemsPerPage?: number | 'all';
   groupGames: boolean;
 }
 

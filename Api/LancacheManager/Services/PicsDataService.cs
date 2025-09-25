@@ -90,6 +90,95 @@ public class PicsDataService
     }
 
     /// <summary>
+    /// Merge incremental PICS depot mappings into existing JSON file
+    /// </summary>
+    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0)
+    {
+        try
+        {
+            // Load existing data or create new if doesn't exist
+            var existingData = await LoadPicsDataFromJsonAsync() ?? new PicsJsonData
+            {
+                Metadata = new PicsMetadata
+                {
+                    LastUpdated = DateTime.MinValue,
+                    TotalMappings = 0,
+                    Version = "1.0",
+                    NextUpdateDue = DateTime.UtcNow.AddHours(24),
+                    LastChangeNumber = 0
+                },
+                DepotMappings = new Dictionary<string, PicsDepotMapping>()
+            };
+
+            var updatedCount = 0;
+            var newCount = 0;
+
+            // Merge new depot mappings with existing ones
+            foreach (var (depotId, appIds) in newDepotMappings)
+            {
+                var depotKey = depotId.ToString();
+                var appIdsList = appIds.ToList();
+                var appNamesList = appIdsList.Select(appId =>
+                    appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
+                ).ToList();
+
+                var newMapping = new PicsDepotMapping
+                {
+                    AppIds = appIdsList,
+                    AppNames = appNamesList,
+                    Source = "SteamKit2-PICS",
+                    Confidence = 100,
+                    DiscoveredAt = DateTime.UtcNow
+                };
+
+                if (existingData.DepotMappings.ContainsKey(depotKey))
+                {
+                    existingData.DepotMappings[depotKey] = newMapping;
+                    updatedCount++;
+                }
+                else
+                {
+                    existingData.DepotMappings[depotKey] = newMapping;
+                    newCount++;
+                }
+            }
+
+            // Update metadata
+            existingData.Metadata.LastUpdated = DateTime.UtcNow;
+            existingData.Metadata.TotalMappings = existingData.DepotMappings.Sum(kvp => kvp.Value.AppIds.Count);
+            existingData.Metadata.NextUpdateDue = DateTime.UtcNow.AddHours(24);
+            existingData.Metadata.LastChangeNumber = lastChangeNumber;
+
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            var jsonContent = JsonSerializer.Serialize(existingData, jsonOptions);
+
+            // Ensure data directory exists
+            var dataDir = Path.GetDirectoryName(_picsJsonFile);
+            if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+            }
+
+            lock (_fileLock)
+            {
+                File.WriteAllText(_picsJsonFile, jsonContent);
+            }
+
+            _logger.LogInformation($"Incrementally updated PICS JSON: {newCount} new depot mappings, {updatedCount} updated, {existingData.Metadata.TotalMappings} total");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error merging PICS data to JSON file");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Load PICS depot mappings from JSON file
     /// </summary>
     public async Task<PicsJsonData?> LoadPicsDataFromJsonAsync()
@@ -207,6 +296,7 @@ public class PicsDataService
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             var mappingsToImport = new List<SteamDepotMapping>();
+            var processedCount = 0;
 
             foreach (var (depotIdStr, mapping) in picsData.DepotMappings)
             {
@@ -231,6 +321,13 @@ public class PicsDataService
                             Confidence = mapping.Confidence,
                             DiscoveredAt = mapping.DiscoveredAt
                         });
+
+                        processedCount++;
+                        // Yield every 1000 records to prevent blocking
+                        if (processedCount % 1000 == 0)
+                        {
+                            await Task.Yield();
+                        }
                     }
                 }
             }
@@ -243,6 +340,7 @@ public class PicsDataService
 
             var newMappings = new List<SteamDepotMapping>();
             int updated = 0;
+            int comparedCount = 0;
 
             foreach (var mapping in mappingsToImport)
             {
@@ -264,14 +362,34 @@ public class PicsDataService
                 {
                     newMappings.Add(mapping);
                 }
+
+                comparedCount++;
+                // Yield every 1000 comparisons to prevent blocking
+                if (comparedCount % 1000 == 0)
+                {
+                    await Task.Yield();
+                }
             }
 
-            if (newMappings.Any())
+            // Batch insert new mappings to avoid huge single transactions
+            const int batchSize = 5000;
+            for (int i = 0; i < newMappings.Count; i += batchSize)
             {
-                await context.SteamDepotMappings.AddRangeAsync(newMappings);
+                var batch = newMappings.Skip(i).Take(batchSize).ToList();
+                await context.SteamDepotMappings.AddRangeAsync(batch);
+                await context.SaveChangesAsync();
+
+                // Yield after each batch
+                await Task.Yield();
+
+                _logger.LogDebug($"Imported batch {i / batchSize + 1}/{(newMappings.Count + batchSize - 1) / batchSize} ({batch.Count} mappings)");
             }
 
-            await context.SaveChangesAsync();
+            // Save any remaining updates
+            if (updated > 0)
+            {
+                await context.SaveChangesAsync();
+            }
 
             _logger.LogInformation($"Imported PICS data: {newMappings.Count} new mappings, {updated} updated");
         }

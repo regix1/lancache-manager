@@ -454,7 +454,4 @@ public class ThemeController : ControllerBase
             return StatusCode(500, new { error = "Failed to cleanup themes", details = ex.Message });
         }
     }
-
-    // Removed InitializeDefaultThemes() - Frontend theme service provides built-in themes
-    // Backend only manages custom uploaded themes to avoid duplication
 }
