@@ -90,9 +90,9 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Merge incremental PICS depot mappings into existing JSON file
+    /// Merge incremental PICS depot mappings into existing JSON file with validation
     /// </summary>
-    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0)
+    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true)
     {
         try
         {
@@ -112,6 +112,31 @@ public class PicsDataService
 
             var updatedCount = 0;
             var newCount = 0;
+            var validatedCount = 0;
+            var removedCount = 0;
+
+            // Validate existing entries if requested
+            if (validateExisting && existingData.DepotMappings != null)
+            {
+                var keysToRemove = new List<string>();
+                foreach (var (depotKey, mapping) in existingData.DepotMappings)
+                {
+                    // Check for corrupted entries
+                    if (mapping?.AppIds == null || mapping.AppIds.Count == 0 ||
+                        mapping.AppNames == null || mapping.AppNames.Count != mapping.AppIds.Count)
+                    {
+                        keysToRemove.Add(depotKey);
+                        _logger.LogWarning($"Removing corrupted depot mapping: {depotKey}");
+                    }
+                    validatedCount++;
+                }
+
+                foreach (var key in keysToRemove)
+                {
+                    existingData.DepotMappings.Remove(key);
+                    removedCount++;
+                }
+            }
 
             // Merge new depot mappings with existing ones
             foreach (var (depotId, appIds) in newDepotMappings)
@@ -169,7 +194,7 @@ public class PicsDataService
                 File.WriteAllText(_picsJsonFile, jsonContent);
             }
 
-            _logger.LogInformation($"Incrementally updated PICS JSON: {newCount} new depot mappings, {updatedCount} updated, {existingData.Metadata.TotalMappings} total");
+            _logger.LogInformation($"Incrementally updated PICS JSON: {newCount} new, {updatedCount} updated, {removedCount} removed corrupted, {existingData.Metadata.TotalMappings} total");
         }
         catch (Exception ex)
         {
@@ -225,7 +250,7 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Check if PICS JSON data needs updating (older than 24 hours)
+    /// Check if PICS JSON data needs updating (always use incremental)
     /// </summary>
     public async Task<bool> NeedsUpdateAsync()
     {
@@ -237,11 +262,10 @@ public class PicsDataService
                 return true; // No data exists, needs initial update
             }
 
-            var timeSinceUpdate = DateTime.UtcNow - picsData.Metadata.LastUpdated;
-            var needsUpdate = timeSinceUpdate >= TimeSpan.FromHours(24);
-
-            _logger.LogDebug($"PICS data age: {timeSinceUpdate.TotalHours:F1} hours, needs update: {needsUpdate}");
-            return needsUpdate;
+            // Always return false to use incremental updates only
+            // The incremental system will handle new items and updates
+            _logger.LogDebug($"PICS data exists with {picsData.Metadata.TotalMappings} mappings, using incremental updates only");
+            return false;
         }
         catch (Exception ex)
         {

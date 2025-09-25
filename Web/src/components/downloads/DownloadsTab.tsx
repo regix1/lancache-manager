@@ -566,6 +566,7 @@ const DownloadsTab: React.FC = () => {
   const handleExport = (format: 'json' | 'csv') => {
     setExportLoading(true);
     try {
+      const itemsForExport = allItemsSorted;
       let content = '';
       let filename = '';
       let mimeType = '';
@@ -574,13 +575,25 @@ const DownloadsTab: React.FC = () => {
       const baseFilename = `lancache_downloads_${timestamp}`;
 
       if (format === 'csv') {
-        // Filter out groups from mixed items for CSV export
-        const downloads = itemsToDisplay.filter(item => !('downloads' in item)) as Download[];
-        content = convertDownloadsToCSV(downloads);
+        const downloadsForExport =
+          (settings.viewMode === 'normal' || settings.viewMode === 'compact'
+            ? (itemsForExport as (Download | DownloadGroup)[]).flatMap((item) =>
+                'downloads' in item ? item.downloads : [item]
+              )
+            : (itemsForExport as Download[]));
+
+        content = convertDownloadsToCSV(downloadsForExport);
         filename = `${baseFilename}.csv`;
         mimeType = 'text/csv';
       } else {
-        content = JSON.stringify(itemsToDisplay, null, 2);
+        const jsonReplacer = (_key: string, value: unknown) => {
+          if (value instanceof Set) {
+            return Array.from(value);
+          }
+          return value;
+        };
+
+        content = JSON.stringify(itemsForExport, jsonReplacer, 2);
         filename = `${baseFilename}.json`;
         mimeType = 'application/json';
       }

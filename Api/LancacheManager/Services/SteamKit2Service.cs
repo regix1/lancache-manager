@@ -37,7 +37,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;
-    private static readonly TimeSpan CrawlInterval = TimeSpan.FromHours(24);
+    private static readonly TimeSpan CrawlInterval = TimeSpan.FromHours(1); // Run incremental updates every hour
     private readonly string _lastCrawlFile;
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
@@ -108,7 +108,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Set up periodic PICS crawls: initial run + every 24 hours
             SetupPeriodicCrawls();
 
-            _logger.LogInformation("SteamKit2Service started with periodic PICS crawls every 24 hours");
+            _logger.LogInformation("SteamKit2Service started with incremental PICS updates every hour");
         }
         catch (Exception ex)
         {
@@ -204,17 +204,16 @@ public class SteamKit2Service : IHostedService, IDisposable
                 }
                 else
                 {
-                    var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
-                    var nextCrawlIn = CrawlInterval - timeSinceLastCrawl;
-                    _logger.LogInformation("Skipping initial PICS crawl - JSON data is current, next crawl in {NextIn}",
-                        nextCrawlIn.ToString(@"hh\:mm\:ss"));
+                    // Always start with an incremental update to catch any recent changes
+                    _logger.LogInformation("Starting incremental PICS update to catch recent changes");
+                    TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: true);
                 }
             }
         });
 
         // Set up the periodic timer for subsequent crawls
         _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, CrawlInterval, CrawlInterval);
-        _logger.LogInformation($"Scheduled periodic PICS crawls every {CrawlInterval.TotalHours} hours");
+        _logger.LogInformation($"Scheduled incremental PICS updates every {CrawlInterval.TotalHours} hour(s)");
     }
 
     private void OnPeriodicCrawlTimer(object? state)
@@ -224,14 +223,13 @@ public class SteamKit2Service : IHostedService, IDisposable
             return;
         }
 
-        // Check if JSON data needs updating asynchronously
+        // Always run incremental updates on schedule
         _ = Task.Run(async () =>
         {
-            var needsUpdate = await _picsDataService.NeedsUpdateAsync();
-            if (needsUpdate && !IsRebuildRunning)
+            if (!IsRebuildRunning)
             {
-                _logger.LogInformation("Starting scheduled PICS crawl - JSON data needs updating");
-                if (TryStartRebuild(_cancellationTokenSource.Token))
+                _logger.LogInformation("Starting scheduled incremental PICS update");
+                if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: true))
                 {
                     _lastCrawlTime = DateTime.UtcNow;
                 }
@@ -357,7 +355,14 @@ public class SteamKit2Service : IHostedService, IDisposable
         try
         {
             _currentStatus = "Connecting and enumerating apps";
-            _logger.LogInformation("Starting to build depot index via Steam PICS (no keys)...");
+            _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental})...", incrementalOnly);
+
+            // For incremental updates, preserve existing mappings
+            if (!incrementalOnly)
+            {
+                _depotToAppMappings.Clear();
+                _appNames.Clear();
+            }
 
             // Enumerate every appid by crawling the PICS changelist
             var appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
@@ -989,8 +994,9 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             if (incrementalOnly)
             {
-                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen);
-                _logger.LogInformation($"Merged {_depotToAppMappings.Count} depot mappings to JSON file (incremental)");
+                // Pass validateExisting=true to clean up corrupted entries during incremental updates
+                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true);
+                _logger.LogInformation($"Merged {depotMappingsDict.Count} depot mappings to JSON file (incremental with validation)");
             }
             else
             {
