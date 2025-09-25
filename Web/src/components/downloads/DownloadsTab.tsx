@@ -10,7 +10,6 @@ import {
   Grid3x3,
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext'; // Fixed import path
-import { formatBytes, formatPercent } from '../../utils/formatters'; // Fixed import path
 import { Alert } from '../ui/Alert'; // Fixed import path
 import { Card } from '../ui/Card'; // Fixed import path
 
@@ -174,43 +173,6 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
   return [csvHeaders, ...csvRows].join('\n');
 };
 
-const convertGroupsToCSV = (groups: DownloadGroup[]): string => {
-  if (!groups || groups.length === 0) return '';
-
-  const headers = [
-    'name', 'type', 'service', 'downloadCount', 'totalBytes', 'cacheHitBytes',
-    'cacheMissBytes', 'cacheHitPercent', 'uniqueClients', 'firstSeen', 'lastSeen'
-  ];
-  const csvHeaders = headers.join(',');
-
-  const csvRows = groups.map(group => {
-    const cacheHitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
-    const row = [
-      group.name,
-      group.type,
-      group.service,
-      group.count,
-      group.totalBytes,
-      group.cacheHitBytes,
-      group.cacheMissBytes,
-      cacheHitPercent.toFixed(1),
-      group.clientsSet.size,
-      group.firstSeen,
-      group.lastSeen
-    ];
-
-    return row.map(value => {
-      if (value === null || value === undefined) return '';
-      if (typeof value === 'string' && value.includes(',')) {
-        return `"${value.replace(/"/g, '""')}"`;
-      }
-      return value;
-    }).join(',');
-  });
-
-  return [csvHeaders, ...csvRows].join('\n');
-};
-
 // Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
   const {
@@ -227,6 +189,8 @@ const DownloadsTab: React.FC = () => {
   const [filterLoading, setFilterLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   const [settings, setSettings] = useState(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
@@ -254,15 +218,15 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
   }, [settings]);
 
-  // FIXED: Update download count when items per page changes
+  // Always fetch a large number of downloads from API to ensure we have enough for grouping
   useEffect(() => {
-    const count = settings.itemsPerPage === 'unlimited' ? 10000 : settings.itemsPerPage;
+    const count = 1000; // Fetch enough downloads to create grouped items
     if (mockMode && updateMockDataCount) {
       updateMockDataCount(count);
     } else if (!mockMode && updateApiDownloadCount) {
       updateApiDownloadCount(count);
     }
-  }, [settings.itemsPerPage, mockMode, updateMockDataCount, updateApiDownloadCount]);
+  }, [mockMode, updateMockDataCount, updateApiDownloadCount]);
 
   // Track filter changes and show loading state
   useEffect(() => {
@@ -296,11 +260,11 @@ const DownloadsTab: React.FC = () => {
 
   const itemsPerPageOptions = useMemo(
     () => [
-      { value: '20', label: '20 items' },
-      { value: '50', label: '50 items' },
-      { value: '100', label: '100 items' },
-      { value: '200', label: '200 items' },
-      { value: 'unlimited', label: 'Load All' }
+      { value: '20', label: '20 groups' },
+      { value: '50', label: '50 groups' },
+      { value: '100', label: '100 groups' },
+      { value: '200', label: '200 groups' },
+      { value: 'unlimited', label: 'Show All' }
     ],
     []
   );
@@ -428,21 +392,24 @@ const DownloadsTab: React.FC = () => {
 
     const { groups, individuals } = createGroups(filteredDownloads);
 
-    // Convert single-download groups back to individual downloads
-    const finalGroups: DownloadGroup[] = [];
-    const finalIndividuals: Download[] = [...individuals];
-
-    groups.forEach(group => {
-      if (group.count === 1 && group.type === 'game') {
-        finalIndividuals.push(group.downloads[0]);
-      } else {
-        finalGroups.push(group);
-      }
-    });
-
-    const allItems: (Download | DownloadGroup)[] = [...finalGroups, ...finalIndividuals];
+    // Keep ALL groups as expandable groups, including single downloads
+    const allItems: (Download | DownloadGroup)[] = [...groups, ...individuals];
 
     return allItems.sort((a, b) => {
+      // First sort by whether it's a group with multiple downloads vs single/individual
+      const aIsMultiple = ('downloads' in a && a.downloads.length > 1);
+      const bIsMultiple = ('downloads' in b && b.downloads.length > 1);
+
+      if (aIsMultiple && !bIsMultiple) return -1; // Multiple downloads first
+      if (!aIsMultiple && bIsMultiple) return 1;  // Single downloads/individuals after
+
+      const aIsSingle = ('downloads' in a && a.downloads.length === 1);
+      const bIsSingle = ('downloads' in b && b.downloads.length === 1);
+
+      if (aIsSingle && !bIsSingle && !bIsMultiple) return -1; // Single downloads before individuals
+      if (!aIsSingle && bIsSingle && !aIsMultiple) return 1;  // Individuals after single downloads
+
+      // Then sort by time within each category
       const aTime = 'downloads' in a
         ? Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()))
         : new Date(a.startTime).getTime();
@@ -458,21 +425,24 @@ const DownloadsTab: React.FC = () => {
 
     const { groups, individuals } = createGroups(filteredDownloads);
 
-    // Convert single-download groups back to individual downloads
-    const finalGroups: DownloadGroup[] = [];
-    const finalIndividuals: Download[] = [...individuals];
-
-    groups.forEach(group => {
-      if (group.count === 1 && group.type === 'game') {
-        finalIndividuals.push(group.downloads[0]);
-      } else {
-        finalGroups.push(group);
-      }
-    });
-
-    const allItems: (Download | DownloadGroup)[] = [...finalGroups, ...finalIndividuals];
+    // Keep ALL groups as expandable groups, including single downloads
+    const allItems: (Download | DownloadGroup)[] = [...groups, ...individuals];
 
     return allItems.sort((a, b) => {
+      // First sort by whether it's a group with multiple downloads vs single/individual
+      const aIsMultiple = ('downloads' in a && a.downloads.length > 1);
+      const bIsMultiple = ('downloads' in b && b.downloads.length > 1);
+
+      if (aIsMultiple && !bIsMultiple) return -1; // Multiple downloads first
+      if (!aIsMultiple && bIsMultiple) return 1;  // Single downloads/individuals after
+
+      const aIsSingle = ('downloads' in a && a.downloads.length === 1);
+      const bIsSingle = ('downloads' in b && b.downloads.length === 1);
+
+      if (aIsSingle && !bIsSingle && !bIsMultiple) return -1; // Single downloads before individuals
+      if (!aIsSingle && bIsSingle && !aIsMultiple) return 1;  // Individuals after single downloads
+
+      // Then sort by time within each category
       const aTime = 'downloads' in a
         ? Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()))
         : new Date(a.startTime).getTime();
@@ -483,7 +453,7 @@ const DownloadsTab: React.FC = () => {
     });
   }, [filteredDownloads, settings.viewMode]);
 
-  const itemsToDisplay = useMemo(() => {
+  const allItemsSorted = useMemo(() => {
     let items = settings.viewMode === 'normal' ? normalViewItems :
                 settings.viewMode === 'compact' ? compactViewItems :
                 filteredDownloads;
@@ -546,20 +516,52 @@ const DownloadsTab: React.FC = () => {
       items = mixedItems;
     }
 
-    // Apply pagination
-    if (settings.itemsPerPage !== 'unlimited') {
-      return items.slice(0, settings.itemsPerPage);
-    }
-
     return items;
   }, [
     filteredDownloads,
     normalViewItems,
     compactViewItems,
     settings.viewMode,
-    settings.sortOrder,
-    settings.itemsPerPage
+    settings.sortOrder
   ]);
+
+  const itemsToDisplay = useMemo(() => {
+    if (settings.itemsPerPage === 'unlimited') {
+      return allItemsSorted;
+    }
+
+    // Apply pagination based on settings.itemsPerPage
+    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
+    const startIndex = (currentPage - 1) * itemsPerPageNum;
+    const endIndex = startIndex + itemsPerPageNum;
+    return allItemsSorted.slice(startIndex, endIndex);
+  }, [allItemsSorted, currentPage, settings.itemsPerPage]);
+
+  const totalPages = useMemo(() => {
+    if (settings.itemsPerPage === 'unlimited') return 1;
+    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
+    return Math.ceil(allItemsSorted.length / itemsPerPageNum);
+  }, [allItemsSorted.length, settings.itemsPerPage]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+      if (contentRef.current) {
+        contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  }, [settings.selectedService, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode, settings.itemsPerPage]);
+
+  // Handle page changes with smooth scroll
+  const handlePageChange = (newPage: number) => {
+    if (newPage === currentPage) return;
+
+    setCurrentPage(newPage);
+    if (contentRef.current) {
+      contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   const handleExport = (format: 'json' | 'csv') => {
     setExportLoading(true);
@@ -604,12 +606,36 @@ const DownloadsTab: React.FC = () => {
     setExpandedItem(expandedItem === id ? null : id);
   };
 
-  // Loading state
+  // Loading state with skeleton loader
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px] animate-fade-in">
-        <div className="animate-pulse">
-          <Loader className="w-8 h-8 animate-spin text-themed-primary" />
+      <div className="space-y-4 animate-fade-in">
+        {/* Skeleton Controls */}
+        <Card padding="sm" className="animate-pulse">
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-2">
+              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-40"></div>
+              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-32"></div>
+              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-40"></div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Skeleton Content */}
+        <div className="space-y-2">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-16 bg-[var(--theme-bg-secondary)] rounded animate-pulse"
+                 style={{ animationDelay: `${i * 100}ms` }}>
+              <div className="p-3 flex items-center gap-3">
+                <div className="h-6 w-16 bg-[var(--theme-bg-tertiary)] rounded"></div>
+                <div className="h-4 bg-[var(--theme-bg-tertiary)] rounded flex-1 max-w-[200px]"></div>
+                <div className="ml-auto flex gap-3">
+                  <div className="h-4 w-20 bg-[var(--theme-bg-tertiary)] rounded"></div>
+                  <div className="h-4 w-12 bg-[var(--theme-bg-tertiary)] rounded"></div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -809,7 +835,7 @@ const DownloadsTab: React.FC = () => {
 
         {settingsOpened && (
           <>
-            <div className="border-t border-themed-secondary my-3 animate-fade-in" />
+            <div className="border-t my-3 animate-fade-in" style={{ borderColor: 'var(--theme-border-secondary)' }} />
             <div className="space-y-2 animate-slide-in-top">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
@@ -864,45 +890,147 @@ const DownloadsTab: React.FC = () => {
       </Card>
 
       {/* Stats */}
-      {filteredDownloads.length !== serviceFilteredDownloads.length && (
-        <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-          Showing {filteredDownloads.length} of {serviceFilteredDownloads.length} downloads
-          {settings.selectedService !== 'all' && ` for ${settings.selectedService}`}
-        </Alert>
-      )}
+      <Alert color="blue" icon={<Database className="w-5 h-5" />}>
+        {settings.itemsPerPage !== 'unlimited' && `Page ${currentPage} of ${totalPages} - `}
+        Showing {itemsToDisplay.length} of {allItemsSorted.length} groups
+        ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'})
+        {filteredDownloads.length !== serviceFilteredDownloads.length &&
+          ` of ${serviceFilteredDownloads.length} total`}
+        {settings.selectedService !== 'all' && ` for ${settings.selectedService}`}
+      </Alert>
 
       {/* Downloads list */}
-      <div className="relative">
+      <div className="relative" ref={contentRef}>
         {/* Loading overlay for filter changes */}
         {filterLoading && (
-          <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg animate-fade-in">
-            <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-lg animate-zoom-in" style={{ borderColor: 'var(--theme-border-primary)' }}>
-              <Loader className="w-5 h-5 animate-spin text-[var(--theme-primary)]" />
-              <span className="text-sm font-medium text-[var(--theme-text-primary)]">Applying filters...</span>
+          <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg transition-opacity duration-300">
+            <div className="flex flex-col items-center gap-3 px-6 py-4 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-xl"
+                 style={{ borderColor: 'var(--theme-border-primary)', animation: 'slideUp 0.3s ease-out' }}>
+              <Loader className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
+              <span className="text-sm font-medium text-[var(--theme-text-primary)]">Updating...</span>
             </div>
           </div>
         )}
 
-        {/* Content based on view mode */}
-        <div className="transition-all duration-300 ease-in-out">
-          {settings.viewMode === 'compact' && (
-            <CompactView
-              items={itemsToDisplay as (Download | DownloadGroup)[]}
-              expandedItem={expandedItem}
-              onItemClick={handleItemClick}
-            />
-          )}
+        {/* Content based on view mode with fade transition */}
+        <div className="relative">
+          <div className={`transition-opacity duration-300 ${
+            settings.viewMode === 'compact' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'
+          }`}>
+            {settings.viewMode === 'compact' && (
+              <CompactView
+                items={itemsToDisplay as (Download | DownloadGroup)[]}
+                expandedItem={expandedItem}
+                onItemClick={handleItemClick}
+              />
+            )}
+          </div>
 
-          {settings.viewMode === 'normal' && (
-            <NormalView
-              items={itemsToDisplay as (Download | DownloadGroup)[]}
-              expandedItem={expandedItem}
-              onItemClick={handleItemClick}
-            />
-          )}
-
+          <div className={`transition-opacity duration-300 ${
+            settings.viewMode === 'normal' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'
+          }`}>
+            {settings.viewMode === 'normal' && (
+              <NormalView
+                items={itemsToDisplay as (Download | DownloadGroup)[]}
+                expandedItem={expandedItem}
+                onItemClick={handleItemClick}
+              />
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && settings.itemsPerPage !== 'unlimited' && (
+        <div className="flex justify-center items-center gap-2 mt-4">
+          <button
+            onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className="px-3 py-1 rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: 'var(--theme-bg-secondary)',
+              borderColor: 'var(--theme-border-primary)',
+              color: 'var(--theme-text-primary)'
+            }}
+          >
+            Previous
+          </button>
+
+          <div className="flex items-center gap-1">
+            {/* Always show first page */}
+            <button
+              onClick={() => handlePageChange(1)}
+              className={`px-3 py-1 rounded transition-colors ${
+                currentPage === 1 ? 'bg-primary text-white' : ''
+              }`}
+              style={{
+                backgroundColor: currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-secondary)',
+                color: currentPage === 1 ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
+              }}
+            >
+              1
+            </button>
+
+            {/* Show ellipsis if needed */}
+            {currentPage > 3 && (
+              <span className="px-2 text-themed-muted">...</span>
+            )}
+
+            {/* Show pages around current page */}
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const pageNum = Math.max(2, Math.min(currentPage - 2 + i, totalPages - 1));
+              if (pageNum <= 1 || pageNum >= totalPages) return null;
+              if (Math.abs(pageNum - currentPage) > 2) return null;
+
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => handlePageChange(pageNum)}
+                  className={`px-3 py-1 rounded transition-colors`}
+                  style={{
+                    backgroundColor: currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-secondary)',
+                    color: currentPage === pageNum ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
+                  }}
+                >
+                  {pageNum}
+                </button>
+              );
+            }).filter(Boolean)}
+
+            {/* Show ellipsis if needed */}
+            {currentPage < totalPages - 2 && (
+              <span className="px-2 text-themed-muted">...</span>
+            )}
+
+            {/* Always show last page if more than 1 page */}
+            {totalPages > 1 && (
+              <button
+                onClick={() => handlePageChange(totalPages)}
+                className={`px-3 py-1 rounded transition-colors`}
+                style={{
+                  backgroundColor: currentPage === totalPages ? 'var(--theme-primary)' : 'var(--theme-bg-secondary)',
+                  color: currentPage === totalPages ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
+                }}
+              >
+                {totalPages}
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className="px-3 py-1 rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: 'var(--theme-bg-secondary)',
+              borderColor: 'var(--theme-border-primary)',
+              color: 'var(--theme-text-primary)'
+            }}
+          >
+            Next
+          </button>
+        </div>
+      )}
 
       {/* Performance warning */}
       {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
@@ -915,3 +1043,4 @@ const DownloadsTab: React.FC = () => {
 };
 
 export default DownloadsTab;
+
