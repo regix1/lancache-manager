@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Clock, Calendar, ChevronDown, Loader } from 'lucide-react';
+import { Clock, Calendar, ChevronDown, Loader, Radio } from 'lucide-react';
 import { useTimeFilter, TimeRange } from '@contexts/TimeFilterContext';
 import DateRangePicker from './DateRangePicker';
+import Tooltip from '../ui/Tooltip';
 
 const TimeFilter: React.FC = () => {
   const {
@@ -25,7 +26,7 @@ const TimeFilter: React.FC = () => {
     { value: '24h', label: 'Last 24 Hours', shortLabel: '24H' },
     { value: '7d', label: 'Last 7 Days', shortLabel: '7D' },
     { value: '30d', label: 'Last 30 Days', shortLabel: '30D' },
-    { value: 'all', label: 'All Time', shortLabel: 'All' },
+    { value: 'live', label: 'Live Data', shortLabel: 'Live' },
     { value: 'custom', label: 'Custom Range', shortLabel: 'Custom' }
   ];
 
@@ -82,28 +83,37 @@ const TimeFilter: React.FC = () => {
   return (
     <>
       <div className="relative" ref={dropdownRef}>
-        <button
-          onClick={() => setShowDropdown(!showDropdown)}
-          className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg transition-all"
-          style={{
-            backgroundColor: showDropdown ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
-            border: showDropdown ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-primary)'
-          }}
-        >
-          {timeFilterLoading ? (
-            <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
-          ) : (
-            <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowDropdown(!showDropdown)}
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg transition-all"
+            style={{
+              backgroundColor: showDropdown ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
+              border: showDropdown ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-primary)'
+            }}
+          >
+            {timeFilterLoading ? (
+              <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
+            ) : (
+              <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
+            )}
+            <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-primary)]">
+              {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
+            </span>
+            <ChevronDown
+              className={`w-3 h-3 text-[var(--theme-text-secondary)] transition-transform ${
+                showDropdown ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+          {timeRange === 'live' && !timeFilterLoading && (
+            <Tooltip content="Live Mode: Data updates automatically every few seconds">
+              <div className="flex items-center">
+                <Radio className="w-3 h-3 animate-pulse" style={{ color: 'var(--theme-success)' }} />
+              </div>
+            </Tooltip>
           )}
-          <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-primary)]">
-            {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
-          </span>
-          <ChevronDown
-            className={`w-3 h-3 text-[var(--theme-text-secondary)] transition-transform ${
-              showDropdown ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
+        </div>
 
         {showDropdown && (
           <div

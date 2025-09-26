@@ -10,7 +10,7 @@ interface TopClientsTableProps {
 }
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
-  ({ clientStats = [], timeRange = '24h' }) => {
+  ({ clientStats = [], timeRange = 'live' }) => {
     const timeRangeLabel = useMemo(() => {
       const labels: Record<string, string> = {
         '15m': 'Last 15 Minutes',
@@ -22,9 +22,9 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         '7d': 'Last 7 Days',
         '30d': 'Last 30 Days',
         '90d': 'Last 90 Days',
-        all: 'All Time'
+        live: 'Live Data'
       };
-      return labels[timeRange] || 'Last 24 Hours';
+      return labels[timeRange] || 'Live Data';
     }, [timeRange]);
 
     const displayClients = useMemo(() => clientStats.slice(0, 10), [clientStats]);

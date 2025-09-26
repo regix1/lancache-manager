@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { Gamepad2 } from 'lucide-react';
 import {
@@ -105,6 +105,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [selectedPage, setSelectedPage] = useState<string>('all');
   const [editOrganizationMode, setEditOrganizationMode] = useState<'category' | 'page'>('category');
   const [editSelectedPage, setEditSelectedPage] = useState<string>('all');
+  const [sharpCorners, setSharpCorners] = useState(false);
 
 
   const [editedTheme, setEditedTheme] = useState<any>({});
@@ -191,7 +192,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   // Get filtered groups based on organization mode
-  const getFilteredGroups = (groups: ColorGroup[], search: string, isEdit: boolean = false): ColorGroup[] => {
+  const getFilteredGroups = useCallback((groups: ColorGroup[], search: string, isEdit: boolean = false): ColorGroup[] => {
     let filtered = groups;
 
     // Apply page filter if in page mode
@@ -208,7 +209,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
 
     return filtered;
-  };
+  }, [organizationMode, selectedPage, editOrganizationMode, editSelectedPage]);
 
   // Define available pages
   const pageDefinitions: PageGroup[] = [
@@ -1083,7 +1084,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     loadThemes();
     const currentThemeId = themeService.getCurrentThemeId();
     setCurrentTheme(currentThemeId);
-    
+
+    // Initialize sharp corners state
+    setSharpCorners(themeService.getSharpCorners());
+
   }, []);
 
   // Update theme colors when create modal opens
@@ -1228,7 +1232,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
   }, [createModalOpen]);
 
-  const loadThemes = async () => {
+  const loadThemes = useCallback(async () => {
     setLoading(true);
     try {
       const themeList = await themeService.loadThemes();
@@ -1239,7 +1243,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const handleThemeChange = async (themeId: string) => {
     try {
@@ -2248,8 +2252,12 @@ content = """
                 </div>
                 <input
                   type="checkbox"
-                  checked={themeService.getSharpCorners()}
-                  onChange={(e) => themeService.setSharpCorners(e.target.checked)}
+                  checked={sharpCorners}
+                  onChange={(e) => {
+                    const newValue = e.target.checked;
+                    setSharpCorners(newValue);
+                    themeService.setSharpCorners(newValue);
+                  }}
                   className="themed-checkbox ml-3"
                 />
               </label>

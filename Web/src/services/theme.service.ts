@@ -775,134 +775,134 @@ class ThemeService {
     // Create clean theme styles with only CSS variables - no Tailwind overrides
     const themeStyles = `
     :root {
-      --theme-primary: ${colors.primaryColor || '#3b82f6'};
-      --theme-secondary: ${colors.secondaryColor || '#8b5cf6'};
-      --theme-accent: ${colors.accentColor || '#06b6d4'};
-      --theme-bg-primary: ${colors.bgPrimary || '#111827'};
-      --theme-bg-secondary: ${colors.bgSecondary || '#1f2937'};
-      --theme-bg-tertiary: ${colors.bgTertiary || '#374151'};
-      --theme-bg-hover: ${colors.bgHover || '#4b5563'};
-      --theme-text-primary: ${colors.textPrimary || '#ffffff'};
-      --theme-text-secondary: ${colors.textSecondary || '#d1d5db'};
-      --theme-text-muted: ${colors.textMuted || '#9ca3af'};
-      --theme-text-accent: ${colors.textAccent || '#60a5fa'};
-      --theme-text-placeholder: ${colors.textPlaceholder || '#6b7280'};
-      --theme-drag-handle: ${colors.dragHandleColor || colors.textMuted || '#6b7280'};
-      --theme-drag-handle-hover: ${colors.dragHandleHover || colors.textAccent || '#60a5fa'};
-      --theme-border-primary: ${colors.borderPrimary || '#374151'};
-      --theme-border-secondary: ${colors.borderSecondary || '#4b5563'};
-      --theme-border-focus: ${colors.borderFocus || '#3b82f6'};
+      --theme-primary: ${colors.primaryColor};
+      --theme-secondary: ${colors.secondaryColor};
+      --theme-accent: ${colors.accentColor};
+      --theme-bg-primary: ${colors.bgPrimary};
+      --theme-bg-secondary: ${colors.bgSecondary};
+      --theme-bg-tertiary: ${colors.bgTertiary};
+      --theme-bg-hover: ${colors.bgHover};
+      --theme-text-primary: ${colors.textPrimary};
+      --theme-text-secondary: ${colors.textSecondary};
+      --theme-text-muted: ${colors.textMuted};
+      --theme-text-accent: ${colors.textAccent};
+      --theme-text-placeholder: ${colors.textPlaceholder};
+      --theme-drag-handle: ${colors.dragHandleColor};
+      --theme-drag-handle-hover: ${colors.dragHandleHover};
+      --theme-border-primary: ${colors.borderPrimary};
+      --theme-border-secondary: ${colors.borderSecondary};
+      --theme-border-focus: ${colors.borderFocus};
       --theme-border-radius: ${borderRadius};
       --theme-border-radius-lg: ${borderRadiusLg};
       --theme-border-radius-xl: ${borderRadiusXl};
       
       /* Navigation Variables */
-      --theme-nav-bg: ${colors.navBg || colors.bgSecondary || '#1f2937'};
-      --theme-nav-border: ${colors.navBorder || colors.borderPrimary || '#374151'};
-      --theme-nav-tab-active: ${colors.navTabActive || colors.primaryColor || '#3b82f6'};
-      --theme-nav-tab-inactive: ${colors.navTabInactive || colors.textMuted || '#9ca3af'};
-      --theme-nav-tab-hover: ${colors.navTabHover || colors.textPrimary || '#ffffff'};
-      --theme-nav-tab-active-border: ${colors.navTabActiveBorder || colors.primaryColor || '#3b82f6'};
-      --theme-nav-mobile-menu-bg: ${colors.navMobileMenuBg || colors.bgSecondary || '#1f2937'};
-      --theme-nav-mobile-item-hover: ${colors.navMobileItemHover || colors.bgTertiary || '#374151'};
+      --theme-nav-bg: ${colors.navBg};
+      --theme-nav-border: ${colors.navBorder};
+      --theme-nav-tab-active: ${colors.navTabActive};
+      --theme-nav-tab-inactive: ${colors.navTabInactive};
+      --theme-nav-tab-hover: ${colors.navTabHover};
+      --theme-nav-tab-active-border: ${colors.navTabActiveBorder};
+      --theme-nav-mobile-menu-bg: ${colors.navMobileMenuBg};
+      --theme-nav-mobile-item-hover: ${colors.navMobileItemHover};
       
       /* Status Colors */
-      --theme-success: ${colors.success || '#10b981'};
-      --theme-success-bg: ${colors.successBg || '#064e3b'};
-      --theme-success-text: ${colors.successText || '#34d399'};
-      --theme-warning: ${colors.warning || '#f59e0b'};
-      --theme-warning-bg: ${colors.warningBg || '#78350f'};
-      --theme-warning-text: ${colors.warningText || '#fbbf24'};
-      --theme-error: ${colors.error || '#ef4444'};
-      --theme-error-bg: ${colors.errorBg || '#7f1d1d'};
-      --theme-error-text: ${colors.errorText || '#fca5a5'};
-      --theme-info: ${colors.info || '#3b82f6'};
-      --theme-info-bg: ${colors.infoBg || '#1e3a8a'};
-      --theme-info-text: ${colors.infoText || '#93c5fd'};
+      --theme-success: ${colors.success};
+      --theme-success-bg: ${colors.successBg};
+      --theme-success-text: ${colors.successText};
+      --theme-warning: ${colors.warning};
+      --theme-warning-bg: ${colors.warningBg};
+      --theme-warning-text: ${colors.warningText};
+      --theme-error: ${colors.error};
+      --theme-error-bg: ${colors.errorBg};
+      --theme-error-text: ${colors.errorText};
+      --theme-info: ${colors.info};
+      --theme-info-bg: ${colors.infoBg};
+      --theme-info-text: ${colors.infoText};
       
       /* Service Colors */
-      --theme-steam: ${colors.steamColor || '#3b82f6'};
-      --theme-epic: ${colors.epicColor || '#8b5cf6'};
-      --theme-origin: ${colors.originColor || '#10b981'};
-      --theme-blizzard: ${colors.blizzardColor || '#ef4444'};
-      --theme-wsus: ${colors.wsusColor || '#06b6d4'};
-      --theme-riot: ${colors.riotColor || '#f59e0b'};
+      --theme-steam: ${colors.steamColor};
+      --theme-epic: ${colors.epicColor};
+      --theme-origin: ${colors.originColor};
+      --theme-blizzard: ${colors.blizzardColor};
+      --theme-wsus: ${colors.wsusColor};
+      --theme-riot: ${colors.riotColor};
       
       /* Component Colors */
-      --theme-card-bg: ${colors.cardBg || colors.bgSecondary || '#1f2937'};
-      --theme-card-border: ${colors.cardBorder || colors.borderPrimary || '#374151'};
-      --theme-button-bg: ${colors.buttonBg || colors.primaryColor || '#3b82f6'};
-      --theme-button-hover: ${colors.buttonHover || '#2563eb'};
-      --theme-button-text: ${colors.buttonText || '#ffffff'};
-      --theme-input-bg: ${colors.inputBg || colors.bgTertiary || '#374151'};
-      --theme-input-border: ${colors.inputBorder || colors.borderSecondary || '#4b5563'};
-      --theme-input-focus: ${colors.inputFocus || colors.primaryColor || '#3b82f6'};
-      --theme-checkbox-accent: ${colors.checkboxAccent || colors.primaryColor || '#3b82f6'};
-      --theme-checkbox-border: ${colors.checkboxBorder || colors.borderSecondary || '#4b5563'};
-      --theme-slider-accent: ${colors.sliderAccent || colors.primaryColor || '#3b82f6'};
-      --theme-slider-thumb: ${colors.sliderThumb || colors.primaryColor || '#3b82f6'};
-      --theme-slider-track: ${colors.sliderTrack || colors.bgTertiary || '#374151'};
-      --theme-badge-bg: ${colors.badgeBg || colors.primaryColor || '#3b82f6'};
-      --theme-badge-text: ${colors.badgeText || '#ffffff'};
-      --theme-progress-bar: ${colors.progressBar || colors.primaryColor || '#3b82f6'};
-      --theme-progress-bg: ${colors.progressBg || colors.bgTertiary || '#374151'};
+      --theme-card-bg: ${colors.cardBg};
+      --theme-card-border: ${colors.cardBorder};
+      --theme-button-bg: ${colors.buttonBg};
+      --theme-button-hover: ${colors.buttonHover};
+      --theme-button-text: ${colors.buttonText};
+      --theme-input-bg: ${colors.inputBg};
+      --theme-input-border: ${colors.inputBorder};
+      --theme-input-focus: ${colors.inputFocus};
+      --theme-checkbox-accent: ${colors.checkboxAccent};
+      --theme-checkbox-border: ${colors.checkboxBorder};
+      --theme-slider-accent: ${colors.sliderAccent};
+      --theme-slider-thumb: ${colors.sliderThumb};
+      --theme-slider-track: ${colors.sliderTrack};
+      --theme-badge-bg: ${colors.badgeBg};
+      --theme-badge-text: ${colors.badgeText};
+      --theme-progress-bar: ${colors.progressBar};
+      --theme-progress-bg: ${colors.progressBg};
       
       /* Hit Rate Colors - FIXED WITH PRETTIER COLORS */
-      --theme-hit-rate-high-bg: ${colors.hitRateHighBg || '#064e3b'};
-      --theme-hit-rate-high-text: ${colors.hitRateHighText || '#34d399'};
-      --theme-hit-rate-medium-bg: ${colors.hitRateMediumBg || '#1e3a8a'};
-      --theme-hit-rate-medium-text: ${colors.hitRateMediumText || '#93c5fd'};
-      --theme-hit-rate-low-bg: ${colors.hitRateLowBg || '#44403c'};
-      --theme-hit-rate-low-text: ${colors.hitRateLowText || '#fbbf24'};
-      --theme-hit-rate-warning-bg: ${colors.hitRateWarningBg || '#44403c'};
-      --theme-hit-rate-warning-text: ${colors.hitRateWarningText || '#fcd34d'};
+      --theme-hit-rate-high-bg: ${colors.hitRateHighBg};
+      --theme-hit-rate-high-text: ${colors.hitRateHighText};
+      --theme-hit-rate-medium-bg: ${colors.hitRateMediumBg};
+      --theme-hit-rate-medium-text: ${colors.hitRateMediumText};
+      --theme-hit-rate-low-bg: ${colors.hitRateLowBg};
+      --theme-hit-rate-low-text: ${colors.hitRateLowText};
+      --theme-hit-rate-warning-bg: ${colors.hitRateWarningBg};
+      --theme-hit-rate-warning-text: ${colors.hitRateWarningText};
       
       /* Action Button Colors */
-      --theme-action-reset-bg: ${colors.actionResetBg || '#f59e0b'};
-      --theme-action-reset-hover: ${colors.actionResetHover || '#d97706'};
-      --theme-action-process-bg: ${colors.actionProcessBg || '#10b981'};
-      --theme-action-process-hover: ${colors.actionProcessHover || '#059669'};
-      --theme-action-delete-bg: ${colors.actionDeleteBg || '#ef4444'};
-      --theme-action-delete-hover: ${colors.actionDeleteHover || '#dc2626'};
+      --theme-action-reset-bg: ${colors.actionResetBg};
+      --theme-action-reset-hover: ${colors.actionResetHover};
+      --theme-action-process-bg: ${colors.actionProcessBg};
+      --theme-action-process-hover: ${colors.actionProcessHover};
+      --theme-action-delete-bg: ${colors.actionDeleteBg};
+      --theme-action-delete-hover: ${colors.actionDeleteHover};
       
       /* Icon Colors */
-      --theme-icon-blue: ${colors.iconBgBlue || '#3b82f6'};
-      --theme-icon-green: ${colors.iconBgGreen || '#10b981'};
-      --theme-icon-emerald: ${colors.iconBgEmerald || '#10b981'};
-      --theme-icon-purple: ${colors.iconBgPurple || '#8b5cf6'};
-      --theme-icon-indigo: ${colors.iconBgIndigo || '#6366f1'};
-      --theme-icon-orange: ${colors.iconBgOrange || '#f97316'};
-      --theme-icon-yellow: ${colors.iconBgYellow || '#eab308'};
-      --theme-icon-cyan: ${colors.iconBgCyan || '#06b6d4'};
-      --theme-icon-red: ${colors.iconBgRed || '#ef4444'};
+      --theme-icon-blue: ${colors.iconBgBlue};
+      --theme-icon-green: ${colors.iconBgGreen};
+      --theme-icon-emerald: ${colors.iconBgEmerald};
+      --theme-icon-purple: ${colors.iconBgPurple};
+      --theme-icon-indigo: ${colors.iconBgIndigo};
+      --theme-icon-orange: ${colors.iconBgOrange};
+      --theme-icon-yellow: ${colors.iconBgYellow};
+      --theme-icon-cyan: ${colors.iconBgCyan};
+      --theme-icon-red: ${colors.iconBgRed};
       
       /* Chart Colors */
-      --theme-chart-1: ${colors.chartColor1 || '#3b82f6'};
-      --theme-chart-2: ${colors.chartColor2 || '#10b981'};
-      --theme-chart-3: ${colors.chartColor3 || '#f59e0b'};
-      --theme-chart-4: ${colors.chartColor4 || '#ef4444'};
-      --theme-chart-5: ${colors.chartColor5 || '#8b5cf6'};
-      --theme-chart-6: ${colors.chartColor6 || '#06b6d4'};
-      --theme-chart-7: ${colors.chartColor7 || '#f97316'};
-      --theme-chart-8: ${colors.chartColor8 || '#ec4899'};
-      --theme-chart-border: ${colors.chartBorderColor || '#1f2937'};
-      --theme-chart-grid: ${colors.chartGridColor || '#374151'};
-      --theme-chart-text: ${colors.chartTextColor || '#9ca3af'};
-      --theme-chart-cache-hit: ${colors.chartCacheHitColor || '#10b981'};
-      --theme-chart-cache-miss: ${colors.chartCacheMissColor || '#f59e0b'};
+      --theme-chart-1: ${colors.chartColor1};
+      --theme-chart-2: ${colors.chartColor2};
+      --theme-chart-3: ${colors.chartColor3};
+      --theme-chart-4: ${colors.chartColor4};
+      --theme-chart-5: ${colors.chartColor5};
+      --theme-chart-6: ${colors.chartColor6};
+      --theme-chart-7: ${colors.chartColor7};
+      --theme-chart-8: ${colors.chartColor8};
+      --theme-chart-border: ${colors.chartBorderColor};
+      --theme-chart-grid: ${colors.chartGridColor};
+      --theme-chart-text: ${colors.chartTextColor};
+      --theme-chart-cache-hit: ${colors.chartCacheHitColor};
+      --theme-chart-cache-miss: ${colors.chartCacheMissColor};
       
       /* Scrollbar Colors */
-      --theme-scrollbar-track: ${colors.scrollbarTrack || colors.bgTertiary || '#374151'};
-      --theme-scrollbar-thumb: ${colors.scrollbarThumb || colors.textMuted || '#6B7280'};
-      --theme-scrollbar-hover: ${colors.scrollbarHover || colors.textSecondary || '#9CA3AF'};
+      --theme-scrollbar-track: ${colors.scrollbarTrack || colors.bgTertiary};
+      --theme-scrollbar-thumb: ${colors.scrollbarThumb || colors.textMuted};
+      --theme-scrollbar-hover: ${colors.scrollbarHover || colors.textSecondary};
 
       /* Access Indicator Colors */
-      --theme-public-access-bg: ${colors.publicAccessBg || 'rgba(16, 185, 129, 0.2)'};
-      --theme-public-access-text: ${colors.publicAccessText || '#34d399'};
-      --theme-public-access-border: ${colors.publicAccessBorder || 'rgba(16, 185, 129, 0.3)'};
-      --theme-secured-access-bg: ${colors.securedAccessBg || 'rgba(245, 158, 11, 0.2)'};
-      --theme-secured-access-text: ${colors.securedAccessText || '#fbbf24'};
-      --theme-secured-access-border: ${colors.securedAccessBorder || 'rgba(245, 158, 11, 0.3)'};
+      --theme-public-access-bg: ${colors.publicAccessBg || colors.warningBg};
+      --theme-public-access-text: ${colors.publicAccessText || colors.errorText};
+      --theme-public-access-border: ${colors.publicAccessBorder || colors.error};
+      --theme-secured-access-bg: ${colors.securedAccessBg};
+      --theme-secured-access-text: ${colors.securedAccessText};
+      --theme-secured-access-border: ${colors.securedAccessBorder};
     }
 
     /* Global Transitions */

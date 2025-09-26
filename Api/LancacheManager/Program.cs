@@ -41,7 +41,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         Console.WriteLine($"Created database directory: {dbDir}");
     }
 
-    Console.WriteLine($"Using database path: {dbPath}");
+    // Console.WriteLine($"Using database path: {dbPath}"); // Commented out to avoid duplicate logs
     options.UseSqlite($"Data Source={dbPath};Cache=Shared");
 });
 
@@ -200,8 +200,8 @@ using (var scope = app.Services.CreateScope())
         
         logger.LogInformation("Database initialization complete");
 
-        // Start background task to ensure depot mappings are updated after startup
-        _ = Task.Run(async () => await EnsureDepotMappingsUpdated(app.Services, logger));
+        // Disabled automatic depot mapping - users now choose initialization method via UI
+        // _ = Task.Run(async () => await EnsureDepotMappingsUpdated(app.Services, logger));
     }
     catch (Exception ex)
     {
@@ -220,8 +220,10 @@ static async Task EnsureDepotMappingsUpdated(IServiceProvider serviceProvider, I
         // Wait for services to be fully started (longer delay to ensure SteamKit2 has time to initialize)
         await Task.Delay(TimeSpan.FromSeconds(30));
 
-        var steamKit2Service = serviceProvider.GetRequiredService<SteamKit2Service>();
-        var dbContext = serviceProvider.GetRequiredService<AppDbContext>();
+        // Create a scope to resolve scoped services
+        using var scope = serviceProvider.CreateScope();
+        var steamKit2Service = scope.ServiceProvider.GetRequiredService<SteamKit2Service>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
         // Wait up to 10 minutes for SteamKit2Service to become ready or complete its initial crawl
         var maxWait = TimeSpan.FromMinutes(10);
@@ -255,8 +257,8 @@ static async Task EnsureDepotMappingsUpdated(IServiceProvider serviceProvider, I
                 logger.LogInformation($"Found {unmappedDownloads} downloads needing depot mapping, triggering update...");
 
                 // Create a scope for the GameInfoController to update depot mappings
-                using var scope = serviceProvider.CreateScope();
-                var gameInfoController = scope.ServiceProvider.GetRequiredService<LancacheManager.Controllers.GameInfoController>();
+                using var innerScope = serviceProvider.CreateScope();
+                var gameInfoController = innerScope.ServiceProvider.GetRequiredService<LancacheManager.Controllers.GameInfoController>();
 
                 // Trigger the depot mapping update
                 var result = await gameInfoController.UpdateDepotMappings();

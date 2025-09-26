@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Database,
   AlertTriangle,
   Settings,
@@ -28,7 +32,8 @@ const STORAGE_KEYS = {
   HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
   HIDE_UNKNOWN_GAMES: 'lancache_downloads_hide_unknown',
   VIEW_MODE: 'lancache_downloads_view_mode',
-  SORT_ORDER: 'lancache_downloads_sort_order'
+  SORT_ORDER: 'lancache_downloads_sort_order',
+  AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode'
 };
 
 // View modes
@@ -203,7 +208,8 @@ const DownloadsTab: React.FC = () => {
         ? 'unlimited' as const
         : parseInt(localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50'),
     viewMode: (localStorage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode,
-    sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service'
+    sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service',
+    aestheticMode: localStorage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true'
   }));
 
   // Effect to save settings to localStorage
@@ -216,15 +222,15 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
     localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
     localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
+    localStorage.setItem(STORAGE_KEYS.AESTHETIC_MODE, settings.aestheticMode.toString());
   }, [settings]);
 
-  // Always fetch a large number of downloads from API to ensure we have enough for grouping
+  // Always fetch unlimited downloads from API to ensure we have all for grouping
   useEffect(() => {
-    const count = 1000; // Fetch enough downloads to create grouped items
     if (mockMode && updateMockDataCount) {
-      updateMockDataCount(count);
+      updateMockDataCount('unlimited');
     } else if (!mockMode && updateApiDownloadCount) {
-      updateApiDownloadCount(count);
+      updateApiDownloadCount('unlimited');
     }
   }, [mockMode, updateMockDataCount, updateApiDownloadCount]);
 
@@ -458,12 +464,19 @@ const DownloadsTab: React.FC = () => {
                 settings.viewMode === 'compact' ? compactViewItems :
                 filteredDownloads;
 
-    // Apply sorting
+    // Apply sorting while preserving Multiple vs Single categorization
     if (settings.viewMode === 'normal' || settings.viewMode === 'compact') {
       const mixedItems = [...items] as (Download | DownloadGroup)[];
-      switch (settings.sortOrder) {
-        case 'oldest':
-          mixedItems.sort((a, b) => {
+
+      // Separate items into categories first
+      const multipleDownloads = mixedItems.filter(item => 'downloads' in item && item.downloads.length > 1);
+      const singleDownloads = mixedItems.filter(item => 'downloads' in item && item.downloads.length === 1);
+      const individuals = mixedItems.filter(item => !('downloads' in item));
+
+      // Sort each category separately
+      const sortFn = (a: Download | DownloadGroup, b: Download | DownloadGroup) => {
+        switch (settings.sortOrder) {
+          case 'oldest':
             const aTime = 'downloads' in a
               ? Math.min(...a.downloads.map(d => new Date(d.startTime).getTime()))
               : new Date(a.startTime).getTime();
@@ -471,24 +484,15 @@ const DownloadsTab: React.FC = () => {
               ? Math.min(...b.downloads.map(d => new Date(d.startTime).getTime()))
               : new Date(b.startTime).getTime();
             return aTime - bTime;
-          });
-          break;
-        case 'largest':
-          mixedItems.sort((a, b) => {
+          case 'largest':
             const aBytes = 'downloads' in a ? a.totalBytes : (a.totalBytes || 0);
             const bBytes = 'downloads' in b ? b.totalBytes : (b.totalBytes || 0);
             return bBytes - aBytes;
-          });
-          break;
-        case 'smallest':
-          mixedItems.sort((a, b) => {
-            const aBytes = 'downloads' in a ? a.totalBytes : (a.totalBytes || 0);
-            const bBytes = 'downloads' in b ? b.totalBytes : (b.totalBytes || 0);
-            return aBytes - bBytes;
-          });
-          break;
-        case 'service':
-          mixedItems.sort((a, b) => {
+          case 'smallest':
+            const aBytesSmall = 'downloads' in a ? a.totalBytes : (a.totalBytes || 0);
+            const bBytesSmall = 'downloads' in b ? b.totalBytes : (b.totalBytes || 0);
+            return aBytesSmall - bBytesSmall;
+          case 'service':
             const serviceCompare = a.service.localeCompare(b.service);
             if (serviceCompare !== 0) return serviceCompare;
             const aLatest = 'downloads' in a
@@ -498,22 +502,25 @@ const DownloadsTab: React.FC = () => {
               ? Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()))
               : new Date(b.startTime).getTime();
             return bLatest - aLatest;
-          });
-          break;
-        case 'latest':
-        default:
-          mixedItems.sort((a, b) => {
-            const aLatest = 'downloads' in a
+          case 'latest':
+          default:
+            const aLatestDefault = 'downloads' in a
               ? Math.max(...a.downloads.map(d => new Date(d.startTime).getTime()))
               : new Date(a.startTime).getTime();
-            const bLatest = 'downloads' in b
+            const bLatestDefault = 'downloads' in b
               ? Math.max(...b.downloads.map(d => new Date(d.startTime).getTime()))
               : new Date(b.startTime).getTime();
-            return bLatest - aLatest;
-          });
-          break;
-      }
-      items = mixedItems;
+            return bLatestDefault - aLatestDefault;
+        }
+      };
+
+      // Sort each category
+      multipleDownloads.sort(sortFn);
+      singleDownloads.sort(sortFn);
+      individuals.sort(sortFn);
+
+      // Combine categories in the correct order
+      items = [...multipleDownloads, ...singleDownloads, ...individuals];
     }
 
     return items;
@@ -897,6 +904,18 @@ const DownloadsTab: React.FC = () => {
                 />
                 <span className="text-sm text-themed-secondary">Hide unknown games</span>
               </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.aestheticMode}
+                  onChange={(e) =>
+                    setSettings({ ...settings, aestheticMode: e.target.checked })
+                  }
+                  className="themed-checkbox"
+                />
+                <span className="text-sm text-themed-secondary">Aesthetic mode</span>
+              </label>
             </div>
           </>
         )}
@@ -911,6 +930,19 @@ const DownloadsTab: React.FC = () => {
           ` of ${serviceFilteredDownloads.length} total`}
         {settings.selectedService !== 'all' && ` for ${settings.selectedService}`}
       </Alert>
+
+      {/* Help message for empty time ranges */}
+      {filteredDownloads.length === 0 && timeRange !== 'live' && (
+        <Alert color="yellow">
+          <div className="flex flex-col gap-2">
+            <div className="font-medium">No downloads found in selected time range</div>
+            <div className="text-sm opacity-90">
+              The dashboard shows <strong>active downloads</strong> (currently in progress), while this list shows downloads that <strong>started</strong> within the selected time period.
+              Try switching to "Live" to see all downloads, or adjust your time range.
+            </div>
+          </div>
+        </Alert>
+      )}
 
       {/* Downloads list */}
       <div className="relative" ref={contentRef}>
@@ -935,6 +967,7 @@ const DownloadsTab: React.FC = () => {
                 items={itemsToDisplay as (Download | DownloadGroup)[]}
                 expandedItem={expandedItem}
                 onItemClick={handleItemClick}
+                aestheticMode={settings.aestheticMode}
               />
             )}
           </div>
@@ -947,101 +980,217 @@ const DownloadsTab: React.FC = () => {
                 items={itemsToDisplay as (Download | DownloadGroup)[]}
                 expandedItem={expandedItem}
                 onItemClick={handleItemClick}
+                aestheticMode={settings.aestheticMode}
               />
             )}
           </div>
         </div>
       </div>
 
-      {/* Pagination Controls */}
+      {/* Pagination Controls - Fixed Position */}
       {totalPages > 1 && settings.itemsPerPage !== 'unlimited' && (
-        <div className="flex justify-center items-center gap-2 mt-4">
-          <button
-            onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-            className="px-3 py-1 rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderColor: 'var(--theme-border-primary)',
-              color: 'var(--theme-text-primary)'
-            }}
-          >
-            Previous
-          </button>
+        <div className="sticky bottom-0 mt-4 z-20" style={{
+          backgroundColor: 'var(--theme-bg-primary)',
+          paddingTop: '8px',
+          paddingBottom: '8px',
+          boxShadow: '0 -4px 12px rgba(0,0,0,0.1)'
+        }}>
+          <Card padding="sm" className="max-w-4xl mx-auto">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              {/* Page Info */}
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <span className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                  {((currentPage - 1) * (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20) + 1)} - {Math.min(currentPage * (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20), allItemsSorted.length)} of {allItemsSorted.length} items
+                </span>
+              </div>
 
-          <div className="flex items-center gap-1">
-            {/* Always show first page */}
-            <button
-              onClick={() => handlePageChange(1)}
-              className={`px-3 py-1 rounded transition-colors ${
-                currentPage === 1 ? 'bg-primary text-white' : ''
-              }`}
-              style={{
-                backgroundColor: currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-secondary)',
-                color: currentPage === 1 ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
-              }}
-            >
-              1
-            </button>
-
-            {/* Show ellipsis if needed */}
-            {currentPage > 3 && (
-              <span className="px-2 text-themed-muted">...</span>
-            )}
-
-            {/* Show pages around current page */}
-            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              const pageNum = Math.max(2, Math.min(currentPage - 2 + i, totalPages - 1));
-              if (pageNum <= 1 || pageNum >= totalPages) return null;
-              if (Math.abs(pageNum - currentPage) > 2) return null;
-
-              return (
+              {/* Navigation Controls */}
+              <div className="flex items-center gap-2">
+                {/* First Page */}
                 <button
-                  key={pageNum}
-                  onClick={() => handlePageChange(pageNum)}
-                  className={`px-3 py-1 rounded transition-colors`}
+                  onClick={() => handlePageChange(1)}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
                   style={{
-                    backgroundColor: currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-secondary)',
-                    color: currentPage === pageNum ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    color: 'var(--theme-text-primary)',
+                    border: '1px solid var(--theme-border-primary)'
                   }}
+                  title="First page"
+                  aria-label="Go to first page"
                 >
-                  {pageNum}
+                  <ChevronsLeft size={16} />
                 </button>
-              );
-            }).filter(Boolean)}
 
-            {/* Show ellipsis if needed */}
-            {currentPage < totalPages - 2 && (
-              <span className="px-2 text-themed-muted">...</span>
-            )}
+                {/* Previous Page */}
+                <button
+                  onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    color: 'var(--theme-text-primary)',
+                    border: '1px solid var(--theme-border-primary)'
+                  }}
+                  title="Previous page"
+                  aria-label="Go to previous page"
+                >
+                  <ChevronLeft size={16} />
+                </button>
 
-            {/* Always show last page if more than 1 page */}
-            {totalPages > 1 && (
-              <button
-                onClick={() => handlePageChange(totalPages)}
-                className={`px-3 py-1 rounded transition-colors`}
-                style={{
-                  backgroundColor: currentPage === totalPages ? 'var(--theme-primary)' : 'var(--theme-bg-secondary)',
-                  color: currentPage === totalPages ? 'var(--theme-button-text)' : 'var(--theme-text-primary)'
-                }}
-              >
-                {totalPages}
-              </button>
-            )}
-          </div>
+                {/* Page Numbers Container */}
+                <div className="flex items-center gap-1 px-2">
+                  {/* For small number of pages, show all */}
+                  {totalPages <= 7 ? (
+                    Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+                      <button
+                        key={pageNum}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
+                          currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
+                        }`}
+                        style={{
+                          backgroundColor: currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
+                          color: currentPage === pageNum ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
+                          border: currentPage === pageNum ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                        }}
+                        aria-label={`Go to page ${pageNum}`}
+                        aria-current={currentPage === pageNum ? 'page' : undefined}
+                      >
+                        {pageNum}
+                      </button>
+                    ))
+                  ) : (
+                    <>
+                      {/* Complex pagination for many pages */}
+                      <button
+                        onClick={() => handlePageChange(1)}
+                        className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
+                          currentPage === 1 ? 'shadow-md' : 'hover:bg-opacity-80'
+                        }`}
+                        style={{
+                          backgroundColor: currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
+                          color: currentPage === 1 ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
+                          border: currentPage === 1 ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                        }}
+                        aria-label="Go to page 1"
+                        aria-current={currentPage === 1 ? 'page' : undefined}
+                      >
+                        1
+                      </button>
 
-          <button
-            onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-            className="px-3 py-1 rounded border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderColor: 'var(--theme-border-primary)',
-              color: 'var(--theme-text-primary)'
-            }}
-          >
-            Next
-          </button>
+                      {currentPage > 3 && (
+                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>•••</span>
+                      )}
+
+                      {Array.from({ length: 5 }, (_, i) => {
+                        const pageNum = currentPage - 2 + i;
+                        if (pageNum <= 1 || pageNum >= totalPages) return null;
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => handlePageChange(pageNum)}
+                            className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
+                              currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
+                            }`}
+                            style={{
+                              backgroundColor: currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
+                              color: currentPage === pageNum ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
+                              border: currentPage === pageNum ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                            }}
+                            aria-label={`Go to page ${pageNum}`}
+                            aria-current={currentPage === pageNum ? 'page' : undefined}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      }).filter(Boolean)}
+
+                      {currentPage < totalPages - 2 && (
+                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>•••</span>
+                      )}
+
+                      <button
+                        onClick={() => handlePageChange(totalPages)}
+                        className={`min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 ${
+                          currentPage === totalPages ? 'shadow-md' : 'hover:bg-opacity-80'
+                        }`}
+                        style={{
+                          backgroundColor: currentPage === totalPages ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
+                          color: currentPage === totalPages ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
+                          border: currentPage === totalPages ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                        }}
+                        aria-label={`Go to page ${totalPages}`}
+                        aria-current={currentPage === totalPages ? 'page' : undefined}
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Next Page */}
+                <button
+                  onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    color: 'var(--theme-text-primary)',
+                    border: '1px solid var(--theme-border-primary)'
+                  }}
+                  title="Next page"
+                  aria-label="Go to next page"
+                >
+                  <ChevronRight size={16} />
+                </button>
+
+                {/* Last Page */}
+                <button
+                  onClick={() => handlePageChange(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="p-2 rounded-lg transition-all hover:scale-105 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    color: 'var(--theme-text-primary)',
+                    border: '1px solid var(--theme-border-primary)'
+                  }}
+                  title="Last page"
+                  aria-label="Go to last page"
+                >
+                  <ChevronsRight size={16} />
+                </button>
+
+                {/* Quick Page Jump (for many pages) */}
+                {totalPages > 10 && (
+                  <>
+                    <div className="border-l mx-2 h-6" style={{ borderColor: 'var(--theme-border-secondary)' }} />
+                    <select
+                      value={currentPage}
+                      onChange={(e) => handlePageChange(parseInt(e.target.value))}
+                      className="px-3 py-1 rounded-lg text-sm font-medium transition-colors"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-secondary)',
+                        color: 'var(--theme-text-primary)',
+                        border: '1px solid var(--theme-border-primary)'
+                      }}
+                      aria-label="Jump to page"
+                    >
+                      <option value="" disabled>Jump to...</option>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+                        <option key={pageNum} value={pageNum}>
+                          Page {pageNum}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
+            </div>
+          </Card>
         </div>
       )}
 

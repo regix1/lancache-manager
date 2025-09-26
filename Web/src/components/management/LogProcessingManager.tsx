@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle, X } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
@@ -25,6 +25,22 @@ interface ProcessingUIStatus {
   status: string;
 }
 
+interface PicsProgress {
+  isRunning: boolean;
+  status: string;
+  totalApps: number;
+  processedApps: number;
+  totalBatches: number;
+  processedBatches: number;
+  progressPercent: number;
+  depotMappingsFound: number;
+  isReady: boolean;
+  lastCrawlTime?: string;
+  nextCrawlIn: { totalHours: number };
+  isConnected: boolean;
+  isLoggedOn: boolean;
+}
+
 const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   isAuthenticated,
   mockMode,
@@ -37,11 +53,16 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [signalRConnected, setSignalRConnected] = useState(false);
+  const [depotProcessing, setDepotProcessing] = useState<PicsProgress | null>(null);
+  const [showPostDepotPopup, setShowPostDepotPopup] = useState(false);
+  const [postDepotTimer, setPostDepotTimer] = useState(60);
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const depotPollingInterval = useRef<NodeJS.Timeout | null>(null);
+  const postDepotPopupInterval = useRef<NodeJS.Timeout | null>(null);
   const onBackgroundOperationRef = useRef(onBackgroundOperation);
 
   // Keep the ref up to date
@@ -68,6 +89,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   useEffect(() => {
     restoreLogProcessing();
     setupSignalR();
+    startDepotPolling();
 
     return () => {
       if (pollingInterval.current) {
@@ -75,6 +97,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
       if (reconnectTimeout.current) {
         clearTimeout(reconnectTimeout.current);
+      }
+      if (depotPollingInterval.current) {
+        clearInterval(depotPollingInterval.current);
+      }
+      if (postDepotPopupInterval.current) {
+        clearInterval(postDepotPopupInterval.current);
       }
       if (signalRConnection.current) {
         signalRConnection.current.stop();
@@ -362,8 +390,65 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   };
 
+  const startDepotPolling = () => {
+    const checkDepotStatus = async () => {
+      try {
+        const response = await fetch('/api/gameinfo/steamkit/progress');
+        if (response.ok) {
+          const data: PicsProgress = await response.json();
+          const wasRunning = depotProcessing?.isRunning;
+          setDepotProcessing(data);
+
+          // If depot just finished, show popup for 1 minute
+          if (wasRunning && !data.isRunning && data.status === 'Complete') {
+            setShowPostDepotPopup(true);
+            setPostDepotTimer(60);
+            startPostDepotTimer();
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch depot status:', error);
+      }
+    };
+
+    checkDepotStatus();
+    depotPollingInterval.current = setInterval(checkDepotStatus, 3000);
+  };
+
+  const startPostDepotTimer = () => {
+    if (postDepotPopupInterval.current) {
+      clearInterval(postDepotPopupInterval.current);
+    }
+
+    postDepotPopupInterval.current = setInterval(() => {
+      setPostDepotTimer((prev) => {
+        if (prev <= 1) {
+          setShowPostDepotPopup(false);
+          if (postDepotPopupInterval.current) {
+            clearInterval(postDepotPopupInterval.current);
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleClosePostDepotPopup = () => {
+    setShowPostDepotPopup(false);
+    if (postDepotPopupInterval.current) {
+      clearInterval(postDepotPopupInterval.current);
+    }
+  };
+
+  const handleProcessLogsFromPopup = () => {
+    handleClosePostDepotPopup();
+    handleProcessAllLogs();
+  };
+
   return (
-    <Card>
+    <>
+      <Card>
       <div className="flex items-center space-x-2 mb-4">
         <FileText className="w-5 h-5 cache-hit" />
         <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
@@ -380,6 +465,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           disabled={
             actionLoading ||
             isProcessingLogs ||
+            depotProcessing?.isRunning ||
             mockMode ||
             logProcessingOp.loading ||
             !isAuthenticated
@@ -396,6 +482,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           disabled={
             actionLoading ||
             isProcessingLogs ||
+            depotProcessing?.isRunning ||
             mockMode ||
             logProcessingOp.loading ||
             !isAuthenticated
@@ -406,6 +493,22 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           Process All Logs
         </Button>
       </div>
+      {depotProcessing?.isRunning && (
+        <div
+          className="mt-4 p-3 rounded-lg border"
+          style={{
+            backgroundColor: 'var(--theme-info-bg)',
+            borderColor: 'var(--theme-info)',
+            color: 'var(--theme-info-text)'
+          }}
+        >
+          <p className="text-xs">
+            <strong>Depot Processing Active:</strong> Log processing is disabled while Steam PICS depot mapping is running.
+            Progress: {Math.round(depotProcessing.progressPercent)}% ({depotProcessing.processedBatches}/{depotProcessing.totalBatches} batches)
+          </p>
+        </div>
+      )}
+
       <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
         <p className="text-xs text-themed-muted">
           <strong>Reset:</strong> Start from current end of log
@@ -417,7 +520,63 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       {logProcessingOp.error && (
         <Alert color="orange">Backend storage error: {logProcessingOp.error}</Alert>
       )}
-    </Card>
+      </Card>
+
+    {/* Post-Depot Processing Popup */}
+    {showPostDepotPopup && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div
+          className="rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
+          style={{
+            backgroundColor: 'var(--theme-bg-primary)',
+            border: '1px solid var(--theme-border-primary)'
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-themed-primary">
+              Depot Processing Complete
+            </h3>
+            <button
+              onClick={handleClosePostDepotPopup}
+              className="text-themed-muted hover:text-themed-primary transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <p className="text-themed-secondary mb-6">
+            Steam depot mapping has finished! Would you like to process all logs now to update download statistics with the new depot mappings?
+          </p>
+
+          <div className="flex flex-col gap-3">
+            <Button
+              variant="filled"
+              color="green"
+              leftSection={<PlayCircle className="w-4 h-4" />}
+              onClick={handleProcessLogsFromPopup}
+              disabled={!isAuthenticated || mockMode}
+              fullWidth
+            >
+              Process All Logs
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleClosePostDepotPopup}
+              fullWidth
+            >
+              Maybe Later
+            </Button>
+          </div>
+
+          <div className="mt-4 text-center">
+            <span className="text-xs text-themed-muted">
+              This popup will close in {postDepotTimer} seconds
+            </span>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

@@ -132,8 +132,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     start: null,
     end: null
   });
-  const [mockDownloadCount, setMockDownloadCount] = useState<number | 'unlimited'>(20);
-  const [apiDownloadCount, setApiDownloadCount] = useState<number | 'unlimited'>(20);
+  const [mockDownloadCount, setMockDownloadCount] = useState<number | 'unlimited'>('unlimited');
+  const [apiDownloadCount, setApiDownloadCount] = useState<number | 'unlimited'>('unlimited');
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
   const [activeDownloads, setActiveDownloads] = useState<Download[]>([]);
   const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
@@ -198,9 +198,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       }
 
       if (mockMode) {
-        // Cap mock data at 100 for performance
+        // Use unlimited for mock data
         const actualCount =
-          mockDownloadCount === 'unlimited' ? 100 : Math.min(Number(mockDownloadCount), 100);
+          mockDownloadCount === 'unlimited' ? 500 : Number(mockDownloadCount);
         const mockData = MockDataService.generateMockData(actualCount);
         setCacheInfo(mockData.cacheInfo);
         setActiveDownloads(mockData.activeDownloads);
@@ -228,10 +228,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
               if (cache) setCacheInfo(cache);
               if (active) setActiveDownloads(active);
 
-              // Phase 2: Limited downloads for initial display (cap at 20)
+              // Phase 2: Get all downloads for initial display
               const latest = await ApiService.getLatestDownloads(
                 abortControllerRef.current.signal,
-                20,
+                'unlimited',
                 startTime,
                 endTime
               );
@@ -253,7 +253,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                     '24h': '24h',
                     '7d': '7d',
                     '30d': '30d',
-                    'all': 'all',
+                    'live': 'all',
                     'custom': 'custom'
                   };
                   const period = periodMap[timeRange] || '24h';
@@ -270,8 +270,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                 }
               }, 100);
             } else {
-              // Regular updates - use user-specified count but cap at 100 for unlimited
-              const cappedCount = apiDownloadCount === 'unlimited' ? 100 : apiDownloadCount;
+              // Regular updates - use unlimited for all downloads
+              const cappedCount = 'unlimited';
 
               // Get the appropriate period string for the dashboard stats
               const periodMap: Record<string, string> = {
@@ -281,7 +281,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                 '24h': '24h',
                 '7d': '7d',
                 '30d': '30d',
-                'all': 'all',
+                'live': 'all',
                 'custom': 'custom'
               };
               const period = periodMap[timeRange] || '24h';
@@ -307,6 +307,18 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
                 setLatestDownloads(latest.value);
                 hasData.current = true;
 
+                // Debug logging for downloads filtering
+                console.log('📊 Downloads API Response:', {
+                  totalDownloads: latest.value.length,
+                  timeRange: timeRange,
+                  downloadsWithTimes: latest.value.slice(0, 3).map((d: any) => ({
+                    id: d.id,
+                    startTime: d.startTime,
+                    startTimeFormatted: new Date(d.startTime).toLocaleString(),
+                    gameName: d.gameName
+                  }))
+                });
+
                 if (isProcessingLogs && latest.value.length > 0) {
                   setProcessingStatus((prev) => ({
                     ...prev!,
@@ -318,6 +330,18 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
               if (clients.status === 'fulfilled' && clients.value !== undefined) {
                 setClientStats(clients.value);
+
+                // Debug logging for client stats filtering
+                console.log('👥 Client Stats API Response:', {
+                  totalClients: clients.value.length,
+                  timeRange: timeRange,
+                  clientsWithTimes: clients.value.slice(0, 3).map((c: any) => ({
+                    clientIp: c.clientIp,
+                    lastSeen: c.lastSeen,
+                    lastSeenFormatted: new Date(c.lastSeen).toLocaleString(),
+                    totalBytes: c.totalBytes
+                  }))
+                });
               }
 
               if (services.status === 'fulfilled' && services.value !== undefined) {
@@ -362,22 +386,17 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const updateMockDataCount = (count: number | 'unlimited') => {
     if (mockMode) {
-      // Cap at 100 for performance
-      const cappedCount = count === 'unlimited' ? 100 : Math.min(count, 100);
-      setMockDownloadCount(cappedCount);
+      setMockDownloadCount(count);
     }
   };
 
   const updateApiDownloadCount = (count: number | 'unlimited') => {
-    // Cap unlimited at 100 for performance
-    const cappedCount = count === 'unlimited' ? 100 : count;
-    setApiDownloadCount(cappedCount);
+    setApiDownloadCount(count);
   };
 
   const getCurrentRefreshInterval = () => {
     if (isProcessingLogs) return 15000; // 15 seconds when processing
-    if (apiDownloadCount === 'unlimited' || apiDownloadCount > 100) return 30000; // 30 seconds for large datasets
-    return REFRESH_INTERVAL; // Default 5 seconds
+    return 30000; // 30 seconds for unlimited datasets
   };
 
   // Initial load and refresh interval
@@ -445,9 +464,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       setClientStats([]);
       setServiceStats([]);
 
-      // Generate mock data (capped at 100)
+      // Generate mock data
       const actualCount =
-        mockDownloadCount === 'unlimited' ? 100 : Math.min(Number(mockDownloadCount), 100);
+        mockDownloadCount === 'unlimited' ? 500 : Number(mockDownloadCount);
       const mockData = MockDataService.generateMockData(actualCount);
       setCacheInfo(mockData.cacheInfo);
       setActiveDownloads(mockData.activeDownloads);
@@ -463,8 +482,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       intervalRef.current = setInterval(() => {
         const newDownload = MockDataService.generateRealtimeUpdate();
         setLatestDownloads((prev) => {
-          const maxCount = 100;
-          return [newDownload, ...prev.slice(0, maxCount - 1)];
+          return [newDownload, ...prev];
         });
 
         setActiveDownloads((prev) => {

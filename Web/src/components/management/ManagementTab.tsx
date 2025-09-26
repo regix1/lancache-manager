@@ -239,7 +239,10 @@ const LogFileManager: React.FC<{
     }
   };
 
-  const services = config.services.length > 0 ? config.services : [];
+  // Only show services that actually have log entries (non-zero counts)
+  const servicesWithData = config.services.filter(service =>
+    serviceCounts[service] !== undefined && serviceCounts[service] > 0
+  );
 
   return (
     <Card>
@@ -255,9 +258,9 @@ const LogFileManager: React.FC<{
         <div className="flex items-center justify-center py-8">
           <Loader className="w-6 h-6 animate-spin text-themed-muted" />
         </div>
-      ) : services.length > 0 ? (
+      ) : servicesWithData.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {services.map((service) => {
+          {servicesWithData.map((service) => {
           const isRemoving = activeServiceRemoval === service;
           return (
             <Button
@@ -289,7 +292,10 @@ const LogFileManager: React.FC<{
         </div>
       ) : (
         <div className="text-center py-8 text-themed-muted">
-          No services configured
+          <div className="mb-2">No services with log entries found</div>
+          <div className="text-xs">
+            Services appear here when they have downloadable content in the logs
+          </div>
         </div>
       )}
       <div className="mt-4">

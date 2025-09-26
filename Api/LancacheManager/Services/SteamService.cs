@@ -67,8 +67,8 @@ public class SteamService : IHostedService, IDisposable
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _scopeFactory = scopeFactory;
 
-        // Refresh mappings every 6 hours
-        _refreshTimer = new Timer(async _ => await RefreshMappingsAsync(), null, TimeSpan.Zero, TimeSpan.FromHours(6));
+        // Initialize timer but don't start it yet (will be started in StartAsync)
+        _refreshTimer = new Timer(async _ => await RefreshMappingsAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
     #region IHostedService Implementation
@@ -77,6 +77,10 @@ public class SteamService : IHostedService, IDisposable
     {
         _logger.LogInformation("Starting SteamService...");
         await RefreshMappingsAsync();
+
+        // Now start the timer for periodic refreshes every 6 hours
+        _refreshTimer?.Change(TimeSpan.FromHours(6), TimeSpan.FromHours(6));
+
         _logger.LogInformation("SteamService started successfully");
     }
 

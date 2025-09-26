@@ -16,10 +16,16 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onEndDateChange,
   onClose
 }) => {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectingStart, setSelectingStart] = useState(true);
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    // Initialize to show the current month or the month of the start date if it exists
+    return startDate ? new Date(startDate.getFullYear(), startDate.getMonth(), 1) : new Date();
+  });
   const [showYearDropdown, setShowYearDropdown] = useState(false);
   const [showMonthDropdown, setShowMonthDropdown] = useState(false);
+  const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
+  const [lastClickTime, setLastClickTime] = useState<number>(0);
+  const [lastClickedDate, setLastClickedDate] = useState<Date | null>(null);
+  const [clickCount, setClickCount] = useState<number>(0);
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,46 +54,67 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const handleDateClick = (day: number) => {
-    closeDropdowns(); // Close any open dropdowns when selecting a date
+    closeDropdowns();
 
     const selectedDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     selectedDate.setHours(0, 0, 0, 0);
 
-    // Check if clicking the same date to deselect
-    if (selectingStart || !startDate) {
-      // If clicking the same start date, deselect it
-      if (startDate && selectedDate.getTime() === startDate.getTime()) {
-        onStartDateChange(null);
-        onEndDateChange(null);
-        setSelectingStart(true);
-        return;
-      }
+    const now = Date.now();
+    const timeDiff = now - lastClickTime;
+    const isSameDate = lastClickedDate && selectedDate.getTime() === lastClickedDate.getTime();
+
+    // Track clicks for triple-click detection (within 500ms window)
+    if (isSameDate && timeDiff < 500) {
+      setClickCount(prev => prev + 1);
+    } else {
+      setClickCount(1);
+    }
+
+    setLastClickTime(now);
+    setLastClickedDate(selectedDate);
+
+    // Triple-click to unselect
+    if (isSameDate && clickCount >= 2) {
+      onStartDateChange(null);
+      onEndDateChange(null);
+      setClickCount(0);
+      return;
+    }
+
+    // Simple logic: if no start date or we have both dates, set start date
+    // If we have start date but no end date, set end date
+    if (!startDate || (startDate && endDate)) {
+      // Starting a new selection
       onStartDateChange(selectedDate);
       onEndDateChange(null);
-      setSelectingStart(false);
     } else {
-      // If clicking the same end date, deselect it
-      if (endDate && selectedDate.getTime() === endDate.getTime()) {
-        onEndDateChange(null);
-        setSelectingStart(false);
-        return;
-      }
-      // If clicking the same start date while selecting end, deselect both
-      if (selectedDate.getTime() === startDate.getTime()) {
-        onStartDateChange(null);
-        onEndDateChange(null);
-        setSelectingStart(true);
-        return;
-      }
-
+      // Setting end date
       if (selectedDate < startDate) {
+        // If selected date is before start, swap them
         onStartDateChange(selectedDate);
         onEndDateChange(startDate);
+      } else if (selectedDate.getTime() === startDate.getTime()) {
+        // If clicking the same date, make it a single day range
+        onEndDateChange(selectedDate);
       } else {
+        // Normal end date selection
         onEndDateChange(selectedDate);
       }
-      setSelectingStart(true);
     }
+  };
+
+  const handleDateHover = (day: number) => {
+    if (startDate && !endDate) {
+      const hoverDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+      hoverDate.setHours(0, 0, 0, 0);
+      setHoveredDate(hoverDate);
+    } else {
+      setHoveredDate(null);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredDate(null);
   };
 
   const changeMonth = (increment: number) => {
@@ -117,24 +144,57 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   ];
 
   const isDateInRange = (day: number): boolean => {
-    if (!startDate || !endDate) return false;
     const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     checkDate.setHours(0, 0, 0, 0);
-    return checkDate >= startDate && checkDate <= endDate;
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(0, 0, 0, 0);
+      return checkDate >= start && checkDate <= end;
+    }
+
+    if (startDate && !endDate && hoveredDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const hover = new Date(hoveredDate);
+      hover.setHours(0, 0, 0, 0);
+
+      const minDate = start < hover ? start : hover;
+      const maxDate = start > hover ? start : hover;
+
+      return checkDate >= minDate && checkDate <= maxDate;
+    }
+
+    return false;
   };
 
   const isStartDate = (day: number): boolean => {
     if (!startDate) return false;
     const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     checkDate.setHours(0, 0, 0, 0);
-    return checkDate.getTime() === startDate.getTime();
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    return checkDate.getTime() === start.getTime();
   };
 
   const isEndDate = (day: number): boolean => {
     if (!endDate) return false;
     const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
     checkDate.setHours(0, 0, 0, 0);
-    return checkDate.getTime() === endDate.getTime();
+    const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
+    return checkDate.getTime() === end.getTime();
+  };
+
+  const isHoveredDate = (day: number): boolean => {
+    if (!hoveredDate) return false;
+    const checkDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+    checkDate.setHours(0, 0, 0, 0);
+    const hover = new Date(hoveredDate);
+    hover.setHours(0, 0, 0, 0);
+    return checkDate.getTime() === hover.getTime();
   };
 
   const isToday = (day: number): boolean => {
@@ -266,7 +326,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             ))}
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-1" onMouseLeave={handleMouseLeave}>
             {Array.from({ length: firstDayOfMonth }).map((_, index) => (
               <div key={`empty-${index}`} />
             ))}
@@ -275,26 +335,53 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               const inRange = isDateInRange(day);
               const isStart = isStartDate(day);
               const isEnd = isEndDate(day);
+              const isHovered = isHoveredDate(day);
               const today = isToday(day);
+
+              let className = "relative p-2 text-sm transition-all ";
+
+              // Shape classes for better visual feedback
+              if (isStart && isEnd) {
+                // Single day selection
+                className += "rounded-lg ";
+              } else if (isStart) {
+                // Start of range
+                className += "rounded-l-lg ";
+              } else if (isEnd) {
+                // End of range
+                className += "rounded-r-lg ";
+              } else if (inRange) {
+                // Middle of range
+                className += "";
+              } else {
+                // Not selected
+                className += "rounded ";
+              }
+
+              // Color classes
+              if (isStart || isEnd) {
+                className += "bg-[var(--theme-primary)] text-white font-semibold z-10 ";
+              } else if (inRange) {
+                className += "bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)] ";
+              } else if (isHovered && startDate && !endDate) {
+                className += "bg-[var(--theme-bg-tertiary)]/50 text-[var(--theme-text-primary)] ";
+              } else {
+                className += "hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] ";
+              }
+
+              if (today) {
+                className += "ring-2 ring-[var(--theme-primary)]/50 ";
+              }
 
               return (
                 <button
                   key={day}
                   onClick={() => handleDateClick(day)}
-                  className={`
-                    relative p-2 text-sm rounded transition-all
-                    ${
-                      isStart || isEnd
-                        ? 'bg-[var(--theme-primary)] text-white font-semibold'
-                        : inRange
-                        ? 'bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)]'
-                        : 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]'
-                    }
-                    ${today ? 'ring-2 ring-[var(--theme-primary)]/50' : ''}
-                  `}
+                  onMouseEnter={() => handleDateHover(day)}
+                  className={className}
                 >
                   {day}
-                  {today && !showYearDropdown && !showMonthDropdown && (
+                  {today && (
                     <div className="absolute bottom-0.5 left-1/2 transform -translate-x-1/2 w-1 h-1 bg-[var(--theme-primary)] rounded-full" />
                   )}
                 </button>
@@ -318,18 +405,109 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               </div>
             </div>
             <div className="mt-2 text-xs text-[var(--theme-text-secondary)] text-center">
-              {selectingStart || !startDate
-                ? 'Select start date'
-                : 'Select end date'}
+              {!startDate
+                ? 'Select start date (triple-click to unselect)'
+                : !endDate
+                ? 'Select end date (triple-click to unselect)'
+                : `${Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1} day(s) selected`}
             </div>
           </div>
 
-          <div className="mt-4 flex gap-2">
+          {/* Quick Presets */}
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+            <div className="text-xs text-[var(--theme-text-secondary)] mb-2">Quick Select:</div>
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <button
+                onClick={() => {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  onStartDateChange(today);
+                  onEndDateChange(today);
+                }}
+                className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => {
+                  const end = new Date();
+                  end.setHours(0, 0, 0, 0);
+                  const start = new Date(end);
+                  start.setDate(start.getDate() - 6);
+                  onStartDateChange(start);
+                  onEndDateChange(end);
+                }}
+                className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              >
+                Last 7 Days
+              </button>
+              <button
+                onClick={() => {
+                  const end = new Date();
+                  end.setHours(0, 0, 0, 0);
+                  const start = new Date(end);
+                  start.setDate(start.getDate() - 29);
+                  onStartDateChange(start);
+                  onEndDateChange(end);
+                }}
+                className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              >
+                Last 30 Days
+              </button>
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+                  start.setHours(0, 0, 0, 0);
+                  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                  end.setHours(0, 0, 0, 0);
+                  onStartDateChange(start);
+                  onEndDateChange(end);
+                }}
+                className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              >
+                This Month
+              </button>
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                  start.setHours(0, 0, 0, 0);
+                  const end = new Date(now.getFullYear(), now.getMonth(), 0);
+                  end.setHours(0, 0, 0, 0);
+                  onStartDateChange(start);
+                  onEndDateChange(end);
+                }}
+                className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              >
+                Last Month
+              </button>
+              <button
+                onClick={() => {
+                  const now = new Date();
+                  const start = new Date(now.getFullYear(), 0, 1);
+                  start.setHours(0, 0, 0, 0);
+                  const end = new Date(now.getFullYear(), 11, 31);
+                  end.setHours(0, 0, 0, 0);
+                  onStartDateChange(start);
+                  onEndDateChange(end);
+                }}
+                className="px-2 py-1 text-xs bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] rounded hover:bg-[var(--theme-bg-primary)] transition-colors"
+              >
+                This Year
+              </button>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2">
             <button
               onClick={() => {
                 onStartDateChange(null);
                 onEndDateChange(null);
-                setSelectingStart(true);
+                setHoveredDate(null);
+                setClickCount(0);
+                setLastClickedDate(null);
                 closeDropdowns();
                 // Reset calendar to current month/year
                 setCurrentMonth(new Date());
@@ -340,7 +518,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             </button>
             <button
               onClick={onClose}
-              className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-white rounded hover:bg-[var(--theme-primary)]/90 transition-colors"
+              className="flex-1 px-3 py-2 text-sm bg-[var(--theme-primary)] text-white rounded hover:bg-[var(--theme-primary)]/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!startDate || !endDate}
             >
               Apply
             </button>

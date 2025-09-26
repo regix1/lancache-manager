@@ -14,7 +14,7 @@ interface GameInfo {
 }
 
 class MockDataService {
-  static generateMockData(downloadCount: number | 'unlimited' = 50): MockData {
+  static generateMockData(downloadCount: number | 'unlimited' = 'unlimited'): MockData {
     const clients = [
       '192.168.1.100',
       '192.168.1.101',

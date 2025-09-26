@@ -78,21 +78,21 @@ const PicsProgressBar: React.FC = () => {
 
   const getStatusIcon = () => {
     if (progress.isRunning) {
-      return <Loader2 className="w-4 h-4 animate-spin text-blue-400" />;
+      return <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-info-text)' }} />;
     } else if (progress.status === 'Complete') {
-      return <CheckCircle className="w-4 h-4 text-green-400" />;
+      return <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />;
     } else if (progress.status === 'Error occurred') {
-      return <AlertCircle className="w-4 h-4 text-red-400" />;
+      return <AlertCircle className="w-4 h-4" style={{ color: 'var(--theme-error-text)' }} />;
     } else {
-      return <Download className="w-4 h-4 text-gray-400" />;
+      return <Download className="w-4 h-4" style={{ color: 'var(--theme-text-muted)' }} />;
     }
   };
 
-  const getStatusColor = () => {
-    if (progress.isRunning) return 'bg-blue-500';
-    if (progress.status === 'Complete') return 'bg-green-500';
-    if (progress.status === 'Error occurred') return 'bg-red-500';
-    return 'bg-gray-500';
+  const getStatusStyle = () => {
+    if (progress.isRunning) return { backgroundColor: 'var(--theme-info)' };
+    if (progress.status === 'Complete') return { backgroundColor: 'var(--theme-success)' };
+    if (progress.status === 'Error occurred') return { backgroundColor: 'var(--theme-error)' };
+    return { backgroundColor: 'var(--theme-text-muted)' };
   };
 
   return (
@@ -125,10 +125,14 @@ const PicsProgressBar: React.FC = () => {
             </div>
 
             {progress.isRunning && progress.totalBatches > 0 && (
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+              <div
+                className="w-full rounded-full h-2"
+                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              >
                 <div
-                  className={`h-2 rounded-full transition-all duration-300 ${getStatusColor()}`}
+                  className="h-2 rounded-full transition-all duration-300"
                   style={{
+                    ...getStatusStyle(),
                     width: `${Math.max(0, Math.min(100, progress.progressPercent))}%`
                   }}
                 />

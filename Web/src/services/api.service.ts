@@ -70,7 +70,7 @@ class ApiService {
 
   static async getLatestDownloads(
     signal?: AbortSignal,
-    count: number | 'unlimited' = 50,
+    count: number | 'unlimited' = 'unlimited',
     startTime?: number,
     endTime?: number
   ): Promise<Download[]> {

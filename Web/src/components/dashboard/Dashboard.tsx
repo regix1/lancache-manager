@@ -111,7 +111,7 @@ const Dashboard: React.FC = () => {
       case '24h': return 'Last 24 hours';
       case '7d': return 'Last 7 days';
       case '30d': return 'Last 30 days';
-      case 'all': return 'All time';
+      case 'live': return 'Live data';
       case 'custom': return 'Custom range';
       default: return 'Last 24 hours';
     }

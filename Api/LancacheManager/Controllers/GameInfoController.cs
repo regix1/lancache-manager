@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Threading;
+using System.Text.Json;
 using LancacheManager.Services;
 using LancacheManager.Data;
 using LancacheManager.Models;
@@ -167,6 +168,12 @@ public class GameInfoController : ControllerBase
         try
         {
             var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental);
+
+            if (started)
+            {
+                // Enable periodic crawls now that user has initiated data generation
+                _steamKit2Service.EnablePeriodicCrawls();
+            }
 
             return Ok(new
             {
@@ -569,6 +576,102 @@ public class GameInfoController : ControllerBase
         {
             _logger.LogError(ex, $"Error proxying Steam header image for app {appId}");
             return StatusCode(500, new { error = "Failed to fetch game header image" });
+        }
+    }
+
+    /// <summary>
+    /// Download pre-created depot mappings from GitHub repo
+    /// </summary>
+    [HttpPost("download-precreated-data")]
+    public async Task<IActionResult> DownloadPrecreatedDepotData()
+    {
+        try
+        {
+            _logger.LogInformation("Starting download of pre-created depot data from GitHub");
+
+            const string githubUrl = "https://raw.githubusercontent.com/regix1/lancache-manager/main/Data/pics_depot_mappings.json";
+
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
+            httpClient.Timeout = TimeSpan.FromMinutes(5); // 5 minute timeout for large file
+
+            _logger.LogInformation($"Downloading from: {githubUrl}");
+
+            var response = await httpClient.GetAsync(githubUrl);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning($"Failed to download pre-created data: HTTP {response.StatusCode}");
+                return BadRequest(new {
+                    error = "Failed to download pre-created depot data from GitHub",
+                    statusCode = response.StatusCode,
+                    url = githubUrl
+                });
+            }
+
+            var jsonContent = await response.Content.ReadAsStringAsync();
+
+            if (string.IsNullOrWhiteSpace(jsonContent))
+            {
+                return BadRequest(new { error = "Downloaded file is empty" });
+            }
+
+            // Validate JSON structure
+            try
+            {
+                var testData = JsonSerializer.Deserialize<PicsJsonData>(jsonContent, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (testData?.DepotMappings == null || !testData.DepotMappings.Any())
+                {
+                    return BadRequest(new { error = "Downloaded file does not contain valid depot mappings" });
+                }
+
+                _logger.LogInformation($"Downloaded {testData.Metadata?.TotalMappings ?? 0} depot mappings");
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Downloaded file is not valid JSON");
+                return BadRequest(new { error = "Downloaded file is not valid JSON format" });
+            }
+
+            // Save to local file
+            var localPath = _picsDataService.GetPicsJsonFilePath();
+            await System.IO.File.WriteAllTextAsync(localPath, jsonContent);
+
+            _logger.LogInformation($"Saved pre-created depot data to: {localPath}");
+
+            // Import to database
+            await _picsDataService.ImportJsonDataToDatabaseAsync();
+
+            // Enable periodic crawls now that we have initial data
+            _steamKit2Service.EnablePeriodicCrawls();
+
+            return Ok(new
+            {
+                message = "Pre-created depot data downloaded and imported successfully",
+                source = "GitHub",
+                url = githubUrl,
+                localPath = localPath,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Network error while downloading pre-created depot data");
+            return StatusCode(500, new { error = "Network error: Unable to download from GitHub. Check your internet connection." });
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogError(ex, "Timeout while downloading pre-created depot data");
+            return StatusCode(500, new { error = "Download timeout: The GitHub file is taking too long to download." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error downloading pre-created depot data");
+            return StatusCode(500, new { error = "Failed to download and import pre-created depot data", details = ex.Message });
         }
     }
 }

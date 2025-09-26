@@ -94,7 +94,7 @@ public class StatsCache
         }) ?? new List<ServiceStats>();
     }
 
-    public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = 50)
+    public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = 9999)
     {
         var cacheKey = $"recent_downloads_{count}";
         

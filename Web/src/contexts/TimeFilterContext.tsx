@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
-export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'all' | 'custom';
+export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'live' | 'custom';
 
 interface TimeFilterContextType {
   timeRange: TimeRange;
@@ -28,9 +28,60 @@ interface TimeFilterProviderProps {
 }
 
 export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children }) => {
-  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
-  const [customStartDate, setCustomStartDate] = useState<Date | null>(null);
-  const [customEndDate, setCustomEndDate] = useState<Date | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>(() => {
+    const saved = localStorage.getItem('lancache_time_range');
+    const savedStartDate = localStorage.getItem('lancache_custom_start_date');
+    const savedEndDate = localStorage.getItem('lancache_custom_end_date');
+
+    // If saved timeRange is 'custom' but dates are missing, fall back to 'live'
+    if (saved === 'custom' && (!savedStartDate || !savedEndDate)) {
+      return 'live';
+    }
+
+    return (saved as TimeRange) || 'live';
+  });
+  const [customStartDate, setCustomStartDate] = useState<Date | null>(() => {
+    const saved = localStorage.getItem('lancache_custom_start_date');
+    if (saved) {
+      const date = new Date(saved);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    return null;
+  });
+  const [customEndDate, setCustomEndDate] = useState<Date | null>(() => {
+    const saved = localStorage.getItem('lancache_custom_end_date');
+    if (saved) {
+      const date = new Date(saved);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
+    }
+    return null;
+  });
+
+  // Persist timeRange to localStorage
+  useEffect(() => {
+    localStorage.setItem('lancache_time_range', timeRange);
+  }, [timeRange]);
+
+  // Persist custom dates to localStorage
+  useEffect(() => {
+    if (customStartDate) {
+      localStorage.setItem('lancache_custom_start_date', customStartDate.toISOString());
+    } else {
+      localStorage.removeItem('lancache_custom_start_date');
+    }
+  }, [customStartDate]);
+
+  useEffect(() => {
+    if (customEndDate) {
+      localStorage.setItem('lancache_custom_end_date', customEndDate.toISOString());
+    } else {
+      localStorage.removeItem('lancache_custom_end_date');
+    }
+  }, [customEndDate]);
 
   const getTimeRangeInHours = (): number => {
     switch (timeRange) {
@@ -46,8 +97,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         return 168;
       case '30d':
         return 720;
-      case 'all':
-        return 999999; // Large number to represent all time
+      case 'live':
+        return 999999; // Large number to represent live data (all time)
       case 'custom':
         if (customStartDate && customEndDate) {
           const diffMs = customEndDate.getTime() - customStartDate.getTime();
@@ -61,23 +112,60 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
 
   const getTimeRangeParams = (): { startTime?: number; endTime?: number } => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
-      return {
-        startTime: Math.floor(customStartDate.getTime() / 1000),
-        endTime: Math.floor(customEndDate.getTime() / 1000)
-      };
+      const startTime = Math.floor(customStartDate.getTime() / 1000);
+      const endTime = Math.floor(customEndDate.getTime() / 1000);
+
+      // Debug logging commented out - uncomment if needed for debugging
+      // console.log('📅 Custom Range Selected:', {
+      //   startDate: customStartDate.toLocaleString(),
+      //   endDate: customEndDate.toLocaleString(),
+      //   startTime,
+      //   endTime,
+      //   daysDiff: Math.ceil((customEndDate.getTime() - customStartDate.getTime()) / (1000 * 60 * 60 * 24))
+      // });
+
+      return { startTime, endTime };
     }
 
-    // Return empty params for 'all' time to fetch everything
-    if (timeRange === 'all') {
+    // Return empty params for 'live' time to fetch everything
+    if (timeRange === 'live') {
       return {};
     }
 
     const now = Date.now();
     const hoursMs = getTimeRangeInHours() * 60 * 60 * 1000;
-    return {
+    const result = {
       startTime: Math.floor((now - hoursMs) / 1000),
       endTime: Math.floor(now / 1000)
     };
+
+    // Debug logging commented out - uncomment if needed for debugging
+    // if (timeRange !== 'live') {
+    //   const startDate = new Date(result.startTime * 1000);
+    //   const endDate = new Date(result.endTime * 1000);
+    //   console.log(`🕐 Time Filter Debug [${timeRange}]:`, {
+    //     range: timeRange,
+    //     hoursBack: getTimeRangeInHours(),
+    //     startTime: result.startTime,
+    //     endTime: result.endTime,
+    //     startDate: startDate.toLocaleString(),
+    //     endDate: endDate.toLocaleString(),
+    //     hoursDiff: (result.endTime - result.startTime) / 3600
+    //   });
+    // }
+
+    return result;
+  };
+
+  // Wrapped setters with optional logging
+  const setCustomStartDateWithLogging = (date: Date | null) => {
+    // console.log('📅 Setting custom start date:', date?.toLocaleString() || 'null');
+    setCustomStartDate(date);
+  };
+
+  const setCustomEndDateWithLogging = (date: Date | null) => {
+    // console.log('📅 Setting custom end date:', date?.toLocaleString() || 'null');
+    setCustomEndDate(date);
   };
 
   return (
@@ -87,8 +175,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         setTimeRange,
         customStartDate,
         customEndDate,
-        setCustomStartDate,
-        setCustomEndDate,
+        setCustomStartDate: setCustomStartDateWithLogging,
+        setCustomEndDate: setCustomEndDateWithLogging,
         getTimeRangeInHours,
         getTimeRangeParams
       }}

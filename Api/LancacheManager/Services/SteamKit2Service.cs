@@ -29,6 +29,7 @@ public class SteamKit2Service : IHostedService, IDisposable
 
     private bool _isRunning = false;
     private bool _isLoggedOn = false;
+    private bool _intentionalDisconnect = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private int _rebuildActive;
@@ -85,8 +86,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Load existing depot mappings from database first
             await LoadExistingDepotMappings();
 
-            // If database is empty but JSON file exists, import from JSON
-            await ImportJsonOnStartupIfNeeded();
+            // DISABLED: No automatic import - users must choose initialization method via UI
+            // await ImportJsonOnStartupIfNeeded();
 
             // Initialize SteamKit2
             _steamClient = new SteamClient();
@@ -105,8 +106,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Start callback handling loop
             _ = Task.Run(() => HandleCallbacks(_cancellationTokenSource.Token), CancellationToken.None);
 
-            // Set up periodic PICS crawls: initial run + every 24 hours
-            SetupPeriodicCrawls();
+            // DISABLED: No automatic PICS crawls - users must choose initialization method via UI
+            // SetupPeriodicCrawls();
 
             _logger.LogInformation("SteamKit2Service started with incremental PICS updates every hour");
         }
@@ -180,6 +181,21 @@ public class SteamKit2Service : IHostedService, IDisposable
                 await Task.Delay(1000, cancellationToken);
             }
         }
+    }
+
+    /// <summary>
+    /// Enable periodic PICS crawls after initial depot data has been set up
+    /// </summary>
+    public void EnablePeriodicCrawls()
+    {
+        if (_periodicTimer != null)
+        {
+            _logger.LogInformation("Periodic crawls already enabled");
+            return;
+        }
+
+        _logger.LogInformation("Enabling periodic PICS crawls");
+        SetupPeriodicCrawls();
     }
 
     private void SetupPeriodicCrawls()
@@ -299,7 +315,16 @@ public class SteamKit2Service : IHostedService, IDisposable
 
     private void OnDisconnected(SteamClient.DisconnectedCallback callback)
     {
-        _logger.LogWarning("Disconnected from Steam");
+        // Log as info if intentional, warning if unexpected
+        if (_intentionalDisconnect)
+        {
+            _logger.LogInformation("Disconnected from Steam (intentional)");
+            _intentionalDisconnect = false;
+        }
+        else
+        {
+            _logger.LogWarning("Disconnected from Steam");
+        }
         _isLoggedOn = false;
 
         if (!_connectedTcs?.Task.IsCompleted ?? false)
@@ -1314,6 +1339,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                 if (_steamClient?.IsConnected == true)
                 {
                     _logger.LogDebug("Disconnecting from Steam after PICS crawl completion");
+                    _intentionalDisconnect = true;
                     _steamUser?.LogOff();
                     await Task.Delay(1000); // Give LogOff time to complete
                     _steamClient.Disconnect();

@@ -1,7 +1,6 @@
 import React from 'react';
-import { ChevronRight, ExternalLink } from 'lucide-react';
+import { ChevronRight, ExternalLink, Gamepad2 } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
-import ImageWithFallback from '@components/ui/ImageWithFallback';
 import type { Download, DownloadGroup } from '../../types';
 
 const API_BASE = '/api';
@@ -74,6 +73,7 @@ interface CompactViewProps {
   expandedItem: string | null;
   onItemClick: (id: string) => void;
   sectionLabels?: CompactViewSectionLabels;
+  aestheticMode?: boolean;
 }
 
 const getCacheStatusPill = (download: Download) => {
@@ -122,7 +122,8 @@ const CompactView: React.FC<CompactViewProps> = ({
   items,
   expandedItem,
   onItemClick,
-  sectionLabels
+  sectionLabels,
+  aestheticMode = false
 }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
 
@@ -211,13 +212,29 @@ const CompactView: React.FC<CompactViewProps> = ({
               {showGameImage && primaryDownload?.gameAppId && (
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-themed-muted">
-                    {labels.banner}
+                    {aestheticMode ? 'Game Icon' : labels.banner}
                   </span>
-                  <ImageWithFallback
-                    src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
-                    alt={primaryDownload.gameName || group.name}
-                    className="w-full sm:w-[240px] h-[110px] sm:h-[120px] rounded-lg object-cover"
-                  />
+                  {aestheticMode ? (
+                    <div
+                      className="w-full sm:w-[240px] h-[110px] sm:h-[120px] rounded-lg border flex items-center justify-center"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        borderColor: 'var(--theme-border-primary)'
+                      }}
+                    >
+                      <Gamepad2
+                        size={48}
+                        style={{ color: 'var(--theme-primary)', opacity: '0.6' }}
+                      />
+                    </div>
+                  ) : (
+                    <img
+                      src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
+                      alt={primaryDownload.gameName || group.name}
+                      className="w-full sm:w-[240px] h-[110px] sm:h-[120px] rounded-lg object-cover"
+                      loading="lazy"
+                    />
+                  )}
                 </div>
               )}
 
@@ -233,7 +250,7 @@ const CompactView: React.FC<CompactViewProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(event) => event.stopPropagation()}
-                    className="inline-flex items-center gap-1 text-xs text-themed-muted hover:text-themed-accent transition-colors"
+                    className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] hover:bg-[var(--theme-primary)]/10 transition-all duration-200 font-medium border border-transparent hover:border-[var(--theme-primary)]/20"
                     title="View in Steam Store"
                   >
                     <ExternalLink size={12} />
@@ -293,69 +310,24 @@ const CompactView: React.FC<CompactViewProps> = ({
 
   const renderDownloadRow = (download: Download) => {
     const totalBytes = download.totalBytes || 0;
-    const hitPercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
-    const cacheStatus = getCacheStatusPill(download);
-    const activityStatus = getActivityStatusPill(download);
-    const storeLink = download.service.toLowerCase() === 'steam' && download.gameAppId
-      ? `https://store.steampowered.com/app/${download.gameAppId}`
-      : null;
 
-    return (
-      <div
-        key={`download-${download.id}`}
-        className="hover:bg-[var(--theme-bg-tertiary)]/5 transition-all duration-200 ease-in-out"
-        style={{ animation: 'gentleFadeIn 0.3s ease-out' }}
-      >
-        <div className="px-3 py-2 flex items-center gap-3">
-          <span
-            className="px-2 py-0.5 text-xs font-bold rounded"
-            style={getServiceBadgeStyles(download.service)}
-          >
-            {download.service.toUpperCase()}
-          </span>
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="text-base font-medium text-[var(--theme-text-primary)] truncate">
-              {download.gameName || 'Unknown Game'}
-            </span>
-            <span className="text-sm text-themed-muted">
-              {download.clientIp}
-            </span>
-            <span className="text-sm text-themed-muted">
-              {formatRelativeTime(download.startTime)}
-            </span>
-            {storeLink && (
-              <a
-                href={storeLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm text-themed-muted hover:text-themed-accent transition-colors"
-                title="View in Steam Store"
-              >
-                <ExternalLink size={12} />
-              </a>
-            )}
-          </div>
-          <div className="flex items-center gap-4 flex-shrink-0">
-            <span className="text-base font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[80px]">
-              {formatBytes(totalBytes)}
-            </span>
-            {download.cacheHitBytes > 0 ? (
-              <span className="cache-hit font-medium text-sm font-mono text-right min-w-[50px]">
-                {formatPercent(hitPercent)}
-              </span>
-            ) : (
-              <span className="font-medium text-sm font-mono text-right min-w-[50px]" style={{ color: 'var(--theme-error-text)' }}>0%</span>
-            )}
-            <span className={`text-sm min-w-[90px] text-center ${cacheStatus.className}`}>
-              {cacheStatus.label}
-            </span>
-            <span className={`text-sm min-w-[80px] text-center ${activityStatus.className}`}>
-              {activityStatus.label}
-            </span>
-          </div>
-        </div>
-      </div>
-    );
+    // Create a fake group-like structure for individual downloads to match grouped style
+    const fakeGroup = {
+      id: `individual-${download.id}`,
+      name: download.gameName || 'Unknown Game',
+      type: 'game' as const,
+      service: download.service,
+      downloads: [download],
+      totalBytes: totalBytes,
+      cacheHitBytes: download.cacheHitBytes || 0,
+      cacheMissBytes: download.cacheMissBytes || 0,
+      clientsSet: new Set([download.clientIp]),
+      firstSeen: download.startTime,
+      lastSeen: download.startTime,
+      count: 1
+    };
+
+    return renderGroupRow(fakeGroup);
   };
 
   let multipleDownloadsHeaderRendered = false;

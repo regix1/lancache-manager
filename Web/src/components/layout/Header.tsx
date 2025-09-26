@@ -1,6 +1,7 @@
 import React from 'react';
-import { Monitor, Wifi } from 'lucide-react';
+import { Monitor } from 'lucide-react';
 import TimeFilter from '../common/TimeFilter';
+import Tooltip from '../ui/Tooltip';
 
 interface HeaderProps {
   title?: string;
@@ -13,36 +14,6 @@ const Header: React.FC<HeaderProps> = ({
   subtitle = 'High-performance cache monitoring & management',
   connectionStatus = 'connected'
 }) => {
-  const getStatusInfo = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return {
-          color: 'cache-hit',
-          text: 'Connected',
-          icon: <Wifi className="w-4 h-4" />
-        };
-      case 'disconnected':
-        return {
-          color: 'text-themed-error',
-          text: 'Disconnected',
-          icon: <Wifi className="w-4 h-4" />
-        };
-      case 'reconnecting':
-        return {
-          color: 'cache-miss',
-          text: 'Reconnecting...',
-          icon: <Wifi className="w-4 h-4 animate-pulse" />
-        };
-      default:
-        return {
-          color: 'text-themed-muted',
-          text: 'Unknown',
-          icon: <Wifi className="w-4 h-4" />
-        };
-    }
-  };
-
-  const status = getStatusInfo();
 
   return (
     <header
@@ -60,16 +31,46 @@ const Header: React.FC<HeaderProps> = ({
             </div>
             <div className="min-w-0 flex-1">
               <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">{title}</h1>
-              <p className="text-xs sm:text-sm text-themed-muted truncate hidden sm:block">{subtitle}</p>
+              <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted hidden sm:flex">
+                <span className="truncate">{subtitle}</span>
+                {connectionStatus === 'connected' && (
+                  <Tooltip content="API Status: Connected - All backend services are responding normally">
+                    <div className="flex items-center">
+                      <div
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: 'var(--theme-success)' }}
+                      ></div>
+                    </div>
+                  </Tooltip>
+                )}
+                {connectionStatus === 'disconnected' && (
+                  <Tooltip content="API Status: Disconnected - Unable to connect to backend services">
+                    <div className="flex items-center gap-1" style={{ color: 'var(--theme-error-text)' }}>
+                      <div
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ backgroundColor: 'var(--theme-error)' }}
+                      ></div>
+                      <span className="text-xs">Disconnected</span>
+                    </div>
+                  </Tooltip>
+                )}
+                {connectionStatus === 'reconnecting' && (
+                  <Tooltip content="API Status: Reconnecting - Attempting to restore connection to backend services">
+                    <div className="flex items-center gap-1" style={{ color: 'var(--theme-warning-text)' }}>
+                      <div
+                        className="w-1.5 h-1.5 rounded-full animate-pulse"
+                        style={{ backgroundColor: 'var(--theme-warning)' }}
+                      ></div>
+                      <span className="text-xs">Reconnecting</span>
+                    </div>
+                  </Tooltip>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             <TimeFilter />
-            <div className={`flex items-center space-x-1 ${status.color}`}>
-              {status.icon}
-              <span className="text-xs sm:text-sm font-medium hidden sm:inline">{status.text}</span>
-            </div>
           </div>
         </div>
       </div>

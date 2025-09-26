@@ -1,7 +1,6 @@
 import React from 'react';
-import { ChevronRight, Clock, Users, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
+import { ChevronRight, Clock, Users, ExternalLink, CheckCircle, AlertCircle, Gamepad2 } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
-import ImageWithFallback from '@components/ui/ImageWithFallback';
 import type { Download, DownloadGroup } from '../../types';
 
 const API_BASE = '/api';
@@ -70,6 +69,7 @@ interface NormalViewProps {
   expandedItem: string | null;
   onItemClick: (id: string) => void;
   sectionLabels?: NormalViewSectionLabels;
+  aestheticMode?: boolean;
 }
 
 interface InfoRowProps {
@@ -129,139 +129,32 @@ const getActivityStatusPill = (download: Download) =>
         className: 'bg-themed-hover text-themed-muted'
       };
 
-const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels }) => {
+const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const renderDownloadCard = (download: Download) => {
     const totalBytes = download.totalBytes || 0;
-    const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
-    const cacheStatus = getCacheStatusPill(download);
-    const activityStatus = getActivityStatusPill(download);
+    const hitPercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
     const storeLink = download.service.toLowerCase() === 'steam' && download.gameAppId
       ? `https://store.steampowered.com/app/${download.gameAppId}`
       : null;
 
-    return (
-      <div
-        key={download.id}
-        className="rounded-xl border bg-[var(--theme-bg-secondary)] shadow-sm transition-all duration-300 hover:shadow-xl"
-        style={{ borderColor: 'var(--theme-border-primary)' }}
-      >
-        <div className="flex flex-col gap-5 p-5">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="flex items-start gap-3 min-w-0">
-              <span
-                className="px-3 py-1 text-xs font-bold rounded shadow-sm"
-                style={getServiceBadgeStyles(download.service)}
-              >
-                {download.service.toUpperCase()}
-              </span>
-              <div className="min-w-0 flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-semibold text-themed-primary truncate">
-                    {download.gameName || 'Unknown Game'}
-                  </h3>
-                  {storeLink && (
-                    <a
-                      href={storeLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-themed-muted hover:text-themed-accent transition-colors"
-                      title="View in Steam Store"
-                    >
-                      <ExternalLink size={16} />
-                      <span>Store Page</span>
-                    </a>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide">
-                  <span className={`px-2.5 py-1 rounded-full ${cacheStatus.className}`}>
-                    {cacheStatus.label}
-                  </span>
-                  <span className={`px-2.5 py-1 rounded-full ${activityStatus.className}`}>
-                    {activityStatus.label}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-themed-muted">
-                  <span className="inline-flex items-center gap-1">
-                    <Users size={14} />
-                    {download.clientIp}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <Clock size={14} />
-                    Started {formatRelativeTime(download.startTime)}
-                  </span>
-                  {download.endTime && (
-                    <span className="inline-flex items-center gap-1">
-                      <Clock size={14} />
-                      Finished {formatRelativeTime(download.endTime)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-2 text-sm text-themed-muted">
-              <span className="text-2xl font-semibold text-themed-primary">
-                {formatBytes(totalBytes)}
-              </span>
-              {download.cacheHitBytes > 0 ? (
-                <span className="cache-hit font-semibold">
-                  {formatPercent(cachePercent)} cache hit
-                </span>
-              ) : (
-                <span>No cache hit</span>
-              )}
-            </div>
-          </div>
+    // Create a fake group-like structure for individual downloads to match grouped style
+    const fakeGroup = {
+      id: `individual-${download.id}`,
+      name: download.gameName || 'Unknown Game',
+      type: 'game' as const,
+      service: download.service,
+      downloads: [download],
+      totalBytes: totalBytes,
+      cacheHitBytes: download.cacheHitBytes || 0,
+      cacheMissBytes: download.cacheMissBytes || 0,
+      clientsSet: new Set([download.clientIp]),
+      firstSeen: download.startTime,
+      lastSeen: download.startTime,
+      count: 1
+    };
 
-          {/* Statistics Section */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Cache Performance</h4>
-              <div className="space-y-2">
-                <InfoRow
-                  label="Cache Hit"
-                  value={download.cacheHitBytes > 0 ? formatBytes(download.cacheHitBytes) : 'No cache hits'}
-                  highlight={download.cacheHitBytes > 0}
-                />
-                <InfoRow
-                  label="Cache Miss"
-                  value={formatBytes(download.cacheMissBytes || 0)}
-                />
-                <InfoRow
-                  label="Cache Efficiency"
-                  value={cachePercent > 0 ? formatPercent(cachePercent) : 'N/A'}
-                  highlight={cachePercent > 0}
-                />
-              </div>
-            </div>
-            <div className="space-y-3">
-              <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Details</h4>
-              <div className="space-y-2">
-                <InfoRow label="Download ID" value={download.id} />
-                <InfoRow label="Service" value={download.service.toUpperCase()} />
-                <InfoRow label="Status" value={download.isActive ? 'In Progress' : 'Completed'} />
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="rounded-lg border bg-[var(--theme-bg-tertiary)]/40 px-4 py-3 text-xs text-themed-muted"
-            style={{ borderColor: 'var(--theme-border-primary)' }}
-          >
-            <div className="flex flex-wrap items-center gap-4">
-              <span className="inline-flex items-center gap-1 text-[var(--theme-success-text)]">
-                <CheckCircle size={14} />
-                Served {download.cacheHitBytes > 0 ? formatBytes(download.cacheHitBytes) : '0 bytes'} from cache
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <AlertCircle size={14} className="text-[var(--theme-text-secondary)]" />
-                {formatBytes(download.cacheMissBytes || 0)} fetched from origin
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return renderGroupCard(fakeGroup);
   };
 
   const renderGroupCard = (group: DownloadGroup) => {
@@ -293,11 +186,27 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
           <div className="flex items-center">
             {showGameImage && primaryDownload?.gameAppId && (
               <div className="flex-shrink-0">
-                <ImageWithFallback
-                  src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
-                  alt={primaryDownload.gameName || group.name}
-                  className="w-[230px] h-[107px] object-cover"
-                />
+                {aestheticMode ? (
+                  <div
+                    className="w-[230px] h-[107px] flex items-center justify-center rounded-lg border"
+                    style={{
+                      backgroundColor: 'var(--theme-bg-tertiary)',
+                      borderColor: 'var(--theme-border-primary)'
+                    }}
+                  >
+                    <Gamepad2
+                      size={48}
+                      style={{ color: 'var(--theme-primary)', opacity: '0.6' }}
+                    />
+                  </div>
+                ) : (
+                  <img
+                    src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
+                    alt={primaryDownload.gameName || group.name}
+                    className="w-[230px] h-[107px] object-cover"
+                    loading="lazy"
+                  />
+                )}
               </div>
             )}
             <div className="flex-1 px-4 py-3">
@@ -384,7 +293,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                     href={storeLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-themed-muted hover:text-themed-accent transition-colors"
+                    className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] hover:bg-[var(--theme-primary)]/10 transition-all duration-200 font-medium border border-transparent hover:border-[var(--theme-primary)]/20"
                     title="View in Steam Store"
                   >
                     <ExternalLink size={16} />

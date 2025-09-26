@@ -237,7 +237,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
           data = await ApiService.getDashboardStats();
           break;
         case 'downloads':
-          data = await ApiService.getLatestDownloads(undefined, 1000);
+          data = await ApiService.getLatestDownloads(undefined, 'unlimited');
           break;
       }
 
