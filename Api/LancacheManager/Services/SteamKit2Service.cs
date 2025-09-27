@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using LancacheManager.Data;
 using LancacheManager.Models;
 using System.Text.Json;
-using LancacheManager.Constants;
+using LancacheManager.Services;
 
 namespace LancacheManager.Services;
 
@@ -22,6 +22,8 @@ public class SteamKit2Service : IHostedService, IDisposable
     private readonly ILogger<SteamKit2Service> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SteamService _steamService;
+    private readonly IPathResolver _pathResolver;
+    private readonly StateService _stateService;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -39,7 +41,6 @@ public class SteamKit2Service : IHostedService, IDisposable
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;
     private static readonly TimeSpan CrawlInterval = TimeSpan.FromHours(1); // Run incremental updates every hour
-    private readonly string _lastCrawlFile;
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
 
@@ -68,13 +69,16 @@ public class SteamKit2Service : IHostedService, IDisposable
         ILogger<SteamKit2Service> logger,
         IServiceScopeFactory scopeFactory,
         SteamService steamService,
-        PicsDataService picsDataService)
+        PicsDataService picsDataService,
+        IPathResolver pathResolver,
+        StateService stateService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _steamService = steamService;
         _picsDataService = picsDataService;
-        _lastCrawlFile = Path.Combine(LancacheConstants.DATA_DIRECTORY, "last_pics_crawl.txt");
+        _pathResolver = pathResolver;
+        _stateService = stateService;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -1498,24 +1502,17 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Load the last PICS crawl time from file
+    /// Load the last PICS crawl time from state
     /// </summary>
     private void LoadLastCrawlTime()
     {
         try
         {
-            if (File.Exists(_lastCrawlFile))
+            var lastCrawl = _stateService.GetLastPicsCrawl();
+            if (lastCrawl.HasValue)
             {
-                var content = File.ReadAllText(_lastCrawlFile).Trim();
-                if (DateTime.TryParse(content, out var lastCrawl))
-                {
-                    _lastCrawlTime = lastCrawl;
-                    _logger.LogInformation("Loaded last PICS crawl time: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
-                }
-                else
-                {
-                    _logger.LogWarning("Failed to parse last crawl time from file: {Content}", content);
-                }
+                _lastCrawlTime = lastCrawl.Value;
+                _logger.LogInformation("Loaded last PICS crawl time: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
             }
             else
             {
@@ -1524,30 +1521,23 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load last PICS crawl time from file");
+            _logger.LogWarning(ex, "Failed to load last PICS crawl time from state");
         }
     }
 
     /// <summary>
-    /// Save the last PICS crawl time to file
+    /// Save the last PICS crawl time to state
     /// </summary>
     private void SaveLastCrawlTime()
     {
         try
         {
-            // Ensure the data directory exists
-            var dataDir = Path.GetDirectoryName(_lastCrawlFile);
-            if (!string.IsNullOrEmpty(dataDir) && !Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-            }
-
-            File.WriteAllText(_lastCrawlFile, _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
+            _stateService.SetLastPicsCrawl(_lastCrawlTime);
             _logger.LogDebug("Saved last PICS crawl time: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to save last PICS crawl time to file");
+            _logger.LogWarning(ex, "Failed to save last PICS crawl time to state");
         }
     }
 

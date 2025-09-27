@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
 using LancacheManager.Security;
-using LancacheManager.Constants;
 
 namespace LancacheManager.Controllers;
 
@@ -14,6 +13,10 @@ public class ManagementController : ControllerBase
     private readonly CacheClearingService _cacheClearingService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ManagementController> _logger;
+    private readonly IPathResolver _pathResolver;
+    private readonly StateService _stateService;
+    private readonly LogWatcherService _logWatcherService;
+    private readonly LogProcessingService _logProcessingService;
     private static CancellationTokenSource? _processingCancellation;
     private static DateTime? _processingStartTime;
 
@@ -22,25 +25,34 @@ public class ManagementController : ControllerBase
         DatabaseService dbService,
         CacheClearingService cacheClearingService,
         IConfiguration configuration,
-        ILogger<ManagementController> logger)
+        ILogger<ManagementController> logger,
+        IPathResolver pathResolver,
+        StateService stateService,
+        LogWatcherService logWatcherService,
+        LogProcessingService logProcessingService)
     {
         _cacheService = cacheService;
         _dbService = dbService;
         _cacheClearingService = cacheClearingService;
         _configuration = configuration;
         _logger = logger;
-        
+        _pathResolver = pathResolver;
+        _stateService = stateService;
+        _logWatcherService = logWatcherService;
+        _logProcessingService = logProcessingService;
+
         // Ensure data directory exists
-        if (!Directory.Exists(LancacheConstants.DATA_DIRECTORY))
+        var dataDirectory = _pathResolver.GetDataDirectory();
+        if (!Directory.Exists(dataDirectory))
         {
             try
             {
-                Directory.CreateDirectory(LancacheConstants.DATA_DIRECTORY);
-                _logger.LogInformation($"Created data directory: {LancacheConstants.DATA_DIRECTORY}");
+                Directory.CreateDirectory(dataDirectory);
+                _logger.LogInformation($"Created data directory: {dataDirectory}");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to create data directory: {LancacheConstants.DATA_DIRECTORY}");
+                _logger.LogError(ex, $"Failed to create data directory: {dataDirectory}");
             }
         }
     }
@@ -151,11 +163,8 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            // Clear position file to start from end
-            if (System.IO.File.Exists(LancacheConstants.POSITION_FILE))
-            {
-                System.IO.File.Delete(LancacheConstants.POSITION_FILE);
-            }
+            // Clear position to start from end
+            _stateService.SetLogPosition(0);
             
             // Only reset database if explicitly requested
             if (clearDatabase)
@@ -191,26 +200,27 @@ public class ManagementController : ControllerBase
             _processingCancellation = new CancellationTokenSource();
             
             // Check if log file exists
-            if (!System.IO.File.Exists(LancacheConstants.LOG_PATH))
+            var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+            if (!System.IO.File.Exists(logPath))
             {
-                _logger.LogWarning($"Log file not found at: {LancacheConstants.LOG_PATH}");
-                return Ok(new { 
-                    message = $"Log file not found at: {LancacheConstants.LOG_PATH}",
+                _logger.LogWarning($"Log file not found at: {logPath}");
+                return Ok(new {
+                    message = $"Log file not found at: {logPath}",
                     logSizeMB = 0,
                     estimatedTimeMinutes = 0,
                     requiresRestart = false,
                     status = "no_log_file"
                 });
             }
-            
+
             // Get log file size
-            var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
+            var fileInfo = new FileInfo(logPath);
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
             
             // CHECK IF FILE IS EMPTY
             if (fileInfo.Length == 0)
             {
-                _logger.LogWarning($"Log file is empty (0 bytes): {LancacheConstants.LOG_PATH}");
+                _logger.LogWarning($"Log file is empty (0 bytes): {logPath}");
                 return Ok(new { 
                     message = "Log file is empty. No data to process.",
                     logSizeMB = 0,
@@ -223,7 +233,7 @@ public class ManagementController : ControllerBase
             // CHECK IF FILE IS TOO SMALL (less than 100 bytes probably means no real data)
             if (fileInfo.Length < 100)
             {
-                _logger.LogWarning($"Log file is very small ({fileInfo.Length} bytes): {LancacheConstants.LOG_PATH}");
+                _logger.LogWarning($"Log file is very small ({fileInfo.Length} bytes): {logPath}");
                 return Ok(new { 
                     message = $"Log file only contains {fileInfo.Length} bytes. Likely no game data yet.",
                     logSizeMB = sizeMB,
@@ -236,14 +246,15 @@ public class ManagementController : ControllerBase
             _logger.LogInformation($"Starting full log processing: {sizeMB:F1} MB");
             
             // Delete old marker first
-            if (System.IO.File.Exists(LancacheConstants.PROCESSING_MARKER))
+            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
+            if (System.IO.File.Exists(processingMarker))
             {
-                System.IO.File.Delete(LancacheConstants.PROCESSING_MARKER);
+                System.IO.File.Delete(processingMarker);
                 await Task.Delay(100);
             }
-            
+
             // Set position to 0
-            await System.IO.File.WriteAllTextAsync(LancacheConstants.POSITION_FILE, "0");
+            _stateService.SetLogPosition(0);
             
             // Create marker with file size info
             var markerData = new
@@ -255,11 +266,26 @@ public class ManagementController : ControllerBase
                 requestId = Guid.NewGuid().ToString()
             };
             
-            await System.IO.File.WriteAllTextAsync(LancacheConstants.PROCESSING_MARKER, 
+            await System.IO.File.WriteAllTextAsync(processingMarker,
                 System.Text.Json.JsonSerializer.Serialize(markerData));
-            
+
             _processingStartTime = DateTime.UtcNow;
-            
+
+            // Start the log processing services for manual processing
+            // (They are no longer auto-started, only run on manual trigger)
+            try
+            {
+                _logger.LogInformation("Starting LogProcessingService for manual log processing");
+                await _logProcessingService.StartAsync(_processingCancellation.Token);
+
+                _logger.LogInformation("Starting LogWatcherService for manual log processing");
+                await _logWatcherService.StartAsync(_processingCancellation.Token);
+            }
+            catch (Exception serviceEx)
+            {
+                _logger.LogWarning(serviceEx, "Error starting log processing services, they may already be running");
+            }
+
             // Create operation state
             var operationState = new OperationState
             {
@@ -304,32 +330,31 @@ public class ManagementController : ControllerBase
         {
             // Signal cancellation
             _processingCancellation?.Cancel();
-            
-            // Remove processing marker
-            if (System.IO.File.Exists(LancacheConstants.PROCESSING_MARKER))
+
+            // Stop the log processing services (this will save position in StopAsync)
+            _logger.LogInformation("Stopping log processing services");
+            await _logWatcherService.StopAsync(CancellationToken.None);
+            await _logProcessingService.StopAsync(CancellationToken.None);
+
+            // Give services a moment to save their state
+            await Task.Delay(500);
+
+            // Get the saved position after services have stopped
+            var currentPosition = _stateService.GetLogPosition();
+            _logger.LogInformation($"Processing cancelled at position {currentPosition:N0}, position preserved for resume");
+
+            // Remove processing marker AFTER services have stopped and saved position
+            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
+            if (System.IO.File.Exists(processingMarker))
             {
-                System.IO.File.Delete(LancacheConstants.PROCESSING_MARKER);
+                System.IO.File.Delete(processingMarker);
+                _logger.LogInformation("Removed processing marker");
             }
-            
-            // Set position to end of file to stop processing
-            if (System.IO.File.Exists(LancacheConstants.LOG_PATH))
-            {
-                var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
-                await System.IO.File.WriteAllTextAsync(LancacheConstants.POSITION_FILE, fileInfo.Length.ToString());
-                _logger.LogInformation($"Processing cancelled, position set to end of file");
-            }
-            else
-            {
-                if (System.IO.File.Exists(LancacheConstants.POSITION_FILE))
-                {
-                    System.IO.File.Delete(LancacheConstants.POSITION_FILE);
-                }
-                _logger.LogInformation("Processing cancelled, position cleared");
-            }
-            
-            return Ok(new { 
-                message = "Processing cancelled. Resuming normal monitoring.",
-                requiresRestart = false 
+
+            return Ok(new {
+                message = $"Processing cancelled at position {currentPosition:N0}. Position saved for resume.",
+                currentPosition = currentPosition,
+                requiresRestart = false
             });
         }
         catch (Exception ex)
@@ -339,29 +364,50 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpPost("post-process-depot-mappings")]
+    [RequireAuth]
+    public async Task<IActionResult> PostProcessDepotMappings()
+    {
+        try
+        {
+            _logger.LogInformation("Starting depot mapping post-processing");
+
+            var mappingsProcessed = await _dbService.PostProcessDepotMappings();
+
+            return Ok(new {
+                message = $"Depot mapping post-processing completed. Processed {mappingsProcessed} downloads.",
+                mappingsProcessed,
+                status = "completed"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during depot mapping post-processing");
+            return StatusCode(500, new { error = $"Failed to post-process depot mappings: {ex.Message}" });
+        }
+    }
+
     [HttpGet("processing-status")]
     public async Task<IActionResult> GetProcessingStatus()
     {
         try
         {
             // First check if marker exists
-            bool markerExists = System.IO.File.Exists(LancacheConstants.PROCESSING_MARKER);
-            
+            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
+            bool markerExists = System.IO.File.Exists(processingMarker);
+
             // Then check position file
             long currentPosition = 0;
             long totalSize = 0;
-            
-            if (System.IO.File.Exists(LancacheConstants.LOG_PATH))
+
+            var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+            if (System.IO.File.Exists(logPath))
             {
-                var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
+                var fileInfo = new FileInfo(logPath);
                 totalSize = fileInfo.Length;
             }
-            
-            if (System.IO.File.Exists(LancacheConstants.POSITION_FILE))
-            {
-                var posContent = await System.IO.File.ReadAllTextAsync(LancacheConstants.POSITION_FILE);
-                long.TryParse(posContent, out currentPosition);
-            }
+
+            currentPosition = _stateService.GetLogPosition();
             
             // If no marker and position is at 0, we're not processing
             if (!markerExists && currentPosition == 0)
@@ -456,7 +502,7 @@ public class ManagementController : ControllerBase
             
             return Ok(new { 
                 message = $"Successfully removed {request.Service} entries from log file",
-                backupFile = $"{LancacheConstants.LOG_PATH}.bak"
+                backupFile = $"{Path.Combine(_pathResolver.GetLogsDirectory(), "access.log")}.bak"
             });
         }
         catch (Exception ex)
@@ -528,9 +574,9 @@ public class ManagementController : ControllerBase
             var services = await _cacheService.GetServicesFromLogs();
             var cachePath = _cacheService.GetCachePath();
             
-            return Ok(new { 
+            return Ok(new {
                 cachePath,
-                logPath = LancacheConstants.LOG_PATH,
+                logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log"),
                 services
             });
         }
@@ -538,8 +584,8 @@ public class ManagementController : ControllerBase
         {
             _logger.LogError(ex, "Error getting configuration");
             return Ok(new {
-                cachePath = LancacheConstants.CACHE_DIRECTORY,
-                logPath = LancacheConstants.LOG_PATH,
+                cachePath = _pathResolver.GetCacheDirectory(),
+                logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log"),
                 services = new[] { "steam", "epic", "origin", "blizzard", "wsus", "riot" }
             });
         }
@@ -554,7 +600,7 @@ public class ManagementController : ControllerBase
         // Check /logs directory
         try
         {
-            var logsDir = Path.GetDirectoryName(LancacheConstants.LOG_PATH) ?? "/logs";
+            var logsDir = _pathResolver.GetLogsDirectory();
             results["logsDirectory"] = logsDir;
             results["logsExists"] = Directory.Exists(logsDir);
             
@@ -667,12 +713,13 @@ public class ManagementController : ControllerBase
         // Check /data directory
         try
         {
-            results["dataDirectory"] = LancacheConstants.DATA_DIRECTORY;
-            results["dataExists"] = Directory.Exists(LancacheConstants.DATA_DIRECTORY);
-            
-            if (Directory.Exists(LancacheConstants.DATA_DIRECTORY))
+            var dataDirectory = _pathResolver.GetDataDirectory();
+            results["dataDirectory"] = dataDirectory;
+            results["dataExists"] = Directory.Exists(dataDirectory);
+
+            if (Directory.Exists(dataDirectory))
             {
-                var testFile = Path.Combine(LancacheConstants.DATA_DIRECTORY, ".write_test");
+                var testFile = Path.Combine(dataDirectory, ".write_test");
                 try
                 {
                     System.IO.File.WriteAllText(testFile, "test");
@@ -694,12 +741,13 @@ public class ManagementController : ControllerBase
         // Check log file
         try
         {
-            results["logFile"] = LancacheConstants.LOG_PATH;
-            results["logFileExists"] = System.IO.File.Exists(LancacheConstants.LOG_PATH);
-            
-            if (System.IO.File.Exists(LancacheConstants.LOG_PATH))
+            var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+            results["logFile"] = logPath;
+            results["logFileExists"] = System.IO.File.Exists(logPath);
+
+            if (System.IO.File.Exists(logPath))
             {
-                var fileInfo = new FileInfo(LancacheConstants.LOG_PATH);
+                var fileInfo = new FileInfo(logPath);
                 results["logFileSize"] = fileInfo.Length;
                 results["logFileReadOnly"] = fileInfo.IsReadOnly;
                 results["logFileLastModified"] = fileInfo.LastWriteTimeUtc;
@@ -717,7 +765,135 @@ public class ManagementController : ControllerBase
         
         return Ok(results);
     }
-    
+
+    [HttpGet("setup-status")]
+    public IActionResult GetSetupStatus()
+    {
+        try
+        {
+            var isSetupCompleted = _stateService.GetSetupCompleted();
+            return Ok(new { isSetupCompleted });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking setup status");
+            return Ok(new { isSetupCompleted = false });
+        }
+    }
+
+    [HttpPost("mark-setup-completed")]
+    public IActionResult MarkSetupCompleted()
+    {
+        try
+        {
+            _stateService.SetSetupCompleted(true);
+            _logger.LogInformation("Setup marked as completed");
+            return Ok(new { success = true, message = "Setup marked as completed" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error marking setup as completed");
+            return StatusCode(500, new { success = false, message = "Failed to mark setup as completed" });
+        }
+    }
+
+    [HttpGet("settings")]
+    public IActionResult GetSettings()
+    {
+        try
+        {
+            var settingsFile = Path.Combine(_pathResolver.GetDataDirectory(), "settings.json");
+
+            if (!System.IO.File.Exists(settingsFile))
+            {
+                // Create default settings
+                var defaultSettings = CreateDefaultSettings();
+                System.IO.File.WriteAllText(settingsFile, System.Text.Json.JsonSerializer.Serialize(defaultSettings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                return Ok(defaultSettings);
+            }
+
+            var settingsJson = System.IO.File.ReadAllText(settingsFile);
+            var settings = System.Text.Json.JsonSerializer.Deserialize<object>(settingsJson);
+            return Ok(settings);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error reading settings");
+            return StatusCode(500, new { error = "Failed to read settings" });
+        }
+    }
+
+    [HttpPost("settings")]
+    public IActionResult UpdateSettings([FromBody] object settings)
+    {
+        try
+        {
+            var settingsFile = Path.Combine(_pathResolver.GetDataDirectory(), "settings.json");
+            var settingsJson = System.Text.Json.JsonSerializer.Serialize(settings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            System.IO.File.WriteAllText(settingsFile, settingsJson);
+            _logger.LogInformation("Settings updated successfully");
+            return Ok(new { success = true, message = "Settings updated successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating settings");
+            return StatusCode(500, new { success = false, message = "Failed to update settings" });
+        }
+    }
+
+    private object CreateDefaultSettings()
+    {
+        return new
+        {
+            app = new
+            {
+                name = "Lancache Manager",
+                version = "1.0.0",
+                theme = "dark",
+                language = "en",
+                autoRefresh = true,
+                refreshInterval = 30000,
+                showNotifications = true
+            },
+            dashboard = new
+            {
+                defaultTimeRange = "24h",
+                showClientStats = true,
+                showServiceStats = true,
+                showDownloads = true,
+                maxRecentDownloads = 100,
+                autoUpdateCharts = true
+            },
+            cache = new
+            {
+                clearConfirmation = true,
+                showOperationProgress = true,
+                defaultClearType = "selective"
+            },
+            logs = new
+            {
+                defaultLogLevel = "info",
+                maxLogLines = 1000,
+                autoScroll = true,
+                showTimestamps = true,
+                bulkProcessingBatchSize = 10000
+            },
+            depot = new
+            {
+                autoUpdateMappings = true,
+                preferCloudData = true,
+                cacheTimeout = 3600000
+            },
+            ui = new
+            {
+                compactMode = false,
+                showTooltips = true,
+                animationsEnabled = true,
+                sidebarCollapsed = false
+            }
+        };
+    }
+
     private bool IsHex(string value)
     {
         return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));

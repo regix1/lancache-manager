@@ -19,15 +19,112 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | null>(null);
-  const [showApiKeyForm, setShowApiKeyForm] = useState(!isAuthenticated);
+  const [showApiKeyForm, setShowApiKeyForm] = useState(true); // Default to true, will be updated by useEffect
   const [apiKey, setApiKey] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    setShowApiKeyForm(!isAuthenticated && !authService.isAuthenticated);
-  }, [isAuthenticated]);
+    const checkSetupStatus = async () => {
+      try {
+        // Check if setup has been completed
+        const setupResponse = await fetch('/api/management/setup-status');
+        const setupData = await setupResponse.json();
+
+        // If setup is not completed, always show API key form first
+        if (!setupData.isSetupCompleted) {
+          setShowApiKeyForm(true);
+          return;
+        }
+
+        // If setup is completed, check authentication status
+        const authCheck = await authService.checkAuth();
+        const actuallyAuthenticated = authCheck.isAuthenticated;
+
+        // Show API key form if not authenticated
+        setShowApiKeyForm(!actuallyAuthenticated);
+
+        // If the parent component thinks we're authenticated but we're actually not, let it know
+        if (isAuthenticated && !actuallyAuthenticated) {
+          onAuthChanged?.();
+        }
+      } catch (error) {
+        console.error('Failed to check setup/auth status:', error);
+        // On error, show the API key form to be safe
+        setShowApiKeyForm(true);
+      }
+    };
+
+    // Only check setup status on initial mount, not when auth changes
+    checkSetupStatus();
+  }, []); // Removed dependencies to prevent re-checking on auth changes
+
+  // Cleanup function to handle interrupted initialization
+  useEffect(() => {
+    return () => {
+      // If component unmounts while initializing, reset state to prevent confusion
+      if (initializing) {
+        console.warn('Depot initialization was interrupted');
+      }
+    };
+  }, [initializing]);
+
+  const verifyDepotInitialization = async () => {
+    let retries = 0;
+    const maxRetries = 30; // Wait up to 30 seconds for verification
+
+    while (retries < maxRetries) {
+      try {
+        const response = await fetch('/api/gameinfo/pics-status', {
+          headers: ApiService.getHeaders()
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // Check if we have database mappings, SteamKit2 data, OR if rebuild is in progress
+          const hasData = (data.database?.totalMappings > 0) ||
+                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0) ||
+                         (data.steamKit2?.isRebuildRunning === true);
+
+          if (hasData) {
+            setProgress('Initialization verified! Launching application...');
+            setTimeout(() => {
+              onInitialized();
+            }, 1000);
+            return;
+          }
+        }
+
+        // Wait 1 second before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        retries++;
+        setProgress(`Verification attempt ${retries}/${maxRetries}...`);
+      } catch (error) {
+        console.warn('Verification attempt failed:', error);
+        retries++;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    // If we get here, verification failed
+    throw new Error('Failed to verify depot initialization. Please try again.');
+  };
+
+  const markSetupCompleted = async () => {
+    try {
+      const response = await fetch('/api/management/mark-setup-completed', {
+        method: 'POST',
+        headers: ApiService.getHeaders()
+      });
+
+      if (!response.ok) {
+        console.warn('Failed to mark setup as completed');
+      }
+    } catch (error) {
+      console.warn('Failed to mark setup as completed:', error);
+    }
+  };
 
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
@@ -41,12 +138,18 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     try {
       const result = await authService.register(apiKey, deviceName.trim() || null);
       if (result.success) {
-        setShowApiKeyForm(false);
-        setProgress('Authentication successful! Choose your depot initialization method below.');
-        setTimeout(() => setProgress(null), 3000);
+        // Verify authentication status with server after successful registration
+        const authCheck = await authService.checkAuth();
+        if (authCheck.isAuthenticated) {
+          setShowApiKeyForm(false);
+          setProgress('Authentication successful! Choose your depot initialization method below.');
+          setTimeout(() => setProgress(null), 3000);
 
-        // Notify parent component of authentication change
-        onAuthChanged?.();
+          // Notify parent component of authentication change
+          onAuthChanged?.();
+        } else {
+          setAuthError('Authentication succeeded but verification failed. Please try again.');
+        }
       } else {
         setAuthError(result.message);
       }
@@ -58,8 +161,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   };
 
   const handleDownloadPrecreated = async () => {
-    if (!authService.isAuthenticated) {
-      setError('Authentication required');
+    // Double-check authentication status before proceeding
+    const authCheck = await authService.checkAuth();
+    if (!authCheck.isAuthenticated) {
+      setError('Authentication required. Please authenticate first.');
+      setShowApiKeyForm(true);
       return;
     }
 
@@ -76,10 +182,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       if (response.ok) {
         const result = await response.json();
-        setProgress('Import complete! Initializing application...');
-        setTimeout(() => {
-          onInitialized();
-        }, 1500);
+        setProgress('Import complete! Verifying initialization...');
+
+        // Verify depot data actually exists before marking as initialized
+        await verifyDepotInitialization();
+
+        // Mark setup as completed
+        await markSetupCompleted();
       } else {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to download depot data');
@@ -93,8 +202,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   };
 
   const handleGenerateOwn = async () => {
-    if (!authService.isAuthenticated) {
-      setError('Authentication required');
+    // Double-check authentication status before proceeding
+    const authCheck = await authService.checkAuth();
+    if (!authCheck.isAuthenticated) {
+      setError('Authentication required. Please authenticate first.');
+      setShowApiKeyForm(true);
       return;
     }
 
@@ -111,10 +223,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       if (response.ok) {
         const result = await response.json();
-        setProgress('Depot generation started! This will take 10-30 minutes. You can use the app while this runs in the background.');
-        setTimeout(() => {
-          onInitialized();
-        }, 3000);
+        setProgress('Depot generation started! Verifying initialization...');
+
+        // For generate method, we can proceed immediately since it runs in background
+        // but still verify depot service is ready
+        await verifyDepotInitialization();
+
+        // Mark setup as completed
+        await markSetupCompleted();
       } else {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to start depot generation');
@@ -262,7 +378,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
                 color="blue"
                 leftSection={initializing && selectedMethod === 'cloud' ? <Loader className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
                 onClick={handleDownloadPrecreated}
-                disabled={initializing || !authService.isAuthenticated}
+                disabled={initializing || showApiKeyForm}
                 fullWidth
               >
                 {initializing && selectedMethod === 'cloud' ? 'Downloading...' : 'Download Pre-created'}
@@ -292,7 +408,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
                 color="green"
                 leftSection={initializing && selectedMethod === 'generate' ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
                 onClick={handleGenerateOwn}
-                disabled={initializing || !authService.isAuthenticated}
+                disabled={initializing || showApiKeyForm}
                 fullWidth
               >
                 {initializing && selectedMethod === 'generate' ? 'Starting...' : 'Generate Fresh Data'}

@@ -497,93 +497,14 @@ public class GameInfoController : ControllerBase
 
 
 
-    /// <summary>
-    /// Store a newly discovered depot mapping in the database
-    /// </summary>
-    private async Task StoreDiscoveredMappingAsync(uint depotId, uint appId, string appName, string source)
-    {
-        try
-        {
-            // Check if mapping already exists
-            var existingMapping = await _context.SteamDepotMappings
-                .FirstOrDefaultAsync(m => m.DepotId == depotId && m.AppId == appId);
 
-            if (existingMapping == null)
-            {
-                var newMapping = new SteamDepotMapping
-                {
-                    DepotId = depotId,
-                    AppId = appId,
-                    AppName = appName,
-                    Source = source,
-                    Confidence = 75, // Medium confidence for pattern matching
-                    DiscoveredAt = DateTime.UtcNow
-                };
 
-                _context.SteamDepotMappings.Add(newMapping);
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation($"Stored new depot mapping: {depotId} -> {appId} ({appName}) via {source}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, $"Failed to store discovered mapping: depot {depotId} -> app {appId}");
-        }
-    }
-
-    /// <summary>
-    /// Simple test endpoint
-    /// </summary>
-    [HttpGet("test")]
-    public IActionResult Test()
-    {
-        return Ok(new { message = "GameInfoController is working", timestamp = DateTime.UtcNow });
-    }
-
-    /// <summary>
-    /// Proxy Steam game header images to avoid CORS issues
-    /// </summary>
-    [HttpGet("gameimages/{appId}/header")]
-    public async Task<IActionResult> GetGameHeaderImage(uint appId)
-    {
-        try
-        {
-            var imageUrl = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
-
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
-
-            var response = await httpClient.GetAsync(imageUrl);
-
-            if (response.IsSuccessStatusCode)
-            {
-                var imageBytes = await response.Content.ReadAsByteArrayAsync();
-                var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-
-                // Add cache headers
-                Response.Headers["Cache-Control"] = "public, max-age=3600"; // Cache for 1 hour
-
-                return File(imageBytes, contentType);
-            }
-            else
-            {
-                _logger.LogWarning($"Failed to fetch Steam header image for app {appId}, status: {response.StatusCode}");
-                return NotFound(new { error = $"Steam header image not found for app {appId}" });
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error proxying Steam header image for app {appId}");
-            return StatusCode(500, new { error = "Failed to fetch game header image" });
-        }
-    }
 
     /// <summary>
     /// Download pre-created depot mappings from GitHub repo
     /// </summary>
     [HttpPost("download-precreated-data")]
-    public async Task<IActionResult> DownloadPrecreatedDepotData()
+    public async Task<IActionResult> DownloadPrecreatedDepotData(CancellationToken cancellationToken)
     {
         try
         {
@@ -597,7 +518,7 @@ public class GameInfoController : ControllerBase
 
             _logger.LogInformation($"Downloading from: {githubUrl}");
 
-            var response = await httpClient.GetAsync(githubUrl);
+            var response = await httpClient.GetAsync(githubUrl, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -609,7 +530,7 @@ public class GameInfoController : ControllerBase
                 });
             }
 
-            var jsonContent = await response.Content.ReadAsStringAsync();
+            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
             if (string.IsNullOrWhiteSpace(jsonContent))
             {
@@ -639,12 +560,12 @@ public class GameInfoController : ControllerBase
 
             // Save to local file
             var localPath = _picsDataService.GetPicsJsonFilePath();
-            await System.IO.File.WriteAllTextAsync(localPath, jsonContent);
+            await System.IO.File.WriteAllTextAsync(localPath, jsonContent, cancellationToken);
 
             _logger.LogInformation($"Saved pre-created depot data to: {localPath}");
 
             // Import to database
-            await _picsDataService.ImportJsonDataToDatabaseAsync();
+            await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
 
             // Enable periodic crawls now that we have initial data
             _steamKit2Service.EnablePeriodicCrawls();
@@ -667,6 +588,11 @@ public class GameInfoController : ControllerBase
         {
             _logger.LogError(ex, "Timeout while downloading pre-created depot data");
             return StatusCode(500, new { error = "Download timeout: The GitHub file is taking too long to download." });
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Download of pre-created depot data was cancelled by user");
+            return StatusCode(499, new { error = "Operation cancelled by user" });
         }
         catch (Exception ex)
         {

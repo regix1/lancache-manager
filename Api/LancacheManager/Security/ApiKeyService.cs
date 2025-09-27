@@ -1,25 +1,46 @@
 using System.Security.Cryptography;
 using System.Text;
-using LancacheManager.Constants;
+using LancacheManager.Services;
 
 namespace LancacheManager.Security;
 
 public class ApiKeyService
 {
     private readonly ILogger<ApiKeyService> _logger;
+    private readonly IPathResolver _pathResolver;
     private readonly string _apiKeyPath;
     private string? _apiKey;
     private readonly object _keyLock = new object();
 
-    public ApiKeyService(ILogger<ApiKeyService> logger, IConfiguration configuration)
+    public ApiKeyService(ILogger<ApiKeyService> logger, IConfiguration configuration, IPathResolver pathResolver)
     {
         _logger = logger;
-        _apiKeyPath = configuration["Security:ApiKeyPath"] ?? Path.Combine(LancacheConstants.DATA_DIRECTORY, "api_key.txt");
+        _pathResolver = pathResolver;
+
+        // Get the API key path from configuration or use default
+        var configPath = configuration["Security:ApiKeyPath"];
+        if (!string.IsNullOrEmpty(configPath))
+        {
+            _apiKeyPath = Path.GetFullPath(configPath);
+        }
+        else
+        {
+            // Use the path resolver to get the data directory
+            _apiKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "api_key.txt");
+        }
+
+        // Log absolute path for debugging
+        var absolutePath = Path.GetFullPath(_apiKeyPath);
+        _logger.LogDebug("API key path resolved to: {Path}", _apiKeyPath);
+        _logger.LogDebug("API key absolute path: {AbsPath}", absolutePath);
+        _logger.LogDebug("Data directory: {DataDir}", _pathResolver.GetDataDirectory());
+        _logger.LogDebug("Base path: {BasePath}", _pathResolver.GetBasePath());
 
         // Ensure data directory exists
         var dir = Path.GetDirectoryName(_apiKeyPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
         {
+            _logger.LogInformation("Creating data directory: {Directory}", dir);
             Directory.CreateDirectory(dir);
         }
     }

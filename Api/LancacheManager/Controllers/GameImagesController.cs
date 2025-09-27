@@ -65,12 +65,4 @@ public class GameImagesController : ControllerBase
         }
     }
 
-    /// <summary>
-    /// Simple test endpoint
-    /// </summary>
-    [HttpGet("test")]
-    public IActionResult Test()
-    {
-        return Ok(new { message = "GameImagesController is working", timestamp = DateTime.UtcNow });
-    }
 }

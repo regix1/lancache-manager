@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using LancacheManager.Constants;
+using LancacheManager.Services;
 
 namespace LancacheManager.Security;
 
@@ -9,6 +9,7 @@ public class DeviceAuthService
 {
     private readonly ILogger<DeviceAuthService> _logger;
     private readonly ApiKeyService _apiKeyService;
+    private readonly IPathResolver _pathResolver;
     private readonly string _devicesDirectory;
     private readonly Dictionary<string, DeviceRegistration> _deviceCache = new();
     private readonly object _cacheLock = new object();
@@ -16,11 +17,13 @@ public class DeviceAuthService
     public DeviceAuthService(
         ILogger<DeviceAuthService> logger,
         ApiKeyService apiKeyService,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IPathResolver pathResolver)
     {
         _logger = logger;
         _apiKeyService = apiKeyService;
-        _devicesDirectory = configuration["Security:DevicesPath"] ?? Path.Combine(LancacheConstants.DATA_DIRECTORY, "devices");
+        _pathResolver = pathResolver;
+        _devicesDirectory = configuration["Security:DevicesPath"] ?? Path.Combine(_pathResolver.GetDataDirectory(), "devices");
         
         // Ensure devices directory exists
         if (!Directory.Exists(_devicesDirectory))

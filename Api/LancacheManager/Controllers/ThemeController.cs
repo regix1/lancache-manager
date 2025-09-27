@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Security;
 using LancacheManager.Constants;
+using LancacheManager.Services;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -13,11 +14,11 @@ public class ThemeController : ControllerBase
     private readonly string _themesPath;
     private readonly ILogger<ThemeController> _logger;
 
-    public ThemeController(IConfiguration configuration, ILogger<ThemeController> logger)
+    public ThemeController(IConfiguration configuration, ILogger<ThemeController> logger, IPathResolver pathResolver)
     {
         _logger = logger;
-        
-        _themesPath = LancacheConstants.THEMES_DIRECTORY;
+
+        _themesPath = pathResolver.GetThemesDirectory();
 
         // Ensure themes directory exists
         if (!Directory.Exists(_themesPath))

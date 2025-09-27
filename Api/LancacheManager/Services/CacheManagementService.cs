@@ -7,19 +7,19 @@ public class CacheManagementService
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<CacheManagementService> _logger;
-    private readonly PathResolverService _pathResolver;
+    private readonly IPathResolver _pathResolver;
     private readonly string _cachePath;
     private readonly string _logPath;
 
-    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, PathResolverService pathResolver)
+    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver)
     {
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
 
         // Use PathResolver to get properly resolved paths
-        _cachePath = _pathResolver.GetCachePath();
-        _logPath = _pathResolver.GetLogPath();
+        _cachePath = configuration["LanCache:CachePath"] ?? _pathResolver.GetCacheDirectory();
+        _logPath = configuration["LanCache:LogPath"] ?? Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
 
         // Check if cache directory exists, create if it doesn't in development
         if (!Directory.Exists(_cachePath))
@@ -110,14 +110,12 @@ public class CacheManagementService
                 return bestMatch;
             }
             
-            // Fallback: check if any of the standard cache paths are mount points
-            foreach (var cachePath in LancacheConstants.CACHE_PATHS)
+            // Fallback: check if the cache path is a mount point
+            var cachePath = _pathResolver.GetCacheDirectory();
+            if (path.StartsWith(cachePath))
             {
-                if (path.StartsWith(cachePath))
-                {
-                    if (Directory.Exists(cachePath) && new DriveInfo(cachePath).TotalSize > 0)
-                        return cachePath;
-                }
+                if (Directory.Exists(cachePath) && new DriveInfo(cachePath).TotalSize > 0)
+                    return cachePath;
             }
             
             // Last resort: use root
@@ -243,7 +241,7 @@ public class CacheManagementService
                 throw new FileNotFoundException($"Log file not found: {_logPath}");
             }
 
-            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.ResolvePath("logs");
+            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
             var backupFile = $"{_logPath}.bak";
             var tempFile = Path.Combine(logDir, $"access.log.tmp.{Guid.NewGuid()}");
             

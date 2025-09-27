@@ -1,11 +1,11 @@
-using LancacheManager.Constants;
+using LancacheManager.Services;
 
 namespace LancacheManager.Services;
 
 /// <summary>
 /// Cross-platform path resolver service that handles Windows and Linux path differences
 /// </summary>
-public class PathResolverService
+public class PathResolverService : IPathResolver
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<PathResolverService> _logger;
@@ -31,9 +31,9 @@ public class PathResolverService
         }
 
         // For relative paths, combine with appropriate base directory
-        var basePath = LancacheConstants.IsLinuxEnvironment
-            ? "/"
-            : LancacheConstants.WindowsBasePath;
+        var basePath = Environment.OSVersion.Platform == PlatformID.Win32NT
+            ? "H:\\_git\\lancache-manager"
+            : "/";
 
         var fullPath = Path.Combine(basePath, relativePath);
         return NormalizePath(fullPath);
@@ -73,8 +73,8 @@ public class PathResolverService
             return ResolvePath(configPath);
         }
 
-        // Fall back to constants
-        return LancacheConstants.CACHE_DIRECTORY;
+        // Fall back to default cache directory
+        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "C:\\cache" : "/cache";
     }
 
     /// <summary>
@@ -88,8 +88,8 @@ public class PathResolverService
             return ResolvePath(configPath);
         }
 
-        // Fall back to constants
-        return LancacheConstants.LOG_PATH;
+        // Fall back to default log path
+        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "C:\\logs\\access.log" : "/logs/access.log";
     }
 
     /// <summary>
@@ -104,8 +104,8 @@ public class PathResolverService
             return ResolvePath(dbPath);
         }
 
-        // Fall back to constants
-        return LancacheConstants.DATABASE_PATH;
+        // Fall back to default database path
+        return Path.Combine(GetDataDirectory(), "lancache.db");
     }
 
     /// <summary>
@@ -119,8 +119,8 @@ public class PathResolverService
             return ResolvePath(configPath);
         }
 
-        // Fall back to constants
-        return Path.Combine(LancacheConstants.DATA_DIRECTORY, "api_key.txt");
+        // Fall back to default api key path
+        return Path.Combine(GetDataDirectory(), "api_key.txt");
     }
 
     /// <summary>
@@ -134,7 +134,65 @@ public class PathResolverService
             return ResolvePath(configPath);
         }
 
-        // Fall back to constants
-        return Path.Combine(LancacheConstants.DATA_DIRECTORY, "devices");
+        // Fall back to default devices path
+        return Path.Combine(GetDataDirectory(), "devices");
+    }
+
+    /// <summary>
+    /// Gets the base directory path for the application
+    /// </summary>
+    public string GetBasePath()
+    {
+        return Environment.OSVersion.Platform == PlatformID.Win32NT
+            ? "H:\\_git\\lancache-manager"
+            : "/";
+    }
+
+    /// <summary>
+    /// Gets the data directory path
+    /// </summary>
+    public string GetDataDirectory()
+    {
+        var configPath = _configuration["LanCache:DataPath"];
+        if (!string.IsNullOrEmpty(configPath))
+        {
+            return ResolvePath(configPath);
+        }
+
+        // Fall back to default data directory
+        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "H:\\data" : "/data";
+    }
+
+    /// <summary>
+    /// Gets the logs directory path
+    /// </summary>
+    public string GetLogsDirectory()
+    {
+        var configPath = _configuration["LanCache:LogsPath"];
+        if (!string.IsNullOrEmpty(configPath))
+        {
+            return ResolvePath(configPath);
+        }
+
+        // Fall back to default logs directory
+        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "C:\\logs" : "/logs";
+    }
+
+
+
+    /// <summary>
+    /// Gets the cache directory path
+    /// </summary>
+    public string GetCacheDirectory()
+    {
+        return GetCachePath();
+    }
+
+    /// <summary>
+    /// Gets the themes directory path
+    /// </summary>
+    public string GetThemesDirectory()
+    {
+        return Path.Combine(GetDataDirectory(), "themes");
     }
 }

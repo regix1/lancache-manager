@@ -1,26 +1,25 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Constants;
+using LancacheManager.Services;
 
 namespace LancacheManager.Services;
 
 public class OperationStateService : IHostedService
 {
     private readonly ILogger<OperationStateService> _logger;
-    private readonly string _stateFilePath;
+    private readonly StateService _stateService;
     private readonly ConcurrentDictionary<string, OperationState> _states = new();
     private Timer? _cleanupTimer;
-    private readonly object _fileLock = new object();
 
-    public OperationStateService(ILogger<OperationStateService> logger)
+    public OperationStateService(ILogger<OperationStateService> logger, StateService stateService)
     {
         _logger = logger;
-        _stateFilePath = Path.Combine(LancacheConstants.DATA_DIRECTORY, "operation_states.json");
+        _stateService = stateService;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        LoadStates();
+        LoadStatesFromStateService();
         // Cleanup expired operations every 5 minutes
         _cleanupTimer = new Timer(CleanupExpired, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         return Task.CompletedTask;
@@ -29,7 +28,7 @@ public class OperationStateService : IHostedService
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _cleanupTimer?.Dispose();
-        SaveStates();
+        SaveAllStatesToStateService();
         return Task.CompletedTask;
     }
 
@@ -53,7 +52,7 @@ public class OperationStateService : IHostedService
     {
         state.UpdatedAt = DateTime.UtcNow;
         _states[key] = state;
-        SaveStates();
+        SaveStateToStateService(state);
     }
 
     public void UpdateState(string key, Dictionary<string, object> updates)
@@ -65,7 +64,7 @@ public class OperationStateService : IHostedService
                 state.Data[kvp.Key] = kvp.Value;
             }
             state.UpdatedAt = DateTime.UtcNow;
-            SaveStates();
+            SaveStateToStateService(state);
         }
     }
 
@@ -73,7 +72,7 @@ public class OperationStateService : IHostedService
     {
         if (_states.TryRemove(key, out _))
         {
-            SaveStates();
+            _stateService.RemoveOperationState(key);
         }
     }
 
@@ -96,65 +95,92 @@ public class OperationStateService : IHostedService
             .ToList();
     }
 
-    private void LoadStates()
+    private void LoadStatesFromStateService()
     {
         try
         {
-            var dataDirectory = LancacheConstants.DATA_DIRECTORY;
-            if (!Directory.Exists(dataDirectory))
-            {
-                Directory.CreateDirectory(dataDirectory);
-            }
+            var operations = _stateService.GetOperationStates();
+            var now = DateTime.UtcNow;
 
-            if (File.Exists(_stateFilePath))
+            foreach (var op in operations)
             {
-                lock (_fileLock)
+                // Only load non-expired states
+                if (op.UpdatedAt > now.AddHours(-24)) // Use UpdatedAt as expiration check
                 {
-                    var json = File.ReadAllText(_stateFilePath);
-                    var states = JsonSerializer.Deserialize<List<OperationState>>(json, new JsonSerializerOptions
+                    var operationState = new OperationState
                     {
-                        PropertyNameCaseInsensitive = true
-                    });
-
-                    if (states != null)
-                    {
-                        var now = DateTime.UtcNow;
-                        foreach (var state in states)
-                        {
-                            // Only load non-expired states
-                            if (state.ExpiresAt > now)
-                            {
-                                _states[state.Key] = state;
-                            }
-                        }
-                    }
+                        Key = op.Id,
+                        Type = op.Type,
+                        Status = op.Status,
+                        Data = op.Data != null ? JsonSerializer.Deserialize<Dictionary<string, object>>(op.Data.ToString() ?? "{}") ?? new() : new(),
+                        CreatedAt = op.CreatedAt,
+                        UpdatedAt = op.UpdatedAt,
+                        ExpiresAt = op.UpdatedAt.AddHours(24) // Set expiration to 24 hours from last update
+                    };
+                    _states[op.Id] = operationState;
                 }
-                
-                _logger.LogInformation($"Loaded {_states.Count} operation states from disk");
             }
+
+            _logger.LogInformation($"Loaded {_states.Count} operation states from StateService");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load operation states");
+            _logger.LogError(ex, "Failed to load operation states from StateService");
         }
     }
 
-    private void SaveStates()
+    private void SaveStateToStateService(OperationState state)
     {
         try
         {
-            lock (_fileLock)
+            var stateOp = new StateService.OperationState
             {
-                var json = JsonSerializer.Serialize(_states.Values.ToList(), new JsonSerializerOptions
+                Id = state.Key,
+                Type = state.Type,
+                Status = state.Status ?? "",
+                Data = state.Data,
+                CreatedAt = state.CreatedAt,
+                UpdatedAt = state.UpdatedAt
+            };
+
+            _stateService.UpdateState(appState =>
+            {
+                var existing = appState.OperationStates.FirstOrDefault(o => o.Id == state.Key);
+                if (existing != null)
                 {
-                    WriteIndented = true
-                });
-                File.WriteAllText(_stateFilePath, json);
-            }
+                    appState.OperationStates.Remove(existing);
+                }
+                appState.OperationStates.Add(stateOp);
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save operation states");
+            _logger.LogError(ex, "Failed to save operation state to StateService");
+        }
+    }
+
+    private void SaveAllStatesToStateService()
+    {
+        try
+        {
+            var operations = _states.Values.Select(state => new StateService.OperationState
+            {
+                Id = state.Key,
+                Type = state.Type,
+                Status = state.Status ?? "",
+                Data = state.Data,
+                CreatedAt = state.CreatedAt,
+                UpdatedAt = state.UpdatedAt
+            }).ToList();
+
+            _stateService.UpdateState(appState =>
+            {
+                appState.OperationStates = operations;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save all operation states to StateService");
         }
     }
 
@@ -176,7 +202,12 @@ public class OperationStateService : IHostedService
             if (expired.Count > 0)
             {
                 _logger.LogDebug($"Cleaned up {expired.Count} expired operation states");
-                SaveStates();
+
+                // Remove from state service as well
+                foreach (var key in expired)
+                {
+                    _stateService.RemoveOperationState(key);
+                }
             }
         }
         catch (Exception ex)

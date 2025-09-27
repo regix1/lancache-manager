@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Data;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
-using LancacheManager.Constants;
+using LancacheManager.Services;
 
 namespace LancacheManager.Services;
 
@@ -15,6 +15,7 @@ public class DatabaseService
     private readonly SteamService _steamService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly PicsDataService _picsDataService;
+    private readonly IPathResolver _pathResolver;
 
     // Track ongoing sessions to group downloads properly
     private static readonly Dictionary<string, DateTime> _sessionTracker = new();
@@ -26,7 +27,8 @@ public class DatabaseService
         ILogger<DatabaseService> logger,
         SteamService steamService,
         SteamKit2Service steamKit2Service,
-        PicsDataService picsDataService)
+        PicsDataService picsDataService,
+        IPathResolver pathResolver)
     {
         _context = context;
         _hubContext = hubContext;
@@ -34,6 +36,7 @@ public class DatabaseService
         _steamService = steamService;
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
+        _pathResolver = pathResolver;
     }
 
     public async Task ProcessLogEntryBatch(List<LogEntry> entries, bool sendRealtimeUpdates)
@@ -42,10 +45,11 @@ public class DatabaseService
 
         try
         {
-            // Ensure the Steam PICS crawler is running when we touch depot data, but respect timing constraints
-            if (!_steamKit2Service.IsReady && _steamKit2Service.ShouldRunPicsCrawl())
+            // Only trigger PICS crawler for real-time processing, not during bulk processing
+            if (sendRealtimeUpdates && !_steamKit2Service.IsReady && _steamKit2Service.ShouldRunPicsCrawl())
             {
                 _steamKit2Service.TryStartRebuild();
+                _logger.LogInformation("Triggered PICS crawler for real-time log processing");
             }
 
             // During bulk reprocessing, be more aggressive about processing
@@ -170,7 +174,8 @@ public class DatabaseService
             }
 
             // For Steam downloads, try to extract game info using PICS depot mapping first, then fallback to pattern matching
-            if (download.Service.ToLower() == "steam" && download.GameAppId == null && download.DepotId.HasValue)
+            // SKIP depot mapping during bulk processing for performance - will be done in post-processing step
+            if (sendRealtimeUpdates && download.Service.ToLower() == "steam" && download.GameAppId == null && download.DepotId.HasValue)
             {
                 uint? appId = null;
 
@@ -239,6 +244,11 @@ public class DatabaseService
                         download.GameName = $"Steam App {appId}";
                     }
                 }
+            }
+            else if (!sendRealtimeUpdates && download.Service.ToLower() == "steam" && download.DepotId.HasValue)
+            {
+                // During bulk processing, just log that we're deferring mapping
+                _logger.LogTrace($"Deferring depot mapping for depot {download.DepotId} (bulk processing mode)");
             }
 
             // Update client stats
@@ -363,7 +373,7 @@ public class DatabaseService
             await _context.SaveChangesAsync();
 
             // Ensure data directory exists before working with files
-            var dataDirectory = LancacheConstants.DATA_DIRECTORY;
+            var dataDirectory = _pathResolver.GetDataDirectory();
             if (!Directory.Exists(dataDirectory))
             {
                 Directory.CreateDirectory(dataDirectory);
@@ -371,7 +381,7 @@ public class DatabaseService
             }
 
             // Clear position file
-            var positionFile = LancacheConstants.POSITION_FILE;
+            var positionFile = Path.Combine(dataDirectory, "position.txt");
             if (File.Exists(positionFile))
             {
                 File.Delete(positionFile);
@@ -379,7 +389,7 @@ public class DatabaseService
             }
 
             // Clear performance data file
-            var performanceFile = LancacheConstants.PERFORMANCE_DATA_FILE;
+            var performanceFile = Path.Combine(dataDirectory, "performance_data.json");
             if (File.Exists(performanceFile))
             {
                 File.Delete(performanceFile);
@@ -387,7 +397,7 @@ public class DatabaseService
             }
 
             // Clear processing marker
-            var processingMarker = LancacheConstants.PROCESSING_MARKER;
+            var processingMarker = Path.Combine(dataDirectory, "processing.marker");
             if (File.Exists(processingMarker))
             {
                 File.Delete(processingMarker);
@@ -409,39 +419,107 @@ public class DatabaseService
         }
     }
 
-
     /// <summary>
-    /// Store a newly discovered depot mapping in the database
+    /// Post-process depot mappings for downloads that were created during bulk processing
+    /// This should be called after bulk log processing is complete
     /// </summary>
-    private async Task StoreDiscoveredMappingAsync(uint depotId, uint appId, string appName, string source)
+    public async Task<int> PostProcessDepotMappings()
     {
+        _logger.LogInformation("Starting post-processing of depot mappings...");
+        int mappingsProcessed = 0;
+
         try
         {
-            // Check if mapping already exists
-            var existingMapping = await _context.SteamDepotMappings
-                .FirstOrDefaultAsync(m => m.DepotId == depotId && m.AppId == appId);
+            // Find all Steam downloads that have depot IDs but no game app ID
+            var unmappedDownloads = await _context.Downloads
+                .Where(d => d.Service.ToLower() == "steam"
+                       && d.DepotId.HasValue
+                       && !d.GameAppId.HasValue)
+                .ToListAsync();
 
-            if (existingMapping == null)
+            _logger.LogInformation($"Found {unmappedDownloads.Count} downloads needing depot mapping");
+
+            foreach (var download in unmappedDownloads)
             {
-                var newMapping = new SteamDepotMapping
+                try
                 {
-                    DepotId = depotId,
-                    AppId = appId,
-                    AppName = appName,
-                    Source = source,
-                    Confidence = 75, // Medium confidence for pattern matching
-                    DiscoveredAt = DateTime.UtcNow
-                };
+                    uint? appId = null;
 
-                _context.SteamDepotMappings.Add(newMapping);
-                await _context.SaveChangesAsync();
+                    // First try PICS depot mapping from SteamKit2Service
+                    var appIds = _steamKit2Service.GetAppIdsForDepot(download.DepotId.Value);
+                    if (appIds.Any())
+                    {
+                        appId = appIds.First(); // Take the first app ID if multiple exist
+                        _logger.LogDebug($"Mapped depot {download.DepotId} to app {appId} using PICS data from database");
+                    }
+                    else
+                    {
+                        // Second, try JSON file fallback
+                        var jsonAppIds = await _picsDataService.GetAppIdsForDepotFromJsonAsync(download.DepotId.Value);
+                        if (jsonAppIds.Any())
+                        {
+                            appId = jsonAppIds.First();
+                            _logger.LogDebug($"Mapped depot {download.DepotId} to app {appId} using PICS data from JSON file");
+                        }
+                        else
+                        {
+                            _logger.LogDebug($"No PICS mapping found for depot {download.DepotId} in database or JSON file");
+                        }
+                    }
 
-                _logger.LogInformation($"Stored new depot mapping: {depotId} -> {appId} ({appName}) via {source}");
+                    // If we found an app ID, populate the game info
+                    if (appId.HasValue)
+                    {
+                        download.GameAppId = appId.Value;
+
+                        // Try to fetch game name
+                        try
+                        {
+                            var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
+                            if (gameInfo != null)
+                            {
+                                download.GameName = gameInfo.Name;
+                                download.GameImageUrl = gameInfo.HeaderImage;
+                                _logger.LogDebug($"Identified Steam game: {gameInfo.Name} (App ID: {appId})");
+                            }
+                            else
+                            {
+                                download.GameName = $"Steam App {appId}";
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"Failed to fetch game info for app {appId}");
+                            download.GameName = $"Steam App {appId}";
+                        }
+
+                        mappingsProcessed++;
+                    }
+
+                    // Add small delay to prevent overwhelming external services
+                    if (mappingsProcessed % 10 == 0)
+                    {
+                        await Task.Delay(100);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, $"Error processing depot mapping for download {download.Id} with depot {download.DepotId}");
+                }
             }
+
+            // Save all changes
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation($"Post-processing completed. Successfully mapped {mappingsProcessed} downloads.");
+            return mappingsProcessed;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, $"Failed to store discovered mapping: depot {depotId} -> app {appId}");
+            _logger.LogError(ex, "Error during depot mapping post-processing");
+            throw;
         }
     }
+
+
 }

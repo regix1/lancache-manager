@@ -27,11 +27,26 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Database configuration
-builder.Services.AddDbContext<AppDbContext>(options =>
+// IMPORTANT: Register path resolver FIRST before anything that depends on it
+if (OperatingSystemDetector.IsWindows)
 {
-    // Use cross-platform database path
-    var dbPath = LancacheConstants.DATABASE_PATH;
+    builder.Services.AddSingleton<IPathResolver, WindowsPathResolver>();
+}
+else if (OperatingSystemDetector.IsLinux)
+{
+    builder.Services.AddSingleton<IPathResolver, LinuxPathResolver>();
+}
+else
+{
+    throw new PlatformNotSupportedException($"Unsupported operating system: {OperatingSystemDetector.Description}");
+}
+
+// Database configuration (now can use IPathResolver)
+builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+{
+    // Get the path resolver to determine the database path
+    var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
+    var dbPath = Path.Combine(pathResolver.GetDataDirectory(), "LancacheManager.db");
 
     // Ensure the directory exists
     var dbDir = Path.GetDirectoryName(dbPath);
@@ -41,7 +56,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         Console.WriteLine($"Created database directory: {dbDir}");
     }
 
-    // Console.WriteLine($"Using database path: {dbPath}"); // Commented out to avoid duplicate logs
+    Console.WriteLine($"Using database path: {dbPath}");
     options.UseSqlite($"Data Source={dbPath};Cache=Shared");
 });
 
@@ -70,14 +85,19 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamS
 // Register services
 builder.Services.AddSingleton<PathResolverService>();
 builder.Services.AddSingleton<LogParserService>();
+builder.Services.AddSingleton<StateService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddScoped<StatsService>();
 builder.Services.AddSingleton<PicsDataService>();
 
-// Register LogProcessingService for high-performance log processing
+// Register LogProcessingService for high-performance log processing (manual trigger only)
 builder.Services.AddSingleton<LogProcessingService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<LogProcessingService>());
+// NOTE: LogProcessingService is NOT registered as a hosted service - manual trigger only
+
+// Register LogWatcherService (manual trigger only, not auto-started)
+builder.Services.AddSingleton<LogWatcherService>();
+// NOTE: LogWatcherService is NOT registered as a hosted service - manual trigger only
 
 // Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();
@@ -88,7 +108,6 @@ builder.Services.AddSingleton<OperationStateService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<OperationStateService>());
 
 // Register background services
-builder.Services.AddHostedService<LogWatcherService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
 
 // Add memory cache for storing stats

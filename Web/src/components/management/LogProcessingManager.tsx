@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, X } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle, X, Database } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
@@ -446,6 +446,38 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     handleProcessAllLogs();
   };
 
+  const handlePostProcessDepotMappings = async () => {
+    if (!isAuthenticated) {
+      onError?.('Authentication required');
+      return;
+    }
+
+    if (!window.confirm('Apply depot mappings to existing download data? This will update all downloads with the latest depot information.')) return;
+
+    setActionLoading(true);
+    try {
+      const response = await fetch('/api/management/post-process-depot-mappings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        onSuccess?.(result.message || `Successfully processed ${result.mappingsProcessed} downloads`);
+        setTimeout(() => onDataRefresh?.(), 2000);
+      } else {
+        const error = await response.json();
+        onError?.(error.error || 'Failed to process depot mappings');
+      }
+    } catch (err: any) {
+      onError?.(err.message || 'Failed to process depot mappings');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   return (
     <>
       <Card>
@@ -456,41 +488,59 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       <p className="text-themed-muted text-sm mb-4">
         Control how access.log is processed for statistics
       </p>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Button
+            variant="filled"
+            color="yellow"
+            leftSection={<RefreshCw className="w-4 h-4" />}
+            onClick={handleResetLogs}
+            disabled={
+              actionLoading ||
+              isProcessingLogs ||
+              depotProcessing?.isRunning ||
+              mockMode ||
+              logProcessingOp.loading ||
+              !isAuthenticated
+            }
+            fullWidth
+          >
+            Reset Log Position
+          </Button>
+          <Button
+            variant="filled"
+            color="green"
+            leftSection={<PlayCircle className="w-4 h-4" />}
+            onClick={handleProcessAllLogs}
+            disabled={
+              actionLoading ||
+              isProcessingLogs ||
+              depotProcessing?.isRunning ||
+              mockMode ||
+              logProcessingOp.loading ||
+              !isAuthenticated
+            }
+            loading={logProcessingOp.loading}
+            fullWidth
+          >
+            Process All Logs
+          </Button>
+        </div>
         <Button
           variant="filled"
-          color="yellow"
-          leftSection={<RefreshCw className="w-4 h-4" />}
-          onClick={handleResetLogs}
+          color="blue"
+          leftSection={<Database className="w-4 h-4" />}
+          onClick={handlePostProcessDepotMappings}
           disabled={
             actionLoading ||
             isProcessingLogs ||
             depotProcessing?.isRunning ||
             mockMode ||
-            logProcessingOp.loading ||
             !isAuthenticated
           }
           fullWidth
         >
-          Reset Log Position
-        </Button>
-        <Button
-          variant="filled"
-          color="green"
-          leftSection={<PlayCircle className="w-4 h-4" />}
-          onClick={handleProcessAllLogs}
-          disabled={
-            actionLoading ||
-            isProcessingLogs ||
-            depotProcessing?.isRunning ||
-            mockMode ||
-            logProcessingOp.loading ||
-            !isAuthenticated
-          }
-          loading={logProcessingOp.loading}
-          fullWidth
-        >
-          Process All Logs
+          Apply Depot Mappings
         </Button>
       </div>
       {depotProcessing?.isRunning && (
@@ -514,6 +564,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           <strong>Reset:</strong> Start from current end of log
           <br />
           <strong>Process All:</strong> Import entire log history
+          <br />
+          <strong>Apply Depot Mappings:</strong> Update existing downloads with depot information (run after log processing completes)
         </p>
       </div>
 

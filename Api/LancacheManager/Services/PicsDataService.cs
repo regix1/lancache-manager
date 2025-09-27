@@ -1,7 +1,7 @@
 using System.Text.Json;
-using LancacheManager.Constants;
 using LancacheManager.Models;
 using LancacheManager.Data;
+using LancacheManager.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Services;
@@ -13,14 +13,16 @@ public class PicsDataService
 {
     private readonly ILogger<PicsDataService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IPathResolver _pathResolver;
     private readonly string _picsJsonFile;
     private readonly object _fileLock = new object();
 
-    public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory)
+    public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
-        _picsJsonFile = Path.Combine(LancacheConstants.DATA_DIRECTORY, "pics_depot_mappings.json");
+        _pathResolver = pathResolver;
+        _picsJsonFile = Path.Combine(_pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
     }
 
     /// <summary>
@@ -307,6 +309,14 @@ public class PicsDataService
     /// </summary>
     public async Task ImportJsonDataToDatabaseAsync()
     {
+        await ImportJsonDataToDatabaseAsync(CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Import PICS data from JSON file to database with cancellation support
+    /// </summary>
+    public async Task ImportJsonDataToDatabaseAsync(CancellationToken cancellationToken)
+    {
         try
         {
             var picsData = await LoadPicsDataFromJsonAsync();
@@ -350,6 +360,7 @@ public class PicsDataService
                         // Yield every 1000 records to prevent blocking
                         if (processedCount % 1000 == 0)
                         {
+                            cancellationToken.ThrowIfCancellationRequested();
                             await Task.Yield();
                         }
                     }
@@ -391,6 +402,7 @@ public class PicsDataService
                 // Yield every 1000 comparisons to prevent blocking
                 if (comparedCount % 1000 == 0)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     await Task.Yield();
                 }
             }
@@ -399,9 +411,10 @@ public class PicsDataService
             const int batchSize = 5000;
             for (int i = 0; i < newMappings.Count; i += batchSize)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var batch = newMappings.Skip(i).Take(batchSize).ToList();
-                await context.SteamDepotMappings.AddRangeAsync(batch);
-                await context.SaveChangesAsync();
+                await context.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
+                await context.SaveChangesAsync(cancellationToken);
 
                 // Yield after each batch
                 await Task.Yield();
@@ -412,7 +425,7 @@ public class PicsDataService
             // Save any remaining updates
             if (updated > 0)
             {
-                await context.SaveChangesAsync();
+                await context.SaveChangesAsync(cancellationToken);
             }
 
             _logger.LogInformation($"Imported PICS data: {newMappings.Count} new mappings, {updated} updated");

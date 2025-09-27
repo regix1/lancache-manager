@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
-using LancacheManager.Constants;
+using LancacheManager.Services;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -13,22 +13,27 @@ public class CacheClearingService : IHostedService
     private readonly ILogger<CacheClearingService> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly IConfiguration _configuration;
+    private readonly IPathResolver _pathResolver;
+    private readonly StateService _stateService;
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
     private readonly string _cachePath;
-    private readonly string _statusFilePath;
     private Timer? _cleanupTimer;
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
         IHubContext<DownloadHub> hubContext,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IPathResolver pathResolver,
+        StateService stateService)
     {
         _logger = logger;
         _hubContext = hubContext;
         _configuration = configuration;
-        
+        _pathResolver = pathResolver;
+        _stateService = stateService;
+
         // Determine cache path - check most likely locations first
-        var possiblePaths = new List<string>(LancacheConstants.CACHE_PATHS);
+        var possiblePaths = new List<string> { _pathResolver.GetCacheDirectory() };
 
         // Add config override if different
         var configPath = configuration["LanCache:CachePath"];
@@ -55,16 +60,12 @@ public class CacheClearingService : IHostedService
             }
         }
         
-        // If no valid cache found, use config or default
+        // If no valid cache found, use path resolver default
         if (string.IsNullOrEmpty(_cachePath))
         {
-            _cachePath = configuration["LanCache:CachePath"] ?? "/mnt/cache/cache";
+            _cachePath = _pathResolver.GetCacheDirectory();
             _logger.LogWarning($"No cache detected, using configured path: {_cachePath}");
         }
-
-        // Initialize status file path using the data directory
-        var dataDirectory = LancacheConstants.DATA_DIRECTORY;
-        _statusFilePath = Path.Combine(dataDirectory, "cache_clear_status.json");
 
         _logger.LogInformation($"CacheClearingService initialized with cache path: {_cachePath}");
     }
@@ -79,7 +80,7 @@ public class CacheClearingService : IHostedService
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _cleanupTimer?.Dispose();
-        SavePersistedOperations();
+        SaveAllOperationsToState();
         
         foreach (var operation in _operations.Values)
         {
@@ -103,8 +104,8 @@ public class CacheClearingService : IHostedService
         };
         
         _operations[operationId] = operation;
-        SavePersistedOperations();
-        
+        SaveOperationToState(operation);
+
         _logger.LogInformation($"Starting cache clear operation {operationId}");
         
         // Start the clear operation on a background thread
@@ -129,7 +130,7 @@ public class CacheClearingService : IHostedService
                 operation.Error = $"Cache path does not exist: {_cachePath}";
                 operation.EndTime = DateTime.UtcNow;
                 await NotifyProgress(operation);
-                SavePersistedOperations();
+                SaveOperationToState(operation);
                 return;
             }
 
@@ -148,7 +149,7 @@ public class CacheClearingService : IHostedService
                 operation.Error = "No cache directories found";
                 operation.EndTime = DateTime.UtcNow;
                 await NotifyProgress(operation);
-                SavePersistedOperations();
+                SaveOperationToState(operation);
                 return;
             }
 
@@ -168,7 +169,7 @@ public class CacheClearingService : IHostedService
             operation.Status = ClearStatus.Running;
             operation.StatusMessage = "Starting cache deletion...";
             await NotifyProgress(operation);
-            SavePersistedOperations();
+            SaveOperationToState(operation);
             
             // Track progress
             long totalBytesDeleted = 0;
@@ -184,7 +185,7 @@ public class CacheClearingService : IHostedService
                     operation.StatusMessage = $"Cancelled - Cleared {FormatBytes(totalBytesDeleted)}";
                     operation.EndTime = DateTime.UtcNow;
                     await NotifyProgress(operation);
-                    SavePersistedOperations();
+                    SaveOperationToState(operation);
                     return;
                 }
                 
@@ -260,7 +261,7 @@ public class CacheClearingService : IHostedService
                 // Save state every 10 directories
                 if (dirsProcessed % 10 == 0)
                 {
-                    SavePersistedOperations();
+                    SaveOperationToState(operation);
                 }
             }
             
@@ -275,7 +276,7 @@ public class CacheClearingService : IHostedService
             _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds - Cleared {FormatBytes(totalBytesDeleted)}");
             
             await NotifyProgress(operation);
-            SavePersistedOperations();
+            SaveOperationToState(operation);
         }
         catch (Exception ex)
         {
@@ -285,7 +286,7 @@ public class CacheClearingService : IHostedService
             operation.StatusMessage = $"Failed: {ex.Message}";
             operation.EndTime = DateTime.UtcNow;
             await NotifyProgress(operation);
-            SavePersistedOperations();
+            SaveOperationToState(operation);
         }
     }
 
@@ -740,31 +741,28 @@ public class CacheClearingService : IHostedService
     {
         try
         {
-            if (File.Exists(_statusFilePath))
+            var operations = _stateService.GetCacheClearOperations();
+
+            foreach (var op in operations)
             {
-                var json = File.ReadAllText(_statusFilePath);
-                var options = new JsonSerializerOptions
+                // Keep all operations from last 24 hours for status queries
+                if (op.StartTime > DateTime.UtcNow.AddHours(-24))
                 {
-                    PropertyNameCaseInsensitive = true,
-                    Converters = { new JsonStringEnumConverter() }
-                };
-                
-                var operations = JsonSerializer.Deserialize<List<CacheClearOperation>>(json, options);
-                
-                if (operations != null)
-                {
-                    foreach (var op in operations)
+                    var cacheClearOp = new CacheClearOperation
                     {
-                        // Keep all operations from last 24 hours for status queries
-                        if (op.StartTime > DateTime.UtcNow.AddHours(-24))
-                        {
-                            _operations[op.Id] = op;
-                        }
-                    }
-                    
-                    _logger.LogInformation($"Loaded {_operations.Count} persisted cache clear operations");
+                        Id = op.Id,
+                        StartTime = op.StartTime,
+                        EndTime = op.EndTime,
+                        Status = Enum.Parse<ClearStatus>(op.Status),
+                        StatusMessage = op.Message,
+                        Error = op.Error,
+                        PercentComplete = op.Progress
+                    };
+                    _operations[op.Id] = cacheClearOp;
                 }
             }
+
+            _logger.LogInformation($"Loaded {_operations.Count} persisted cache clear operations");
         }
         catch (Exception ex)
         {
@@ -772,30 +770,60 @@ public class CacheClearingService : IHostedService
         }
     }
 
-    private void SavePersistedOperations()
+    private void SaveOperationToState(CacheClearOperation operation)
     {
         try
         {
-            // Ensure the directory exists
-            var directory = Path.GetDirectoryName(_statusFilePath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            var stateOp = new StateService.CacheClearOperation
             {
-                Directory.CreateDirectory(directory);
-            }
-
-            var operations = _operations.Values.ToList();
-            var options = new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Converters = { new JsonStringEnumConverter() }
+                Id = operation.Id,
+                Status = operation.Status.ToString(),
+                Message = operation.StatusMessage,
+                Progress = (int)operation.PercentComplete,
+                StartTime = operation.StartTime,
+                EndTime = operation.EndTime,
+                Error = operation.Error
             };
 
-            var json = JsonSerializer.Serialize(operations, options);
-            File.WriteAllText(_statusFilePath, json);
+            _stateService.UpdateState(state =>
+            {
+                var existing = state.CacheClearOperations.FirstOrDefault(o => o.Id == operation.Id);
+                if (existing != null)
+                {
+                    state.CacheClearOperations.Remove(existing);
+                }
+                state.CacheClearOperations.Add(stateOp);
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save persisted operations");
+            _logger.LogError(ex, "Failed to save operation to state");
+        }
+    }
+
+    private void SaveAllOperationsToState()
+    {
+        try
+        {
+            var operations = _operations.Values.Select(op => new StateService.CacheClearOperation
+            {
+                Id = op.Id,
+                Status = op.Status.ToString(),
+                Message = op.StatusMessage,
+                Progress = (int)op.PercentComplete,
+                StartTime = op.StartTime,
+                EndTime = op.EndTime,
+                Error = op.Error
+            }).ToList();
+
+            _stateService.UpdateState(state =>
+            {
+                state.CacheClearOperations = operations;
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save all operations to state");
         }
     }
 
@@ -882,7 +910,12 @@ public class CacheClearingService : IHostedService
             if (toRemove.Count > 0)
             {
                 _logger.LogDebug($"Cleaned up {toRemove.Count} old cache clear operations");
-                SavePersistedOperations();
+
+                // Remove from state service as well
+                foreach (var key in toRemove)
+                {
+                    _stateService.RemoveCacheClearOperation(key);
+                }
             }
         }
         catch (Exception ex)

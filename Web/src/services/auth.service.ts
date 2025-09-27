@@ -60,6 +60,14 @@ class AuthService {
         const result = await response.json();
         this.isAuthenticated = result.isAuthenticated;
         this.authChecked = true;
+
+        // If device is not authenticated but auth is required, clear the stored device ID
+        // This handles the case where the backend was reset
+        if (result.requiresAuth && !result.isAuthenticated && result.authenticationType !== 'device') {
+          localStorage.removeItem('lancache_device_id');
+          this.deviceId = this.getOrCreateDeviceId();
+        }
+
         return result;
       }
 
@@ -68,8 +76,10 @@ class AuthService {
       return { requiresAuth: true, isAuthenticated: false };
     } catch (error: any) {
       console.error('Auth check failed:', error);
+      this.isAuthenticated = false;
       this.authChecked = true;
-      return { requiresAuth: false, isAuthenticated: false, error: error.message };
+      // If we can't reach the backend, assume authentication is required
+      return { requiresAuth: true, isAuthenticated: false, error: error.message };
     }
   }
 

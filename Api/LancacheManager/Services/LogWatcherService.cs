@@ -2,7 +2,7 @@ using LancacheManager.Models;
 using System.Text;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
-using LancacheManager.Constants;
+using LancacheManager.Services;
 
 namespace LancacheManager.Services;
 
@@ -13,9 +13,10 @@ public class LogWatcherService : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly ILogger<LogWatcherService> _logger;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly IPathResolver _pathResolver;
+    private readonly StateService _stateService;
     private long _lastPosition = -1;
-    private readonly string _positionFile = LancacheConstants.POSITION_FILE;
-    private readonly string _processingMarker = LancacheConstants.PROCESSING_MARKER;
+    private readonly string _processingMarker;
     private readonly string _logPath;
     private bool _isBulkProcessing = false;
     private DateTime _lastMarkerCheck = DateTime.MinValue;
@@ -28,39 +29,48 @@ public class LogWatcherService : BackgroundService
         LogProcessingService processingService,
         IConfiguration configuration,
         ILogger<LogWatcherService> logger,
-        IHubContext<DownloadHub> hubContext)
+        IHubContext<DownloadHub> hubContext,
+        IPathResolver pathResolver,
+        StateService stateService)
     {
         _serviceProvider = serviceProvider;
         _processingService = processingService;
         _configuration = configuration;
         _logger = logger;
         _hubContext = hubContext;
-        _logPath = configuration["LanCache:LogPath"] ?? LancacheConstants.LOG_PATH;
+        _pathResolver = pathResolver;
+        _stateService = stateService;
+
+        var dataDirectory = _pathResolver.GetDataDirectory();
+        _processingMarker = Path.Combine(dataDirectory, "processing.marker");
+        _logPath = configuration["LanCache:LogPath"] ?? Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+
         _logger.LogInformation($"LogWatcherService using log path: {_logPath}");
-        _logger.LogInformation($"Current directory: {Directory.GetCurrentDirectory()}");
-        _logger.LogInformation($"WindowsBasePath: {LancacheConstants.WindowsBasePath}");
-        _logger.LogInformation($"LOGS_DIRECTORY: {LancacheConstants.LOGS_DIRECTORY}");
+        _logger.LogInformation($"Processing marker: {_processingMarker}");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // This service is only started manually via the API endpoint
+        _logger.LogInformation("LogWatcherService started for manual log processing");
+
         SetupMarkerWatcher();
-        
+
         // Wait for log file to exist
         int waitAttempts = 0;
         while (!File.Exists(_logPath) && !stoppingToken.IsCancellationRequested)
         {
             waitAttempts++;
             _logger.LogInformation($"Waiting for log file: {_logPath} (attempt {waitAttempts})");
-            
+
             if (File.Exists(_processingMarker))
             {
                 _logger.LogInformation("Processing marker found while waiting for log file");
             }
-            
+
             var waitTime = Math.Min(10000 * waitAttempts, 60000);
             await Task.Delay(waitTime, stoppingToken);
-            
+
             if (waitAttempts == 10)
             {
                 _logger.LogWarning($"Log file still not found after {waitAttempts} attempts");
@@ -84,7 +94,7 @@ public class LogWatcherService : BackgroundService
     {
         try
         {
-            var directory = Path.GetDirectoryName(_processingMarker) ?? LancacheConstants.DATA_DIRECTORY;
+            var directory = Path.GetDirectoryName(_processingMarker) ?? _pathResolver.GetDataDirectory();
             if (!Directory.Exists(directory))
             {
                 Directory.CreateDirectory(directory);
@@ -119,59 +129,109 @@ public class LogWatcherService : BackgroundService
         _logger.LogInformation("Processing marker detected via file watcher - FORCING bulk processing from position 0");
         _lastPosition = 0;
         _isBulkProcessing = true;
+        _processingService.SetBulkProcessingMode(true);
         _restartProcessing = true;
         _lastMarkerCheck = DateTime.UtcNow;
         
         // Force save position to 0 immediately
-        Task.Run(async () => {
-            await File.WriteAllTextAsync(_positionFile, "0");
-            _logger.LogInformation("Forced position file to 0 for bulk processing");
+        Task.Run(() => {
+            _stateService.SetLogPosition(0);
+            _logger.LogInformation("Forced position to 0 for bulk processing");
         }).Wait();
     }
 
     private async Task InitializePosition()
     {
-        // Check for bulk processing marker FIRST
+        var fileInfo = new FileInfo(_logPath);
+        _logger.LogInformation($"Log file size: {fileInfo.Length / 1024.0 / 1024.0:F1} MB");
+
+        // Check for bulk processing marker
         bool hasBulkProcessingMarker = File.Exists(_processingMarker);
-        
+
         if (hasBulkProcessingMarker)
         {
-            _logger.LogInformation("Found bulk processing marker at initialization - FORCING position to 0");
-            _lastPosition = 0;
-            _isBulkProcessing = true;
-            await SavePosition();
-            
-            var fileInfo = new FileInfo(_logPath);
-            _logger.LogInformation($"Bulk processing WILL START FROM BEGINNING: {fileInfo.Length / 1024.0 / 1024.0:F1} MB to process");
-            return;
+            _logger.LogInformation("Found bulk processing marker from previous session");
+
+            // Try to read marker data to see if this is a manual bulk processing request
+            bool isManualBulkRequest = false;
+            try
+            {
+                if (File.Exists(_processingMarker))
+                {
+                    var markerContent = await File.ReadAllTextAsync(_processingMarker);
+                    var markerData = System.Text.Json.JsonSerializer.Deserialize<dynamic>(markerContent);
+                    // If marker exists and we can read it, this might be from a manual request
+                    isManualBulkRequest = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not read processing marker, treating as stale");
+            }
+
+            // Load saved position even if marker exists
+            await LoadPosition();
+
+            if (isManualBulkRequest && _lastPosition == 0)
+            {
+                // This appears to be a fresh manual bulk processing request
+                _logger.LogInformation("Manual bulk processing detected - starting from beginning");
+                _lastPosition = 0;
+                _isBulkProcessing = true;
+                _processingService.SetBulkProcessingMode(true);
+                await SavePosition();
+                return;
+            }
+            else if (_lastPosition > 0 && _lastPosition < fileInfo.Length)
+            {
+                // We have a valid saved position, resume from there
+                var behind = fileInfo.Length - _lastPosition;
+                _logger.LogInformation($"Resuming bulk processing from saved position: {_lastPosition:N0} ({behind / 1024.0 / 1024.0:F1} MB remaining)");
+                _isBulkProcessing = true;
+                _processingService.SetBulkProcessingMode(true);
+                return;
+            }
+            else
+            {
+                // Invalid position or completed processing, clean up marker
+                _logger.LogInformation("Cleaning up stale processing marker");
+                try
+                {
+                    File.Delete(_processingMarker);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete stale processing marker");
+                }
+            }
         }
-        
-        // Only load saved position if NOT bulk processing
-        var fileInfo2 = new FileInfo(_logPath);
-        _logger.LogInformation($"Log file size: {fileInfo2.Length / 1024.0 / 1024.0:F1} MB");
-        
-        await LoadPosition();
-        
-        _logger.LogInformation($"Loaded position: {_lastPosition:N0} (File size: {fileInfo2.Length:N0})");
-        
-        if (_lastPosition >= 0 && _lastPosition <= fileInfo2.Length)
+        else
         {
-            var behind = fileInfo2.Length - _lastPosition;
+            // No marker exists, load normal position
+            await LoadPosition();
+        }
+
+        _logger.LogInformation($"Loaded position: {_lastPosition:N0} (File size: {fileInfo.Length:N0})");
+
+        if (_lastPosition >= 0 && _lastPosition <= fileInfo.Length)
+        {
+            var behind = fileInfo.Length - _lastPosition;
             _logger.LogInformation($"Starting from saved position: {_lastPosition:N0} ({behind / 1024.0 / 1024.0:F1} MB behind)");
-            
+
             if (behind > 100_000_000) // 100MB behind
             {
                 _logger.LogInformation($"Large backlog detected: {behind / 1024.0 / 1024.0:F1} MB to process - enabling bulk mode");
                 _isBulkProcessing = true;
+                _processingService.SetBulkProcessingMode(true);
             }
         }
         else
         {
             var startFromEnd = _configuration.GetValue<bool>("LanCache:StartFromEndOfLog", true);
-            
+
             if (startFromEnd)
             {
-                _lastPosition = fileInfo2.Length;
+                _lastPosition = fileInfo.Length;
                 _logger.LogInformation($"Starting from END of log file (position: {_lastPosition:N0})");
             }
             else
@@ -179,8 +239,9 @@ public class LogWatcherService : BackgroundService
                 _lastPosition = 0;
                 _logger.LogInformation("Starting from beginning of log file");
                 _isBulkProcessing = true;
+                _processingService.SetBulkProcessingMode(true);
             }
-            
+
             await SavePosition();
         }
     }
@@ -207,6 +268,7 @@ public class LogWatcherService : BackgroundService
                     _logger.LogInformation("Marker file detected - forcing bulk processing restart");
                     _lastPosition = 0;
                     _isBulkProcessing = true;
+                    _processingService.SetBulkProcessingMode(true);
                     await SavePosition();
                 }
                 
@@ -263,6 +325,7 @@ public class LogWatcherService : BackgroundService
             if (isBulkMode)
             {
                 _isBulkProcessing = false;
+                _processingService.SetBulkProcessingMode(false);
                 
                 if (File.Exists(_processingMarker))
                 {
@@ -292,7 +355,7 @@ public class LogWatcherService : BackgroundService
             _logger.LogInformation($"Log file now has content: {fileCheck.Length} bytes");
         }
 
-        var bufferSize = isBulkMode ? 131072 : 8192;
+        var bufferSize = isBulkMode ? 16384 : 4096; // Reduced buffer sizes to prevent memory issues
         
         // Open the log file
         FileStream? stream = null;
@@ -385,6 +448,7 @@ public class LogWatcherService : BackgroundService
         var emptyReadCount = 0;
         double lastPercentReported = -1.0;
         var fileLength = stream.Length;
+        int consecutiveFailures = 0; // Track consecutive enqueue failures for adaptive backpressure
 
         _logger.LogInformation($"Starting to read from position {stream.Position} (bulk={isBulkMode}, file size={stream.Length})");
 
@@ -411,6 +475,7 @@ public class LogWatcherService : BackgroundService
                     if (enqueued)
                     {
                         entriesProcessed++;
+                        consecutiveFailures = 0; // Reset failure counter on success
 
                         if (isBulkMode && entriesProcessed <= 5)
                         {
@@ -419,8 +484,30 @@ public class LogWatcherService : BackgroundService
                     }
                     else
                     {
-                        // Log if we couldn't enqueue (channel full)
-                        _logger.LogWarning($"Failed to enqueue log line (channel full), line: {line.Substring(0, Math.Min(100, line.Length))}");
+                        consecutiveFailures++;
+
+                        // Adaptive backpressure: start with small delays and increase exponentially
+                        var baseDelay = isBulkMode ? 50 : 25; // Base delay in milliseconds
+                        var maxDelay = isBulkMode ? 2000 : 1000; // Maximum delay
+                        var delay = Math.Min(baseDelay * Math.Pow(2, Math.Min(consecutiveFailures - 1, 6)), maxDelay);
+
+                        if (consecutiveFailures == 1)
+                        {
+                            _logger.LogWarning($"Failed to enqueue log line, starting adaptive backpressure (delay: {delay}ms)");
+                        }
+                        else if (consecutiveFailures % 10 == 0)
+                        {
+                            _logger.LogWarning($"Persistent enqueue failures ({consecutiveFailures} consecutive), delay: {delay}ms");
+                        }
+
+                        await Task.Delay((int)delay, stoppingToken);
+                        continue; // Skip position update and other processing when backed up
+                    }
+
+                    // Add yielding every 1000 lines in bulk mode to prevent resource starvation
+                    if (isBulkMode && linesProcessed % 1000 == 0)
+                    {
+                        await Task.Yield(); // Let other tasks run
                     }
 
                     // CRITICAL FIX: Update position after processing lines, not just when reading is done
@@ -435,11 +522,19 @@ public class LogWatcherService : BackgroundService
                         lastPercentReported = progressResult.lastPercent;
                     }
 
-                    // Save position periodically during bulk processing (every 5 seconds)
-                    if (isBulkMode && DateTime.UtcNow - lastPositionSave > TimeSpan.FromSeconds(5))
+                    // Save position more frequently to handle force-close scenarios
+                    // Save every 5 seconds in bulk mode, every 10 seconds in normal mode
+                    var saveInterval = isBulkMode ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(10);
+                    if (DateTime.UtcNow - lastPositionSave > saveInterval)
                     {
                         await SavePosition();
                         lastPositionSave = DateTime.UtcNow;
+                    }
+
+                    // Additionally save every 100 entries in bulk mode for better recovery
+                    if (isBulkMode && entriesProcessed % 100 == 0 && entriesProcessed > 0)
+                    {
+                        await SavePosition();
                     }
                 }
                 else
@@ -491,7 +586,7 @@ public class LogWatcherService : BackgroundService
                     
                     try
                     {
-                        await Task.Delay(isBulkMode ? 100 : 1000, stoppingToken);
+                        await Task.Delay(isBulkMode ? 100 : 1000, stoppingToken); // Reduced bulk mode delay for better performance
                     }
                     catch (OperationCanceledException)
                     {
@@ -587,8 +682,9 @@ public class LogWatcherService : BackgroundService
         _logger.LogInformation($"Bulk processing completed in {elapsed.TotalMinutes:F1} minutes");
         _logger.LogInformation($"Final stats: Processed {entriesProcessed} entries from {linesProcessed} lines");
         _logger.LogInformation($"Final position: {finalPosition} / {fileLength}");
-        
+
         _isBulkProcessing = false;
+        _processingService.SetBulkProcessingMode(false);
         _bulkProcessingStartTime = default; // Reset for next bulk processing
         
         if (entriesProcessed == 0 && linesProcessed == 0)
@@ -627,6 +723,13 @@ public class LogWatcherService : BackgroundService
         {
             _logger.LogWarning(ex, "Failed to send completion notification");
         }
+
+        // Log completion message but DO NOT automatically trigger depot mapping
+        // Depot mapping should only be triggered manually when requested by the user
+        if (entriesProcessed > 0)
+        {
+            _logger.LogInformation($"Log processing complete. {entriesProcessed} entries processed. Depot mapping can now be run if needed.");
+        }
     }
 
     private void CreateInitialOperationState(long fileSize)
@@ -635,6 +738,10 @@ public class LogWatcherService : BackgroundService
         {
             using var scope = _serviceProvider.CreateScope();
             var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+
+            // Clear any existing operation first to prevent duplicates or stale operations
+            stateService.RemoveState("activeLogProcessing");
+
             var operationState = new OperationState
             {
                 Key = "activeLogProcessing",
@@ -701,57 +808,87 @@ public class LogWatcherService : BackgroundService
 
     // ProcessBatch is now handled by LogProcessingService for better parallelism and performance
 
-    private async Task SavePosition()
+    private Task SavePosition()
     {
         try
         {
-            if (!Directory.Exists("/data"))
-            {
-                Directory.CreateDirectory("/data");
-            }
-            
-            await File.WriteAllTextAsync(_positionFile, _lastPosition.ToString());
+            _stateService.SetLogPosition(_lastPosition);
             _logger.LogTrace($"Saved position: {_lastPosition}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving position");
         }
+        return Task.CompletedTask;
     }
 
-    private async Task LoadPosition()
+    private Task LoadPosition()
     {
         try
         {
-            if (File.Exists(_positionFile))
-            {
-                var content = await File.ReadAllTextAsync(_positionFile);
-                if (long.TryParse(content, out var position))
-                {
-                    _lastPosition = position;
-                    _logger.LogInformation($"Loaded saved position: {_lastPosition:N0}");
-                }
-                else
-                {
-                    _logger.LogWarning($"Invalid position file content: {content}");
-                    _lastPosition = -1;
-                }
-            }
-            else
-            {
-                _logger.LogInformation("No saved position file found");
-                _lastPosition = -1;
-            }
+            _lastPosition = _stateService.GetLogPosition();
+            _logger.LogInformation($"Loaded saved position: {_lastPosition:N0}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading position");
             _lastPosition = -1;
         }
+        return Task.CompletedTask;
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation($"LogWatcherService stopping, current position: {_lastPosition:N0}");
+
+        // Save current position multiple times to ensure it's persisted
+        await SavePosition();
+        _logger.LogInformation($"Position saved: {_lastPosition:N0}");
+
+        // Force a second save with a small delay to ensure it's written to disk
+        await Task.Delay(100);
+        await SavePosition();
+        _logger.LogInformation($"Position confirmed saved: {_lastPosition:N0}");
+
+        // Dispose marker watcher
+        _markerWatcher?.Dispose();
+
+        // Call base implementation
+        await base.StopAsync(cancellationToken);
+
+        _logger.LogInformation("LogWatcherService stopped successfully with position: {0:N0}", _lastPosition);
     }
 
     public override void Dispose()
     {
+        // Clean up any active log processing operation
+        try
+        {
+            // Check if service provider is still available before using it
+            if (_serviceProvider != null)
+            {
+                using var scope = _serviceProvider.CreateScope();
+                if (scope != null)
+                {
+                    var stateService = scope.ServiceProvider.GetService<OperationStateService>();
+                    if (stateService != null)
+                    {
+                        stateService.RemoveState("activeLogProcessing");
+                        _logger.LogInformation("Cleared operation state during dispose");
+                    }
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // Service provider already disposed, skip cleanup
+            _logger.LogDebug("Service provider already disposed, skipping operation state cleanup");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to clear operation state during dispose");
+        }
+
         _markerWatcher?.Dispose();
         base.Dispose();
     }

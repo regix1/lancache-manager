@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Auth Data</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <h1>LancacheManager Auth Data Cleaner</h1>
+    <p>Use this tool to clear authentication data from localStorage for testing.</p>
+    
+    <button onclick="clearAuthData()">Clear Authentication Data</button>
+    <button onclick="window.location='http://localhost:3000'">Go to App</button>
+    
+    <div id="status"></div>
+    
+    <script>
+        function clearAuthData() {
+            // Clear all auth-related localStorage items
+            const keysToRemove = [
+                'lancache_device_id',
+                'lancache_auth_registered'
+            ];
+            
+            let cleared = [];
+            keysToRemove.forEach(key => {
+                if (localStorage.getItem(key)) {
+                    localStorage.removeItem(key);
+                    cleared.push(key);
+                }
+            });
+            
+            const status = document.getElementById('status');
+            if (cleared.length > 0) {
+                status.className = 'success';
+                status.innerHTML = '<strong>Cleared:</strong><br>' + cleared.join('<br>') + 
+                                  '<br><br>Authentication data has been cleared. You can now test with a fresh state.';
+            } else {
+                status.className = '';
+                status.innerHTML = 'No authentication data found to clear.';
+            }
+        }
+        
+        // Show current auth status
+        window.onload = function() {
+            const deviceId = localStorage.getItem('lancache_device_id');
+            const registered = localStorage.getItem('lancache_auth_registered');
+            
+            const status = document.getElementById('status');
+            status.innerHTML = '<strong>Current Status:</strong><br>' +
+                              'Device ID: ' + (deviceId ? deviceId : 'Not set') + '<br>' +
+                              'Registered: ' + (registered ? registered : 'Not set');
+        }
+    </script>
+</body>
+</html>
