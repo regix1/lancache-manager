@@ -536,13 +536,23 @@ public class LogWatcherService : BackgroundService
                             _logger.LogWarning($"Persistent enqueue failures ({consecutiveFailures} consecutive), delay: {delay}ms, position: {stream.Position}");
                         }
 
-                        await Task.Delay((int)delay, stoppingToken);
+                        // Check if we should give up after too many retries
+                        if (consecutiveFailures > 100)
+                        {
+                            _logger.LogError($"CRITICAL: Giving up on line after 100 retries at position {stream.Position}. Line will be lost!");
+                            // Skip this line and continue - but don't count it as processed
+                            entriesProcessed--; // Decrement since we incremented it but failed to process
+                        }
+                        else
+                        {
+                            await Task.Delay((int)delay, stoppingToken);
 
-                        // CRITICAL FIX: Seek back to retry this line
-                        // We need to re-read the failed line, not skip it
-                        stream.Seek(_lastPosition, SeekOrigin.Begin);
-                        reader.DiscardBufferedData();
-                        continue; // Retry reading from the saved position
+                            // CRITICAL FIX: Seek back to retry this line
+                            // We need to re-read the failed line, not skip it
+                            stream.Seek(_lastPosition, SeekOrigin.Begin);
+                            reader.DiscardBufferedData();
+                            continue; // Retry reading from the saved position
+                        }
                     }
 
                     // Add yielding every 1000 lines in bulk mode to prevent resource starvation

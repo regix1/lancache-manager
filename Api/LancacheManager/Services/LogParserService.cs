@@ -6,6 +6,7 @@ namespace LancacheManager.Services;
 public class LogParserService
 {
     private readonly ILogger<LogParserService> _logger;
+    private int _failedParseCount = 0;
 
     // Primary regex to match standard lancache log format:
     // [service] IP / - - - [timestamp] "METHOD URL HTTP/version" status bytes "-" "user-agent" "HIT/MISS" "domain" "-"
@@ -16,6 +17,11 @@ public class LogParserService
     // Fallback regex with more lenient matching - captures logs even without cache status field
     private static readonly Regex FallbackLogRegex = new(
         @"^\[(?<service>[\w\.]+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Ultra-lenient fallback for any HTTP request line
+    private static readonly Regex UltraFallbackRegex = new(
+        @"^\[(?<service>[^\]]+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?<method>\w+)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Regex pattern for Steam depot extraction
@@ -46,12 +52,28 @@ public class LogParserService
                 match = FallbackLogRegex.Match(line);
                 if (!match.Success)
                 {
-                    // Log first few failures for debugging
-                    if (_logger.IsEnabled(LogLevel.Trace))
+                    // Try ultra-lenient fallback for ANY HTTP method
+                    match = UltraFallbackRegex.Match(line);
+                    if (!match.Success)
                     {
-                        _logger.LogTrace($"Failed to parse line with both regexes: {line.Substring(0, Math.Min(100, line.Length))}...");
+                        // Log parsing failures - these lines are being lost!
+                        if (_failedParseCount < 100) // Log first 100 failures
+                        {
+                            _logger.LogWarning($"Failed to parse line #{_failedParseCount}: {line.Substring(0, Math.Min(200, line.Length))}...");
+                        }
+                        _failedParseCount++;
+
+                        // Track total failed lines
+                        if (_failedParseCount % 10000 == 0)
+                        {
+                            _logger.LogError($"CRITICAL: {_failedParseCount} lines have failed to parse and been lost!");
+                        }
+                        return null;
                     }
-                    return null;
+                    else
+                    {
+                        _logger.LogTrace("Used ultra-fallback regex for parsing");
+                    }
                 }
                 else
                 {
