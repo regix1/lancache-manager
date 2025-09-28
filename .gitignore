@@ -72,6 +72,12 @@ staticwebassets/
 Web/dist/
 *.map
 
+# Built frontend assets in API wwwroot
+Api/LancacheManager/wwwroot/assets/
+Api/LancacheManager/wwwroot/*.html
+Api/LancacheManager/wwwroot/*.js
+Api/LancacheManager/wwwroot/*.css
+
 # Node.js dependencies
 node_modules/
 **/node_modules/

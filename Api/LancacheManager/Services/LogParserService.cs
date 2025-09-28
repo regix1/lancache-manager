@@ -7,10 +7,15 @@ public class LogParserService
 {
     private readonly ILogger<LogParserService> _logger;
 
-    // Updated regex to match your actual log format:
+    // Primary regex to match standard lancache log format:
     // [service] IP / - - - [timestamp] "METHOD URL HTTP/version" status bytes "-" "user-agent" "HIT/MISS" "domain" "-"
     private static readonly Regex LogRegex = new(
-        @"^\[(?<service>\w+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+).*?""(?<cache>HIT|MISS|EXPIRED|UPDATING|STALE|BYPASS|REVALIDATED)""",
+        @"^\[(?<service>[\w\.]+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+)\s+""[^""]*""\s+""[^""]*""\s+""(?<cache>HIT|MISS|EXPIRED|UPDATING|STALE|BYPASS|REVALIDATED|-)?""",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    // Fallback regex with more lenient matching - captures logs even without cache status field
+    private static readonly Regex FallbackLogRegex = new(
+        @"^\[(?<service>[\w\.]+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     // Regex pattern for Steam depot extraction
@@ -27,55 +32,73 @@ public class LogParserService
 
         try
         {
-            // Skip heartbeat requests
-            if (line.Contains("lancache-heartbeat"))
-            {
-                return null;
-            }
+            // Don't skip anything - process ALL entries
+            // if (line.Contains("lancache-heartbeat"))
+            // {
+            //     return null;
+            // }
 
+            // Try primary regex first
             var match = LogRegex.Match(line);
-            if (match.Success)
+            if (!match.Success)
             {
-                var service = match.Groups["service"].Value.ToLower();
-                var clientIp = match.Groups["ip"].Value;
-                var url = match.Groups["url"].Value;
-                var statusCode = int.Parse(match.Groups["status"].Value);
-                var bytesServed = long.Parse(match.Groups["bytes"].Value);
-                var cacheStatus = match.Groups["cache"].Value.ToUpper();
-                var timestamp = ParseTimestamp(match.Groups["time"].Value);
-
-                // Skip localhost entries unless they're actual downloads
-                if (clientIp == "127.0.0.1" && bytesServed < 1000)
+                // Try fallback regex if primary fails
+                match = FallbackLogRegex.Match(line);
+                if (!match.Success)
                 {
+                    // Log first few failures for debugging
+                    if (_logger.IsEnabled(LogLevel.Trace))
+                    {
+                        _logger.LogTrace($"Failed to parse line with both regexes: {line.Substring(0, Math.Min(100, line.Length))}...");
+                    }
                     return null;
                 }
-
-                // Extract depot ID from Steam URLs only
-                var depotId = ExtractDepotIdFromUrl(url, service);
-
-                _logger.LogTrace($"Parsed: {service} {clientIp} {bytesServed} bytes {cacheStatus}" +
-                    (depotId.HasValue ? $" depot:{depotId.Value}" : ""));
-
-                return new LogEntry
+                else
                 {
-                    Service = service,
-                    ClientIp = clientIp,
-                    Url = url,
-                    StatusCode = statusCode,
-                    BytesServed = bytesServed,
-                    CacheStatus = cacheStatus,
-                    Timestamp = timestamp,
-                    DepotId = depotId
-                };
-            }
-            else
-            {
-                // Log first few failures for debugging
-                if (_logger.IsEnabled(LogLevel.Trace))
-                {
-                    _logger.LogTrace($"Failed to parse line: {line.Substring(0, Math.Min(100, line.Length))}...");
+                    _logger.LogTrace("Used fallback regex for parsing");
                 }
             }
+
+            // Parse matched groups
+            var serviceRaw = match.Groups["service"].Value.ToLower();
+            // If service is an IP address, default to "unknown"
+            var service = System.Net.IPAddress.TryParse(serviceRaw, out _) ? "unknown" : serviceRaw;
+
+            var clientIp = match.Groups["ip"].Value;
+            var url = match.Groups["url"].Value;
+            var statusCode = int.Parse(match.Groups["status"].Value);
+            var bytesServed = long.Parse(match.Groups["bytes"].Value);
+
+            // Cache status might not exist in fallback regex
+            var cacheStatusRaw = match.Groups["cache"]?.Value?.ToUpper() ?? "";
+            // Handle "-" or empty cache status
+            var cacheStatus = (string.IsNullOrEmpty(cacheStatusRaw) || cacheStatusRaw == "-") ? "UNKNOWN" : cacheStatusRaw;
+
+            var timestamp = ParseTimestamp(match.Groups["time"].Value);
+
+            // Don't skip localhost - process ALL entries
+            // if (clientIp == "127.0.0.1" && bytesServed < 1000)
+            // {
+            //     return null;
+            // }
+
+            // Extract depot ID from Steam URLs only
+            var depotId = ExtractDepotIdFromUrl(url, service);
+
+            _logger.LogTrace($"Parsed: {service} {clientIp} {bytesServed} bytes {cacheStatus}" +
+                (depotId.HasValue ? $" depot:{depotId.Value}" : ""));
+
+            return new LogEntry
+            {
+                Service = service,
+                ClientIp = clientIp,
+                Url = url,
+                StatusCode = statusCode,
+                BytesServed = bytesServed,
+                CacheStatus = cacheStatus,
+                Timestamp = timestamp,
+                DepotId = depotId
+            };
         }
         catch (Exception ex)
         {

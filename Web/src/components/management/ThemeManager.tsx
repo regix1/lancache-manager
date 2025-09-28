@@ -40,6 +40,7 @@ import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
+import { Checkbox } from '../ui/Checkbox';
 import { API_BASE } from '../../utils/constants';
 import { Home, BarChart3, Users, Server, Settings } from 'lucide-react';
 
@@ -426,6 +427,54 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           description: 'Checkbox border color when unchecked',
           affects: ['Checkbox borders', 'Unchecked state'],
           supportsAlpha: true  // Custom styling, supports alpha
+        },
+        {
+          key: 'checkboxBg',
+          label: 'Checkbox Background',
+          description: 'Background color of unchecked checkboxes',
+          affects: ['Checkbox background when unchecked'],
+          supportsAlpha: true,
+          pages: ['downloads', 'management']
+        },
+        {
+          key: 'checkboxCheckmark',
+          label: 'Checkbox Checkmark',
+          description: 'Color of the checkmark symbol',
+          affects: ['Checkbox checkmark color'],
+          supportsAlpha: false,
+          pages: ['downloads', 'management']
+        },
+        {
+          key: 'checkboxShadow',
+          label: 'Checkbox Shadow',
+          description: 'Shadow effect for checkboxes',
+          affects: ['Checkbox shadow'],
+          supportsAlpha: true,
+          pages: ['downloads', 'management']
+        },
+        {
+          key: 'checkboxHoverShadow',
+          label: 'Checkbox Hover Shadow',
+          description: 'Shadow effect when hovering checkboxes',
+          affects: ['Checkbox hover shadow'],
+          supportsAlpha: true,
+          pages: ['downloads', 'management']
+        },
+        {
+          key: 'checkboxHoverBg',
+          label: 'Checkbox Hover Background',
+          description: 'Background color when hovering unchecked checkboxes',
+          affects: ['Checkbox hover background'],
+          supportsAlpha: true,
+          pages: ['downloads', 'management']
+        },
+        {
+          key: 'checkboxFocus',
+          label: 'Checkbox Focus',
+          description: 'Outline color when checkbox is focused',
+          affects: ['Checkbox focus outline'],
+          supportsAlpha: true,
+          pages: ['downloads', 'management']
         },
         {
           key: 'sliderAccent',
@@ -1095,139 +1144,144 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     if (createModalOpen) {
       // Get current theme's colors from computed styles
       const computedStyle = getComputedStyle(document.documentElement);
-      const getCurrentColor = (varName: string, fallback: string) => {
-        const color = computedStyle.getPropertyValue(varName).trim();
-        return color || fallback;
+      const getCurrentColor = (varName: string) => {
+        return computedStyle.getPropertyValue(varName).trim() || '';
       };
 
       setNewTheme((prev: any) => ({
         ...prev,
         // Update all color values with current theme colors
-        primaryColor: getCurrentColor('--theme-primary', '#3b82f6'),
-        secondaryColor: getCurrentColor('--theme-secondary', '#8b5cf6'),
-        accentColor: getCurrentColor('--theme-accent', '#06b6d4'),
+        primaryColor: getCurrentColor('--theme-primary'),
+        secondaryColor: getCurrentColor('--theme-secondary'),
+        accentColor: getCurrentColor('--theme-accent'),
 
-        bgPrimary: getCurrentColor('--theme-bg-primary', '#111827'),
-        bgSecondary: getCurrentColor('--theme-bg-secondary', '#1f2937'),
-        bgTertiary: getCurrentColor('--theme-bg-tertiary', '#374151'),
-        bgHover: getCurrentColor('--theme-bg-hover', '#4b5563'),
+        bgPrimary: getCurrentColor('--theme-bg-primary'),
+        bgSecondary: getCurrentColor('--theme-bg-secondary'),
+        bgTertiary: getCurrentColor('--theme-bg-tertiary'),
+        bgHover: getCurrentColor('--theme-bg-hover'),
 
-        textPrimary: getCurrentColor('--theme-text-primary', '#ffffff'),
-        textSecondary: getCurrentColor('--theme-text-secondary', '#d1d5db'),
-        textMuted: getCurrentColor('--theme-text-muted', '#9ca3af'),
-        textAccent: getCurrentColor('--theme-text-accent', '#60a5fa'),
-        textPlaceholder: getCurrentColor('--theme-text-placeholder', '#6b7280'),
-        dragHandleColor: getCurrentColor('--theme-drag-handle-color', '#6b7280'),
-        dragHandleHover: getCurrentColor('--theme-drag-handle-hover', '#60a5fa'),
+        textPrimary: getCurrentColor('--theme-text-primary'),
+        textSecondary: getCurrentColor('--theme-text-secondary'),
+        textMuted: getCurrentColor('--theme-text-muted'),
+        textAccent: getCurrentColor('--theme-text-accent'),
+        textPlaceholder: getCurrentColor('--theme-text-placeholder'),
+        dragHandleColor: getCurrentColor('--theme-drag-handle-color'),
+        dragHandleHover: getCurrentColor('--theme-drag-handle-hover'),
 
-        borderPrimary: getCurrentColor('--theme-border-primary', '#374151'),
-        borderSecondary: getCurrentColor('--theme-border-secondary', '#4b5563'),
-        borderFocus: getCurrentColor('--theme-border-focus', '#3b82f6'),
+        borderPrimary: getCurrentColor('--theme-border-primary'),
+        borderSecondary: getCurrentColor('--theme-border-secondary'),
+        borderFocus: getCurrentColor('--theme-border-focus'),
 
-        navBg: getCurrentColor('--theme-nav-bg', '#1f2937'),
-        navBorder: getCurrentColor('--theme-nav-border', '#374151'),
-        navTabActive: getCurrentColor('--theme-nav-tab-active', '#3b82f6'),
-        navTabInactive: getCurrentColor('--theme-nav-tab-inactive', '#9ca3af'),
-        navTabHover: getCurrentColor('--theme-nav-tab-hover', '#ffffff'),
-        navTabActiveBorder: getCurrentColor('--theme-nav-tab-active-border', '#3b82f6'),
-        navMobileMenuBg: getCurrentColor('--theme-nav-mobile-menu-bg', '#1f2937'),
-        navMobileItemHover: getCurrentColor('--theme-nav-mobile-item-hover', '#374151'),
+        navBg: getCurrentColor('--theme-nav-bg'),
+        navBorder: getCurrentColor('--theme-nav-border'),
+        navTabActive: getCurrentColor('--theme-nav-tab-active'),
+        navTabInactive: getCurrentColor('--theme-nav-tab-inactive'),
+        navTabHover: getCurrentColor('--theme-nav-tab-hover'),
+        navTabActiveBorder: getCurrentColor('--theme-nav-tab-active-border'),
+        navMobileMenuBg: getCurrentColor('--theme-nav-mobile-menu-bg'),
+        navMobileItemHover: getCurrentColor('--theme-nav-mobile-item-hover'),
 
-        success: getCurrentColor('--theme-success', '#10b981'),
-        successBg: getCurrentColor('--theme-success-bg', '#064e3b'),
-        successText: getCurrentColor('--theme-success-text', '#34d399'),
-        warning: getCurrentColor('--theme-warning', '#f59e0b'),
-        warningBg: getCurrentColor('--theme-warning-bg', '#78350f'),
-        warningText: getCurrentColor('--theme-warning-text', '#fbbf24'),
-        error: getCurrentColor('--theme-error', '#ef4444'),
-        errorBg: getCurrentColor('--theme-error-bg', '#7f1d1d'),
-        errorText: getCurrentColor('--theme-error-text', '#fca5a5'),
-        info: getCurrentColor('--theme-info', '#3b82f6'),
-        infoBg: getCurrentColor('--theme-info-bg', '#1e3a8a'),
-        infoText: getCurrentColor('--theme-info-text', '#93c5fd'),
+        success: getCurrentColor('--theme-success'),
+        successBg: getCurrentColor('--theme-success-bg'),
+        successText: getCurrentColor('--theme-success-text'),
+        warning: getCurrentColor('--theme-warning'),
+        warningBg: getCurrentColor('--theme-warning-bg'),
+        warningText: getCurrentColor('--theme-warning-text'),
+        error: getCurrentColor('--theme-error'),
+        errorBg: getCurrentColor('--theme-error-bg'),
+        errorText: getCurrentColor('--theme-error-text'),
+        info: getCurrentColor('--theme-info'),
+        infoBg: getCurrentColor('--theme-info-bg'),
+        infoText: getCurrentColor('--theme-info-text'),
 
-        steamColor: getCurrentColor('--theme-steam-color', '#1e40af'),
-        epicColor: getCurrentColor('--theme-epic-color', '#7c3aed'),
-        originColor: getCurrentColor('--theme-origin-color', '#ea580c'),
-        blizzardColor: getCurrentColor('--theme-blizzard-color', '#0891b2'),
-        wsusColor: getCurrentColor('--theme-wsus-color', '#16a34a'),
-        riotColor: getCurrentColor('--theme-riot-color', '#dc2626'),
+        steamColor: getCurrentColor('--theme-steam-color'),
+        epicColor: getCurrentColor('--theme-epic-color'),
+        originColor: getCurrentColor('--theme-origin-color'),
+        blizzardColor: getCurrentColor('--theme-blizzard-color'),
+        wsusColor: getCurrentColor('--theme-wsus-color'),
+        riotColor: getCurrentColor('--theme-riot-color'),
 
-        cardBg: getCurrentColor('--theme-card-bg', '#1f2937'),
-        cardBorder: getCurrentColor('--theme-card-border', '#374151'),
-        buttonBg: getCurrentColor('--theme-button-bg', '#3b82f6'),
-        buttonHover: getCurrentColor('--theme-button-hover', '#2563eb'),
-        buttonText: getCurrentColor('--theme-button-text', getCurrentColor('--theme-text-primary', '#ffffff')),
-        inputBg: getCurrentColor('--theme-input-bg', '#374151'),
-        inputBorder: getCurrentColor('--theme-input-border', '#4b5563'),
-        inputFocus: getCurrentColor('--theme-input-focus', '#3b82f6'),
-        checkboxAccent: getCurrentColor('--theme-checkbox-accent', getCurrentColor('--theme-primary', '#3b82f6')),
-        checkboxBorder: getCurrentColor('--theme-checkbox-border', getCurrentColor('--theme-border-secondary', '#4b5563')),
-        sliderAccent: getCurrentColor('--theme-slider-accent', getCurrentColor('--theme-primary', '#3b82f6')),
-        sliderThumb: getCurrentColor('--theme-slider-thumb', getCurrentColor('--theme-primary', '#3b82f6')),
-        sliderTrack: getCurrentColor('--theme-slider-track', getCurrentColor('--theme-bg-tertiary', '#374151')),
-        badgeBg: getCurrentColor('--theme-badge-bg', '#3b82f6'),
-        badgeText: getCurrentColor('--theme-badge-text', getCurrentColor('--theme-text-primary', '#ffffff')),
-        progressBar: getCurrentColor('--theme-progress-bar', '#3b82f6'),
-        progressBg: getCurrentColor('--theme-progress-bg', '#374151'),
+        cardBg: getCurrentColor('--theme-card-bg'),
+        cardBorder: getCurrentColor('--theme-card-border'),
+        buttonBg: getCurrentColor('--theme-button-bg'),
+        buttonHover: getCurrentColor('--theme-button-hover'),
+        buttonText: getCurrentColor('--theme-button-text'),
+        inputBg: getCurrentColor('--theme-input-bg'),
+        inputBorder: getCurrentColor('--theme-input-border'),
+        inputFocus: getCurrentColor('--theme-input-focus'),
+        checkboxAccent: getCurrentColor('--theme-checkbox-accent'),
+        checkboxBorder: getCurrentColor('--theme-checkbox-border'),
+        checkboxBg: getCurrentColor('--theme-checkbox-bg'),
+        checkboxCheckmark: getCurrentColor('--theme-checkbox-checkmark'),
+        checkboxShadow: getCurrentColor('--theme-checkbox-shadow'),
+        checkboxHoverShadow: getCurrentColor('--theme-checkbox-hover-shadow'),
+        checkboxHoverBg: getCurrentColor('--theme-checkbox-hover-bg'),
+        checkboxFocus: getCurrentColor('--theme-checkbox-focus'),
+        sliderAccent: getCurrentColor('--theme-slider-accent'),
+        sliderThumb: getCurrentColor('--theme-slider-thumb'),
+        sliderTrack: getCurrentColor('--theme-slider-track'),
+        badgeBg: getCurrentColor('--theme-badge-bg'),
+        badgeText: getCurrentColor('--theme-badge-text'),
+        progressBar: getCurrentColor('--theme-progress-bar'),
+        progressBg: getCurrentColor('--theme-progress-bg'),
 
         // Icon backgrounds
-        iconBgBlue: getCurrentColor('--theme-icon-bg-blue', '#3b82f6'),
-        iconBgGreen: getCurrentColor('--theme-icon-bg-green', '#10b981'),
-        iconBgEmerald: getCurrentColor('--theme-icon-bg-emerald', '#10b981'),
-        iconBgPurple: getCurrentColor('--theme-icon-bg-purple', '#8b5cf6'),
-        iconBgIndigo: getCurrentColor('--theme-icon-bg-indigo', '#6366f1'),
-        iconBgOrange: getCurrentColor('--theme-icon-bg-orange', '#f97316'),
-        iconBgYellow: getCurrentColor('--theme-icon-bg-yellow', '#eab308'),
-        iconBgCyan: getCurrentColor('--theme-icon-bg-cyan', '#06b6d4'),
-        iconBgRed: getCurrentColor('--theme-icon-bg-red', '#ef4444'),
+        iconBgBlue: getCurrentColor('--theme-icon-bg-blue'),
+        iconBgGreen: getCurrentColor('--theme-icon-bg-green'),
+        iconBgEmerald: getCurrentColor('--theme-icon-bg-emerald'),
+        iconBgPurple: getCurrentColor('--theme-icon-bg-purple'),
+        iconBgIndigo: getCurrentColor('--theme-icon-bg-indigo'),
+        iconBgOrange: getCurrentColor('--theme-icon-bg-orange'),
+        iconBgYellow: getCurrentColor('--theme-icon-bg-yellow'),
+        iconBgCyan: getCurrentColor('--theme-icon-bg-cyan'),
+        iconBgRed: getCurrentColor('--theme-icon-bg-red'),
 
         // Chart colors
-        chartColor1: getCurrentColor('--theme-chart-color-1', '#3b82f6'),
-        chartColor2: getCurrentColor('--theme-chart-color-2', '#10b981'),
-        chartColor3: getCurrentColor('--theme-chart-color-3', '#f59e0b'),
-        chartColor4: getCurrentColor('--theme-chart-color-4', '#ef4444'),
-        chartColor5: getCurrentColor('--theme-chart-color-5', '#8b5cf6'),
-        chartColor6: getCurrentColor('--theme-chart-color-6', '#06b6d4'),
-        chartColor7: getCurrentColor('--theme-chart-color-7', '#f97316'),
-        chartColor8: getCurrentColor('--theme-chart-color-8', '#ec4899'),
-        chartBorderColor: getCurrentColor('--theme-chart-border-color', '#1f2937'),
-        chartGridColor: getCurrentColor('--theme-chart-grid-color', '#374151'),
-        chartTextColor: getCurrentColor('--theme-chart-text-color', '#9ca3af'),
-        chartCacheHitColor: getCurrentColor('--theme-chart-cache-hit-color', '#10b981'),
-        chartCacheMissColor: getCurrentColor('--theme-chart-cache-miss-color', '#f59e0b'),
+        chartColor1: getCurrentColor('--theme-chart-color-1'),
+        chartColor2: getCurrentColor('--theme-chart-color-2'),
+        chartColor3: getCurrentColor('--theme-chart-color-3'),
+        chartColor4: getCurrentColor('--theme-chart-color-4'),
+        chartColor5: getCurrentColor('--theme-chart-color-5'),
+        chartColor6: getCurrentColor('--theme-chart-color-6'),
+        chartColor7: getCurrentColor('--theme-chart-color-7'),
+        chartColor8: getCurrentColor('--theme-chart-color-8'),
+        chartBorderColor: getCurrentColor('--theme-chart-border-color'),
+        chartGridColor: getCurrentColor('--theme-chart-grid-color'),
+        chartTextColor: getCurrentColor('--theme-chart-text-color'),
+        chartCacheHitColor: getCurrentColor('--theme-chart-cache-hit-color'),
+        chartCacheMissColor: getCurrentColor('--theme-chart-cache-miss-color'),
 
         // Scrollbar colors
-        scrollbarThumb: getCurrentColor('--theme-scrollbar-thumb', '#4b5563'),
-        scrollbarTrack: getCurrentColor('--theme-scrollbar-track', '#1f2937'),
-        scrollbarThumbHover: getCurrentColor('--theme-scrollbar-thumb-hover', '#6b7280'),
-        scrollbarHover: getCurrentColor('--theme-scrollbar-hover', '#9CA3AF'),
+        scrollbarThumb: getCurrentColor('--theme-scrollbar-thumb'),
+        scrollbarTrack: getCurrentColor('--theme-scrollbar-track'),
+        scrollbarThumbHover: getCurrentColor('--theme-scrollbar-thumb-hover'),
+        scrollbarHover: getCurrentColor('--theme-scrollbar-hover'),
 
         // Hit rate indicators
-        hitRateHighBg: getCurrentColor('--theme-hit-rate-high-bg', '#064e3b'),
-        hitRateHighText: getCurrentColor('--theme-hit-rate-high-text', '#34d399'),
-        hitRateMediumBg: getCurrentColor('--theme-hit-rate-medium-bg', '#1e3a8a'),
-        hitRateMediumText: getCurrentColor('--theme-hit-rate-medium-text', '#93c5fd'),
-        hitRateLowBg: getCurrentColor('--theme-hit-rate-low-bg', '#44403c'),
-        hitRateLowText: getCurrentColor('--theme-hit-rate-low-text', '#fbbf24'),
-        hitRateWarningBg: getCurrentColor('--theme-hit-rate-warning-bg', '#44403c'),
-        hitRateWarningText: getCurrentColor('--theme-hit-rate-warning-text', '#fcd34d'),
+        hitRateHighBg: getCurrentColor('--theme-hit-rate-high-bg'),
+        hitRateHighText: getCurrentColor('--theme-hit-rate-high-text'),
+        hitRateMediumBg: getCurrentColor('--theme-hit-rate-medium-bg'),
+        hitRateMediumText: getCurrentColor('--theme-hit-rate-medium-text'),
+        hitRateLowBg: getCurrentColor('--theme-hit-rate-low-bg'),
+        hitRateLowText: getCurrentColor('--theme-hit-rate-low-text'),
+        hitRateWarningBg: getCurrentColor('--theme-hit-rate-warning-bg'),
+        hitRateWarningText: getCurrentColor('--theme-hit-rate-warning-text'),
 
         // Action button colors
-        actionResetBg: getCurrentColor('--theme-action-reset-bg', '#f59e0b'),
-        actionResetHover: getCurrentColor('--theme-action-reset-hover', '#d97706'),
-        actionProcessBg: getCurrentColor('--theme-action-process-bg', '#10b981'),
-        actionProcessHover: getCurrentColor('--theme-action-process-hover', '#059669'),
-        actionDeleteBg: getCurrentColor('--theme-action-delete-bg', '#ef4444'),
-        actionDeleteHover: getCurrentColor('--theme-action-delete-hover', '#dc2626'),
+        actionResetBg: getCurrentColor('--theme-action-reset-bg'),
+        actionResetHover: getCurrentColor('--theme-action-reset-hover'),
+        actionProcessBg: getCurrentColor('--theme-action-process-bg'),
+        actionProcessHover: getCurrentColor('--theme-action-process-hover'),
+        actionDeleteBg: getCurrentColor('--theme-action-delete-bg'),
+        actionDeleteHover: getCurrentColor('--theme-action-delete-hover'),
 
         // Access indicators
-        publicAccessBg: getCurrentColor('--theme-public-access-bg', 'rgba(16, 185, 129, 0.2)'),
-        publicAccessText: getCurrentColor('--theme-public-access-text', '#34d399'),
-        publicAccessBorder: getCurrentColor('--theme-public-access-border', 'rgba(16, 185, 129, 0.3)'),
-        securedAccessBg: getCurrentColor('--theme-secured-access-bg', 'rgba(245, 158, 11, 0.2)'),
-        securedAccessText: getCurrentColor('--theme-secured-access-text', '#fbbf24'),
-        securedAccessBorder: getCurrentColor('--theme-secured-access-border', 'rgba(245, 158, 11, 0.3)'),
+        publicAccessBg: getCurrentColor('--theme-public-access-bg'),
+        publicAccessText: getCurrentColor('--theme-public-access-text'),
+        publicAccessBorder: getCurrentColor('--theme-public-access-border'),
+        securedAccessBg: getCurrentColor('--theme-secured-access-bg'),
+        securedAccessText: getCurrentColor('--theme-secured-access-text'),
+        securedAccessBorder: getCurrentColor('--theme-secured-access-border'),
       }));
     }
   }, [createModalOpen]);
@@ -1932,6 +1986,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         inputFocus: '#3b82f6',
         checkboxAccent: '#3b82f6',
         checkboxBorder: '#d1d5db',
+        checkboxBg: '#ffffff',
+        checkboxCheckmark: '#ffffff',
+        checkboxShadow: 'none',
+        checkboxHoverShadow: 'none',
+        checkboxHoverBg: '#f3f4f6',
+        checkboxFocus: '#3b82f6',
         sliderAccent: '#3b82f6',
         sliderThumb: '#3b82f6',
         sliderTrack: '#e5e7eb',
@@ -2243,24 +2303,24 @@ content = """
 
             {/* Sharp Corners Toggle */}
             <div className="mb-6 p-4 rounded-lg bg-themed-tertiary">
-              <label className="flex items-center justify-between cursor-pointer">
+              <div className="flex items-center justify-between">
                 <div>
                   <span className="text-sm font-medium text-themed-secondary">Sharp Corners</span>
                   <p className="text-xs text-themed-muted mt-1">
                     Use sharp corners instead of rounded ones throughout the interface
                   </p>
                 </div>
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={sharpCorners}
                   onChange={(e) => {
                     const newValue = e.target.checked;
                     setSharpCorners(newValue);
                     themeService.setSharpCorners(newValue);
                   }}
-                  className="themed-checkbox ml-3"
+                  label=""
+                  className="ml-3"
                 />
-              </label>
+              </div>
             </div>
 
             {/* Theme Cards Grid */}
@@ -2629,15 +2689,12 @@ content = """
               />
             </div>
             <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={newTheme.isDark}
-                  onChange={(e) => setNewTheme({ ...newTheme, isDark: e.target.checked })}
-                  className="rounded"
-                />
-                <span className="text-sm text-themed-secondary">Dark Theme</span>
-              </label>
+              <Checkbox
+                checked={newTheme.isDark}
+                onChange={(e) => setNewTheme({ ...newTheme, isDark: e.target.checked })}
+                variant="rounded"
+                label="Dark Theme"
+              />
               <button
                 onClick={() => loadPresetColors('dark')}
                 className="px-3 py-1 text-xs rounded-lg flex items-center gap-1 bg-themed-tertiary text-themed-secondary"
@@ -2830,6 +2887,12 @@ content = """
                                   inputFocus: '--theme-input-focus',
                                   checkboxAccent: '--theme-checkbox-accent',
                                   checkboxBorder: '--theme-checkbox-border',
+                                  checkboxBg: '--theme-checkbox-bg',
+                                  checkboxCheckmark: '--theme-checkbox-checkmark',
+                                  checkboxShadow: '--theme-checkbox-shadow',
+                                  checkboxHoverShadow: '--theme-checkbox-hover-shadow',
+                                  checkboxHoverBg: '--theme-checkbox-hover-bg',
+                                  checkboxFocus: '--theme-checkbox-focus',
                                   sliderAccent: '--theme-slider-accent',
                                   sliderThumb: '--theme-slider-thumb',
                                   sliderTrack: '--theme-slider-track',
@@ -3022,15 +3085,12 @@ content = """
               />
             </div>
             <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editedTheme.isDark || false}
-                  onChange={(e) => setEditedTheme({ ...editedTheme, isDark: e.target.checked })}
-                  className="rounded"
-                />
-                <span className="text-sm text-themed-secondary">Dark Theme</span>
-              </label>
+              <Checkbox
+                checked={editedTheme.isDark || false}
+                onChange={(e) => setEditedTheme({ ...editedTheme, isDark: e.target.checked })}
+                variant="rounded"
+                label="Dark Theme"
+              />
               <span className="text-xs text-themed-muted">Theme ID: {editingTheme?.meta.id}</span>
             </div>
           </div>

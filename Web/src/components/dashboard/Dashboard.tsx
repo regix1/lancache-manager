@@ -68,6 +68,44 @@ const StatTooltips: Record<string, string> = {
 const Dashboard: React.FC = () => {
   const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats, dashboardStats } = useData();
   const { timeRange } = useTimeFilter();
+
+  // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
+  const filteredLatestDownloads = useMemo(() => {
+    return latestDownloads.filter(download => {
+      // Filter out 0-byte files
+      if (download.totalBytes === 0) {
+        return false;
+      }
+      // Filter out small files (< 1MB)
+      if (download.totalBytes < 1024 * 1024) {
+        return false;
+      }
+      return true;
+    });
+  }, [latestDownloads]);
+
+  const filteredActiveDownloads = useMemo(() => {
+    return activeDownloads.filter(download => {
+      // Filter out 0-byte files
+      if (download.totalBytes === 0) {
+        return false;
+      }
+      // Filter out small files (< 1MB)
+      if (download.totalBytes < 1024 * 1024) {
+        return false;
+      }
+      return true;
+    });
+  }, [activeDownloads]);
+
+  const filteredServiceStats = useMemo(() => {
+    return serviceStats.filter(service => {
+      // Filter out services that only have small files
+      const serviceDownloads = latestDownloads.filter(d => d.service.toLowerCase() === service.service.toLowerCase());
+      const hasLargeFiles = serviceDownloads.some(d => d.totalBytes > 1024 * 1024);
+      return hasLargeFiles;
+    });
+  }, [serviceStats, latestDownloads]);
   const [loading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -291,9 +329,9 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const stats = useMemo(() => {
-    const activeClients = [...new Set(activeDownloads.map((d) => d.clientIp))].length;
-    const totalActiveDownloads = activeDownloads.length;
-    const totalDownloads = serviceStats.reduce(
+    const activeClients = [...new Set(filteredActiveDownloads.map((d) => d.clientIp))].length;
+    const totalActiveDownloads = filteredActiveDownloads.length;
+    const totalDownloads = filteredServiceStats.reduce(
       (sum, service) => sum + (service.totalDownloads || 0),
       0
     );
@@ -308,7 +346,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: dashboardStats?.period?.hitRatio || 0,
       uniqueClients: dashboardStats?.uniqueClients || clientStats.length
     };
-  }, [activeDownloads, serviceStats, dashboardStats, clientStats]);
+  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, clientStats]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
@@ -366,7 +404,7 @@ const Dashboard: React.FC = () => {
         key: 'activeDownloads',
         title: 'Active Downloads',
         value: stats.totalActiveDownloads,
-        subtitle: `${dashboardStats?.period?.downloads || latestDownloads.length} in period`,
+        subtitle: `${dashboardStats?.period?.downloads || filteredLatestDownloads.length} in period`,
         icon: Download,
         color: 'orange' as const,
         visible: cardVisibility.activeDownloads,
@@ -400,7 +438,7 @@ const Dashboard: React.FC = () => {
       timeRange,
       getTimeRangeLabel,
       dashboardStats,
-      latestDownloads
+      filteredLatestDownloads
     ]
   );
 
@@ -740,14 +778,14 @@ const Dashboard: React.FC = () => {
 
       {/* Charts Row - Pass the actual data arrays */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EnhancedServiceChart serviceStats={serviceStats || []} timeRange={timeRange} />
-        <RecentDownloadsPanel downloads={latestDownloads || []} timeRange={timeRange} />
+        <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} />
+        <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} />
       </div>
 
       {/* Top Clients - Pass the actual data arrays */}
       <TopClientsTable
         clientStats={clientStats || []}
-        downloads={latestDownloads || []}
+        downloads={filteredLatestDownloads || []}
         timeRange={timeRange}
       />
     </div>

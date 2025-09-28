@@ -62,7 +62,7 @@ public class DatabaseService
                 var firstTimestamp = entries.Min(e => e.Timestamp);
                 var lastTimestamp = entries.Max(e => e.Timestamp);
 
-                _logger.LogDebug($"Processing batch for {entries.First().ClientIp}/{entries.First().Service} from {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
+                _logger.LogTrace($"Processing batch for {entries.First().ClientIp}/{entries.First().Service} from {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
             }
 
             // All entries in batch are for same client/service
@@ -88,17 +88,61 @@ public class DatabaseService
                 _sessionTracker[sessionKey] = entries.Max(e => e.Timestamp);
             }
 
-            // When reprocessing, check for existing downloads in the same time window
+            // Group downloads by depot ID (for Steam) or by client+service+session for other services
             var firstTimestampEntry = entries.Min(e => e.Timestamp);
             var lastTimestampEntry = entries.Max(e => e.Timestamp);
+            var depotId = firstEntry.DepotId;
 
-            var download = await _context.Downloads
-                .Where(d => d.ClientIp == firstEntry.ClientIp &&
-                        d.Service == firstEntry.Service &&
-                        d.StartTime <= lastTimestampEntry &&
-                        d.EndTime >= firstTimestampEntry)
-                .OrderByDescending(d => d.StartTime)
-                .FirstOrDefaultAsync();
+            Download? download = null;
+
+            if (firstEntry.Service == "steam" && depotId.HasValue)
+            {
+                // For Steam, group by depot ID - each depot is a separate download session
+                download = await _context.Downloads
+                    .Where(d => d.ClientIp == firstEntry.ClientIp &&
+                            d.Service == "steam" &&
+                            d.DepotId == depotId &&
+                            d.IsActive)
+                    .OrderByDescending(d => d.StartTime)
+                    .FirstOrDefaultAsync();
+
+                // If no active download but should create new (5+ minute gap), check for recent inactive
+                if (download == null && shouldCreateNewDownload)
+                {
+                    var recentDownload = await _context.Downloads
+                        .Where(d => d.ClientIp == firstEntry.ClientIp &&
+                                d.Service == "steam" &&
+                                d.DepotId == depotId &&
+                                !d.IsActive)
+                        .OrderByDescending(d => d.EndTime)
+                        .FirstOrDefaultAsync();
+
+                    // Don't merge if there's been more than 5 minutes since last activity
+                    if (recentDownload != null && (firstTimestampEntry - recentDownload.EndTime).TotalMinutes <= 5)
+                    {
+                        download = recentDownload;
+                        download.IsActive = true;
+                    }
+                }
+            }
+            else
+            {
+                // For non-Steam services, use simple session-based grouping with 5 minute timeout
+                download = await _context.Downloads
+                    .Where(d => d.ClientIp == firstEntry.ClientIp &&
+                            d.Service == firstEntry.Service &&
+                            d.IsActive)
+                    .OrderByDescending(d => d.StartTime)
+                    .FirstOrDefaultAsync();
+
+                // Check if we should continue existing download or create new
+                if (download != null && shouldCreateNewDownload)
+                {
+                    // More than 5 minutes since last activity - close old and create new
+                    download.IsActive = false;
+                    download = null;
+                }
+            }
 
             bool isNewDownload = false;
             
@@ -131,7 +175,7 @@ public class DatabaseService
                     };
                     _context.Downloads.Add(download);
                     isNewDownload = true;
-                    _logger.LogDebug($"Created new download session for {firstEntry.ClientIp} - {firstEntry.Service}");
+                    _logger.LogTrace($"Created new download session for {firstEntry.ClientIp} - {firstEntry.Service}");
                 }
                 else
                 {
@@ -170,7 +214,7 @@ public class DatabaseService
             if (depotEntry != null && download.DepotId == null)
             {
                 download.DepotId = depotEntry.DepotId;
-                _logger.LogDebug($"Set depot ID {depotEntry.DepotId} for download from {firstEntry.ClientIp}");
+                _logger.LogTrace($"Set depot ID {depotEntry.DepotId} for download from {firstEntry.ClientIp}");
             }
 
             // For Steam downloads, try to extract game info using PICS depot mapping first, then fallback to pattern matching
@@ -296,37 +340,11 @@ public class DatabaseService
             await _context.SaveChangesAsync();
 
             // Now save individual log entries with the download ID
-            // Check for duplicates to avoid re-inserting during reprocessing
+            // NO DUPLICATE CHECKING - save ALL entries
             var logEntriesToSave = new List<LogEntryRecord>();
-
-            // Get the time range of entries we're trying to save
-            var minTimestamp = entries.Min(e => e.Timestamp);
-            var maxTimestamp = entries.Max(e => e.Timestamp);
-
-            // Check if we already have entries for this client/service in this time range
-            var existingEntries = await _context.LogEntries
-                .Where(le => le.ClientIp == firstEntry.ClientIp &&
-                            le.Service == firstEntry.Service &&
-                            le.Timestamp >= minTimestamp &&
-                            le.Timestamp <= maxTimestamp)
-                .Select(le => new { le.Timestamp, le.Url, le.BytesServed })
-                .ToListAsync();
-
-            // Create a HashSet for fast lookup
-            var existingSet = new HashSet<(DateTime Timestamp, string Url, long BytesServed)>(
-                existingEntries.Select(e => (e.Timestamp, e.Url ?? "", e.BytesServed))
-            );
 
             foreach (var entry in entries)
             {
-                // Check if this exact entry already exists (by timestamp, URL, and bytes)
-                var entryKey = (entry.Timestamp, entry.Url ?? "", entry.BytesServed);
-                if (existingSet.Contains(entryKey))
-                {
-                    _logger.LogTrace($"Skipping duplicate log entry: {entry.Timestamp} - {entry.Url}");
-                    continue;
-                }
-
                 var logRecord = new LogEntryRecord
                 {
                     Timestamp = entry.Timestamp,
@@ -349,11 +367,7 @@ public class DatabaseService
             {
                 await _context.LogEntries.AddRangeAsync(logEntriesToSave);
                 await _context.SaveChangesAsync();
-                _logger.LogDebug($"Saved {logEntriesToSave.Count} new log entries to database (skipped {entries.Count - logEntriesToSave.Count} duplicates)");
-            }
-            else if (existingSet.Count > 0)
-            {
-                _logger.LogDebug($"All {entries.Count} log entries already exist in database, skipped insertion");
+                _logger.LogTrace($"Saved {logEntriesToSave.Count} log entries to database");
             }
 
             // Only send SignalR updates if requested (not during bulk processing)
@@ -515,8 +529,21 @@ public class DatabaseService
 
             _logger.LogInformation($"Found {unmappedDownloads.Count} downloads needing depot mapping");
 
-            foreach (var download in unmappedDownloads)
+            // Send initial progress update
+            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
             {
+                isProcessing = true,
+                totalMappings = unmappedDownloads.Count,
+                processedMappings = 0,
+                percentComplete = 0.0,
+                status = "starting",
+                message = $"Starting depot mapping for {unmappedDownloads.Count} downloads...",
+                timestamp = DateTime.UtcNow
+            });
+
+            for (int i = 0; i < unmappedDownloads.Count; i++)
+            {
+                var download = unmappedDownloads[i];
                 try
                 {
                     uint? appId = null;
@@ -526,7 +553,7 @@ public class DatabaseService
                     if (appIds.Any())
                     {
                         appId = appIds.First(); // Take the first app ID if multiple exist
-                        _logger.LogDebug($"Mapped depot {download.DepotId} to app {appId} using PICS data from database");
+                        _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from database");
                     }
                     else
                     {
@@ -535,11 +562,11 @@ public class DatabaseService
                         if (jsonAppIds.Any())
                         {
                             appId = jsonAppIds.First();
-                            _logger.LogDebug($"Mapped depot {download.DepotId} to app {appId} using PICS data from JSON file");
+                            _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from JSON file");
                         }
                         else
                         {
-                            _logger.LogDebug($"No PICS mapping found for depot {download.DepotId} in database or JSON file");
+                            _logger.LogTrace($"No PICS mapping found for depot {download.DepotId} in database or JSON file");
                         }
                     }
 
@@ -559,7 +586,7 @@ public class DatabaseService
                                 resolvedName = gameInfo.Name;
                                 download.GameName = gameInfo.Name;
                                 download.GameImageUrl = gameInfo.HeaderImage;
-                                _logger.LogDebug($"Identified Steam game: {gameInfo.Name} (App ID: {appId})");
+                                _logger.LogTrace($"Identified Steam game: {gameInfo.Name} (App ID: {appId})");
                             }
                             else
                             {
@@ -577,9 +604,23 @@ public class DatabaseService
                         mappingsProcessed++;
                     }
 
-                    // Add small delay to prevent overwhelming external services
-                    if (mappingsProcessed % 10 == 0)
+                    // Send progress update every 10 items or on last item
+                    if ((i + 1) % 10 == 0 || i == unmappedDownloads.Count - 1)
                     {
+                        var percentComplete = unmappedDownloads.Count > 0 ? (double)(i + 1) / unmappedDownloads.Count * 100 : 100;
+                        await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+                        {
+                            isProcessing = true,
+                            totalMappings = unmappedDownloads.Count,
+                            processedMappings = i + 1,
+                            mappingsApplied = mappingsProcessed,
+                            percentComplete = percentComplete,
+                            status = "processing",
+                            message = $"Processing depot mappings... {i + 1}/{unmappedDownloads.Count} ({mappingsProcessed} mapped)",
+                            timestamp = DateTime.UtcNow
+                        });
+
+                        // Add small delay to prevent overwhelming external services
                         await Task.Delay(100);
                     }
                 }
@@ -592,11 +633,33 @@ public class DatabaseService
             // Save all changes
             await _context.SaveChangesAsync();
 
+            // Send completion update
+            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+            {
+                isProcessing = false,
+                totalMappings = unmappedDownloads.Count,
+                processedMappings = unmappedDownloads.Count,
+                mappingsApplied = mappingsProcessed,
+                percentComplete = 100.0,
+                status = "complete",
+                message = $"Depot mapping completed. Successfully mapped {mappingsProcessed} downloads.",
+                timestamp = DateTime.UtcNow
+            });
+
             _logger.LogInformation($"Post-processing completed. Successfully mapped {mappingsProcessed} downloads.");
             return mappingsProcessed;
         }
         catch (Exception ex)
         {
+            // Send error update
+            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+            {
+                isProcessing = false,
+                status = "error",
+                message = $"Depot mapping failed: {ex.Message}",
+                timestamp = DateTime.UtcNow
+            });
+
             _logger.LogError(ex, "Error during depot mapping post-processing");
             throw;
         }

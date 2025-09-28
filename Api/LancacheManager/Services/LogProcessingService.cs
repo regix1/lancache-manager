@@ -21,7 +21,7 @@ public class LogProcessingService : BackgroundService
     private readonly List<LogEntry> _batchBuffer = new();
     private readonly object _batchLock = new();
     private Timer? _batchTimer;
-    private readonly SemaphoreSlim _batchSemaphore = new(2, 2); // Reduced to 2 concurrent batch operations to prevent resource exhaustion
+    private readonly SemaphoreSlim _batchSemaphore = new(1, 1); // Only 1 concurrent batch operation to prevent race conditions and ensure consistent results
     private volatile bool _isRunning = false;
     private volatile bool _isBulkProcessing = false; // Track if we're in bulk processing mode
     private long _pendingLogLines = 0;
@@ -168,10 +168,21 @@ public class LogProcessingService : BackgroundService
                 break;
             }
 
-            // Much shorter timeout when reprocessing already-processed files
-            if (DateTime.UtcNow - startTime > TimeSpan.FromSeconds(30))
+            // Much longer timeout to ensure all entries are processed
+            // Don't force completion if there are still pending items
+            if (DateTime.UtcNow - startTime > TimeSpan.FromMinutes(10) && pendingLines == 0 && pendingEntries == 0)
             {
-                _logger.LogWarning("Forcing bulk completion after 30 seconds (pendingLines={PendingLines}, pendingEntries={PendingEntries}, activeBatches={ActiveTasks}, buffered={Buffered})",
+                _logger.LogWarning("Forcing bulk completion after 10 minutes with no pending items (activeBatches={ActiveTasks}, buffered={Buffered})",
+                    activeTasks, bufferedEntries);
+
+                // Force flush one more time before giving up
+                await FlushBatch().ConfigureAwait(false);
+                break;
+            }
+            else if (DateTime.UtcNow - startTime > TimeSpan.FromMinutes(15))
+            {
+                // Absolute timeout after 15 minutes, but log as error since data might be lost
+                _logger.LogError("CRITICAL: Forcing bulk completion after 15 minutes - DATA MAY BE LOST! (pendingLines={PendingLines}, pendingEntries={PendingEntries}, activeBatches={ActiveTasks}, buffered={Buffered})",
                     pendingLines, pendingEntries, activeTasks, bufferedEntries);
 
                 // Force flush one more time before giving up
@@ -274,7 +285,7 @@ public class LogProcessingService : BackgroundService
             {
                 // Parse the log line
                 var entry = _parser.ParseLine(logLine);
-                if (entry != null && entry.BytesServed > 0)
+                if (entry != null) // Remove BytesServed filter - process ALL entries
                 {
                     lock (_batchLock)
                     {
@@ -493,8 +504,13 @@ public class LogProcessingService : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            // Group entries by client and service for efficient processing
-            var grouped = entries.GroupBy(e => new { e.ClientIp, e.Service });
+            // Group entries by client, service, and depot (for Steam)
+            // This ensures each depot gets its own download session
+            var grouped = entries.GroupBy(e => new {
+                e.ClientIp,
+                e.Service,
+                DepotId = e.Service == "steam" ? e.DepotId : null
+            });
 
             foreach (var group in grouped)
             {
@@ -510,7 +526,8 @@ public class LogProcessingService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}");
+                    var depotInfo = group.Key.DepotId.HasValue ? $" depot:{group.Key.DepotId.Value}" : "";
+                    _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}{depotInfo}");
                 }
             }
 

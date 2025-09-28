@@ -139,7 +139,7 @@ public class StateService
                 File.Move(tempFile, _stateFilePath, true);
 
                 _cachedState = state;
-                _logger.LogDebug("State saved successfully with position: {Position}", state.LogProcessing.Position);
+                _logger.LogTrace("State saved successfully with position: {Position}", state.LogProcessing.Position);
             }
             catch (Exception ex)
             {

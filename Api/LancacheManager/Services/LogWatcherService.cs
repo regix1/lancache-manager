@@ -529,15 +529,20 @@ public class LogWatcherService : BackgroundService
 
                         if (consecutiveFailures == 1)
                         {
-                            _logger.LogWarning($"Failed to enqueue log line, starting adaptive backpressure (delay: {delay}ms)");
+                            _logger.LogWarning($"Failed to enqueue log line at position {stream.Position}, will retry. Starting adaptive backpressure (delay: {delay}ms)");
                         }
                         else if (consecutiveFailures % 10 == 0)
                         {
-                            _logger.LogWarning($"Persistent enqueue failures ({consecutiveFailures} consecutive), delay: {delay}ms");
+                            _logger.LogWarning($"Persistent enqueue failures ({consecutiveFailures} consecutive), delay: {delay}ms, position: {stream.Position}");
                         }
 
                         await Task.Delay((int)delay, stoppingToken);
-                        continue; // Skip position update and other processing when backed up
+
+                        // CRITICAL FIX: Seek back to retry this line
+                        // We need to re-read the failed line, not skip it
+                        stream.Seek(_lastPosition, SeekOrigin.Begin);
+                        reader.DiscardBufferedData();
+                        continue; // Retry reading from the saved position
                     }
 
                     // Add yielding every 1000 lines in bulk mode to prevent resource starvation
@@ -705,7 +710,7 @@ public class LogWatcherService : BackgroundService
             };
             
             await _hubContext.Clients.All.SendAsync("ProcessingProgress", progressData);
-            _logger.LogDebug($"Sent SignalR progress update: {percentComplete:F1}%");
+            _logger.LogTrace($"Sent SignalR progress update: {percentComplete:F1}%");
         }
         catch (Exception ex)
         {
@@ -807,15 +812,14 @@ public class LogWatcherService : BackgroundService
         // The state will be cleaned up on the next processing run or after expiration
         // CleanupOperationState();
 
-        var depotMappingsProcessed = await RunDepotPostProcessingAsync();
-
+        // Send completion notification first (without depot mapping count since we haven't done it yet)
         try
         {
             await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new {
                 entriesProcessed,
                 linesProcessed,
                 elapsed = elapsed.TotalMinutes,
-                depotMappingsProcessed,
+                depotMappingsProcessed = 0,  // Will be processed separately after this
                 timestamp = DateTime.UtcNow
             });
         }
@@ -824,26 +828,36 @@ public class LogWatcherService : BackgroundService
             _logger.LogWarning(ex, "Failed to send completion notification");
         }
 
-        _logger.LogInformation($"Log processing complete. {entriesProcessed} entries processed. Automatically applied depot mappings to {depotMappingsProcessed} downloads.");
+        _logger.LogInformation($"Log processing complete. {entriesProcessed} entries processed.");
 
         _processingComplete = true;
 
+        // Now run depot post-processing with proper notifications
         _logger.LogInformation("Triggering depot post-processing after bulk completion");
-        try
+        var depotMappingsProcessed = await RunDepotPostProcessingAsync();
+
+        if (depotMappingsProcessed > 0)
         {
-            using var scope = _serviceProvider.CreateScope();
-            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
-            var processed = await dbService.PostProcessDepotMappings();
-            _logger.LogInformation($"Depot post-processing finished. Updated {processed} downloads.");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to run depot post-processing after bulk completion");
+            _logger.LogInformation($"Depot post-processing finished. Updated {depotMappingsProcessed} downloads.");
         }
     }
 
     private async Task<int> RunDepotPostProcessingAsync()
     {
+        // Send SignalR notification that depot mapping is starting
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("DepotMappingStarted", new
+            {
+                message = "Starting depot mapping post-processing...",
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send depot mapping start notification");
+        }
+
         try
         {
             using var scope = _serviceProvider.CreateScope();
@@ -864,7 +878,7 @@ public class LogWatcherService : BackgroundService
             }
             catch (Exception hubEx)
             {
-                _logger.LogDebug(hubEx, "Failed to publish depot post-processing error to clients");
+                _logger.LogTrace(hubEx, "Failed to publish depot post-processing error to clients");
             }
             return 0;
         }

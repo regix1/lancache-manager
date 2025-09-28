@@ -17,6 +17,7 @@ import { useData } from '../../contexts/DataContext'; // Fixed import path
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { Alert } from '../ui/Alert'; // Fixed import path
 import { Card } from '../ui/Card'; // Fixed import path
+import { Checkbox } from '../ui/Checkbox';
 
 // Import view components
 import CompactView from './CompactView';
@@ -129,24 +130,44 @@ const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           style={{
             backgroundColor: 'var(--theme-bg-secondary)',
             borderColor: 'var(--theme-border-primary)',
-            maxHeight: '300px',
+            maxHeight: '240px',
             overflowY: 'auto'
           }}
         >
           <div className="py-1">
             {options.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleSelect(option.value)}
-                className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
-                  option.value === value
-                    ? 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]'
-                    : 'text-[var(--theme-text-secondary)]'
-                }`}
-              >
-                {option.label}
-              </button>
+              option.value === 'divider' ? (
+                <div
+                  key={option.value}
+                  className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1"
+                  style={{
+                    color: 'var(--theme-text-muted)',
+                    borderColor: 'var(--theme-border-primary)',
+                    backgroundColor: 'var(--theme-bg-tertiary)'
+                  }}
+                >
+                  {option.label}
+                </div>
+              ) : (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleSelect(option.value)}
+                  className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
+                    option.value === value
+                      ? 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]'
+                      : 'text-[var(--theme-text-secondary)]'
+                  } ${
+                    // Check if this is a hidden service (comes after a divider)
+                    options.findIndex(opt => opt.value === 'divider') !== -1 &&
+                    options.findIndex(opt => opt.value === option.value) > options.findIndex(opt => opt.value === 'divider')
+                      ? 'opacity-75 text-xs pl-6'
+                      : ''
+                  }`}
+                >
+                  {option.label}
+                </button>
+              )
             ))}
           </div>
         </div>
@@ -255,16 +276,40 @@ const DownloadsTab: React.FC = () => {
     return Array.from(services).sort();
   }, [latestDownloads]);
 
-  const serviceOptions = useMemo(
-    () => [
+  // Filter out services that only have small files (< 1MB) from the dropdown
+  const filteredAvailableServices = useMemo(() => {
+    return availableServices.filter(service => {
+      // Check if this service has any downloads > 1MB
+      const serviceDownloads = latestDownloads.filter(d => d.service.toLowerCase() === service);
+      const hasLargeFiles = serviceDownloads.some(d => d.totalBytes > 1024 * 1024); // 1MB
+
+      return hasLargeFiles;
+    });
+  }, [availableServices, latestDownloads]);
+
+  const serviceOptions = useMemo(() => {
+    const baseOptions = [
       { value: 'all', label: 'All Services' },
-      ...availableServices.map((service) => ({
+      ...filteredAvailableServices.map((service) => ({
         value: service,
         label: service.charAt(0).toUpperCase() + service.slice(1)
       }))
-    ],
-    [availableServices]
-  );
+    ];
+
+    // Add hidden services option if there are any filtered out
+    const hiddenServices = availableServices.filter(service => !filteredAvailableServices.includes(service));
+    if (hiddenServices.length > 0) {
+      baseOptions.push(
+        { value: 'divider', label: 'Small Files Only' },
+        ...hiddenServices.map((service) => ({
+          value: service,
+          label: `${service.charAt(0).toUpperCase() + service.slice(1)}`
+        }))
+      );
+    }
+
+    return baseOptions;
+  }, [filteredAvailableServices, availableServices, latestDownloads]);
 
   const itemsPerPageOptions = useMemo(
     () => [
@@ -859,65 +904,45 @@ const DownloadsTab: React.FC = () => {
           <>
             <div className="border-t my-3 animate-fade-in" style={{ borderColor: 'var(--theme-border-secondary)' }} />
             <div className="space-y-2 animate-slide-in-top">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.showZeroBytes}
-                  onChange={(e) =>
-                    setSettings({ ...settings, showZeroBytes: e.target.checked })
-                  }
-                  className="themed-checkbox"
-                />
-                <span className="text-sm text-themed-secondary">Show metadata (0 bytes)</span>
-              </label>
+              <Checkbox
+                checked={settings.showZeroBytes}
+                onChange={(e) =>
+                  setSettings({ ...settings, showZeroBytes: e.target.checked })
+                }
+                label="Show metadata (0 bytes)"
+              />
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.showSmallFiles}
-                  onChange={(e) =>
-                    setSettings({ ...settings, showSmallFiles: e.target.checked })
-                  }
-                  className="themed-checkbox"
-                />
-                <span className="text-sm text-themed-secondary">Show small files (&lt; 1MB)</span>
-              </label>
+              <Checkbox
+                checked={settings.showSmallFiles}
+                onChange={(e) =>
+                  setSettings({ ...settings, showSmallFiles: e.target.checked })
+                }
+                label="Show small files (< 1MB)"
+              />
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.hideLocalhost}
-                  onChange={(e) =>
-                    setSettings({ ...settings, hideLocalhost: e.target.checked })
-                  }
-                  className="themed-checkbox"
-                />
-                <span className="text-sm text-themed-secondary">Hide localhost (127.0.0.1)</span>
-              </label>
+              <Checkbox
+                checked={settings.hideLocalhost}
+                onChange={(e) =>
+                  setSettings({ ...settings, hideLocalhost: e.target.checked })
+                }
+                label="Hide localhost (127.0.0.1)"
+              />
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.hideUnknownGames}
-                  onChange={(e) =>
-                    setSettings({ ...settings, hideUnknownGames: e.target.checked })
-                  }
-                  className="themed-checkbox"
-                />
-                <span className="text-sm text-themed-secondary">Hide unknown games</span>
-              </label>
+              <Checkbox
+                checked={settings.hideUnknownGames}
+                onChange={(e) =>
+                  setSettings({ ...settings, hideUnknownGames: e.target.checked })
+                }
+                label="Hide unknown games"
+              />
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.aestheticMode}
-                  onChange={(e) =>
-                    setSettings({ ...settings, aestheticMode: e.target.checked })
-                  }
-                  className="themed-checkbox"
-                />
-                <span className="text-sm text-themed-secondary">Aesthetic mode</span>
-              </label>
+              <Checkbox
+                checked={settings.aestheticMode}
+                onChange={(e) =>
+                  setSettings({ ...settings, aestheticMode: e.target.checked })
+                }
+                label="Aesthetic mode"
+              />
             </div>
           </>
         )}

@@ -74,6 +74,12 @@ interface ThemeColors {
   inputFocus?: string;
   checkboxAccent?: string;
   checkboxBorder?: string;
+  checkboxBg?: string;
+  checkboxCheckmark?: string;
+  checkboxShadow?: string;
+  checkboxHoverShadow?: string;
+  checkboxHoverBg?: string;
+  checkboxFocus?: string;
   sliderAccent?: string;
   sliderThumb?: string;
   sliderTrack?: string;
@@ -317,6 +323,17 @@ class ThemeService {
           inputBg: '#374151',
           inputBorder: '#4b5563',
           inputFocus: '#3b82f6',
+          checkboxAccent: '#3b82f6',
+          checkboxBorder: '#4b5563',
+          checkboxBg: '#1f2937',
+          checkboxCheckmark: '#ffffff',
+          checkboxShadow: 'none',
+          checkboxHoverShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)',
+          checkboxHoverBg: '#374151',
+          checkboxFocus: '#3b82f6',
+          sliderAccent: '#3b82f6',
+          sliderThumb: '#3b82f6',
+          sliderTrack: '#374151',
           badgeBg: '#3b82f6',
           badgeText: '#ffffff',
           progressBar: '#3b82f6',
@@ -460,6 +477,17 @@ class ThemeService {
           inputBg: '#ffffff',
           inputBorder: '#d1d5db',
           inputFocus: '#3b82f6',
+          checkboxAccent: '#3b82f6',
+          checkboxBorder: '#d1d5db',
+          checkboxBg: '#ffffff',
+          checkboxCheckmark: '#ffffff',
+          checkboxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+          checkboxHoverShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)',
+          checkboxHoverBg: '#f9fafb',
+          checkboxFocus: '#3b82f6',
+          sliderAccent: '#3b82f6',
+          sliderThumb: '#3b82f6',
+          sliderTrack: '#e5e7eb',
           badgeBg: '#3b82f6',
           badgeText: '#ffffff',
           progressBar: '#3b82f6',
@@ -670,6 +698,12 @@ class ThemeService {
         --theme-input-focus: #3b82f6;
         --theme-checkbox-accent: #3b82f6;
         --theme-checkbox-border: #4b5563;
+        --theme-checkbox-bg: #1f2937;
+        --theme-checkbox-checkmark: #ffffff;
+        --theme-checkbox-shadow: none;
+        --theme-checkbox-hover-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        --theme-checkbox-hover-bg: #374151;
+        --theme-checkbox-focus: #3b82f6;
         --theme-slider-accent: #3b82f6;
         --theme-slider-thumb: #3b82f6;
         --theme-slider-track: #374151;
@@ -839,6 +873,12 @@ class ThemeService {
       --theme-input-focus: ${colors.inputFocus};
       --theme-checkbox-accent: ${colors.checkboxAccent};
       --theme-checkbox-border: ${colors.checkboxBorder};
+      --theme-checkbox-bg: ${colors.checkboxBg};
+      --theme-checkbox-checkmark: ${colors.checkboxCheckmark};
+      --theme-checkbox-shadow: ${colors.checkboxShadow};
+      --theme-checkbox-hover-shadow: ${colors.checkboxHoverShadow};
+      --theme-checkbox-hover-bg: ${colors.checkboxHoverBg};
+      --theme-checkbox-focus: ${colors.checkboxFocus};
       --theme-slider-accent: ${colors.sliderAccent};
       --theme-slider-thumb: ${colors.sliderThumb};
       --theme-slider-track: ${colors.sliderTrack};

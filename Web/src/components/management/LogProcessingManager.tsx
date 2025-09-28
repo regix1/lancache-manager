@@ -26,6 +26,16 @@ interface ProcessingUIStatus {
   status: string;
 }
 
+interface DepotMappingProgress {
+  isProcessing: boolean;
+  totalMappings: number;
+  processedMappings: number;
+  mappingsApplied?: number;
+  percentComplete: number;
+  status: string;
+  message: string;
+}
+
 interface PicsProgress {
   isRunning: boolean;
   status: string;
@@ -55,6 +65,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [signalRConnected, setSignalRConnected] = useState(false);
   const [depotProcessing, setDepotProcessing] = useState<PicsProgress | null>(null);
+  const [depotMappingProgress, setDepotMappingProgress] = useState<DepotMappingProgress | null>(null);
   const [showPostDepotPopup, setShowPostDepotPopup] = useState(false);
   const [postDepotTimer, setPostDepotTimer] = useState(60);
 
@@ -237,7 +248,42 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       });
 
 
+      // Depot mapping event handlers
+      connection.on('DepotMappingStarted', (payload: any) => {
+        console.log('SignalR DepotMappingStarted received:', payload);
+        setDepotMappingProgress({
+          isProcessing: true,
+          totalMappings: 0,
+          processedMappings: 0,
+          percentComplete: 0,
+          status: 'starting',
+          message: payload.message || 'Starting depot mapping post-processing...'
+        });
+      });
+
+      connection.on('DepotMappingProgress', (payload: any) => {
+        console.log('SignalR DepotMappingProgress received:', payload);
+        setDepotMappingProgress({
+          isProcessing: payload.isProcessing,
+          totalMappings: payload.totalMappings,
+          processedMappings: payload.processedMappings,
+          mappingsApplied: payload.mappingsApplied,
+          percentComplete: payload.percentComplete,
+          status: payload.status,
+          message: payload.message
+        });
+
+        // Clear progress when complete
+        if (!payload.isProcessing || payload.status === 'complete') {
+          setTimeout(() => {
+            setDepotMappingProgress(null);
+            onDataRefresh?.();
+          }, 5000);
+        }
+      });
+
       connection.on('DepotPostProcessingFailed', (payload: any) => {
+        setDepotMappingProgress(null);
         onError?.(payload?.error
           ? `Depot mapping post-processing failed: ${payload.error}`
           : 'Depot mapping post-processing failed.');
@@ -644,6 +690,48 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             <strong>Depot Processing Active:</strong> Log processing is disabled while Steam PICS depot mapping is running.
             Progress: {Math.round(depotProcessing.progressPercent)}% ({depotProcessing.processedBatches}/{depotProcessing.totalBatches} batches)
           </p>
+        </div>
+      )}
+
+      {depotMappingProgress && (
+        <div
+          className="mt-4 p-4 rounded-lg border"
+          style={{
+            backgroundColor: depotMappingProgress.status === 'complete'
+              ? 'var(--theme-success-bg)'
+              : 'var(--theme-warning-bg)',
+            borderColor: depotMappingProgress.status === 'complete'
+              ? 'var(--theme-success)'
+              : 'var(--theme-warning)',
+            color: depotMappingProgress.status === 'complete'
+              ? 'var(--theme-success-text)'
+              : 'var(--theme-warning-text)'
+          }}
+        >
+          <div className="mb-2">
+            <p className="font-semibold text-sm">{depotMappingProgress.message}</p>
+            {depotMappingProgress.totalMappings > 0 && (
+              <p className="text-xs mt-1">
+                {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads processed
+                {depotMappingProgress.mappingsApplied !== undefined && (
+                  <span> • {depotMappingProgress.mappingsApplied} mappings applied</span>
+                )}
+              </p>
+            )}
+          </div>
+          {depotMappingProgress.isProcessing && depotMappingProgress.percentComplete > 0 && (
+            <div className="w-full progress-track rounded-full h-3 relative overflow-hidden">
+              <div
+                className="progress-bar-low h-3 rounded-full smooth-transition"
+                style={{ width: `${Math.min(100, depotMappingProgress.percentComplete)}%` }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-xs font-medium">
+                  {depotMappingProgress.percentComplete.toFixed(0)}%
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
