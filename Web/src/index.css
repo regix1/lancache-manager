@@ -358,6 +358,10 @@
     background-color: var(--theme-info);
   }
 
+  .progress-bar-warning {
+    background-color: var(--theme-warning);
+  }
+
   .progress-track {
     background-color: var(--theme-progress-bg);
   }

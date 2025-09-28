@@ -459,6 +459,28 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         signalRConnection.current = connection;
         console.log('ManagementTab SignalR connection established');
 
+        // Check for existing depot mapping status after connection is established
+        try {
+          const response = await fetch('/api/management/depot-mapping-status');
+          if (response.ok) {
+            const status = await response.json();
+            if (status.isProcessing) {
+              console.log('Recovering depot mapping state:', status);
+              setDepotMappingProgress({
+                isProcessing: status.isProcessing,
+                totalMappings: status.totalMappings || 0,
+                processedMappings: status.processedMappings || 0,
+                mappingsApplied: status.mappingsApplied,
+                percentComplete: status.percentComplete || 0,
+                status: status.status || 'processing',
+                message: status.message || 'Depot mapping in progress...'
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('Failed to check depot mapping status on mount:', err);
+        }
+
       } catch (err) {
         console.error('ManagementTab SignalR connection failed:', err);
       }
@@ -475,40 +497,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
   return (
     <>
-      {/* Fixed position progress indicator for depot mapping */}
-      {depotMappingProgress && depotMappingProgress.isProcessing && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-orange-600 text-white shadow-lg">
-          <div className="px-4 py-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-medium text-sm">
-                🗂️ Depot Mapping: {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads
-              </span>
-              <span className="text-xs opacity-90">
-                {depotMappingProgress.percentComplete.toFixed(1)}% complete
-              </span>
-            </div>
-            <div className="w-full bg-orange-800 rounded-full h-1.5">
-              <div
-                className="bg-white h-1.5 rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(depotMappingProgress.percentComplete, 100)}%`
-                }}
-              />
-            </div>
-            <div className="text-xs mt-1 opacity-90">
-              {depotMappingProgress.message}
-              {depotMappingProgress.mappingsApplied !== undefined && (
-                <span> • {depotMappingProgress.mappingsApplied} mappings applied</span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
 
-      <div className="space-y-6" style={{
-        paddingTop: depotMappingProgress?.isProcessing ? '80px' : '0'
-      }}>
+      <div className="space-y-6">
         {/* Authentication - Always at top */}
       <AuthenticationManager
         onAuthChange={setIsAuthenticated}
@@ -630,6 +621,56 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 Removing {backgroundOperations.serviceRemoval} entries from logs...
               </p>
               <p className="text-sm mt-1">This may take several minutes for large log files</p>
+            </div>
+          </Alert>
+        )}
+
+        {/* Depot Mapping Background Operation */}
+        {depotMappingProgress && (
+          <Alert
+            color={depotMappingProgress.status === 'complete' ? 'green' : 'orange'}
+            icon={
+              depotMappingProgress.status === 'complete' ? (
+                <CheckCircle className="w-6 h-6" />
+              ) : (
+                <Loader className="w-6 h-6 animate-spin" />
+              )
+            }
+          >
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="flex-1">
+                <p className="font-semibold text-lg break-words">
+                  🗂️ Depot Mapping: {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads
+                </p>
+                <p className="text-sm mt-2 opacity-85 break-words">
+                  {depotMappingProgress.message}
+                  {depotMappingProgress.mappingsApplied !== undefined && (
+                    <span> • {depotMappingProgress.mappingsApplied} mappings applied</span>
+                  )}
+                </p>
+                {depotMappingProgress.percentComplete > 0 && depotMappingProgress.isProcessing && (
+                  <div className="mt-4">
+                    <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
+                      <div
+                        className="progress-bar-warning h-4 rounded-full smooth-transition"
+                        style={{
+                          width: `${Math.min(depotMappingProgress.percentComplete, 100)}%`
+                        }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xs font-bold text-white drop-shadow">
+                          {depotMappingProgress.percentComplete.toFixed(1)}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <p className="text-sm font-medium">
+                        {depotMappingProgress.percentComplete.toFixed(1)}% complete
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </Alert>
         )}
