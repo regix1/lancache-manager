@@ -439,7 +439,15 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         // Listen for log processing completion - depot mapping will start automatically on backend
         connection.on('BulkProcessingComplete', async (result: any) => {
           console.log('Log processing complete, depot mapping will start automatically from backend:', result);
-          // Backend automatically triggers depot mapping, no need for manual API call
+          // Set a temporary "waiting" state to show we're expecting depot mapping to start
+          setDepotMappingProgress({
+            isProcessing: true,
+            totalMappings: 0,
+            processedMappings: 0,
+            percentComplete: 0,
+            status: 'waiting',
+            message: 'Finalizing log processing, depot mapping will begin shortly...'
+          });
         });
 
         await connection.start();
