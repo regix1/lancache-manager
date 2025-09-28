@@ -197,7 +197,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           };
         });
 
-        setIsProcessingLogs(true);
+        // Only set to true if not already complete
+        if (processingStatus?.status !== 'complete') {
+          setIsProcessingLogs(true);
+        }
 
         await logProcessingOp.update({
           lastProgress: progress.percentComplete || progress.progress || 0,
@@ -232,6 +235,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         // Show completion for 3 seconds instead of 10, then stop completely
         setTimeout(async () => {
           setProcessingStatus(null);
+          setIsProcessingLogs(false);  // Ensure buttons are re-enabled
           onDataRefresh?.();
         }, 3000);
       });
@@ -340,6 +344,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             // Show completion for 3 seconds, then stop
             setTimeout(() => {
               setProcessingStatus(null);
+              setIsProcessingLogs(false);  // Ensure buttons are re-enabled
               onDataRefresh?.();
             }, 3000);
           } else {
