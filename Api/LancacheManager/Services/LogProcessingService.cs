@@ -504,12 +504,12 @@ public class LogProcessingService : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            // Group entries by client, service, and depot (for Steam)
-            // This ensures each depot gets its own download session
+            // Group entries by client and service only
+            // Don't group by depot ID - this was causing downloads to be split incorrectly
+            // Depot IDs will be handled within the batch processing for game identification
             var grouped = entries.GroupBy(e => new {
                 e.ClientIp,
-                e.Service,
-                DepotId = e.Service == "steam" ? e.DepotId : null
+                e.Service
             });
 
             foreach (var group in grouped)
@@ -526,8 +526,7 @@ public class LogProcessingService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    var depotInfo = group.Key.DepotId.HasValue ? $" depot:{group.Key.DepotId.Value}" : "";
-                    _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}{depotInfo}");
+                    _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}");
                 }
             }
 

@@ -88,59 +88,53 @@ public class DatabaseService
                 _sessionTracker[sessionKey] = entries.Max(e => e.Timestamp);
             }
 
-            // Group downloads by depot ID (for Steam) or by client+service+session for other services
+            // Get timestamp bounds for this batch
             var firstTimestampEntry = entries.Min(e => e.Timestamp);
             var lastTimestampEntry = entries.Max(e => e.Timestamp);
-            var depotId = firstEntry.DepotId;
+
+            // Extract depot ID from entries that have them (may be multiple different depot IDs in one batch)
+            // We'll use the most common depot ID or the first one we find
+            var depotIds = entries
+                .Where(e => e.DepotId.HasValue)
+                .Select(e => e.DepotId.Value)
+                .GroupBy(d => d)
+                .OrderByDescending(g => g.Count())
+                .FirstOrDefault();
+
+            var primaryDepotId = depotIds?.Key;
 
             Download? download = null;
 
-            if (firstEntry.Service == "steam" && depotId.HasValue)
+            // For all services (including Steam), use session-based grouping
+            // Don't group by depot ID as it causes downloads to be incorrectly split
+            download = await _context.Downloads
+                .Where(d => d.ClientIp == firstEntry.ClientIp &&
+                        d.Service == firstEntry.Service &&
+                        d.IsActive)
+                .OrderByDescending(d => d.StartTime)
+                .FirstOrDefaultAsync();
+
+            // Check if we should continue existing download or create new based on time gap
+            if (download != null && shouldCreateNewDownload)
             {
-                // For Steam, group by depot ID - each depot is a separate download session
-                download = await _context.Downloads
-                    .Where(d => d.ClientIp == firstEntry.ClientIp &&
-                            d.Service == "steam" &&
-                            d.DepotId == depotId &&
-                            d.IsActive)
-                    .OrderByDescending(d => d.StartTime)
-                    .FirstOrDefaultAsync();
-
-                // If no active download but should create new (5+ minute gap), check for recent inactive
-                if (download == null && shouldCreateNewDownload)
-                {
-                    var recentDownload = await _context.Downloads
-                        .Where(d => d.ClientIp == firstEntry.ClientIp &&
-                                d.Service == "steam" &&
-                                d.DepotId == depotId &&
-                                !d.IsActive)
-                        .OrderByDescending(d => d.EndTime)
-                        .FirstOrDefaultAsync();
-
-                    // Don't merge if there's been more than 5 minutes since last activity
-                    if (recentDownload != null && (firstTimestampEntry - recentDownload.EndTime).TotalMinutes <= 5)
-                    {
-                        download = recentDownload;
-                        download.IsActive = true;
-                    }
-                }
+                // More than 5 minutes since last activity - close old and create new
+                download.IsActive = false;
+                download = null;
             }
-            else
+            else if (download == null && !shouldCreateNewDownload)
             {
-                // For non-Steam services, use simple session-based grouping with 5 minute timeout
-                download = await _context.Downloads
+                // Try to find a recent inactive download to resume (within 5 minutes)
+                var recentDownload = await _context.Downloads
                     .Where(d => d.ClientIp == firstEntry.ClientIp &&
                             d.Service == firstEntry.Service &&
-                            d.IsActive)
-                    .OrderByDescending(d => d.StartTime)
+                            !d.IsActive)
+                    .OrderByDescending(d => d.EndTime)
                     .FirstOrDefaultAsync();
 
-                // Check if we should continue existing download or create new
-                if (download != null && shouldCreateNewDownload)
+                if (recentDownload != null && (firstTimestampEntry - recentDownload.EndTime).TotalMinutes <= 5)
                 {
-                    // More than 5 minutes since last activity - close old and create new
-                    download.IsActive = false;
-                    download = null;
+                    download = recentDownload;
+                    download.IsActive = true;
                 }
             }
 
@@ -209,12 +203,22 @@ public class DatabaseService
                 download.LastUrl = entries.Last().Url;
             }
 
-            // Extract depot ID from log entries (prioritize the most recent one with a depot ID)
-            var depotEntry = entries.LastOrDefault(e => e.DepotId.HasValue);
-            if (depotEntry != null && download.DepotId == null)
+            // Set depot ID on the download if we found one and it's not already set
+            // Use the primary depot ID we identified earlier (most common in the batch)
+            if (primaryDepotId.HasValue && download.DepotId != primaryDepotId)
             {
-                download.DepotId = depotEntry.DepotId;
-                _logger.LogTrace($"Set depot ID {depotEntry.DepotId} for download from {firstEntry.ClientIp}");
+                download.DepotId = primaryDepotId;
+                _logger.LogTrace($"Set depot ID {primaryDepotId} for download from {firstEntry.ClientIp}");
+            }
+            else if (!download.DepotId.HasValue)
+            {
+                // Fallback: use any depot ID from the batch
+                var anyDepotEntry = entries.FirstOrDefault(e => e.DepotId.HasValue);
+                if (anyDepotEntry != null)
+                {
+                    download.DepotId = anyDepotEntry.DepotId;
+                    _logger.LogTrace($"Set depot ID {anyDepotEntry.DepotId} for download from {firstEntry.ClientIp}");
+                }
             }
 
             // For Steam downloads, try to extract game info using PICS depot mapping first, then fallback to pattern matching
