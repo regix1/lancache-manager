@@ -172,7 +172,7 @@ const AppContent: React.FC = () => {
   }
 
   // Show initialization modal if depot data doesn't exist (after authentication)
-  if (depotInitialized === false) {
+  if (!depotInitialized) {
     return (
       <>
         <DepotInitializationModal
@@ -190,8 +190,8 @@ const AppContent: React.FC = () => {
       style={{
         backgroundColor: 'var(--theme-bg-primary)',
         color: 'var(--theme-text-primary)',
-        opacity: depotInitialized === false ? 0.5 : 1,
-        pointerEvents: depotInitialized === false ? 'none' : 'auto'
+        opacity: !depotInitialized ? 0.5 : 1,
+        pointerEvents: !depotInitialized ? 'none' : 'auto'
       }}
     >
       <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />

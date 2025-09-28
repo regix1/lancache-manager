@@ -24,6 +24,7 @@ public class StateService
     public class AppState
     {
         public LogProcessingState LogProcessing { get; set; } = new();
+        public DepotProcessingState DepotProcessing { get; set; } = new();
         public List<CacheClearOperation> CacheClearOperations { get; set; } = new();
         public List<OperationState> OperationStates { get; set; } = new();
         public bool SetupCompleted { get; set; } = false;
@@ -35,6 +36,22 @@ public class StateService
     {
         public long Position { get; set; } = 0;
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+    }
+
+    public class DepotProcessingState
+    {
+        public bool IsActive { get; set; } = false;
+        public string Status { get; set; } = "Idle";
+        public int TotalApps { get; set; } = 0;
+        public int ProcessedApps { get; set; } = 0;
+        public int TotalBatches { get; set; } = 0;
+        public int ProcessedBatches { get; set; } = 0;
+        public double ProgressPercent { get; set; } = 0;
+        public int DepotMappingsFound { get; set; } = 0;
+        public DateTime? StartTime { get; set; }
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+        public uint LastChangeNumber { get; set; } = 0;
+        public List<uint> RemainingApps { get; set; } = new();
     }
 
     public class CacheClearOperation
@@ -53,6 +70,7 @@ public class StateService
         public string Id { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public string Status { get; set; } = string.Empty;
+        public string Message { get; set; } = string.Empty;
         public object? Data { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -244,6 +262,29 @@ public class StateService
     public void SetLastPicsCrawl(DateTime crawlTime)
     {
         UpdateState(state => state.LastPicsCrawl = crawlTime);
+    }
+
+    // Depot Processing Methods
+    public DepotProcessingState GetDepotProcessingState()
+    {
+        return GetState().DepotProcessing;
+    }
+
+    public void UpdateDepotProcessingState(Action<DepotProcessingState> updater)
+    {
+        UpdateState(state =>
+        {
+            updater(state.DepotProcessing);
+            state.DepotProcessing.LastUpdated = DateTime.UtcNow;
+        });
+    }
+
+    public void ClearDepotProcessingState()
+    {
+        UpdateState(state =>
+        {
+            state.DepotProcessing = new DepotProcessingState();
+        });
     }
 
     /// <summary>

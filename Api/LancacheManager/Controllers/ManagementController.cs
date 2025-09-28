@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
 using LancacheManager.Security;
+using System.Text.Json;
 
 namespace LancacheManager.Controllers;
 
@@ -153,8 +154,26 @@ public class ManagementController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> ResetDatabase()
     {
-        await _dbService.ResetDatabase();
-        return Ok(new { message = "Database reset successfully" });
+        try
+        {
+            _logger.LogInformation("Database reset requested");
+            await _dbService.ResetDatabase();
+            _logger.LogInformation("Database reset completed successfully");
+            return Ok(new {
+                message = "Database reset successfully",
+                status = "completed",
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting database");
+            return StatusCode(500, new {
+                error = "Failed to reset database",
+                details = ex.Message,
+                status = "failed"
+            });
+        }
     }
 
     [HttpPost("reset-logs")]
@@ -216,6 +235,8 @@ public class ManagementController : ControllerBase
             // Get log file size
             var fileInfo = new FileInfo(logPath);
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
+            var resumePosition = _stateService.GetLogPosition();
+            bool resumeFromSavedPosition = resumePosition > 0 && resumePosition < fileInfo.Length;
             
             // CHECK IF FILE IS EMPTY
             if (fileInfo.Length == 0)
@@ -244,6 +265,10 @@ public class ManagementController : ControllerBase
             }
             
             _logger.LogInformation($"Starting full log processing: {sizeMB:F1} MB");
+            if (resumeFromSavedPosition)
+            {
+                _logger.LogInformation($"Resuming from saved position {resumePosition:N0} ({resumePosition / (1024.0 * 1024.0):F1} MB already processed)");
+            }
             
             // Delete old marker first
             var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
@@ -253,19 +278,26 @@ public class ManagementController : ControllerBase
                 await Task.Delay(100);
             }
 
-            // Set position to 0
-            _stateService.SetLogPosition(0);
-            
+            if (!resumeFromSavedPosition)
+            {
+                _stateService.SetLogPosition(0);
+            }
+            else
+            {
+                _logger.LogInformation($"Preserving saved log position {resumePosition:N0} for resume");
+            }
+
             // Create marker with file size info
             var markerData = new
             {
                 startTime = DateTime.UtcNow,
-                startPosition = 0L,
+                startPosition = resumeFromSavedPosition ? resumePosition : 0L,
                 fileSize = fileInfo.Length,
-                triggerType = "manual",
+                triggerType = resumeFromSavedPosition ? "manual_resume" : "manual",
+                resume = resumeFromSavedPosition,
                 requestId = Guid.NewGuid().ToString()
             };
-            
+
             await System.IO.File.WriteAllTextAsync(processingMarker,
                 System.Text.Json.JsonSerializer.Serialize(markerData));
 
@@ -287,29 +319,43 @@ public class ManagementController : ControllerBase
             }
 
             // Create operation state
+            var remainingBytes = resumeFromSavedPosition ? fileInfo.Length - resumePosition : fileInfo.Length;
+            var remainingMB = remainingBytes / (1024.0 * 1024.0);
+
             var operationState = new OperationState
             {
                 Key = "activeLogProcessing",
                 Type = "log_processing",
                 Status = "processing",
-                Message = "Processing entire log file from beginning",
+                Message = resumeFromSavedPosition ? $"Resuming log processing from {resumePosition:N0}" : "Processing entire log file from beginning",
                 Data = new Dictionary<string, object>
                 {
                     { "startTime", DateTime.UtcNow },
-                    { "startPosition", 0L },
+                    { "startPosition", resumeFromSavedPosition ? resumePosition : 0L },
                     { "fileSize", fileInfo.Length },
-                    { "percentComplete", 0 },
+                    { "percentComplete", resumeFromSavedPosition && fileInfo.Length > 0 ? (resumePosition * 100.0) / fileInfo.Length : 0 },
                     { "status", "processing" },
+                    { "resume", resumeFromSavedPosition },
+                    { "resumePosition", resumePosition },
+                    { "remainingBytes", remainingBytes },
+                    { "remainingMB", remainingMB },
                     { "requestId", markerData.requestId }
                 },
                 ExpiresAt = DateTime.UtcNow.AddHours(24)
             };
             stateService.SaveState("activeLogProcessing", operationState);
             
+            var estimatedMinutes = Math.Max(1, Math.Ceiling((remainingMB > 0 ? remainingMB : sizeMB) / 100));
+
             return Ok(new { 
-                message = $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",
+                message = resumeFromSavedPosition
+                    ? $"Resuming log processing. {remainingMB:F1} MB remaining..."
+                    : $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",
                 logSizeMB = sizeMB,
-                estimatedTimeMinutes = Math.Max(1, Math.Ceiling(sizeMB / 100)),
+                resume = resumeFromSavedPosition,
+                resumePosition,
+                remainingMB,
+                estimatedTimeMinutes = estimatedMinutes,
                 requiresRestart = false,
                 status = "processing",
                 requestId = markerData.requestId
@@ -328,13 +374,25 @@ public class ManagementController : ControllerBase
     {
         try
         {
+            _logger.LogInformation("Initiating processing cancellation");
+
             // Signal cancellation
             _processingCancellation?.Cancel();
 
-            // Stop the log processing services (this will save position in StopAsync)
-            _logger.LogInformation("Stopping log processing services");
-            await _logWatcherService.StopAsync(CancellationToken.None);
-            await _logProcessingService.StopAsync(CancellationToken.None);
+            // Stop the log processing services with timeouts to prevent hanging
+            _logger.LogInformation("Stopping log processing services with timeouts");
+
+            var stopTimeout = TimeSpan.FromSeconds(15);
+            using var timeoutCts = new CancellationTokenSource(stopTimeout);
+
+            var stopTasks = new[]
+            {
+                StopServiceWithTimeout(_logWatcherService, "LogWatcherService", stopTimeout),
+                StopServiceWithTimeout(_logProcessingService, "LogProcessingService", stopTimeout)
+            };
+
+            // Wait for all services to stop or timeout
+            await Task.WhenAll(stopTasks);
 
             // Give services a moment to save their state
             await Task.Delay(500);
@@ -364,6 +422,27 @@ public class ManagementController : ControllerBase
         }
     }
 
+    private async Task StopServiceWithTimeout(IHostedService service, string serviceName, TimeSpan timeout)
+    {
+        try
+        {
+            _logger.LogInformation($"Stopping {serviceName} with {timeout.TotalSeconds}s timeout");
+
+            using var cts = new CancellationTokenSource(timeout);
+            await service.StopAsync(cts.Token);
+
+            _logger.LogInformation($"{serviceName} stopped successfully");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning($"{serviceName} stop operation timed out after {timeout.TotalSeconds}s - forcing shutdown");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error stopping {serviceName}: {ex.Message}");
+        }
+    }
+
     [HttpPost("post-process-depot-mappings")]
     [RequireAuth]
     public async Task<IActionResult> PostProcessDepotMappings()
@@ -388,11 +467,276 @@ public class ManagementController : ControllerBase
     }
 
     [HttpGet("processing-status")]
-    public async Task<IActionResult> GetProcessingStatus()
+    public async Task<IActionResult> GetProcessingStatus([FromServices] OperationStateService operationStateService)
     {
         try
         {
-            // First check if marker exists
+            // Check operation state first for accurate status
+            var activeOperation = operationStateService.GetState("activeLogProcessing");
+            if (activeOperation != null && activeOperation.Data.TryGetValue("isProcessing", out var staleProcessingObj) &&
+                staleProcessingObj is bool staleProcessing && !staleProcessing)
+            {
+                // Fully complete state is already available in the OperationStateService cache
+                return Ok(new {
+                    isProcessing = false,
+                    message = "Processing complete",
+                    percentComplete = 100,
+                    mbProcessed = activeOperation.Data.TryGetValue("mbProcessed", out var completedMbObj) ? ConvertToDoubleSafe(completedMbObj) : 0,
+                    mbTotal = activeOperation.Data.TryGetValue("mbTotal", out var totalMbObj) ? ConvertToDoubleSafe(totalMbObj) : 0,
+                    status = "complete",
+                    entriesProcessed = activeOperation.Data.TryGetValue("entriesProcessed", out var entriesObj) ? ConvertToInt32Safe(entriesObj) : 0,
+                    linesProcessed = activeOperation.Data.TryGetValue("linesProcessed", out var linesObj) ? ConvertToInt32Safe(linesObj) : 0,
+                    completedAt = activeOperation.Data.TryGetValue("completedAt", out var completedObj) ? completedObj : DateTime.UtcNow
+                });
+            }
+
+            var operationStates = _stateService.GetOperationStates();
+            var operationState = operationStates.FirstOrDefault(o => o.Id == "activeLogProcessing");
+            if (operationState?.Data != null)
+            {
+                // Cast Data to Dictionary or JsonElement
+                var dataDict = operationState.Data as Dictionary<string, object>;
+                if (dataDict == null && operationState.Data is System.Text.Json.JsonElement jsonElement)
+                {
+                    // Convert JsonElement to Dictionary
+                    dataDict = new Dictionary<string, object>();
+                    foreach (var prop in jsonElement.EnumerateObject())
+                    {
+                        dataDict[prop.Name] = prop.Value.ValueKind switch
+                        {
+                            System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
+                            System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
+                            System.Text.Json.JsonValueKind.True => true,
+                            System.Text.Json.JsonValueKind.False => false,
+                            _ => prop.Value.ToString()
+                        };
+                    }
+                }
+
+                if (dataDict != null)
+                {
+                    // Get status from operation state
+                    bool isProcessing = dataDict.TryGetValue("isProcessing", out var processingObj)
+                        && processingObj is bool processing && processing;
+
+                    string status = dataDict.TryGetValue("status", out var statusObj)
+                        ? statusObj?.ToString() ?? "processing"
+                        : "processing";
+
+                    double percentComplete = 0;
+                    if (dataDict.TryGetValue("percentComplete", out var percentObj) && percentObj != null)
+                    {
+                        if (percentObj is JsonElement percentElement && percentElement.ValueKind == JsonValueKind.Number)
+                        {
+                            percentComplete = percentElement.GetDouble();
+                        }
+                        else if (double.TryParse(percentObj.ToString(), out var parsedPercent))
+                        {
+                            percentComplete = parsedPercent;
+                        }
+                    }
+
+                    double mbProcessed = 0;
+                    if (dataDict.TryGetValue("mbProcessed", out var mbProcObj) && mbProcObj != null)
+                    {
+                        if (mbProcObj is JsonElement mbProcElement && mbProcElement.ValueKind == JsonValueKind.Number)
+                        {
+                            mbProcessed = mbProcElement.GetDouble();
+                        }
+                        else if (double.TryParse(mbProcObj.ToString(), out var parsedMbProc))
+                        {
+                            mbProcessed = parsedMbProc;
+                        }
+                    }
+
+                    double mbTotal = 0;
+                    if (dataDict.TryGetValue("mbTotal", out var mbTotalObj) && mbTotalObj != null)
+                    {
+                        if (mbTotalObj is JsonElement mbTotalElement && mbTotalElement.ValueKind == JsonValueKind.Number)
+                        {
+                            mbTotal = mbTotalElement.GetDouble();
+                        }
+                        else if (double.TryParse(mbTotalObj.ToString(), out var parsedMbTotal))
+                        {
+                            mbTotal = parsedMbTotal;
+                        }
+                    }
+
+                    if (!isProcessing && percentComplete >= 99)
+                    {
+                        try
+                        {
+                            operationStateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
+                            {
+                                { "isProcessing", false },
+                                { "status", "complete" },
+                                { "percentComplete", 100.0 },
+                                { "mbProcessed", mbProcessed },
+                                { "mbTotal", mbTotal },
+                                { "completedAt", DateTime.UtcNow }
+                            });
+                        }
+                        catch (Exception updateEx)
+                        {
+                            _logger.LogWarning(updateEx, "Failed to normalize near-complete operation state");
+                        }
+
+                        return Ok(new {
+                            isProcessing = false,
+                            message = "Processing complete",
+                            percentComplete = 100,
+                            mbProcessed,
+                            mbTotal,
+                            status = "complete",
+                            entriesProcessed = dataDict.TryGetValue("entriesProcessed", out var entriesObj)
+                                ? ConvertToInt32Safe(entriesObj) : 0,
+                            linesProcessed = dataDict.TryGetValue("linesProcessed", out var linesObj)
+                                ? ConvertToInt32Safe(linesObj) : 0
+                        });
+                    }
+
+                    // Detect and repair stuck processing states hovering at ~100%
+                    if (isProcessing && mbTotal > 0)
+                    {
+                        var processedDelta = Math.Abs(mbTotal - mbProcessed);
+                        var nearComplete = percentComplete >= 99.9 || processedDelta <= Math.Max(0.5, mbTotal * 0.005);
+
+                        if (nearComplete)
+                        {
+                            _logger.LogWarning("Detected stuck log processing state at {Percent:F2}% with {Processed:F2}/{Total:F2} MB. Forcing completion.",
+                                percentComplete, mbProcessed, mbTotal);
+
+                            try
+                            {
+                                var forcedData = new Dictionary<string, object>
+                                {
+                                    { "isProcessing", false },
+                                    { "status", "complete" },
+                                    { "percentComplete", 100.0 },
+                                    { "mbProcessed", mbTotal },
+                                    { "mbTotal", mbTotal },
+                                    { "entriesProcessed", dataDict.TryGetValue("entriesProcessed", out var entriesObj) ? ConvertToInt32Safe(entriesObj) : 0 },
+                                    { "linesProcessed", dataDict.TryGetValue("linesProcessed", out var linesObj) ? ConvertToInt32Safe(linesObj) : 0 },
+                                    { "completedAt", DateTime.UtcNow }
+                                };
+
+                                var forcedState = new OperationState
+                                {
+                                    Key = "activeLogProcessing",
+                                    Type = "logProcessing",
+                                    Status = "complete",
+                                    Message = "Processing complete",
+                                    CreatedAt = DateTime.UtcNow,
+                                    UpdatedAt = DateTime.UtcNow,
+                                    ExpiresAt = DateTime.UtcNow.AddHours(24),
+                                    Data = forcedData
+                                };
+
+                                operationStateService.SaveState("activeLogProcessing", forcedState);
+                                dataDict = forcedData;
+                                isProcessing = false;
+                                status = "complete";
+                                percentComplete = 100;
+                                mbProcessed = mbTotal;
+                            }
+                            catch (Exception repairEx)
+                            {
+                                _logger.LogError(repairEx, "Failed to force-complete stuck log processing state");
+                            }
+
+                            try
+                            {
+                                var logFilePath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+                                if (System.IO.File.Exists(logFilePath))
+                                {
+                                    var fileInfo = new FileInfo(logFilePath);
+                                    _stateService.SetLogPosition(fileInfo.Length);
+                                }
+                            }
+                            catch (Exception positionEx)
+                            {
+                                _logger.LogWarning(positionEx, "Failed to update log position while forcing completion");
+                            }
+
+                            try
+                            {
+                                var marker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
+                                if (System.IO.File.Exists(marker))
+                                {
+                                    System.IO.File.Delete(marker);
+                                }
+                            }
+                            catch (Exception markerEx)
+                            {
+                                _logger.LogWarning(markerEx, "Failed to remove processing marker during forced completion");
+                            }
+
+                            _ = Task.Run(() => StopProcessingServicesAsync("forced completion after stalled progress"));
+                        }
+                    }
+
+                    // If status is complete, always return not processing
+                    if (status == "complete" || (!isProcessing && percentComplete >= 100))
+                    {
+                        return Ok(new {
+                            isProcessing = false,
+                            message = "Processing complete",
+                            percentComplete = 100,
+                            mbProcessed,
+                            mbTotal,
+                            status = "complete",
+                            entriesProcessed = dataDict.TryGetValue("entriesProcessed", out var entriesObj)
+                                ? ConvertToInt32Safe(entriesObj) : 0,
+                            linesProcessed = dataDict.TryGetValue("linesProcessed", out var linesObj)
+                                ? ConvertToInt32Safe(linesObj) : 0
+                        });
+                    }
+
+                    if (isProcessing)
+                    {
+                        // Calculate processing rate
+                        double processingRate = 0;
+                        string estimatedTime = "calculating...";
+
+                        if (_processingStartTime.HasValue)
+                        {
+                            var elapsed = DateTime.UtcNow - _processingStartTime.Value;
+                            if (elapsed.TotalSeconds > 0 && mbProcessed > 0)
+                            {
+                                processingRate = mbProcessed / elapsed.TotalSeconds;
+                                if (processingRate > 0 && mbTotal > mbProcessed)
+                                {
+                                    var remainingMB = mbTotal - mbProcessed;
+                                    var remainingSeconds = remainingMB / processingRate;
+                                    var remainingMinutes = Math.Ceiling(remainingSeconds / 60);
+                                    estimatedTime = remainingMinutes > 60
+                                        ? $"{remainingMinutes / 60:F1} hours"
+                                        : $"{remainingMinutes} minutes";
+                                }
+                            }
+                        }
+
+                        return Ok(new {
+                            isProcessing = true,
+                            currentPosition = dataDict.TryGetValue("currentPosition", out var posObj)
+                                ? ConvertToInt64Safe(posObj) : 0,
+                            percentComplete,
+                            mbProcessed,
+                            mbTotal,
+                            processingRate,
+                            estimatedTime,
+                            message = $"Processing log file... {percentComplete:F1}% complete",
+                            status = status,
+                            entriesProcessed = dataDict.TryGetValue("entriesProcessed", out var entries2Obj)
+                                ? ConvertToInt32Safe(entries2Obj) : 0,
+                            linesProcessed = dataDict.TryGetValue("linesProcessed", out var lines2Obj)
+                                ? ConvertToInt32Safe(lines2Obj) : 0
+                        });
+                    }
+                }
+            }
+
+            // Fallback to checking marker and position
             var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
             bool markerExists = System.IO.File.Exists(processingMarker);
 
@@ -408,39 +752,40 @@ public class ManagementController : ControllerBase
             }
 
             currentPosition = _stateService.GetLogPosition();
-            
+
             // If no marker and position is at 0, we're not processing
             if (!markerExists && currentPosition == 0)
             {
-                return Ok(new { 
+                return Ok(new {
                     isProcessing = false,
                     message = "Not processing",
                     currentPosition = 0,
                     totalSize = totalSize
                 });
             }
-            
+
             // If marker exists or position > 0, we might be processing
             if (markerExists || currentPosition > 0)
             {
                 var percentComplete = totalSize > 0 ? (currentPosition * 100.0) / totalSize : 0;
-                
+
                 // Check if we're actually at the end
                 if (currentPosition >= totalSize - 1000 && !markerExists)
                 {
-                    return Ok(new { 
+                    return Ok(new {
                         isProcessing = false,
                         message = "Processing complete",
                         percentComplete = 100,
                         mbProcessed = totalSize / (1024.0 * 1024.0),
-                        mbTotal = totalSize / (1024.0 * 1024.0)
+                        mbTotal = totalSize / (1024.0 * 1024.0),
+                        status = "complete"
                     });
                 }
-                
+
                 // Calculate processing rate
                 double processingRate = 0;
                 string estimatedTime = "calculating...";
-                
+
                 if (_processingStartTime.HasValue && currentPosition > 0)
                 {
                     var elapsed = DateTime.UtcNow - _processingStartTime.Value;
@@ -452,15 +797,15 @@ public class ManagementController : ControllerBase
                             var remainingBytes = totalSize - currentPosition;
                             var remainingSeconds = remainingBytes / processingRate;
                             var remainingMinutes = Math.Ceiling(remainingSeconds / 60);
-                            estimatedTime = remainingMinutes > 60 
-                                ? $"{remainingMinutes / 60:F1} hours" 
+                            estimatedTime = remainingMinutes > 60
+                                ? $"{remainingMinutes / 60:F1} hours"
                                 : $"{remainingMinutes} minutes";
                         }
                     }
                 }
-                
-                return Ok(new { 
-                    isProcessing = true,
+
+                return Ok(new {
+                    isProcessing = markerExists, // Only return true if marker actually exists
                     currentPosition,
                     totalSize,
                     percentComplete,
@@ -468,21 +813,56 @@ public class ManagementController : ControllerBase
                     mbTotal = totalSize / (1024.0 * 1024.0),
                     processingRate = processingRate / (1024.0 * 1024.0), // MB/s
                     estimatedTime,
-                    message = $"Processing log file... {percentComplete:F1}% complete",
-                    status = "processing",
+                    message = markerExists ? $"Processing log file... {percentComplete:F1}% complete" : "Processing complete",
+                    status = markerExists ? "processing" : "complete",
                     markerExists
                 });
             }
-            
-            return Ok(new { 
+
+            return Ok(new {
                 isProcessing = false,
-                message = "Not processing" 
+                message = "Not processing"
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting processing status");
             return Ok(new { isProcessing = false, error = ex.Message });
+        }
+    }
+
+    private async Task StopProcessingServicesAsync(string reason)
+    {
+        try
+        {
+            _logger.LogInformation("Stopping log processing services automatically: {Reason}", reason);
+
+            _processingCancellation?.Cancel();
+
+            var stopTimeout = TimeSpan.FromSeconds(15);
+            var stopTasks = new[]
+            {
+                StopServiceWithTimeout(_logWatcherService, "LogWatcherService", stopTimeout),
+                StopServiceWithTimeout(_logProcessingService, "LogProcessingService", stopTimeout)
+            };
+
+            await Task.WhenAll(stopTasks);
+
+            await Task.Delay(500);
+
+            _processingStartTime = null;
+            _processingCancellation?.Dispose();
+            _processingCancellation = null;
+
+            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
+            if (System.IO.File.Exists(processingMarker))
+            {
+                System.IO.File.Delete(processingMarker);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to automatically stop log processing services");
         }
     }
 
@@ -897,6 +1277,69 @@ public class ManagementController : ControllerBase
     private bool IsHex(string value)
     {
         return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+    }
+
+    private static int ConvertToInt32Safe(object? obj)
+    {
+        if (obj == null) return 0;
+
+        if (obj is JsonElement jsonElement)
+        {
+            return jsonElement.ValueKind switch
+            {
+                JsonValueKind.Number => jsonElement.GetInt32(),
+                JsonValueKind.String => int.TryParse(jsonElement.GetString(), out var intVal) ? intVal : 0,
+                _ => 0
+            };
+        }
+
+        if (obj is int intValue) return intValue;
+        if (obj is double doubleValue) return (int)doubleValue;
+        if (obj is long longValue) return (int)longValue;
+
+        return int.TryParse(obj.ToString(), out var parsedInt) ? parsedInt : 0;
+    }
+
+    private static long ConvertToInt64Safe(object? obj)
+    {
+        if (obj == null) return 0;
+
+        if (obj is JsonElement jsonElement)
+        {
+            return jsonElement.ValueKind switch
+            {
+                JsonValueKind.Number => jsonElement.GetInt64(),
+                JsonValueKind.String => long.TryParse(jsonElement.GetString(), out var longVal) ? longVal : 0,
+                _ => 0
+            };
+        }
+
+        if (obj is long longValue) return longValue;
+        if (obj is int intValue) return intValue;
+        if (obj is double doubleValue) return (long)doubleValue;
+
+        return long.TryParse(obj.ToString(), out var parsedLong) ? parsedLong : 0;
+    }
+
+    private static double ConvertToDoubleSafe(object? obj)
+    {
+        if (obj == null) return 0;
+
+        if (obj is JsonElement jsonElement)
+        {
+            return jsonElement.ValueKind switch
+            {
+                JsonValueKind.Number => jsonElement.GetDouble(),
+                JsonValueKind.String => double.TryParse(jsonElement.GetString(), out var dbl) ? dbl : 0,
+                _ => 0
+            };
+        }
+
+        if (obj is double doubleValue) return doubleValue;
+        if (obj is int intValue) return intValue;
+        if (obj is long longValue) return longValue;
+
+        return double.TryParse(obj.ToString(), out var parsedDouble) ? parsedDouble : 0;
     }
 }
 

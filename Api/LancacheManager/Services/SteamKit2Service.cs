@@ -90,6 +90,18 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Load existing depot mappings from database first
             await LoadExistingDepotMappings();
 
+            // Check for interrupted depot processing and resume if needed
+            var depotState = _stateService.GetDepotProcessingState();
+            if (depotState.IsActive && depotState.RemainingApps.Any())
+            {
+                _logger.LogInformation("Found interrupted depot processing, will resume after initialization");
+                _totalAppsToProcess = depotState.TotalApps;
+                _processedApps = depotState.ProcessedApps;
+                _totalBatches = depotState.TotalBatches;
+                _processedBatches = depotState.ProcessedBatches;
+                _currentStatus = depotState.Status;
+            }
+
             // DISABLED: No automatic import - users must choose initialization method via UI
             // await ImportJsonOnStartupIfNeeded();
 
@@ -376,6 +388,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         _isLoggedOn = false;
     }
 
+    private bool _isResumingGeneration = false; // Track if we're resuming an incomplete generation
+
     /// <summary>
     /// Build depot index by querying PICS for all apps
     /// </summary>
@@ -386,11 +400,58 @@ public class SteamKit2Service : IHostedService, IDisposable
             _currentStatus = "Connecting and enumerating apps";
             _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental})...", incrementalOnly);
 
-            // For incremental updates, preserve existing mappings
-            if (!incrementalOnly)
+            // Load existing data from JSON file if it exists
+            var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            bool hasExistingData = existingData?.DepotMappings?.Any() == true;
+
+            if (hasExistingData && !incrementalOnly)
             {
+                // We're doing a "full rebuild" but have existing data - this means we're RESUMING
+                _isResumingGeneration = true;
+                _logger.LogInformation("Loading {Count} existing depot mappings from JSON to resume generation",
+                    existingData.Metadata?.TotalMappings ?? 0);
+
+                // Load existing mappings into memory to preserve them
+                foreach (var mapping in existingData.DepotMappings ?? new Dictionary<string, PicsDepotMapping>())
+                {
+                    if (uint.TryParse(mapping.Key, out var depotId) && mapping.Value?.AppIds != null)
+                    {
+                        var set = _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>());
+                        foreach (var appId in mapping.Value.AppIds)
+                        {
+                            set.Add(appId);
+                        }
+
+                        if (mapping.Value.AppNames?.Any() == true && mapping.Value.AppIds?.Any() == true)
+                        {
+                            // Add each app name to the dictionary
+                            for (int i = 0; i < Math.Min(mapping.Value.AppIds.Count, mapping.Value.AppNames.Count); i++)
+                            {
+                                _appNames.TryAdd(mapping.Value.AppIds[i], mapping.Value.AppNames[i]);
+                            }
+                        }
+                    }
+                }
+
+                // Also load the last change number to potentially resume from there
+                if (existingData.Metadata?.LastChangeNumber > 0)
+                {
+                    _lastChangeNumberSeen = existingData.Metadata.LastChangeNumber;
+                    _logger.LogInformation("Resuming from change number: {ChangeNumber}", _lastChangeNumberSeen);
+                }
+            }
+            else if (!incrementalOnly && !hasExistingData)
+            {
+                // Only clear if we're doing a full rebuild AND have no existing data
+                _isResumingGeneration = false;
+                _logger.LogInformation("Starting fresh PICS generation - no existing data found");
                 _depotToAppMappings.Clear();
                 _appNames.Clear();
+            }
+            else if (incrementalOnly)
+            {
+                // For incremental updates, we always preserve existing mappings (no clearing)
+                _isResumingGeneration = false;
             }
 
             // Enumerate every appid by crawling the PICS changelist
@@ -496,7 +557,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                             (_processedBatches * 100.0 / allBatches.Count),
                             _depotToAppMappings.Count);
 
-                        await SaveAllMappingsToJsonAsync(incrementalOnly);
+                        // When resuming, use merge to preserve existing data
+                        await SaveAllMappingsToJsonAsync(incrementalOnly || _isResumingGeneration);
                     }
 
                     // Adaptive delay based on current performance
@@ -512,7 +574,8 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             _currentStatus = "Saving PICS data to JSON";
             _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
-            await SaveAllMappingsToJsonAsync(incrementalOnly);
+            // Final save - use merge if resuming to preserve all data
+            await SaveAllMappingsToJsonAsync(incrementalOnly || _isResumingGeneration);
 
             _currentStatus = "Starting background database import";
             // Run database import on background thread to prevent blocking HTTP server

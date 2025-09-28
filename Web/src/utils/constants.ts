@@ -2,6 +2,10 @@ export const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api';
 
+export const SIGNALR_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/hubs`
+  : '/hubs';
+
 // Services
 export const SERVICES = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'] as const;
 export type ServiceType = (typeof SERVICES)[number];

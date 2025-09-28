@@ -76,47 +76,6 @@ interface CompactViewProps {
   aestheticMode?: boolean;
 }
 
-const getCacheStatusPill = (download: Download) => {
-  const totalBytes = download.totalBytes || 0;
-  const cacheBytes = download.cacheHitBytes || 0;
-
-  if (totalBytes === 0) {
-    return {
-      label: 'Metadata',
-      className: 'bg-themed-hover text-themed-muted'
-    };
-  }
-
-  if (cacheBytes === totalBytes && totalBytes > 0) {
-    return {
-      label: 'Cached',
-      className: 'bg-[var(--theme-success-bg)]/40 text-[var(--theme-success-text)]'
-    };
-  }
-
-  if (cacheBytes > 0) {
-    return {
-      label: 'Partial Hit',
-      className: 'bg-[var(--theme-warning-bg)]/40 text-[var(--theme-warning-text)]'
-    };
-  }
-
-  return {
-    label: 'Origin Fetch',
-    className: 'bg-themed-hover text-themed-muted'
-  };
-};
-
-const getActivityStatusPill = (download: Download) =>
-  download.isActive
-    ? {
-        label: 'In Progress',
-        className: 'bg-[var(--theme-info-bg)]/40 text-[var(--theme-info-text)]'
-      }
-    : {
-        label: 'Completed',
-        className: 'bg-themed-hover text-themed-muted'
-      };
 
 const CompactView: React.FC<CompactViewProps> = ({
   items,

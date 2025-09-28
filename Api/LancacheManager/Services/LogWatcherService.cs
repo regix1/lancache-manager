@@ -1,6 +1,7 @@
 using LancacheManager.Models;
 using System.Text;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 using LancacheManager.Hubs;
 using LancacheManager.Services;
 
@@ -23,6 +24,7 @@ public class LogWatcherService : BackgroundService
     private FileSystemWatcher? _markerWatcher;
     private volatile bool _restartProcessing = false;
     private DateTime _bulkProcessingStartTime = default; // Track when bulk processing started
+    private volatile bool _processingComplete = false;
 
     public LogWatcherService(
         IServiceProvider serviceProvider,
@@ -54,7 +56,12 @@ public class LogWatcherService : BackgroundService
         // This service is only started manually via the API endpoint
         _logger.LogInformation("LogWatcherService started for manual log processing");
 
+
         SetupMarkerWatcher();
+
+        _processingComplete = false;
+        _isBulkProcessing = true;
+        _processingService.SetBulkProcessingMode(true);
 
         // Wait for log file to exist
         int waitAttempts = 0;
@@ -255,6 +262,8 @@ public class LogWatcherService : BackgroundService
         {
             try
             {
+                var wasBulkProcessing = _isBulkProcessing;
+
                 // Check for restart signal from file watcher
                 if (_restartProcessing)
                 {
@@ -271,14 +280,26 @@ public class LogWatcherService : BackgroundService
                     _processingService.SetBulkProcessingMode(true);
                     await SavePosition();
                 }
-                
+
                 await ProcessLogFileInternal(stoppingToken);
                 retryCount = 0;
-                
-                // Loop back to start normal processing after bulk
-                if (!_isBulkProcessing)
+
+                if (_processingComplete)
                 {
+                    _logger.LogInformation("Processing completed - exiting LogWatcherService loop");
+                    break;
+                }
+
+                // Loop back to start normal processing after bulk
+                if (wasBulkProcessing && !_isBulkProcessing)
+                {
+                    if (_processingComplete)
+                    {
+                        _logger.LogInformation("Processing completed during bulk to normal transition - exiting");
+                        break;
+                    }
                     _logger.LogInformation("Transitioning from bulk to normal processing mode");
+                    await Task.Delay(1000, stoppingToken);
                     continue;
                 }
             }
@@ -307,34 +328,46 @@ public class LogWatcherService : BackgroundService
     {
         // Store bulk processing state locally to prevent race conditions
         bool isBulkMode = _isBulkProcessing;
-        
-        // Force position to 0 if bulk processing
+
+        var resumePosition = _lastPosition;
         if (isBulkMode)
         {
-            _logger.LogInformation($"BULK PROCESSING MODE ACTIVE - Forcing position to 0 (previous position: {_lastPosition})");
-            _lastPosition = 0;
-            await SavePosition();
+            if (resumePosition <= 0)
+            {
+                _logger.LogInformation("BULK PROCESSING MODE ACTIVE - starting full reprocess from beginning of log");
+            }
+            else
+            {
+                _logger.LogInformation($"BULK PROCESSING MODE ACTIVE - resuming from saved position {resumePosition:N0}");
+            }
         }
-        
+
         // Check if file is empty
         var fileCheck = new FileInfo(_logPath);
         if (fileCheck.Length == 0)
         {
             _logger.LogWarning("Log file is empty (0 bytes), cannot process");
-            
+
             if (isBulkMode)
             {
                 _isBulkProcessing = false;
-                _processingService.SetBulkProcessingMode(false);
-                
+                try
+                {
+                    await _processingService.CompleteBulkProcessingAsync(stoppingToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger.LogDebug("Bulk completion cancelled while handling empty log file");
+                }
+
                 if (File.Exists(_processingMarker))
                 {
                     File.Delete(_processingMarker);
                     _logger.LogInformation("Removed bulk processing marker (empty file)");
                 }
-                
+
                 CleanupOperationState();
-                
+
                 await _hubContext.Clients.All.SendAsync("ProcessingError", new {
                     error = "Log file is empty",
                     message = "No data to process"
@@ -388,31 +421,34 @@ public class LogWatcherService : BackgroundService
             // Position the stream
             if (isBulkMode)
             {
-                _logger.LogInformation($"BULK MODE: Seeking to position 0 (file length: {stream.Length})");
-                stream.Seek(0, SeekOrigin.Begin);
-                _lastPosition = 0;
-                
-                // Set the bulk processing start time
-                _bulkProcessingStartTime = DateTime.UtcNow;
-                
-                // Verify position
-                _logger.LogInformation($"Stream position after seek: {stream.Position}");
-                
-                if (stream.Position != 0)
+                var targetPosition = Math.Max(0, Math.Min(resumePosition, stream.Length));
+                _logger.LogInformation($"BULK MODE: Seeking to position {targetPosition:N0} (file length: {stream.Length})");
+                stream.Seek(targetPosition, SeekOrigin.Begin);
+
+                if (targetPosition > 0)
                 {
-                    _logger.LogError($"Failed to seek to position 0! Stream is at {stream.Position}");
-                    stream.Position = 0;
-                    _logger.LogInformation($"Forced stream.Position = 0, now at: {stream.Position}");
+                    await reader.ReadLineAsync(); // Skip partial line when resuming
                 }
-                
-                // Create initial operation state
-                CreateInitialOperationState(stream.Length);
+
+                _bulkProcessingStartTime = DateTime.UtcNow;
+
+                if (targetPosition == 0)
+                {
+                    CreateInitialOperationState(stream.Length);
+                }
+                else
+                {
+                    var percentComplete = stream.Length > 0 ? (targetPosition * 100.0) / stream.Length : 0;
+                    var mbProcessed = targetPosition / (1024.0 * 1024.0);
+                    var mbTotal = stream.Length / (1024.0 * 1024.0);
+                    UpdateOperationState(percentComplete, mbProcessed, mbTotal, 0, 0, targetPosition);
+                }
             }
             else if (_lastPosition > 0 && _lastPosition < stream.Length)
             {
                 _logger.LogInformation($"Normal mode: Seeking to saved position {_lastPosition:N0}");
                 stream.Seek(_lastPosition, SeekOrigin.Begin);
-                
+
                 if (_lastPosition > 0)
                 {
                     await reader.ReadLineAsync(); // Skip partial line
@@ -547,33 +583,34 @@ public class LogWatcherService : BackgroundService
                     _lastPosition = stream.Position;
                     await SavePosition();
                     
-                    // Report final progress for bulk mode
+                    // Report progress for bulk mode
                     if (isBulkMode && entriesProcessed > 0)
                     {
-                        var percentComplete = (stream.Position * 100.0) / fileLength;
+                        var rawPercent = (stream.Position * 100.0) / fileLength;
+                        // Don't artificially cap progress - let it reach 100% naturally
+                        var percentComplete = rawPercent;
                         var mbProcessed = stream.Position / (1024.0 * 1024.0);
                         var mbTotal = fileLength / (1024.0 * 1024.0);
-                        
+
                         await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesProcessed, linesProcessed, stream.Position);
                     }
                     
                     // Check if bulk processing is complete
-                    if (isBulkMode)
+                    var currentFileInfo = new FileInfo(_logPath);
+
+                    // More accurate completion check
+                    var isAtEnd = stream.Position >= currentFileInfo.Length; // At or past end of file
+                    var nearEnd = stream.Position >= currentFileInfo.Length - 100; // Within 100 bytes of end
+                    var noMoreData = emptyReadCount > 10;
+
+                    // Complete if we're at the end, or near the end with no more data
+                    if (isAtEnd || (nearEnd && emptyReadCount > 3) || noMoreData)
                     {
-                        var currentFileInfo = new FileInfo(_logPath);
-                        
-                        // More accurate completion check
-                        var isAtEnd = stream.Position >= currentFileInfo.Length - 100; // Within 100 bytes of end
-                        var noMoreData = emptyReadCount > 10;
-                        
-                        if (isAtEnd || noMoreData)
-                        {
-                            _logger.LogInformation($"Bulk processing complete check: position={stream.Position}, fileLength={currentFileInfo.Length}, emptyReads={emptyReadCount}");
-                            await CompleteBulkProcessing(entriesProcessed, linesProcessed, stream.Position, currentFileInfo.Length);
-                            return;
-                        }
+                        _logger.LogInformation($"Bulk processing complete check: position={stream.Position}, fileLength={currentFileInfo.Length}, emptyReads={emptyReadCount}");
+                        await CompleteBulkProcessing(entriesProcessed, linesProcessed, stream.Position, currentFileInfo.Length);
+                        return;
                     }
-                    
+
                     // Check for new data
                     var latestFileInfo = new FileInfo(_logPath);
                     if (latestFileInfo.Length > fileLength)
@@ -617,33 +654,34 @@ public class LogWatcherService : BackgroundService
     }
 
     private async Task<(DateTime lastUpdate, double lastPercent)> ReportProgressIfNeeded(
-        FileStream stream, int linesProcessed, int entriesProcessed, 
+        FileStream stream, int linesProcessed, int entriesProcessed,
         DateTime lastProgressUpdate, double lastPercentReported, long fileLength)
     {
         var currentPosition = stream.Position;
-        var percentComplete = fileLength > 0 ? (currentPosition * 100.0) / fileLength : 0;
+        var rawPercent = fileLength > 0 ? (currentPosition * 100.0) / fileLength : 0;
+        var percentComplete = rawPercent; // Don't cap - let it reach 100% naturally
         var shouldReport = false;
-        
+
         // Report if: 500 lines processed, 2 seconds elapsed, or 1% progress change
-        if (linesProcessed % 500 == 0 || 
+        if (linesProcessed % 500 == 0 ||
             DateTime.UtcNow - lastProgressUpdate > TimeSpan.FromSeconds(2) ||
             Math.Abs(percentComplete - lastPercentReported) >= 1.0)
         {
             shouldReport = true;
         }
-        
+
         if (shouldReport)
         {
             var mbProcessed = currentPosition / (1024.0 * 1024.0);
             var mbTotal = fileLength / (1024.0 * 1024.0);
-            
+
             _logger.LogInformation($"Progress: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesProcessed} entries from {linesProcessed} lines");
-            
+
             await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesProcessed, linesProcessed, currentPosition);
-            
+
             return (DateTime.UtcNow, percentComplete);
         }
-        
+
         return (lastProgressUpdate, lastPercentReported);
     }
 
@@ -677,22 +715,81 @@ public class LogWatcherService : BackgroundService
 
     private async Task CompleteBulkProcessing(int entriesProcessed, int linesProcessed, long finalPosition, long fileLength)
     {
-        // Use the class-level start time for accurate elapsed calculation
         var elapsed = DateTime.UtcNow - _bulkProcessingStartTime;
-        _logger.LogInformation($"Bulk processing completed in {elapsed.TotalMinutes:F1} minutes");
-        _logger.LogInformation($"Final stats: Processed {entriesProcessed} entries from {linesProcessed} lines");
+        _logger.LogInformation($"File reading completed in {elapsed.TotalMinutes:F1} minutes");
+        _logger.LogInformation($"Final stats: Read {entriesProcessed} entries from {linesProcessed} lines");
         _logger.LogInformation($"Final position: {finalPosition} / {fileLength}");
 
+        // Calculate final values FIRST
+        var mbProcessed = fileLength / (1024.0 * 1024.0);
+        var mbTotal = fileLength / (1024.0 * 1024.0);
+
+        // Skip the finalizing update - we'll go straight to 100% completion
+
+        // Wait for LogProcessingService to finish
+        _logger.LogInformation("Waiting for LogProcessingService to finish processing all queued entries...");
         _isBulkProcessing = false;
-        _processingService.SetBulkProcessingMode(false);
-        _bulkProcessingStartTime = default; // Reset for next bulk processing
-        
+        try
+        {
+            await _processingService.CompleteBulkProcessingAsync();
+            _logger.LogInformation("LogProcessingService completed successfully - all entries processed");
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("Bulk completion cancellation observed while finalizing log processing");
+        }
+        _bulkProcessingStartTime = default;
+
+        // NOW send the final 100% progress update via SignalR
+        try
+        {
+            var finalProgressData = new {
+                percentComplete = 100.0,
+                mbProcessed,
+                mbTotal,
+                entriesProcessed,
+                linesProcessed,
+                timestamp = DateTime.UtcNow,
+                status = "complete"
+            };
+
+            await _hubContext.Clients.All.SendAsync("ProcessingProgress", finalProgressData);
+            _logger.LogInformation("Sent final 100% progress update via SignalR with data: {@ProgressData}", finalProgressData);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send final progress update via SignalR");
+        }
+
+        // NOW mark operation as complete with ALL data fields
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
+            stateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
+            {
+                { "isProcessing", false },
+                { "status", "complete" },
+                { "percentComplete", 100.0 },
+                { "mbProcessed", mbProcessed },
+                { "mbTotal", mbTotal },
+                { "entriesProcessed", entriesProcessed },
+                { "linesProcessed", linesProcessed },
+                { "currentPosition", finalPosition },
+                { "completedAt", DateTime.UtcNow }
+            });
+            _logger.LogInformation("Marked operation state as complete with full data");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to mark operation as complete");
+        }
+
         if (entriesProcessed == 0 && linesProcessed == 0)
         {
             _logger.LogError("BULK PROCESSING FAILED: No lines were read. File may be inaccessible or in wrong format.");
         }
-        
-        // Clean up marker file
+
         if (File.Exists(_processingMarker))
         {
             try
@@ -705,17 +802,20 @@ public class LogWatcherService : BackgroundService
                 _logger.LogError(ex, "Failed to remove processing marker");
             }
         }
-        
-        // Clear operation state
-        CleanupOperationState();
-        
-        // Send completion notification
+
+        // Don't immediately cleanup - let the UI see the completion status
+        // The state will be cleaned up on the next processing run or after expiration
+        // CleanupOperationState();
+
+        var depotMappingsProcessed = await RunDepotPostProcessingAsync();
+
         try
         {
             await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new {
                 entriesProcessed,
                 linesProcessed,
                 elapsed = elapsed.TotalMinutes,
+                depotMappingsProcessed,
                 timestamp = DateTime.UtcNow
             });
         }
@@ -724,11 +824,49 @@ public class LogWatcherService : BackgroundService
             _logger.LogWarning(ex, "Failed to send completion notification");
         }
 
-        // Log completion message but DO NOT automatically trigger depot mapping
-        // Depot mapping should only be triggered manually when requested by the user
-        if (entriesProcessed > 0)
+        _logger.LogInformation($"Log processing complete. {entriesProcessed} entries processed. Automatically applied depot mappings to {depotMappingsProcessed} downloads.");
+
+        _processingComplete = true;
+
+        _logger.LogInformation("Triggering depot post-processing after bulk completion");
+        try
         {
-            _logger.LogInformation($"Log processing complete. {entriesProcessed} entries processed. Depot mapping can now be run if needed.");
+            using var scope = _serviceProvider.CreateScope();
+            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+            var processed = await dbService.PostProcessDepotMappings();
+            _logger.LogInformation($"Depot post-processing finished. Updated {processed} downloads.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to run depot post-processing after bulk completion");
+        }
+    }
+
+    private async Task<int> RunDepotPostProcessingAsync()
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+            var processed = await dbService.PostProcessDepotMappings();
+            _logger.LogInformation($"Depot mapping post-processing completed automatically. Updated {processed} downloads.");
+            return processed;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to automatically post-process depot mappings after log processing");
+            try
+            {
+                await _hubContext.Clients.All.SendAsync("DepotPostProcessingFailed", new {
+                    error = ex.Message,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception hubEx)
+            {
+                _logger.LogDebug(hubEx, "Failed to publish depot post-processing error to clients");
+            }
+            return 0;
         }
     }
 
@@ -859,6 +997,7 @@ public class LogWatcherService : BackgroundService
         _logger.LogInformation("LogWatcherService stopped successfully with position: {0:N0}", _lastPosition);
     }
 
+
     public override void Dispose()
     {
         // Clean up any active log processing operation
@@ -892,4 +1031,5 @@ public class LogWatcherService : BackgroundService
         _markerWatcher?.Dispose();
         base.Dispose();
     }
+
 }

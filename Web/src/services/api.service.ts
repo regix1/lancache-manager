@@ -348,7 +348,7 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/cancel-processing`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        signal: AbortSignal.timeout(10000)
+        signal: AbortSignal.timeout(25000) // Increased timeout to allow backend services to stop gracefully
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -416,6 +416,48 @@ class ApiService {
         logPath: '/logs/access.log',
         services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
       };
+    }
+  }
+
+  // PICS/GameInfo related endpoints
+  static async getPicsStatus(signal?: AbortSignal): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/gameinfo/pics-status`, {
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getPicsStatus error:', error);
+      throw error;
+    }
+  }
+
+  static async downloadPrecreatedPicsData(signal?: AbortSignal): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/gameinfo/download-precreated-data`, {
+        method: 'POST',
+        signal,
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('downloadPrecreatedPicsData error:', error);
+      throw error;
+    }
+  }
+
+  static async triggerSteamKitRebuild(incremental = false, signal?: AbortSignal): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/gameinfo/steamkit/rebuild?incremental=${incremental}`, {
+        method: 'POST',
+        signal,
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('triggerSteamKitRebuild error:', error);
+      throw error;
     }
   }
 }

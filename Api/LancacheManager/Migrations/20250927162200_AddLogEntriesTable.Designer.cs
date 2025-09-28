@@ -3,6 +3,7 @@ using System;
 using LancacheManager.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LancacheManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250927162200_AddLogEntriesTable")]
+    partial class AddLogEntriesTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.0");
@@ -163,9 +166,6 @@ namespace LancacheManager.Migrations
 
                     b.HasIndex("ClientIp", "Service")
                         .HasDatabaseName("IX_LogEntries_Client_Service");
-
-                    b.HasIndex("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
-                        .HasDatabaseName("IX_LogEntries_DuplicateCheck");
 
                     b.ToTable("LogEntries");
                 });

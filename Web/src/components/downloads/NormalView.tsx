@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Clock, Users, ExternalLink, CheckCircle, AlertCircle, Gamepad2 } from 'lucide-react';
+import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle, Gamepad2 } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import type { Download, DownloadGroup } from '../../types';
 
@@ -87,56 +87,11 @@ const InfoRow: React.FC<InfoRowProps> = ({ label, value, highlight }) => (
   </div>
 );
 
-const getCacheStatusPill = (download: Download) => {
-  const totalBytes = download.totalBytes || 0;
-  const cacheBytes = download.cacheHitBytes || 0;
-
-  if (totalBytes === 0) {
-    return {
-      label: 'Metadata',
-      className: 'bg-themed-hover text-themed-muted'
-    };
-  }
-
-  if (cacheBytes === totalBytes && totalBytes > 0) {
-    return {
-      label: 'Cached',
-      className: 'bg-[var(--theme-success-bg)]/40 text-[var(--theme-success-text)]'
-    };
-  }
-
-  if (cacheBytes > 0) {
-    return {
-      label: 'Partial Hit',
-      className: 'bg-[var(--theme-warning-bg)]/40 text-[var(--theme-warning-text)]'
-    };
-  }
-
-  return {
-    label: 'Origin Fetch',
-    className: 'bg-themed-hover text-themed-muted'
-  };
-};
-
-const getActivityStatusPill = (download: Download) =>
-  download.isActive
-    ? {
-        label: 'In Progress',
-        className: 'bg-[var(--theme-info-bg)]/40 text-[var(--theme-info-text)]'
-      }
-    : {
-        label: 'Completed',
-        className: 'bg-themed-hover text-themed-muted'
-      };
 
 const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const renderDownloadCard = (download: Download) => {
     const totalBytes = download.totalBytes || 0;
-    const hitPercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
-    const storeLink = download.service.toLowerCase() === 'steam' && download.gameAppId
-      ? `https://store.steampowered.com/app/${download.gameAppId}`
-      : null;
 
     // Create a fake group-like structure for individual downloads to match grouped style
     const fakeGroup = {

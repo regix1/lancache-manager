@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
     public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
+    public DbSet<LogEntryRecord> LogEntries { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,6 +55,24 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<SteamDepotMapping>()
             .HasIndex(m => m.AppId)
             .HasDatabaseName("IX_SteamDepotMappings_AppId");
+
+        // LogEntryRecord indexes for performance
+        modelBuilder.Entity<LogEntryRecord>()
+            .HasIndex(l => new { l.ClientIp, l.Service })
+            .HasDatabaseName("IX_LogEntries_Client_Service");
+
+        modelBuilder.Entity<LogEntryRecord>()
+            .HasIndex(l => l.Timestamp)
+            .HasDatabaseName("IX_LogEntries_Timestamp");
+
+        modelBuilder.Entity<LogEntryRecord>()
+            .HasIndex(l => l.DownloadId)
+            .HasDatabaseName("IX_LogEntries_DownloadId");
+
+        // Composite index for efficient duplicate detection during reprocessing
+        modelBuilder.Entity<LogEntryRecord>()
+            .HasIndex(l => new { l.ClientIp, l.Service, l.Timestamp, l.Url, l.BytesServed })
+            .HasDatabaseName("IX_LogEntries_DuplicateCheck");
 
         // Unique constraint on the combination of DepotId and AppId
         modelBuilder.Entity<SteamDepotMapping>()

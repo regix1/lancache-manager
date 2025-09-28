@@ -148,6 +148,8 @@ export interface ProcessingStatus {
   status?: string;
   entriesProcessed?: number;
   linesProcessed?: number;
+  currentPosition?: number;
+  totalSize?: number;
 }
 
 export interface ClearCacheResponse {

@@ -6,6 +6,7 @@ import * as signalR from '@microsoft/signalr';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { SIGNALR_BASE } from '@utils/constants';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../types';
 
 interface LogProcessingManagerProps {
@@ -128,6 +129,22 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         startProcessingPolling();
       } else {
         await logProcessingOp.clear();
+        if (status) {
+          setProcessingStatus({
+            message: 'Processing Complete!',
+            detailMessage: `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
+            progress: 100,
+            status: 'complete'
+          });
+          setTimeout(() => {
+            setIsProcessingLogs(false);
+            setProcessingStatus(null);
+            onDataRefresh?.();
+          }, 3000);
+        } else {
+          setProcessingStatus(null);
+          setIsProcessingLogs(false);
+        }
       }
     }
   };
@@ -135,21 +152,46 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const setupSignalR = async () => {
     try {
       const connection = new signalR.HubConnectionBuilder()
-        .withUrl('/hubs/downloads')
+        .withUrl(`${SIGNALR_BASE}/downloads`)
         .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+        .configureLogging(signalR.LogLevel.Information)
         .build();
 
+      // IMPORTANT: Add all event handlers BEFORE starting the connection
       connection.on('ProcessingProgress', async (progress: any) => {
+        console.log('SignalR ProcessingProgress received:', progress);
+        const currentProgress = progress.percentComplete || progress.progress || 0;
+        const status = progress.status || 'processing';
 
-        setProcessingStatus((prev) => {
-          if (prev?.status === 'complete') {
-            return prev;
+        setProcessingStatus(() => {
+          // If progress is 100% or status is complete/finalizing, mark as complete
+          if (currentProgress >= 100 || status === 'complete') {
+            // Stop polling when we hit 100% via progress update
+            if (pollingInterval.current) {
+              clearInterval(pollingInterval.current);
+            }
+            return {
+              message: 'Processing Complete!',
+              detailMessage: `Successfully processed ${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
+              progress: 100,
+              status: 'complete'
+            };
+          }
+
+          // Handle finalizing status
+          if (status === 'finalizing') {
+            return {
+              message: progress.message || 'Finalizing log processing...',
+              detailMessage: `${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
+              progress: currentProgress,
+              status: 'finalizing'
+            };
           }
 
           return {
             message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
             detailMessage: `${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
-            progress: progress.percentComplete || progress.progress || 0,
+            progress: currentProgress,
             status: 'processing'
           };
         });
@@ -166,33 +208,48 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       });
 
       connection.on('BulkProcessingComplete', async (result: any) => {
-
+        console.log('SignalR BulkProcessingComplete received:', result);
+        // Stop polling immediately when we receive completion signal
         if (pollingInterval.current) {
           clearInterval(pollingInterval.current);
         }
 
+        const depotMappingsProcessed = result.depotMappingsProcessed ?? 0;
         setProcessingStatus({
           message: 'Processing Complete!',
-          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes`,
+          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes. Applied ${depotMappingsProcessed.toLocaleString()} depot mappings automatically.`,
           progress: 100,
           status: 'complete'
         });
 
         setIsProcessingLogs(true);
         await logProcessingOp.clear();
+        if (depotMappingsProcessed > 0) {
+          onSuccess?.(`Depot mappings applied to ${depotMappingsProcessed.toLocaleString()} downloads.`);
+        }
 
+        // Show completion for 3 seconds instead of 10, then stop completely
         setTimeout(async () => {
           setIsProcessingLogs(false);
           setProcessingStatus(null);
           onDataRefresh?.();
-        }, 10000);
+        }, 3000);
+      });
+
+
+      connection.on('DepotPostProcessingFailed', (payload: any) => {
+        onError?.(payload?.error
+          ? `Depot mapping post-processing failed: ${payload.error}`
+          : 'Depot mapping post-processing failed.');
       });
 
       connection.onreconnecting(() => {
+        console.log('SignalR reconnecting...');
         setSignalRConnected(false);
       });
 
       connection.onreconnected(() => {
+        console.log('SignalR reconnected successfully');
         setSignalRConnected(true);
       });
 
@@ -201,15 +258,19 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         setSignalRConnected(false);
 
         if (isProcessingLogs) {
+          console.log('Starting polling fallback due to SignalR disconnect');
           startProcessingPolling();
         }
 
         reconnectTimeout.current = setTimeout(() => {
+          console.log('Attempting to reconnect SignalR...');
           setupSignalR();
         }, 5000);
       });
 
+      console.log('Starting SignalR connection...');
       await connection.start();
+      console.log('SignalR connection started successfully, connection ID:', connection.connectionId);
       signalRConnection.current = connection;
       setSignalRConnected(true);
     } catch (err) {
@@ -229,10 +290,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     const checkStatus = async () => {
       try {
-        const currentStatus = processingStatus;
-        if (currentStatus?.status === 'complete') {
-          return;
-        }
 
         const status: ApiProcessingStatus = await ApiService.getProcessingStatus();
         if (status?.isProcessing) {
@@ -252,15 +309,32 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             mbTotal: status.mbTotal
           });
         } else {
-          const finalProgress = status?.percentComplete || status?.progress || 0;
-          if (finalProgress >= 100) {
-            if (pollingInterval.current) {
-              clearInterval(pollingInterval.current);
-            }
+          // Processing is complete - stop polling immediately
+          if (pollingInterval.current) {
+            clearInterval(pollingInterval.current);
+          }
 
+          const finalProgress = status?.percentComplete || status?.progress || 0;
+          const reachedEnd = status?.currentPosition && status?.totalSize &&
+            status.currentPosition >= status.totalSize;
+          const isComplete = finalProgress >= 100 ||
+                            status?.status === 'complete' ||
+                            reachedEnd;
+          const isAlmostComplete = !status?.isProcessing && finalProgress >= 99;
+
+          console.log('Processing complete detected via polling:', {
+            finalProgress,
+            isComplete,
+            isAlmostComplete,
+            status: status?.status,
+            isProcessing: status?.isProcessing
+          });
+
+          if (isComplete || isAlmostComplete) {
+            console.log('Forcing completion via polling fallback');
             setProcessingStatus({
               message: 'Processing Complete!',
-              detailMessage: `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
+              detailMessage: `Successfully processed ${status.entriesProcessed?.toLocaleString() || 0} entries from ${status.linesProcessed?.toLocaleString() || 0} lines`,
               progress: 100,
               status: 'complete'
             });
@@ -268,17 +342,17 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             setIsProcessingLogs(true);
             await logProcessingOp.clear();
 
+            // Show completion for 3 seconds, then stop
             setTimeout(() => {
               setIsProcessingLogs(false);
               setProcessingStatus(null);
               onDataRefresh?.();
-            }, 10000);
+            }, 3000);
           } else {
+            // Not processing and not complete - just stop
             setIsProcessingLogs(false);
+            setProcessingStatus(null);
             await logProcessingOp.clear();
-            if (pollingInterval.current) {
-              clearInterval(pollingInterval.current);
-            }
           }
         }
       } catch (err) {
@@ -334,15 +408,29 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         }
 
         if (result.logSizeMB > 0) {
-          await logProcessingOp.save({ type: 'processAll' });
+          await logProcessingOp.save({ type: 'processAll', resume: result.resume });
+          const remainingMBRaw = typeof result.remainingMB === 'number' ? result.remainingMB : result.logSizeMB || 0;
+          const processedMB = Math.max(0, (result.logSizeMB || 0) - remainingMBRaw);
+          const initialProgress = result.resume && (result.logSizeMB || 0) > 0
+            ? Math.min(99, Math.max(0, (processedMB / (result.logSizeMB || 1)) * 100))
+            : 0;
+
           setIsProcessingLogs(true);
           setProcessingStatus({
-            message: 'Preparing to process logs...',
-            detailMessage: `${result.logSizeMB?.toFixed(1) || 0} MB to process`,
-            progress: 0,
-            estimatedTime: `Estimated: ${result.estimatedTimeMinutes} minutes`,
+            message: result.resume ? 'Resuming log processing...' : 'Preparing to process logs...',
+            detailMessage: result.resume
+              ? `${remainingMBRaw.toFixed(1)} MB remaining to import`
+              : `${result.logSizeMB?.toFixed(1) || 0} MB to process`,
+            progress: initialProgress,
+            estimatedTime: result.estimatedTimeMinutes
+              ? `Estimated: ${result.estimatedTimeMinutes} minutes`
+              : undefined,
             status: 'starting'
           });
+
+          if (result.message) {
+            onSuccess?.(result.message);
+          }
 
           if (!signalRConnected) {
             setTimeout(() => startProcessingPolling(), 5000);
@@ -452,7 +540,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       return;
     }
 
-    if (!window.confirm('Apply depot mappings to existing download data? This will update all downloads with the latest depot information.')) return;
+    if (!window.confirm('Reapply Depot Mappings to existing download data? This will update all downloads with the latest depot information.')) return;
 
     setActionLoading(true);
     try {
@@ -540,7 +628,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           }
           fullWidth
         >
-          Apply Depot Mappings
+          Reapply Depot Mappings
         </Button>
       </div>
       {depotProcessing?.isRunning && (
@@ -565,7 +653,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           <br />
           <strong>Process All:</strong> Import entire log history
           <br />
-          <strong>Apply Depot Mappings:</strong> Update existing downloads with depot information (run after log processing completes)
+          <strong>Reapply Depot Mappings:</strong> Manually rerun depot mapping if needed. Log processing now applies mappings automatically after completion.
         </p>
       </div>
 

@@ -57,7 +57,7 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
     }
 
     Console.WriteLine($"Using database path: {dbPath}");
-    options.UseSqlite($"Data Source={dbPath};Cache=Shared");
+    options.UseSqlite($"Data Source={dbPath};Cache=Shared;Pooling=false");
 });
 
 // Register HttpClientFactory for better HTTP client management
@@ -118,6 +118,16 @@ builder.Services.AddSingleton<StatsCache>();
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
+
+// Apply additional filtering to reduce log noise
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database", LogLevel.None);
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Error);
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Services.WindowsPathResolver", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Services.LogProcessingService", LogLevel.Information);
+builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 var app = builder.Build();
 

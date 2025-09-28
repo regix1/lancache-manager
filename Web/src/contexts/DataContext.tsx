@@ -8,7 +8,6 @@ import React, {
 } from 'react';
 import ApiService from '@services/api.service';
 import MockDataService from '@services/mockData.service';
-import { REFRESH_INTERVAL } from '@utils/constants';
 import { useTimeFilter } from './TimeFilterContext';
 
 interface CacheInfo {

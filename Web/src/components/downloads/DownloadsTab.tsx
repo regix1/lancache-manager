@@ -14,6 +14,7 @@ import {
   Grid3x3,
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext'; // Fixed import path
+import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { Alert } from '../ui/Alert'; // Fixed import path
 import { Card } from '../ui/Card'; // Fixed import path
 
@@ -187,6 +188,7 @@ const DownloadsTab: React.FC = () => {
     updateMockDataCount,
     updateApiDownloadCount
   } = useData();
+  const { timeRange } = useTimeFilter();
 
   // State management
   const [expandedItem, setExpandedItem] = useState<string | null>(null);

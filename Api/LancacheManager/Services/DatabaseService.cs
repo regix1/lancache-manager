@@ -55,13 +55,13 @@ public class DatabaseService
             // During bulk reprocessing, be more aggressive about processing
             if (!sendRealtimeUpdates) // This indicates bulk processing
             {
-                // Clear the change tracker to avoid caching issues
+                // Clear the change tracker to avoid holding on to large tracked graphs
+                // and to ensure duplicate detection only considers persisted rows.
                 _context.ChangeTracker.Clear();
-                
+
                 var firstTimestamp = entries.Min(e => e.Timestamp);
                 var lastTimestamp = entries.Max(e => e.Timestamp);
-                
-                // Don't skip ANY entries during bulk processing
+
                 _logger.LogDebug($"Processing batch for {entries.First().ClientIp}/{entries.First().Service} from {firstTimestamp:yyyy-MM-dd HH:mm:ss}");
             }
 
@@ -223,12 +223,15 @@ public class DatabaseService
                 {
                     download.GameAppId = appId.Value;
 
+                    string? resolvedName = null;
+
                     // Try to fetch game name immediately (but don't fail if it doesn't work)
                     try
                     {
                         var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
                         if (gameInfo != null)
                         {
+                            resolvedName = gameInfo.Name;
                             download.GameName = gameInfo.Name;
                             download.GameImageUrl = gameInfo.HeaderImage;
                             _logger.LogDebug($"Identified Steam game: {gameInfo.Name} (App ID: {appId})");
@@ -243,6 +246,8 @@ public class DatabaseService
                         _logger.LogWarning(ex, $"Failed to fetch game info for app {appId}");
                         download.GameName = $"Steam App {appId}";
                     }
+
+                    await StoreDepotMappingAsync(appId.Value, download.DepotId.Value, resolvedName ?? download.GameName, "realtime", 90);
                 }
             }
             else if (!sendRealtimeUpdates && download.Service.ToLower() == "steam" && download.DepotId.HasValue)
@@ -287,7 +292,69 @@ public class DatabaseService
                 serviceStats.TotalDownloads++;
             }
 
+            // Save the download first to get its ID
             await _context.SaveChangesAsync();
+
+            // Now save individual log entries with the download ID
+            // Check for duplicates to avoid re-inserting during reprocessing
+            var logEntriesToSave = new List<LogEntryRecord>();
+
+            // Get the time range of entries we're trying to save
+            var minTimestamp = entries.Min(e => e.Timestamp);
+            var maxTimestamp = entries.Max(e => e.Timestamp);
+
+            // Check if we already have entries for this client/service in this time range
+            var existingEntries = await _context.LogEntries
+                .Where(le => le.ClientIp == firstEntry.ClientIp &&
+                            le.Service == firstEntry.Service &&
+                            le.Timestamp >= minTimestamp &&
+                            le.Timestamp <= maxTimestamp)
+                .Select(le => new { le.Timestamp, le.Url, le.BytesServed })
+                .ToListAsync();
+
+            // Create a HashSet for fast lookup
+            var existingSet = new HashSet<(DateTime Timestamp, string Url, long BytesServed)>(
+                existingEntries.Select(e => (e.Timestamp, e.Url ?? "", e.BytesServed))
+            );
+
+            foreach (var entry in entries)
+            {
+                // Check if this exact entry already exists (by timestamp, URL, and bytes)
+                var entryKey = (entry.Timestamp, entry.Url ?? "", entry.BytesServed);
+                if (existingSet.Contains(entryKey))
+                {
+                    _logger.LogTrace($"Skipping duplicate log entry: {entry.Timestamp} - {entry.Url}");
+                    continue;
+                }
+
+                var logRecord = new LogEntryRecord
+                {
+                    Timestamp = entry.Timestamp,
+                    ClientIp = entry.ClientIp,
+                    Service = entry.Service,
+                    Method = "GET", // Default to GET since logs don't include method
+                    Url = entry.Url,
+                    StatusCode = entry.StatusCode,
+                    BytesServed = entry.BytesServed,
+                    CacheStatus = entry.CacheStatus,
+                    DepotId = entry.DepotId,
+                    DownloadId = download.Id, // Associate with the download session
+                    CreatedAt = DateTime.UtcNow
+                };
+                logEntriesToSave.Add(logRecord);
+            }
+
+            // Bulk insert log entries for better performance
+            if (logEntriesToSave.Any())
+            {
+                await _context.LogEntries.AddRangeAsync(logEntriesToSave);
+                await _context.SaveChangesAsync();
+                _logger.LogDebug($"Saved {logEntriesToSave.Count} new log entries to database (skipped {entries.Count - logEntriesToSave.Count} duplicates)");
+            }
+            else if (existingSet.Count > 0)
+            {
+                _logger.LogDebug($"All {entries.Count} log entries already exist in database, skipped insertion");
+            }
 
             // Only send SignalR updates if requested (not during bulk processing)
             if (sendRealtimeUpdates)
@@ -367,13 +434,22 @@ public class DatabaseService
     {
         try
         {
-            _context.Downloads.RemoveRange(_context.Downloads);
-            _context.ClientStats.RemoveRange(_context.ClientStats);
-            _context.ServiceStats.RemoveRange(_context.ServiceStats);
+            _logger.LogInformation("Starting database reset using row-by-row deletion");
+
+            // Use efficient bulk deletion to clear all tables
+            // Clear LogEntries first due to foreign key relationship with Downloads
+            await _context.LogEntries.ExecuteDeleteAsync();
+            await _context.Downloads.ExecuteDeleteAsync();
+            await _context.ClientStats.ExecuteDeleteAsync();
+            await _context.ServiceStats.ExecuteDeleteAsync();
             await _context.SaveChangesAsync();
 
-            // Ensure data directory exists before working with files
+            _logger.LogDebug("Database cleared successfully");
+
+            // Get data directory for file cleanup
             var dataDirectory = _pathResolver.GetDataDirectory();
+
+            // Ensure data directory exists before working with files
             if (!Directory.Exists(dataDirectory))
             {
                 Directory.CreateDirectory(dataDirectory);
@@ -410,7 +486,7 @@ public class DatabaseService
                 _sessionTracker.Clear();
             }
 
-            _logger.LogInformation($"Database reset completed. Data directory: {dataDirectory}");
+            _logger.LogInformation($"Database reset completed successfully. Data directory: {dataDirectory}");
         }
         catch (Exception ex)
         {
@@ -472,26 +548,31 @@ public class DatabaseService
                     {
                         download.GameAppId = appId.Value;
 
+                        string resolvedName = $"Steam App {appId}";
+
                         // Try to fetch game name
                         try
                         {
                             var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
                             if (gameInfo != null)
                             {
+                                resolvedName = gameInfo.Name;
                                 download.GameName = gameInfo.Name;
                                 download.GameImageUrl = gameInfo.HeaderImage;
                                 _logger.LogDebug($"Identified Steam game: {gameInfo.Name} (App ID: {appId})");
                             }
                             else
                             {
-                                download.GameName = $"Steam App {appId}";
+                                download.GameName = resolvedName;
                             }
                         }
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex, $"Failed to fetch game info for app {appId}");
-                            download.GameName = $"Steam App {appId}";
+                            download.GameName = resolvedName;
                         }
+
+                        await StoreDepotMappingAsync(appId.Value, download.DepotId.Value, resolvedName, "post_process", 80);
 
                         mappingsProcessed++;
                     }
@@ -521,5 +602,55 @@ public class DatabaseService
         }
     }
 
+    private async Task StoreDepotMappingAsync(uint appId, uint depotId, string? appName, string source, int confidence)
+    {
+        try
+        {
+            var existing = await _context.SteamDepotMappings
+                .FirstOrDefaultAsync(m => m.DepotId == depotId && m.AppId == appId);
 
+            if (existing != null)
+            {
+                bool changed = false;
+
+                if (!string.IsNullOrWhiteSpace(appName) && string.IsNullOrWhiteSpace(existing.AppName))
+                {
+                    existing.AppName = appName;
+                    changed = true;
+                }
+
+                if (confidence > existing.Confidence)
+                {
+                    existing.Confidence = confidence;
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    existing.Source = source;
+                    existing.DiscoveredAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                }
+                return;
+            }
+
+            var mapping = new SteamDepotMapping
+            {
+                DepotId = depotId,
+                AppId = appId,
+                AppName = appName,
+                Source = source,
+                Confidence = confidence,
+                DiscoveredAt = DateTime.UtcNow
+            };
+
+            _context.SteamDepotMappings.Add(mapping);
+            await _context.SaveChangesAsync();
+            _logger.LogDebug($"Stored depot mapping {depotId} -> {appId} ({appName ?? "unknown"}) via {source}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Failed to store depot mapping {depotId} -> {appId}");
+        }
+    }
 }

@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LANCache Manager</title>
+    <script>
+      // Apply cached theme immediately to prevent flash
+      (function() {
+        try {
+          // Check for cached theme CSS
+          const savedCSS = localStorage.getItem('lancache_theme_css');
+          const savedThemeId = localStorage.getItem('lancache_selected_theme');
+          const isDark = localStorage.getItem('lancache_theme_dark') !== 'false';
+          
+          if (savedCSS && savedThemeId) {
+            // Apply the cached theme instantly
+            const style = document.createElement('style');
+            style.id = 'lancache-theme-preload';
+            style.textContent = savedCSS;
+            document.head.appendChild(style);
+            
+            // Set data attributes
+            document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme-id', savedThemeId);
+            document.documentElement.style.backgroundColor = 'var(--theme-bg-primary)';
+          } else {
+            // No cached theme, apply default dark theme
+            const defaultStyle = document.createElement('style');
+            defaultStyle.id = 'lancache-default-preload';
+            defaultStyle.textContent = `
+              :root {
+                --theme-bg-primary: #111827;
+                --theme-bg-secondary: #1f2937;
+                --theme-text-primary: #ffffff;
+                --theme-text-secondary: #d1d5db;
+                --theme-text-muted: #9ca3af;
+              }
+              body {
+                background-color: #111827 !important;
+                color: #ffffff !important;
+              }
+            `;
+            document.head.appendChild(defaultStyle);
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.documentElement.style.backgroundColor = '#111827';
+          }
+        } catch (e) {
+          // If anything fails, ensure we have some default styling
+          console.error('Failed to apply cached theme:', e);
+          document.documentElement.style.backgroundColor = '#111827';
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-BWakVz_d.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/vendor-BmYUbuLR.js">
+    <link rel="modulepreload" crossorigin href="/assets/react-vendor-BKkFPE2a.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-CzWLKSZ4.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
