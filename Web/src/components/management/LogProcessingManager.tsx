@@ -223,7 +223,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           status: 'complete'
         });
 
-        setIsProcessingLogs(true);
+        setIsProcessingLogs(false);  // Set to false when complete
         await logProcessingOp.clear();
         if (depotMappingsProcessed > 0) {
           onSuccess?.(`Depot mappings applied to ${depotMappingsProcessed.toLocaleString()} downloads.`);
@@ -231,7 +231,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
         // Show completion for 3 seconds instead of 10, then stop completely
         setTimeout(async () => {
-          setIsProcessingLogs(false);
           setProcessingStatus(null);
           onDataRefresh?.();
         }, 3000);
@@ -335,12 +334,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               status: 'complete'
             });
 
-            setIsProcessingLogs(true);
+            setIsProcessingLogs(false);  // Set to false when complete
             await logProcessingOp.clear();
 
             // Show completion for 3 seconds, then stop
             setTimeout(() => {
-              setIsProcessingLogs(false);
               setProcessingStatus(null);
               onDataRefresh?.();
             }, 3000);

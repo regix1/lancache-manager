@@ -436,23 +436,10 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             : 'Depot mapping post-processing failed.');
         });
 
-        // Auto-start depot mapping when log processing completes
-        connection.on('BulkProcessingComplete', async () => {
-          console.log('Log processing complete, auto-starting depot mapping...');
-          setTimeout(async () => {
-            try {
-              const response = await fetch('/api/management/post-process-depot-mappings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-              });
-              if (!response.ok) {
-                const error = await response.json();
-                addError(error.error || 'Failed to auto-start depot mapping');
-              }
-            } catch (err: any) {
-              addError(err.message || 'Failed to auto-start depot mapping');
-            }
-          }, 2000); // Wait 2 seconds after log processing completes
+        // Listen for log processing completion - depot mapping will start automatically on backend
+        connection.on('BulkProcessingComplete', async (result: any) => {
+          console.log('Log processing complete, depot mapping will start automatically from backend:', result);
+          // Backend automatically triggers depot mapping, no need for manual API call
         });
 
         await connection.start();
@@ -640,7 +627,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="flex-1">
                 <p className="font-semibold text-lg break-words">
-                  🗂️ Depot Mapping: {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads
+                  Depot Mapping: {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads
                 </p>
                 <p className="text-sm mt-2 opacity-85 break-words">
                   {depotMappingProgress.message}
