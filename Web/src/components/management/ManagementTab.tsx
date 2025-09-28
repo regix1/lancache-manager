@@ -505,36 +505,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         </div>
       )}
 
-      {/* Fixed position progress indicator for log processing */}
-      {backgroundOperations.logProcessing &&
-       backgroundOperations.logProcessing.status !== 'complete' && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-blue-600 text-white shadow-lg">
-          <div className="px-4 py-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="font-medium text-sm">
-                🔄 Log Processing: {backgroundOperations.logProcessing.progress.toFixed(1)}%
-              </span>
-              <span className="text-xs opacity-90">
-                {backgroundOperations.logProcessing.estimatedTime &&
-                  `${backgroundOperations.logProcessing.estimatedTime} remaining`}
-              </span>
-            </div>
-            <div className="w-full bg-blue-800 rounded-full h-1.5">
-              <div
-                className="bg-white h-1.5 rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="space-y-6" style={{
-        paddingTop: (depotMappingProgress?.isProcessing ||
-                    (backgroundOperations.logProcessing && backgroundOperations.logProcessing.status !== 'complete'))
-                    ? '80px' : '0'
+        paddingTop: depotMappingProgress?.isProcessing ? '80px' : '0'
       }}>
         {/* Authentication - Always at top */}
       <AuthenticationManager
@@ -606,7 +579,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                         {/* Larger, more prominent progress bar */}
                         <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
                           <div
-                            className="progress-bar-low h-4 rounded-full smooth-transition"
+                            className="progress-bar-medium h-4 rounded-full smooth-transition"
                             style={{
                               width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
                             }}
