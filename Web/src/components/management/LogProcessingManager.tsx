@@ -534,7 +534,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       return;
     }
 
-    if (!window.confirm('Reapply Depot Mappings to existing download data? This will update all downloads with the latest depot information.')) return;
+    if (!window.confirm('Apply Depot Mappings to identify Steam games? This will map depot IDs to game names for all unidentified Steam downloads.')) return;
 
     setActionLoading(true);
     try {
@@ -622,7 +622,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           }
           fullWidth
         >
-          Reapply Depot Mappings
+          Apply Depot Mappings
         </Button>
       </div>
       {depotProcessing?.isRunning && (
@@ -648,7 +648,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           <br />
           <strong>Process All:</strong> Import entire log history
           <br />
-          <strong>Reapply Depot Mappings:</strong> Manually rerun depot mapping if needed. Log processing now applies mappings automatically after completion.
+          <strong>Reapply Depot Mappings:</strong> Apply depot mappings to identify games from Steam downloads. Run this after log processing completes.
         </p>
       </div>
 

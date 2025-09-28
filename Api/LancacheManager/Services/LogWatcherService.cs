@@ -832,18 +832,8 @@ public class LogWatcherService : BackgroundService
 
         _processingComplete = true;
 
-        // Add a delay to ensure frontend has time to process the completion before starting depot mapping
-        _logger.LogInformation("Waiting 5 seconds before starting depot post-processing...");
-        await Task.Delay(5000);
-
-        // Now run depot post-processing with proper notifications
-        _logger.LogInformation("Triggering depot post-processing after bulk completion");
-        var depotMappingsProcessed = await RunDepotPostProcessingAsync();
-
-        if (depotMappingsProcessed > 0)
-        {
-            _logger.LogInformation($"Depot post-processing finished. Updated {depotMappingsProcessed} downloads.");
-        }
+        // Don't automatically run depot mapping - let the user trigger it manually when needed
+        _logger.LogInformation("Log processing finished. Depot mapping can be triggered manually if needed.");
     }
 
     private async Task<int> RunDepotPostProcessingAsync()
