@@ -42,13 +42,14 @@ else
 }
 
 // Database configuration (now can use IPathResolver)
+var dbPathInitialized = false;
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
     // Get the path resolver to determine the database path
     var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
     var dbPath = Path.Combine(pathResolver.GetDataDirectory(), "LancacheManager.db");
 
-    // Ensure the directory exists
+    // Ensure the directory exists (only log once)
     var dbDir = Path.GetDirectoryName(dbPath);
     if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
     {
@@ -56,7 +57,13 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         Console.WriteLine($"Created database directory: {dbDir}");
     }
 
-    Console.WriteLine($"Using database path: {dbPath}");
+    // Only log the path once at startup
+    if (!dbPathInitialized)
+    {
+        Console.WriteLine($"Using database path: {dbPath}");
+        dbPathInitialized = true;
+    }
+
     options.UseSqlite($"Data Source={dbPath};Cache=Shared;Pooling=false");
 });
 
@@ -124,9 +131,12 @@ builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogL
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database", LogLevel.None);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Error);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.WindowsPathResolver", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.LogProcessingService", LogLevel.Information);
+builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.Information);
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 var app = builder.Build();

@@ -8,12 +8,14 @@ interface DepotInitializationModalProps {
   onInitialized: () => void;
   isAuthenticated: boolean;
   onAuthChanged?: () => void;
+  apiKeyOnlyMode?: boolean; // When true, only show API key form, skip depot initialization
 }
 
 const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   onInitialized,
   isAuthenticated,
-  onAuthChanged
+  onAuthChanged,
+  apiKeyOnlyMode = false
 }) => {
   const [initializing, setInitializing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   useEffect(() => {
     const checkSetupStatus = async () => {
       try {
+        // If in API key only mode, always show the API key form and skip depot initialization
+        if (apiKeyOnlyMode) {
+          setShowApiKeyForm(true);
+          return;
+        }
+
         // Check if setup has been completed
         const setupResponse = await fetch('/api/management/setup-status');
         const setupData = await setupResponse.json();
@@ -69,7 +77,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
     // Only check setup status on initial mount, not when auth changes
     checkSetupStatus();
-  }, []); // Removed dependencies to prevent re-checking on auth changes
+  }, [apiKeyOnlyMode]); // Added apiKeyOnlyMode as dependency
 
   // Cleanup function to handle interrupted initialization
   useEffect(() => {
@@ -217,11 +225,20 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         // Verify authentication status with server after successful registration
         const authCheck = await authService.checkAuth();
         if (authCheck.isAuthenticated) {
-          setShowApiKeyForm(false);
-          setProgress('Authentication successful! Checking existing PICS data...');
-
           // Notify parent component of authentication change
           onAuthChanged?.();
+
+          // If in API key only mode, close the modal and don't proceed to depot initialization
+          if (apiKeyOnlyMode) {
+            setProgress('Authentication successful! Returning to application...');
+            setTimeout(() => {
+              onInitialized(); // This will close the modal
+            }, 1000);
+            return;
+          }
+
+          setShowApiKeyForm(false);
+          setProgress('Authentication successful! Checking existing PICS data...');
 
           // Check if PICS data already exists
           const picsStatus = await checkPicsDataStatus();
@@ -403,10 +420,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             <AlertTriangle size={32} style={{ color: 'var(--theme-primary)' }} />
           </div>
           <h1 className="text-3xl font-bold text-themed-primary mb-2">
-            Welcome to Lancache Manager
+            {apiKeyOnlyMode ? 'API Key Regenerated' : 'Welcome to Lancache Manager'}
           </h1>
           <p className="text-lg text-themed-secondary">
-            Steam depot initialization required
+            {apiKeyOnlyMode ? 'Please enter your new API key' : 'Steam depot initialization required'}
           </p>
         </div>
 
@@ -415,7 +432,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           {showApiKeyForm ? (
             <>
               <p className="text-themed-secondary text-center mb-6">
-                Please enter your API key to authenticate and continue with setup:
+                {apiKeyOnlyMode
+                  ? 'Your API key has been regenerated. Please enter the new API key to continue:'
+                  : 'Please enter your API key to authenticate and continue with setup:'
+                }
               </p>
 
               {/* API Key Form */}

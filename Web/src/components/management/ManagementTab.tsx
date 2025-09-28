@@ -310,7 +310,11 @@ const LogFileManager: React.FC<{
 };
 
 // Main Management Tab Component
-const ManagementTab: React.FC = () => {
+interface ManagementTabProps {
+  onApiKeyRegenerated?: () => void;
+}
+
+const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
   const { mockMode, setMockMode, fetchData } = useData();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [alerts, setAlerts] = useState<{
@@ -374,6 +378,7 @@ const ManagementTab: React.FC = () => {
         onAuthChange={setIsAuthenticated}
         onError={addError}
         onSuccess={setSuccess}
+        onApiKeyRegenerated={onApiKeyRegenerated}
       />
 
       {/* All Notifications Consolidated Here */}

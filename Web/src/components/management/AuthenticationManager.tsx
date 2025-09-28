@@ -9,12 +9,14 @@ interface AuthenticationManagerProps {
   onAuthChange?: (isAuthenticated: boolean) => void;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
+  onApiKeyRegenerated?: () => void;
 }
 
 const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   onAuthChange,
   onError,
-  onSuccess
+  onSuccess,
+  onApiKeyRegenerated
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
@@ -96,12 +98,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         onAuthChange?.(false);
         setShowAuthModal(false);
 
-        onError?.('API KEY REGENERATED - Check container logs for new key!');
         onSuccess?.(result.message);
 
+        // Trigger the API key regeneration modal from App.tsx
         setTimeout(() => {
-          setShowAuthModal(true);
-        }, 3000);
+          onApiKeyRegenerated?.();
+        }, 1000);
       } else {
         onError?.(result.message || 'Failed to regenerate API key');
       }

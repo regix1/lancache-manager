@@ -24,6 +24,7 @@ const AppContent: React.FC = () => {
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
 
   // Check authentication status first
   useEffect(() => {
@@ -122,6 +123,18 @@ const AppContent: React.FC = () => {
     setIsAuthenticated(authService.isAuthenticated);
   };
 
+  const handleApiKeyRegenerated = () => {
+    // Set authentication to false and show the API key regeneration modal
+    setIsAuthenticated(false);
+    setShowApiKeyRegenerationModal(true);
+  };
+
+  const handleApiKeyRegenerationCompleted = () => {
+    // Close the regeneration modal and update authentication status
+    setShowApiKeyRegenerationModal(false);
+    setIsAuthenticated(authService.isAuthenticated);
+  };
+
   const renderContent = () => {
     const TabComponent = (() => {
       switch (activeTab) {
@@ -142,7 +155,11 @@ const AppContent: React.FC = () => {
 
     return (
       <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading..." />}>
-        <TabComponent />
+        {activeTab === 'management' ? (
+          <ManagementTab onApiKeyRegenerated={handleApiKeyRegenerated} />
+        ) : (
+          <TabComponent />
+        )}
       </Suspense>
     );
   };
@@ -154,6 +171,20 @@ const AppContent: React.FC = () => {
            style={{ backgroundColor: 'var(--theme-bg-primary)' }}>
         <LoadingSpinner fullScreen={false} message={checkingAuth ? "Checking authentication..." : "Checking depot initialization status..."} />
       </div>
+    );
+  }
+
+  // Show API key regeneration modal if needed
+  if (showApiKeyRegenerationModal) {
+    return (
+      <>
+        <DepotInitializationModal
+          onInitialized={handleApiKeyRegenerationCompleted}
+          isAuthenticated={false}
+          onAuthChanged={handleAuthChanged}
+          apiKeyOnlyMode={true}
+        />
+      </>
     );
   }
 
