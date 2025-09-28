@@ -354,6 +354,10 @@
     background-color: var(--theme-error);
   }
 
+  .progress-bar-info {
+    background-color: var(--theme-info);
+  }
+
   .progress-track {
     background-color: var(--theme-progress-bg);
   }

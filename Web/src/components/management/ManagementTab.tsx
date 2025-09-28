@@ -579,7 +579,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                         {/* Larger, more prominent progress bar */}
                         <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
                           <div
-                            className="progress-bar-medium h-4 rounded-full smooth-transition"
+                            className="progress-bar-info h-4 rounded-full smooth-transition"
                             style={{
                               width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
                             }}
