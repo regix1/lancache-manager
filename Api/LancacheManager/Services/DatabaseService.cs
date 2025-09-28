@@ -291,7 +291,7 @@ public class DatabaseService
                         download.GameName = $"Steam App {appId}";
                     }
 
-                    await StoreDepotMappingAsync(appId.Value, download.DepotId.Value, resolvedName ?? download.GameName, "realtime", 90);
+                    await StoreDepotMappingAsync(appId.Value, download.DepotId.Value, resolvedName ?? download.GameName, "realtime");
                 }
             }
             else if (!sendRealtimeUpdates && download.Service.ToLower() == "steam" && download.DepotId.HasValue)
@@ -599,7 +599,7 @@ public class DatabaseService
                             download.GameName = resolvedName;
                         }
 
-                        await StoreDepotMappingAsync(appId.Value, download.DepotId.Value, resolvedName, "post_process", 80);
+                        await StoreDepotMappingAsync(appId.Value, download.DepotId.Value, resolvedName, "post_process");
 
                         mappingsProcessed++;
                     }
@@ -665,7 +665,7 @@ public class DatabaseService
         }
     }
 
-    private async Task StoreDepotMappingAsync(uint appId, uint depotId, string? appName, string source, int confidence)
+    private async Task StoreDepotMappingAsync(uint appId, uint depotId, string? appName, string source)
     {
         try
         {
@@ -679,12 +679,6 @@ public class DatabaseService
                 if (!string.IsNullOrWhiteSpace(appName) && string.IsNullOrWhiteSpace(existing.AppName))
                 {
                     existing.AppName = appName;
-                    changed = true;
-                }
-
-                if (confidence > existing.Confidence)
-                {
-                    existing.Confidence = confidence;
                     changed = true;
                 }
 
@@ -703,7 +697,6 @@ public class DatabaseService
                 AppId = appId,
                 AppName = appName,
                 Source = source,
-                Confidence = confidence,
                 DiscoveredAt = DateTime.UtcNow
             };
 

@@ -316,7 +316,6 @@ public class SteamService : IHostedService, IDisposable
                         DepotId = depotId,
                         AppId = appId,
                         Source = "steam-api",
-                        Confidence = 90,
                         DiscoveredAt = DateTime.UtcNow
                     };
 

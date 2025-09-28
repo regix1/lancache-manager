@@ -57,7 +57,6 @@ public class PicsDataService
                     AppIds = appIdsList,
                     AppNames = appNamesList,
                     Source = "SteamKit2-PICS",
-                    Confidence = 100,
                     DiscoveredAt = DateTime.UtcNow
                 };
             }
@@ -154,7 +153,6 @@ public class PicsDataService
                     AppIds = appIdsList,
                     AppNames = appNamesList,
                     Source = "SteamKit2-PICS",
-                    Confidence = 100,
                     DiscoveredAt = DateTime.UtcNow
                 };
 
@@ -352,7 +350,6 @@ public class PicsDataService
                             AppId = appId,
                             AppName = appName,
                             Source = mapping.Source ?? "JSON-Import",
-                            Confidence = mapping.Confidence,
                             DiscoveredAt = mapping.DiscoveredAt
                         });
 
@@ -382,13 +379,11 @@ public class PicsDataService
                 var key = $"{mapping.DepotId}_{mapping.AppId}";
                 if (existingMappings.TryGetValue(key, out var existing))
                 {
-                    // Update existing mapping if JSON data is newer or has higher confidence
-                    if (mapping.Confidence > existing.Confidence ||
-                        (mapping.DiscoveredAt > existing.DiscoveredAt && existing.Source != "SteamKit2-PICS"))
+                    // Update existing mapping if JSON data is newer
+                    if (mapping.DiscoveredAt > existing.DiscoveredAt && existing.Source != "SteamKit2-PICS")
                     {
                         existing.AppName = mapping.AppName;
                         existing.Source = GetCombinedSource(existing.Source, mapping.Source);
-                        existing.Confidence = Math.Max(existing.Confidence, mapping.Confidence);
                         existing.DiscoveredAt = mapping.DiscoveredAt;
                         updated++;
                     }
@@ -489,6 +484,5 @@ public class PicsDepotMapping
     public List<uint>? AppIds { get; set; }
     public List<string>? AppNames { get; set; }
     public string Source { get; set; } = "SteamKit2-PICS";
-    public int Confidence { get; set; } = 100;
     public DateTime DiscoveredAt { get; set; }
 }

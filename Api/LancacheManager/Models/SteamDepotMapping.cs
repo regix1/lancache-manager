@@ -16,6 +16,4 @@ public class SteamDepotMapping
     public DateTime DiscoveredAt { get; set; } = DateTime.UtcNow;
     
     public string Source { get; set; } = "observed";
-    
-    public int Confidence { get; set; } = 50;
 }

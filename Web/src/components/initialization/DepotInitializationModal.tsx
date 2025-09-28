@@ -20,10 +20,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [initializing, setInitializing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
-  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'auto-update' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'auto-update' | 'continue' | null>(null);
   const [showApiKeyForm, setShowApiKeyForm] = useState(true); // Default to true, will be updated by useEffect
   const [apiKey, setApiKey] = useState('');
-  const [deviceName, setDeviceName] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [picsData, setPicsData] = useState<any>(null);
@@ -220,7 +219,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     setAuthError(null);
 
     try {
-      const result = await authService.register(apiKey, deviceName.trim() || null);
+      const result = await authService.register(apiKey, null);
       if (result.success) {
         // Verify authentication status with server after successful registration
         const authCheck = await authService.checkAuth();
@@ -351,36 +350,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     setInitializing(true);
     setSelectedMethod('generate');
     setError(null);
-    setProgress('Checking for existing Steam PICS data...');
+    setProgress('Starting fresh Steam PICS depot generation...');
 
     try {
-      // Check if PICS data already exists
-      const picsStatus = await checkPicsDataStatus();
 
-      let isIncremental = false;
-      if (picsStatus) {
-        // Only use incremental mode if we have a substantial amount of existing data
-        // (indicating a complete initial scan that just needs updates)
-        // Typically, a complete scan has 200,000+ mappings
-        const hasCompleteData =
-          (picsStatus.jsonFile?.exists === true && picsStatus.jsonFile?.totalMappings > 100000) ||
-          (picsStatus.database?.totalMappings > 100000) ||
-          (picsStatus.steamKit2?.depotCount > 100000);
-
-        if (hasCompleteData) {
-          isIncremental = true;
-          setProgress('Found complete PICS data. Running incremental update for recent changes...');
-        } else if (picsStatus.jsonFile?.exists || picsStatus.database?.totalMappings > 0) {
-          // Have some data but it's incomplete - do full rebuild
-          setProgress('Found incomplete PICS data. Resuming full generation...');
-          isIncremental = false;
-        } else {
-          setProgress('Starting fresh Steam PICS depot generation...');
-        }
-      }
-
-      // Use incremental only for complete datasets, otherwise do full rebuild
-      await ApiService.triggerSteamKitRebuild(isIncremental);
+      // Always do a full rebuild for "Generate Fresh" - never incremental
+      await ApiService.triggerSteamKitRebuild(false);
       setProgress('Depot generation started! Verifying initialization...');
 
       // For generate method, we can proceed immediately since it runs in background
@@ -397,6 +372,46 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   };
 
+  // Helper function to determine if Continue option should be shown
+  const shouldShowContinueOption = () => {
+    if (!picsData) return false;
+
+    // Show Continue option only if JSON mapping file already exists
+    return picsData.jsonFile?.exists === true;
+  };
+
+  const handleContinue = async () => {
+    // Double-check authentication status before proceeding
+    const authCheck = await authService.checkAuth();
+    if (!authCheck.isAuthenticated) {
+      setError('Authentication required. Please authenticate first.');
+      setShowApiKeyForm(true);
+      return;
+    }
+
+    setInitializing(true);
+    setSelectedMethod('continue');
+    setError(null);
+    setProgress('Running incremental update to check for new depot mappings...');
+
+    try {
+      // Run incremental update to get latest changes only
+      await ApiService.triggerSteamKitRebuild(true);
+      setProgress('Incremental update completed! Verifying initialization...');
+
+      // Verify depot data is ready
+      await verifyDepotInitialization();
+
+      // Mark setup as completed
+      await markSetupCompleted();
+    } catch (err: any) {
+      setError(err.message || 'Failed to run incremental update');
+      setInitializing(false);
+      setSelectedMethod(null);
+      setProgress(null);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] bg-[var(--theme-bg-primary)] flex items-center justify-center">
       {/* Background pattern */}
@@ -407,7 +422,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         }}
       />
 
-      <div className="relative z-10 max-w-2xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
+      <div className="relative z-10 max-w-4xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
            style={{
              backgroundColor: 'var(--theme-bg-secondary)',
              borderColor: 'var(--theme-primary)'
@@ -449,34 +464,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder="Enter your API key here..."
-                    className="w-full p-3 rounded-lg border text-sm"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      borderColor: 'var(--theme-border-primary)',
-                      color: 'var(--theme-text-primary)'
-                    }}
+                    className="w-full p-3 text-sm themed-input"
                     disabled={authenticating}
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-themed-primary mb-2">
-                    Device Name (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={deviceName}
-                    onChange={(e) => setDeviceName(e.target.value)}
-                    placeholder="e.g., My Desktop"
-                    className="w-full p-3 rounded-lg border text-sm"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      borderColor: 'var(--theme-border-primary)',
-                      color: 'var(--theme-text-primary)'
-                    }}
-                    disabled={authenticating}
-                  />
-                </div>
 
                 <Button
                   variant="filled"
@@ -531,24 +523,25 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
               )}
 
               {/* Options */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className={`grid grid-cols-1 gap-4 ${shouldShowContinueOption() ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
             {/* Cloud Download Option */}
-            <div className="p-6 rounded-lg border-2 transition-all"
+            <div className="p-5 rounded-lg border-2 transition-all flex flex-col"
                  style={{
                    backgroundColor: selectedMethod === 'cloud' ? 'var(--theme-primary)/10' : 'var(--theme-bg-tertiary)',
-                   borderColor: selectedMethod === 'cloud' ? 'var(--theme-primary)' : 'var(--theme-border-primary)'
+                   borderColor: selectedMethod === 'cloud' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+                   minHeight: '280px'
                  }}>
-              <div className="flex items-center gap-3 mb-3">
-                <Cloud size={24} style={{ color: 'var(--theme-info)' }} />
-                <h3 className="text-lg font-semibold text-themed-primary">Pre-created Data</h3>
+              <div className="flex items-center gap-2 mb-3">
+                <Cloud size={20} style={{ color: 'var(--theme-info)' }} />
+                <h3 className="text-base font-semibold text-themed-primary">Pre-created Data</h3>
               </div>
-              <p className="text-sm text-themed-secondary mb-3">
+              <p className="text-sm text-themed-secondary mb-3 min-h-[40px]">
                 Download community-maintained depot mappings from GitHub.
                 {picsData && (picsData.database?.totalMappings > 0 || picsData.steamKit2?.depotCount > 0) &&
                   <span className="text-themed-success"> Will update existing data.</span>
                 }
               </p>
-              <ul className="text-xs text-themed-muted space-y-1 mb-4">
+              <ul className="text-xs text-themed-muted space-y-1 mb-4 flex-grow">
                 <li>✓ Quick setup (~30 seconds)</li>
                 <li>✓ 290,000+ mappings ready</li>
                 <li>✓ Regularly updated</li>
@@ -557,50 +550,88 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
               <Button
                 variant="filled"
                 color="blue"
-                leftSection={initializing && selectedMethod === 'cloud' ? <Loader className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
+                size="sm"
+                leftSection={initializing && selectedMethod === 'cloud' ? <Loader className="w-3 h-3 animate-spin" /> : <Cloud className="w-3 h-3" />}
                 onClick={handleDownloadPrecreated}
                 disabled={initializing || showApiKeyForm}
                 fullWidth
+                className="mt-auto"
               >
                 {initializing && selectedMethod === 'cloud' ? 'Downloading...' : 'Download Pre-created'}
               </Button>
             </div>
 
             {/* Generate Own Option */}
-            <div className="p-6 rounded-lg border-2 transition-all"
+            <div className="p-5 rounded-lg border-2 transition-all flex flex-col"
                  style={{
                    backgroundColor: selectedMethod === 'generate' ? 'var(--theme-primary)/10' : 'var(--theme-bg-tertiary)',
-                   borderColor: selectedMethod === 'generate' ? 'var(--theme-primary)' : 'var(--theme-border-primary)'
+                   borderColor: selectedMethod === 'generate' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+                   minHeight: '280px'
                  }}>
-              <div className="flex items-center gap-3 mb-3">
-                <Database size={24} style={{ color: 'var(--theme-success)' }} />
-                <h3 className="text-lg font-semibold text-themed-primary">Generate Fresh</h3>
+              <div className="flex items-center gap-2 mb-3">
+                <Database size={20} style={{ color: 'var(--theme-success)' }} />
+                <h3 className="text-base font-semibold text-themed-primary">Generate Fresh</h3>
               </div>
-              <p className="text-sm text-themed-secondary mb-3">
+              <p className="text-sm text-themed-secondary mb-3 min-h-[40px]">
                 Build your own depot mappings directly from Steam.
-                {picsData && (picsData.database?.totalMappings > 0 || picsData.steamKit2?.depotCount > 0) &&
-                  <span className="text-themed-success"> Will continue from where you left off.</span>
-                }
+                <span className="text-themed-warning"> Always starts fresh - overwrites existing data.</span>
               </p>
-              <ul className="text-xs text-themed-muted space-y-1 mb-4">
+              <ul className="text-xs text-themed-muted space-y-1 mb-4 flex-grow">
                 <li>✓ Latest data from Steam</li>
-                <li>✓ Customized to your needs</li>
-                <li>✓ Continues from last position</li>
-                <li>○ Takes 10-30 minutes (if starting fresh)</li>
+                <li>✓ Complete fresh rebuild</li>
+                <li>✓ Overwrites any existing data</li>
+                <li>○ Takes 10-30 minutes for full scan</li>
               </ul>
               <Button
                 variant="filled"
                 color="green"
-                leftSection={initializing && selectedMethod === 'generate' ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                size="sm"
+                leftSection={initializing && selectedMethod === 'generate' ? <Loader className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
                 onClick={handleGenerateOwn}
                 disabled={initializing || showApiKeyForm}
                 fullWidth
+                className="mt-auto"
               >
-                {initializing && selectedMethod === 'generate' ? 'Processing...' :
-                  (picsData && (picsData.database?.totalMappings > 0 || picsData.steamKit2?.depotCount > 0))
-                    ? 'Continue Generation' : 'Generate Fresh Data'}
+                {initializing && selectedMethod === 'generate' ? 'Processing...' : 'Generate Fresh Data'}
               </Button>
             </div>
+
+            {/* Continue Option - Show only when JSON data exists */}
+            {shouldShowContinueOption() && (
+              <div className="p-5 rounded-lg border-2 transition-all flex flex-col"
+                   style={{
+                     backgroundColor: selectedMethod === 'continue' ? 'var(--theme-primary)/10' : 'var(--theme-bg-tertiary)',
+                     borderColor: selectedMethod === 'continue' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+                     minHeight: '280px'
+                   }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <Database size={20} style={{ color: 'var(--theme-warning)' }} />
+                  <h3 className="text-base font-semibold text-themed-primary">Continue</h3>
+                </div>
+                <p className="text-sm text-themed-secondary mb-3 min-h-[40px]">
+                  Update existing depot mappings with latest changes from Steam.
+                  <span className="text-themed-success"> Incremental update only.</span>
+                </p>
+                <ul className="text-xs text-themed-muted space-y-1 mb-4 flex-grow">
+                  <li>✓ Fast incremental update (~1-2 minutes)</li>
+                  <li>✓ Uses existing {picsData?.jsonFile?.totalMappings?.toLocaleString()} mappings</li>
+                  <li>✓ Fetches only new/changed data</li>
+                  <li>✓ Perfect for regular updates</li>
+                </ul>
+                <Button
+                  variant="filled"
+                  color="orange"
+                  size="sm"
+                  leftSection={initializing && selectedMethod === 'continue' ? <Loader className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
+                  onClick={handleContinue}
+                  disabled={initializing || showApiKeyForm}
+                  fullWidth
+                  className="mt-auto"
+                >
+                  {initializing && selectedMethod === 'continue' ? 'Updating...' : 'Continue with Update'}
+                </Button>
+              </div>
+            )}
               </div>
             </>
           )}

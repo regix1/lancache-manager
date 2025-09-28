@@ -454,9 +454,49 @@ public class SteamKit2Service : IHostedService, IDisposable
                 _isResumingGeneration = false;
             }
 
-            // Enumerate every appid by crawling the PICS changelist
-            var appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
-            _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
+            // Enumerate every appid by crawling the PICS changelist with retry logic
+            List<uint> appIds = new List<uint>();
+            int retryCount = 0;
+            const int maxRetries = 3;
+
+            while (retryCount < maxRetries)
+            {
+                try
+                {
+                    appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
+                    _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
+                    break; // Success, exit retry loop
+                }
+                catch (OperationCanceledException) when (retryCount < maxRetries - 1)
+                {
+                    retryCount++;
+                    _logger.LogWarning("PICS enumeration timed out or was cancelled (attempt {Attempt}/{Max}), retrying in 10 seconds...",
+                        retryCount, maxRetries);
+
+                    // Wait before retrying, but check if we're being cancelled
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(10), ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // If the delay was cancelled, propagate the cancellation
+                        throw;
+                    }
+
+                    // Ensure we're still connected before retrying
+                    if (!_isLoggedOn)
+                    {
+                        await ConnectAndLoginAsync(ct);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Final retry failed or explicit cancellation, propagate
+                    _logger.LogError("PICS enumeration failed after {Attempts} attempts", retryCount + 1);
+                    throw;
+                }
+            }
 
             // Fallback / merge to ensure completeness (skip in incremental mode)
             if (!incrementalOnly && appIds.Count < 200_000) // heuristic: too few => seed
@@ -994,7 +1034,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         return existingSource;
     }
 
-    private async Task<T> WaitForCallbackAsync<T>(AsyncJob<T> job, CancellationToken ct) where T : CallbackMsg
+    private async Task<T> WaitForCallbackAsync<T>(AsyncJob<T> job, CancellationToken ct, TimeSpan? timeout = null) where T : CallbackMsg
     {
         if (_manager is null)
         {
@@ -1015,10 +1055,24 @@ public class SteamKit2Service : IHostedService, IDisposable
 
         using var subscription = _manager.Subscribe(handler!);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        linkedCts.CancelAfter(TimeSpan.FromSeconds(60));
+        // Use longer timeout for PICS operations which can be slow with unreliable connections
+        linkedCts.CancelAfter(timeout ?? TimeSpan.FromMinutes(5));
 
         while (!tcs.Task.IsCompleted)
         {
+            // Check if we're still connected
+            if (!_isLoggedOn || _steamClient?.IsConnected != true)
+            {
+                // Give it a moment for auto-reconnection to kick in
+                await Task.Delay(TimeSpan.FromSeconds(1), linkedCts.Token);
+
+                // If still not connected after waiting, throw a more descriptive exception
+                if (!_isLoggedOn || _steamClient?.IsConnected != true)
+                {
+                    throw new InvalidOperationException("Lost connection to Steam during PICS operation");
+                }
+            }
+
             _manager.RunWaitCallbacks(TimeSpan.FromMilliseconds(50));
             linkedCts.Token.ThrowIfCancellationRequested();
             await Task.Yield();
@@ -1055,7 +1109,7 @@ public class SteamKit2Service : IHostedService, IDisposable
 
         using var subscription = _manager.Subscribe(handler!);
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        linkedCts.CancelAfter(TimeSpan.FromMinutes(5)); // batches can be slow
+        linkedCts.CancelAfter(TimeSpan.FromMinutes(10)); // batches can be slow, especially with reconnections
 
         while (!isCompleted && !linkedCts.Token.IsCancellationRequested)
         {

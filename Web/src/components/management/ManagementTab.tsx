@@ -9,6 +9,7 @@ import {
   CheckCircle,
   StopCircle
 } from 'lucide-react';
+import * as signalR from '@microsoft/signalr';
 import { useData } from '@contexts/DataContext';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
@@ -25,6 +26,17 @@ import GrafanaEndpoints from './GrafanaEndpoints';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { SIGNALR_BASE } from '@utils/constants';
+
+interface DepotMappingProgress {
+  isProcessing: boolean;
+  totalMappings: number;
+  processedMappings: number;
+  mappingsApplied?: number;
+  percentComplete: number;
+  status: string;
+  message: string;
+}
 
 // Mock Mode Manager Component
 const MockModeManager: React.FC<{
@@ -329,6 +341,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     serviceRemoval?: string | null;
   }>({});
 
+  const [depotMappingProgress, setDepotMappingProgress] = useState<DepotMappingProgress | null>(null);
+  const signalRConnection = useRef<signalR.HubConnection | null>(null);
+
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
 
@@ -371,9 +386,157 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     initialize();
   }, [setSuccess]);
 
+  // Setup SignalR for depot mapping progress
+  useEffect(() => {
+    const setupSignalR = async () => {
+      try {
+        const connection = new signalR.HubConnectionBuilder()
+          .withUrl(`${SIGNALR_BASE}/downloads`)
+          .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+          .configureLogging(signalR.LogLevel.Information)
+          .build();
+
+        // Depot mapping event handlers
+        connection.on('DepotMappingStarted', (payload: any) => {
+          console.log('SignalR DepotMappingStarted received:', payload);
+          setDepotMappingProgress({
+            isProcessing: true,
+            totalMappings: 0,
+            processedMappings: 0,
+            percentComplete: 0,
+            status: 'starting',
+            message: payload.message || 'Starting depot mapping post-processing...'
+          });
+        });
+
+        connection.on('DepotMappingProgress', (payload: any) => {
+          console.log('SignalR DepotMappingProgress received:', payload);
+          setDepotMappingProgress({
+            isProcessing: payload.isProcessing,
+            totalMappings: payload.totalMappings,
+            processedMappings: payload.processedMappings,
+            mappingsApplied: payload.mappingsApplied,
+            percentComplete: payload.percentComplete,
+            status: payload.status,
+            message: payload.message
+          });
+
+          // Clear progress when complete
+          if (!payload.isProcessing || payload.status === 'complete') {
+            setTimeout(() => {
+              setDepotMappingProgress(null);
+            }, 5000);
+          }
+        });
+
+        connection.on('DepotPostProcessingFailed', (payload: any) => {
+          setDepotMappingProgress(null);
+          addError(payload?.error
+            ? `Depot mapping post-processing failed: ${payload.error}`
+            : 'Depot mapping post-processing failed.');
+        });
+
+        // Auto-start depot mapping when log processing completes
+        connection.on('BulkProcessingComplete', async () => {
+          console.log('Log processing complete, auto-starting depot mapping...');
+          setTimeout(async () => {
+            try {
+              const response = await fetch('/api/management/post-process-depot-mappings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+              });
+              if (!response.ok) {
+                const error = await response.json();
+                addError(error.error || 'Failed to auto-start depot mapping');
+              }
+            } catch (err: any) {
+              addError(err.message || 'Failed to auto-start depot mapping');
+            }
+          }, 2000); // Wait 2 seconds after log processing completes
+        });
+
+        await connection.start();
+        signalRConnection.current = connection;
+        console.log('ManagementTab SignalR connection established');
+
+      } catch (err) {
+        console.error('ManagementTab SignalR connection failed:', err);
+      }
+    };
+
+    setupSignalR();
+
+    return () => {
+      if (signalRConnection.current) {
+        signalRConnection.current.stop();
+      }
+    };
+  }, [addError]);
+
   return (
-    <div className="space-y-6">
-      {/* Authentication - Always at top */}
+    <>
+      {/* Fixed position progress indicator for depot mapping */}
+      {depotMappingProgress && depotMappingProgress.isProcessing && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-orange-600 text-white shadow-lg">
+          <div className="px-4 py-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-medium text-sm">
+                🗂️ Depot Mapping: {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads
+              </span>
+              <span className="text-xs opacity-90">
+                {depotMappingProgress.percentComplete.toFixed(1)}% complete
+              </span>
+            </div>
+            <div className="w-full bg-orange-800 rounded-full h-1.5">
+              <div
+                className="bg-white h-1.5 rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(depotMappingProgress.percentComplete, 100)}%`
+                }}
+              />
+            </div>
+            <div className="text-xs mt-1 opacity-90">
+              {depotMappingProgress.message}
+              {depotMappingProgress.mappingsApplied !== undefined && (
+                <span> • {depotMappingProgress.mappingsApplied} mappings applied</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fixed position progress indicator for log processing */}
+      {backgroundOperations.logProcessing &&
+       backgroundOperations.logProcessing.status !== 'complete' && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-blue-600 text-white shadow-lg">
+          <div className="px-4 py-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="font-medium text-sm">
+                🔄 Log Processing: {backgroundOperations.logProcessing.progress.toFixed(1)}%
+              </span>
+              <span className="text-xs opacity-90">
+                {backgroundOperations.logProcessing.estimatedTime &&
+                  `${backgroundOperations.logProcessing.estimatedTime} remaining`}
+              </span>
+            </div>
+            <div className="w-full bg-blue-800 rounded-full h-1.5">
+              <div
+                className="bg-white h-1.5 rounded-full transition-all duration-300"
+                style={{
+                  width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-6" style={{
+        paddingTop: (depotMappingProgress?.isProcessing ||
+                    (backgroundOperations.logProcessing && backgroundOperations.logProcessing.status !== 'complete'))
+                    ? '80px' : '0'
+      }}>
+        {/* Authentication - Always at top */}
       <AuthenticationManager
         onAuthChange={setIsAuthenticated}
         onError={addError}
@@ -417,58 +580,73 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
         {/* Log Processing Background Operation */}
         {backgroundOperations.logProcessing && (
-          <Alert
-            color={backgroundOperations.logProcessing.status === 'complete' ? 'green' : 'yellow'}
-            icon={
-              backgroundOperations.logProcessing.status === 'complete' ? (
-                <CheckCircle className="w-5 h-5" />
-              ) : (
-                <Loader className="w-5 h-5 animate-spin" />
-              )
-            }
-          >
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-              <div className="flex-1">
-                <p className="font-medium break-words">{backgroundOperations.logProcessing.message}</p>
-                {backgroundOperations.logProcessing.detailMessage && (
-                  <p className="text-sm mt-1 opacity-75 break-words">
-                    {backgroundOperations.logProcessing.detailMessage}
-                  </p>
-                )}
-                {backgroundOperations.logProcessing.progress > 0 &&
-                  backgroundOperations.logProcessing.status !== 'complete' && (
-                    <div className="mt-2">
-                      <div className="w-full progress-track rounded-full h-2">
-                        <div
-                          className="progress-bar-low h-2 rounded-full smooth-transition"
-                          style={{
-                            width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
-                          }}
-                        />
+          <div className="relative">
+            {/* Make processing alert more prominent with larger text and progress bar */}
+            <Alert
+              color={backgroundOperations.logProcessing.status === 'complete' ? 'green' : 'blue'}
+              icon={
+                backgroundOperations.logProcessing.status === 'complete' ? (
+                  <CheckCircle className="w-6 h-6" />
+                ) : (
+                  <Loader className="w-6 h-6 animate-spin" />
+                )
+              }
+            >
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="flex-1">
+                  <p className="font-semibold text-lg break-words">{backgroundOperations.logProcessing.message}</p>
+                  {backgroundOperations.logProcessing.detailMessage && (
+                    <p className="text-sm mt-2 opacity-85 break-words">
+                      {backgroundOperations.logProcessing.detailMessage}
+                    </p>
+                  )}
+                  {backgroundOperations.logProcessing.progress > 0 &&
+                    backgroundOperations.logProcessing.status !== 'complete' && (
+                      <div className="mt-4">
+                        {/* Larger, more prominent progress bar */}
+                        <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
+                          <div
+                            className="progress-bar-low h-4 rounded-full smooth-transition"
+                            style={{
+                              width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
+                            }}
+                          />
+                          {/* Progress percentage overlay */}
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-xs font-bold text-white drop-shadow">
+                              {backgroundOperations.logProcessing.progress.toFixed(1)}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center mt-2">
+                          <p className="text-sm font-medium">
+                            {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
+                          </p>
+                          {backgroundOperations.logProcessing.estimatedTime && (
+                            <p className="text-sm opacity-75">
+                              {backgroundOperations.logProcessing.estimatedTime} remaining
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-xs opacity-75 mt-1 break-words">
-                        {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
-                        {backgroundOperations.logProcessing.estimatedTime &&
-                          ` • ${backgroundOperations.logProcessing.estimatedTime} remaining`}
-                      </p>
-                    </div>
+                    )}
+                </div>
+                {backgroundOperations.logProcessing.status !== 'complete' &&
+                  backgroundOperations.logProcessing.onCancel && (
+                    <Button
+                      variant="filled"
+                      color="red"
+                      size="sm"
+                      leftSection={<StopCircle className="w-4 h-4" />}
+                      onClick={backgroundOperations.logProcessing.onCancel}
+                      className="w-full sm:w-auto"
+                    >
+                      Cancel Processing
+                    </Button>
                   )}
               </div>
-              {backgroundOperations.logProcessing.status !== 'complete' &&
-                backgroundOperations.logProcessing.onCancel && (
-                  <Button
-                    variant="filled"
-                    color="red"
-                    size="sm"
-                    leftSection={<StopCircle className="w-4 h-4" />}
-                    onClick={backgroundOperations.logProcessing.onCancel}
-                    className="w-full sm:w-auto"
-                  >
-                    Cancel
-                  </Button>
-                )}
-            </div>
-          </Alert>
+            </Alert>
+          </div>
         )}
 
         {/* Service Removal Background Operation */}
@@ -540,7 +718,8 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
       {/* Theme Manager */}
       <ThemeManager isAuthenticated={isAuthenticated} />
-    </div>
+      </div>
+    </>
   );
 };
 
