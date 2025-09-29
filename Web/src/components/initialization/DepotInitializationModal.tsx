@@ -26,9 +26,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [picsData, setPicsData] = useState<any>(null);
+  const [dataAvailable, setDataAvailable] = useState(false);
+  const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
 
   useEffect(() => {
     const checkSetupStatus = async () => {
+      // Check data availability first
+      await checkDataAvailability();
       try {
         // If in API key only mode, always show the API key form and skip depot initialization
         if (apiKeyOnlyMode) {
@@ -58,14 +62,15 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           onAuthChanged?.();
         }
 
-        // Fetch current PICS status to show existing data info
+        // Prefetch current PICS status immediately for authenticated users
+        // This ensures the Continue button shows instantly without delay
         if (actuallyAuthenticated) {
-          try {
-            const status = await checkPicsDataStatus();
+          // Start fetching immediately without await
+          checkPicsDataStatus().then(status => {
             setPicsData(status);
-          } catch (err) {
+          }).catch(err => {
             console.warn('Failed to fetch PICS status:', err);
-          }
+          });
         }
       } catch (error) {
         console.error('Failed to check setup/auth status:', error);
@@ -77,6 +82,25 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     // Only check setup status on initial mount, not when auth changes
     checkSetupStatus();
   }, [apiKeyOnlyMode]); // Added apiKeyOnlyMode as dependency
+
+  // Check data availability
+  const checkDataAvailability = async () => {
+    setCheckingDataAvailability(true);
+    try {
+      const response = await fetch('/api/management/data-availability');
+      if (response.ok) {
+        const data = await response.json();
+        setDataAvailable(data.hasDataLoaded);
+        return data.hasDataLoaded;
+      }
+    } catch (error) {
+      console.error('Failed to check data availability:', error);
+      setDataAvailable(false);
+      return false;
+    } finally {
+      setCheckingDataAvailability(false);
+    }
+  };
 
   // Cleanup function to handle interrupted initialization
   useEffect(() => {
@@ -236,12 +260,16 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             return;
           }
 
-          setShowApiKeyForm(false);
-          setProgress('Authentication successful! Checking existing PICS data...');
+          // Start loading depot options immediately
+          setProgress('Authentication successful! Loading depot options...');
 
-          // Check if PICS data already exists
+          // Fetch PICS data first before hiding form
           const picsStatus = await checkPicsDataStatus();
           setPicsData(picsStatus); // Update the state so UI can show current status
+
+          // Now immediately hide the form - the data is already loaded
+          setShowApiKeyForm(false);
+          setProgress(null); // Clear progress immediately since data is loaded
 
           if (picsStatus) {
             // Check for JSON file first - if missing, don't auto-update
@@ -252,8 +280,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
             if (hasJsonFile && hasOtherData) {
               setProgress('Existing PICS data found! Running automatic update...');
-              // Auto-run incremental update
-              setTimeout(() => handleAutoUpdate(), 1000);
+              // Auto-run incremental update immediately
+              handleAutoUpdate();
               return;
             } else if (!hasJsonFile && hasOtherData) {
               setProgress('Depot file missing but cached data found. Please choose initialization method to regenerate depot file.');
@@ -262,8 +290,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           }
 
           // No existing data found, show manual options
-          setProgress('Choose your depot initialization method below.');
-          setTimeout(() => setProgress(null), 3000);
+          // Don't show progress message, just clear it immediately
+          setProgress(null);
         } else {
           setAuthError('Authentication succeeded but verification failed. Please try again.');
         }
@@ -413,6 +441,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   };
 
   const handleStartGuestMode = async () => {
+    // Recheck data availability right before starting guest mode
+    const hasData = await checkDataAvailability();
+
+    if (!hasData) {
+      setAuthError('Guest mode is not available. No data has been loaded yet. Please authenticate with an API key first.');
+      return;
+    }
     authService.startGuestMode();
 
     // Notify parent component of auth mode change
@@ -521,10 +556,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
                     variant="default"
                     leftSection={<Eye className="w-4 h-4" />}
                     onClick={handleStartGuestMode}
-                    disabled={authenticating}
+                    disabled={authenticating || checkingDataAvailability || !dataAvailable}
                     fullWidth
+                    title={!dataAvailable ? 'No data available. Please authenticate first.' : 'View data for 6 hours'}
                   >
-                    Continue as Guest (6 hours)
+                    {!dataAvailable ? 'Guest Mode (No Data Available)' : 'Continue as Guest (6 hours)'}
                   </Button>
                 </div>
               </div>

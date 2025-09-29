@@ -176,6 +176,28 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpGet("data-availability")]
+    public IActionResult GetDataAvailability()
+    {
+        try
+        {
+            var hasData = _stateService.HasDataLoaded();
+            var state = _stateService.GetState();
+            return Ok(new
+            {
+                hasDataLoaded = hasData,
+                lastDataLoadTime = state.LastDataLoadTime,
+                lastDataMappingCount = state.LastDataMappingCount,
+                setupCompleted = state.SetupCompleted
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking data availability");
+            return StatusCode(500, new { error = "Failed to check data availability" });
+        }
+    }
+
     [HttpPost("reset-logs")]
     [RequireAuth]
     public async Task<IActionResult> ResetLogPosition([FromQuery] bool clearDatabase = false)

@@ -20,7 +20,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   onApiKeyRegenerated,
   onAuthModeChange
 }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [guestTimeRemaining, setGuestTimeRemaining] = useState<number>(0);
   const [authChecking, setAuthChecking] = useState(true);
@@ -161,13 +161,25 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       const result = await authService.regenerateApiKey();
 
       if (result.success) {
+        // Store if user was in guest mode before regeneration
+        const wasGuestMode = authMode === 'guest';
+
         setIsAuthenticated(false);
         setAuthMode('unauthenticated');
         onAuthChange?.(false);
         onAuthModeChange?.('unauthenticated');
         setShowAuthModal(false);
         onSuccess?.(result.message);
-        onApiKeyRegenerated?.();
+
+        // If user was in guest mode, trigger the API key regenerated callback
+        // which should redirect them to depot initialization
+        if (wasGuestMode) {
+          // Force a page reload to reset the application state properly
+          // This ensures the user goes through the depot initialization flow
+          window.location.reload();
+        } else {
+          onApiKeyRegenerated?.();
+        }
       } else {
         onError?.(result.message || 'Failed to regenerate API key');
       }

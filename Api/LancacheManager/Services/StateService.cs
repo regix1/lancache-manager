@@ -30,6 +30,9 @@ public class StateService
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+        public bool HasDataLoaded { get; set; } = false;
+        public DateTime? LastDataLoadTime { get; set; }
+        public int LastDataMappingCount { get; set; } = 0;
     }
 
     public class LogProcessingState
@@ -251,6 +254,25 @@ public class StateService
     public void SetSetupCompleted(bool completed)
     {
         UpdateState(state => state.SetupCompleted = completed);
+    }
+
+    // Data Availability Methods
+    public bool HasDataLoaded()
+    {
+        return GetState().HasDataLoaded;
+    }
+
+    public void SetDataLoaded(bool loaded, int mappingCount = 0)
+    {
+        UpdateState(state =>
+        {
+            state.HasDataLoaded = loaded;
+            if (loaded)
+            {
+                state.LastDataLoadTime = DateTime.UtcNow;
+                state.LastDataMappingCount = mappingCount;
+            }
+        });
     }
 
     // Last PICS Crawl Methods

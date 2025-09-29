@@ -14,14 +14,16 @@ public class PicsDataService
     private readonly ILogger<PicsDataService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IPathResolver _pathResolver;
+    private readonly StateService _stateService;
     private readonly string _picsJsonFile;
     private readonly object _fileLock = new object();
 
-    public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver)
+    public PicsDataService(ILogger<PicsDataService> logger, IServiceScopeFactory scopeFactory, IPathResolver pathResolver, StateService stateService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _pathResolver = pathResolver;
+        _stateService = stateService;
         _picsJsonFile = Path.Combine(_pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
     }
 
@@ -82,6 +84,9 @@ public class PicsDataService
             }
 
             _logger.LogInformation($"Saved {picsData.Metadata.TotalMappings} PICS depot mappings to JSON file: {_picsJsonFile}");
+
+            // Update state to indicate data is loaded
+            _stateService.SetDataLoaded(true, picsData.Metadata.TotalMappings);
         }
         catch (Exception ex)
         {
@@ -200,6 +205,9 @@ public class PicsDataService
                 updatedCount,
                 removedCount,
                 existingData.Metadata.TotalMappings);
+
+            // Update state to indicate data is loaded with new count
+            _stateService.SetDataLoaded(true, existingData.Metadata.TotalMappings);
         }
         catch (Exception ex)
         {
@@ -243,6 +251,12 @@ public class PicsDataService
             if (picsData != null)
             {
                 _logger.LogDebug($"Loaded PICS data with {picsData.Metadata?.TotalMappings ?? 0} mappings from JSON file");
+
+                // Update state to indicate data is loaded
+                if (picsData.Metadata?.TotalMappings > 0)
+                {
+                    _stateService.SetDataLoaded(true, picsData.Metadata.TotalMappings);
+                }
             }
 
             return picsData;

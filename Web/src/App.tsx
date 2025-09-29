@@ -26,7 +26,7 @@ const AppContent: React.FC = () => {
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
-  const [wasGuestMode, setWasGuestMode] = useState(false);
+  const [, setWasGuestMode] = useState(false);
   const [isUpgradingAuth, setIsUpgradingAuth] = useState(false);
 
   // Check authentication status first
@@ -81,8 +81,9 @@ const AppContent: React.FC = () => {
       return; // Don't check depot status until auth check is complete
     }
 
-    // Skip depot check for guest mode or users who were in guest mode
-    if (authMode === 'guest' || wasGuestMode) {
+    // Only skip depot check for guest mode
+    // Don't skip for users who WERE in guest mode - they need to see depot setup after auth
+    if (authMode === 'guest') {
       setDepotInitialized(true);
       setCheckingDepotStatus(false);
       return;
@@ -123,7 +124,7 @@ const AppContent: React.FC = () => {
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [checkingAuth, depotInitialized, authMode, wasGuestMode]);
+  }, [checkingAuth, depotInitialized, authMode]);
 
   const handleDepotInitialized = async () => {
     // Double-check that depot is actually initialized before updating state
@@ -149,8 +150,9 @@ const AppContent: React.FC = () => {
   };
 
   const handleAuthChanged = async () => {
-    // If upgrading from guest to authenticated, set flag
-    if (authMode === 'guest' || wasGuestMode) {
+    // If upgrading from guest to authenticated
+    const wasGuest = authMode === 'guest';
+    if (wasGuest) {
       setIsUpgradingAuth(true);
     }
 
@@ -166,29 +168,79 @@ const AppContent: React.FC = () => {
       setWasGuestMode(true);
     }
 
-    // If we're now authenticated (upgraded from guest), skip depot check
-    if (authResult.isAuthenticated && wasGuestMode) {
-      setDepotInitialized(true);
+    // If we're now authenticated (upgraded from guest), we need to check depot status
+    if (authResult.isAuthenticated && wasGuest) {
+      // Reset depot initialized state so the check will run
+      setDepotInitialized(null);
+      setCheckingDepotStatus(true);
+
+      // Force check depot status now
+      try {
+        const response = await fetch('/api/gameinfo/pics-status', {
+          headers: ApiService.getHeaders()
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const hasData = (data.database?.totalMappings > 0) ||
+                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0) ||
+                         (data.steamKit2?.isRebuildRunning === true);
+          setDepotInitialized(hasData);
+        } else {
+          setDepotInitialized(false);
+        }
+      } catch (error) {
+        console.error('Failed to check depot initialization status:', error);
+        setDepotInitialized(false);
+      } finally {
+        setCheckingDepotStatus(false);
+      }
     }
 
-    // Clear upgrading flag after a delay
-    if (authResult.isAuthenticated && wasGuestMode) {
-      setTimeout(() => setIsUpgradingAuth(false), 500);
-    } else {
-      setIsUpgradingAuth(false);
-    }
+    // Clear upgrading flag
+    setIsUpgradingAuth(false);
   };
 
   const handleApiKeyRegenerated = () => {
     // Set authentication to false and show the API key regeneration modal
     setIsAuthenticated(false);
     setShowApiKeyRegenerationModal(true);
+
+    // If user was in guest mode, reset the wasGuestMode flag so they go through depot initialization
+    if (authMode === 'guest') {
+      setWasGuestMode(false);
+      setDepotInitialized(null);
+      setCheckingDepotStatus(true);
+    }
   };
 
-  const handleApiKeyRegenerationCompleted = () => {
+  const handleApiKeyRegenerationCompleted = async () => {
     // Close the regeneration modal and update authentication status
     setShowApiKeyRegenerationModal(false);
     setIsAuthenticated(authService.isAuthenticated);
+
+    // Check if depot needs initialization after authentication
+    if (authService.isAuthenticated) {
+      setCheckingDepotStatus(true);
+      try {
+        const response = await fetch('/api/gameinfo/pics-status', {
+          headers: ApiService.getHeaders()
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const hasData = (data.database?.totalMappings > 0) ||
+                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0) ||
+                         (data.steamKit2?.isRebuildRunning === true);
+          setDepotInitialized(hasData);
+        } else {
+          setDepotInitialized(false);
+        }
+      } catch (error) {
+        console.error('Failed to check depot initialization status:', error);
+        setDepotInitialized(false);
+      } finally {
+        setCheckingDepotStatus(false);
+      }
+    }
   };
 
   const renderContent = () => {
@@ -220,9 +272,9 @@ const AppContent: React.FC = () => {
     );
   };
 
-  // Show loading while checking auth or depot status (but skip depot check for guest/was guest)
-  // Also skip during auth upgrade
-  if (!isUpgradingAuth && (checkingAuth || (checkingDepotStatus && !wasGuestMode && authMode !== 'guest'))) {
+  // Show loading while checking auth or depot status
+  // Skip depot check only for active guest mode, not for users who were guests
+  if (!isUpgradingAuth && (checkingAuth || (checkingDepotStatus && authMode !== 'guest'))) {
     return (
       <div className="min-h-screen flex items-center justify-center"
            style={{ backgroundColor: 'var(--theme-bg-primary)' }}>
@@ -249,8 +301,8 @@ const AppContent: React.FC = () => {
   const hasAccess = isAuthenticated || authMode === 'guest';
 
   // Show initialization modal only if not authenticated AND not in guest mode AND not expired
-  // AND never show for users who were in guest mode or during upgrade
-  if (!hasAccess && authMode !== 'expired' && !wasGuestMode && !isUpgradingAuth) {
+  // Don't skip for users who WERE in guest mode if they're not currently in guest mode
+  if (!hasAccess && authMode !== 'expired' && !isUpgradingAuth) {
     // Show initialization modal with auth form
     return (
       <>
@@ -277,8 +329,9 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Show initialization modal if depot data doesn't exist (after authentication) - but skip for guest mode or if user was ever in guest mode or during upgrade
-  if (!depotInitialized && authMode === 'authenticated' && !wasGuestMode && !isUpgradingAuth) {
+  // Show initialization modal if depot data doesn't exist (after authentication)
+  // This should show for authenticated users who came from guest mode
+  if (!depotInitialized && authMode === 'authenticated' && !isUpgradingAuth) {
     return (
       <>
         <DepotInitializationModal

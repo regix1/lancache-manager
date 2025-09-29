@@ -176,9 +176,9 @@ class AuthService {
         this.authChecked = true;
 
         if (result.isAuthenticated) {
-          this.authMode = 'authenticated';
+          this.authMode = 'authenticated' as AuthMode;
         } else {
-          this.authMode = 'unauthenticated';
+          this.authMode = 'unauthenticated' as AuthMode;
         }
 
         // If device is not authenticated but auth is required, clear the stored device ID
@@ -187,10 +187,12 @@ class AuthService {
           this.clearAuthAndDevice();
         }
 
+        const currentAuthMode: AuthMode = this.authMode;
         return {
-          ...result,
-          authMode: this.authMode,
-          guestTimeRemaining: this.authMode === 'guest' ? this.getGuestTimeRemaining() : undefined
+          requiresAuth: result.requiresAuth,
+          isAuthenticated: result.isAuthenticated,
+          authMode: currentAuthMode,
+          guestTimeRemaining: currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined
         };
       }
 
@@ -211,7 +213,7 @@ class AuthService {
       return {
         requiresAuth: true,
         isAuthenticated: false,
-        authMode: 'unauthenticated',
+        authMode: this.authMode,
         error: error.message
       };
     }
