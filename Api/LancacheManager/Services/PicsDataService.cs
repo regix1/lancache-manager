@@ -194,7 +194,12 @@ public class PicsDataService
                 File.WriteAllText(_picsJsonFile, jsonContent);
             }
 
-            _logger.LogInformation($"Incrementally updated PICS JSON: {newCount} new, {updatedCount} updated, {removedCount} removed corrupted, {existingData.Metadata.TotalMappings} total");
+            _logger.LogInformation(
+                "Incrementally updated PICS JSON: {NewCount} new, {UpdatedCount} updated, {RemovedCount} removed corrupted, {TotalMappingPairs} total app mappings (shared depots included)",
+                newCount,
+                updatedCount,
+                removedCount,
+                existingData.Metadata.TotalMappings);
         }
         catch (Exception ex)
         {

@@ -1201,12 +1201,16 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 // Pass validateExisting=true to clean up corrupted entries during incremental updates
                 await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true);
-                _logger.LogInformation($"Merged {depotMappingsDict.Count} depot mappings to JSON file (incremental with validation)");
+                _logger.LogInformation(
+                    "Merged {DepotCount} unique depot mappings to JSON (incremental); JSON metadata totals will list depot/app pairs when depots are shared",
+                    depotMappingsDict.Count);
             }
             else
             {
                 await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen);
-                _logger.LogInformation($"Saved {_depotToAppMappings.Count} depot mappings to JSON file (full)");
+                _logger.LogInformation(
+                    "Saved {DepotCount} unique depot mappings to JSON file (full); JSON metadata totals will list depot/app pairs when depots are shared",
+                    _depotToAppMappings.Count);
             }
         }
         catch (Exception ex)
