@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
+using LancacheManager.Utilities;
 
 namespace LancacheManager.Services;
 
@@ -21,7 +22,7 @@ public class LogProcessingService : BackgroundService
     private readonly List<LogEntry> _batchBuffer = new();
     private readonly object _batchLock = new();
     private Timer? _batchTimer;
-    private readonly SemaphoreSlim _batchSemaphore = new(4, 4); // Allow 4 concurrent batch operations for better performance during bulk processing
+    private readonly SemaphoreSlim _batchSemaphore = new(ProcessingConstants.MaxConcurrentBatches, ProcessingConstants.MaxConcurrentBatches);
     private volatile bool _isRunning = false;
     private volatile bool _isBulkProcessing = false; // Track if we're in bulk processing mode
     private long _pendingLogLines = 0;

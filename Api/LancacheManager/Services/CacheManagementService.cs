@@ -18,23 +18,30 @@ public class CacheManagementService
         _pathResolver = pathResolver;
 
         // Use PathResolver to get properly resolved paths
-        _cachePath = configuration["LanCache:CachePath"] ?? _pathResolver.GetCacheDirectory();
-        _logPath = configuration["LanCache:LogPath"] ?? Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+        var configCachePath = configuration["LanCache:CachePath"];
+        _cachePath = !string.IsNullOrEmpty(configCachePath)
+            ? _pathResolver.ResolvePath(configCachePath)
+            : _pathResolver.GetCacheDirectory();
 
-        // Check if cache directory exists, create if it doesn't in development
+        var configLogPath = configuration["LanCache:LogPath"];
+        _logPath = !string.IsNullOrEmpty(configLogPath)
+            ? _pathResolver.ResolvePath(configLogPath)
+            : Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+
+        // Check if cache directory exists, create if it doesn't
         if (!Directory.Exists(_cachePath))
         {
-            if (_configuration.GetValue<string>("Environment") == "Development")
+            try
             {
                 Directory.CreateDirectory(_cachePath);
                 _logger.LogInformation($"Created cache directory: {_cachePath}");
             }
-            else
+            catch (Exception ex)
             {
-                var errorMsg = $"Cache directory not found: {_cachePath}. " +
-                              "Ensure the cache directory exists and is properly configured.";
-                _logger.LogError(errorMsg);
-                throw new DirectoryNotFoundException(errorMsg);
+                var errorMsg = $"Failed to create cache directory: {_cachePath}. Error: {ex.Message}";
+                _logger.LogError(ex, errorMsg);
+                // Don't throw - allow the service to start but log the error
+                // The cache operations will fail appropriately when attempted
             }
         }
 

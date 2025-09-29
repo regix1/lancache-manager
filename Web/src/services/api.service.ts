@@ -410,21 +410,11 @@ class ApiService {
 
   // Get configuration info
   static async getConfig(): Promise<Config> {
-    try {
-      const res = await fetch(`${API_BASE}/management/config`, {
-        signal: AbortSignal.timeout(5000),
-        headers: this.getHeaders()
-      });
-      return await this.handleResponse<Config>(res);
-    } catch (error) {
-      console.error('getConfig error:', error);
-      // Return defaults if API fails
-      return {
-        cachePath: '/cache',
-        logPath: '/logs/access.log',
-        services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
-      };
-    }
+    const res = await fetch(`${API_BASE}/management/config`, {
+      signal: AbortSignal.timeout(5000),
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<Config>(res);
   }
 
   // PICS/GameInfo related endpoints

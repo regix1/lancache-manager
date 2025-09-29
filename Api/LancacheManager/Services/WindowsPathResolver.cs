@@ -24,8 +24,46 @@ public class WindowsPathResolver : IPathResolver
 
     public string GetCacheDirectory() => Path.GetFullPath(Path.Combine(_basePath, "cache"));
 
-
     public string GetThemesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "themes"));
+
+    /// <summary>
+    /// Resolves a relative path to an absolute path based on the operating system
+    /// </summary>
+    public string ResolvePath(string relativePath)
+    {
+        if (string.IsNullOrEmpty(relativePath))
+            return string.Empty;
+
+        // If already absolute, normalize separators and return
+        if (Path.IsPathRooted(relativePath))
+        {
+            return NormalizePath(relativePath);
+        }
+
+        // For relative paths, combine with base path
+        var fullPath = Path.Combine(_basePath, relativePath);
+        return NormalizePath(fullPath);
+    }
+
+    /// <summary>
+    /// Normalizes path separators for the current platform (Windows)
+    /// </summary>
+    public string NormalizePath(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return string.Empty;
+
+        // Replace all separators with Windows backslash
+        var normalized = path.Replace('/', '\\');
+
+        // Remove duplicate separators
+        while (normalized.Contains("\\\\"))
+        {
+            normalized = normalized.Replace("\\\\", "\\");
+        }
+
+        return normalized;
+    }
 
     /// <summary>
     /// Finds the project root directory by looking for the Api and Web folders

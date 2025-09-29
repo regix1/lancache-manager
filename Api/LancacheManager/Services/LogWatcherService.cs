@@ -681,13 +681,11 @@ public class LogWatcherService : BackgroundService
     {
         var currentPosition = stream.Position;
         var rawPercent = fileLength > 0 ? (currentPosition * 100.0) / fileLength : 0;
-        var percentComplete = rawPercent; // Don't cap - let it reach 100% naturally
+        var percentComplete = rawPercent;
         var shouldReport = false;
 
-        // Report if: 500 lines processed, 2 seconds elapsed, or 1% progress change
-        if (linesProcessed % 500 == 0 ||
-            DateTime.UtcNow - lastProgressUpdate > TimeSpan.FromSeconds(2) ||
-            Math.Abs(percentComplete - lastPercentReported) >= 1.0)
+        if (Math.Abs(percentComplete - lastPercentReported) >= 25.0 ||
+            (DateTime.UtcNow - lastProgressUpdate > TimeSpan.FromSeconds(10) && Math.Abs(percentComplete - lastPercentReported) >= 5.0))
         {
             shouldReport = true;
         }
@@ -697,7 +695,8 @@ public class LogWatcherService : BackgroundService
             var mbProcessed = currentPosition / (1024.0 * 1024.0);
             var mbTotal = fileLength / (1024.0 * 1024.0);
 
-            _logger.LogInformation($"Progress: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesQueued} entries from {linesProcessed} lines");
+            _logger.LogInformation("Progress: {Percent:F1}% ({Processed:F1}/{Total:F1} MB) - {Entries} entries from {Lines} lines",
+                percentComplete, mbProcessed, mbTotal, entriesQueued, linesProcessed);
 
             await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesQueued, linesProcessed, currentPosition);
 
@@ -725,30 +724,22 @@ public class LogWatcherService : BackgroundService
             pendingEntries = pendingFromSnapshot;
         }
 
-        // Calculate progress based on actual processing completion, not file position
         double adjustedPercent;
         if (totalQueued > 0)
         {
-            // Primary progress is based on entries processed vs queued
             var processingProgress = Math.Clamp((double)totalProcessed / totalQueued * 100.0, 0.0, 100.0);
 
-            // If file reading is still in progress, weight between file and processing progress
-            // Otherwise, use pure processing progress
             if (percentComplete < 100.0)
             {
-                // While reading: 70% weight to file position, 30% to processing
-                // This shows smooth progress during reading phase
-                adjustedPercent = (percentComplete * 0.7) + (processingProgress * 0.3);
+                adjustedPercent = (percentComplete * 0.95) + (processingProgress * 0.05);
             }
             else
             {
-                // After reading complete: 100% based on actual processing
                 adjustedPercent = processingProgress;
             }
         }
         else
         {
-            // No entries queued yet, use file position
             adjustedPercent = percentComplete;
         }
 

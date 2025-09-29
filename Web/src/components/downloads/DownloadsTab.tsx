@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -18,6 +17,7 @@ import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { Alert } from '../ui/Alert'; // Fixed import path
 import { Card } from '../ui/Card'; // Fixed import path
 import { Checkbox } from '../ui/Checkbox';
+import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 
 // Import view components
 import CompactView from './CompactView';
@@ -28,6 +28,7 @@ import type { Download, DownloadGroup } from '../../types';
 // Storage keys for persistence
 const STORAGE_KEYS = {
   SERVICE_FILTER: 'lancache_downloads_service',
+  CLIENT_FILTER: 'lancache_downloads_client',
   ITEMS_PER_PAGE: 'lancache_downloads_items',
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
@@ -40,141 +41,6 @@ const STORAGE_KEYS = {
 
 // View modes
 type ViewMode = 'compact' | 'normal';
-
-// Enhanced Dropdown Component
-interface DropdownOption {
-  value: string;
-  label: string;
-}
-
-interface EnhancedDropdownProps {
-  options: DropdownOption[];
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  className?: string;
-}
-
-const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
-  options,
-  value,
-  onChange,
-  placeholder = 'Select option',
-  className = ''
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  const selectedOption = options.find((opt) => opt.value === value);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-        document.removeEventListener('keydown', handleEscape);
-      };
-    }
-  }, [isOpen]);
-
-  const handleSelect = (optionValue: string) => {
-    onChange(optionValue);
-    setIsOpen(false);
-  };
-
-  return (
-    <div className={`relative ${className}`}>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left focus:outline-none transition-colors flex items-center justify-between"
-        style={{
-          backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: 'var(--theme-border-primary)'
-        }}
-        onMouseEnter={(e) =>
-          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
-        }
-        onMouseLeave={(e) =>
-          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
-        }
-      >
-        <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {isOpen && (
-        <div
-          ref={dropdownRef}
-          className="absolute mt-1 w-full rounded-lg border shadow-xl z-[9999]"
-          style={{
-            backgroundColor: 'var(--theme-bg-secondary)',
-            borderColor: 'var(--theme-border-primary)',
-            maxHeight: '240px',
-            overflowY: 'auto'
-          }}
-        >
-          <div className="py-1">
-            {options.map((option) => (
-              option.value === 'divider' ? (
-                <div
-                  key={option.value}
-                  className="px-3 py-2 text-xs font-medium border-t mt-1 mb-1"
-                  style={{
-                    color: 'var(--theme-text-muted)',
-                    borderColor: 'var(--theme-border-primary)',
-                    backgroundColor: 'var(--theme-bg-tertiary)'
-                  }}
-                >
-                  {option.label}
-                </div>
-              ) : (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleSelect(option.value)}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors ${
-                    option.value === value
-                      ? 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]'
-                      : 'text-[var(--theme-text-secondary)]'
-                  } ${
-                    // Check if this is a hidden service (comes after a divider)
-                    options.findIndex(opt => opt.value === 'divider') !== -1 &&
-                    options.findIndex(opt => opt.value === option.value) > options.findIndex(opt => opt.value === 'divider')
-                      ? 'opacity-75 text-xs pl-6'
-                      : ''
-                  }`}
-                >
-                  {option.label}
-                </button>
-              )
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
 
 // CSV conversion utilities
 const convertDownloadsToCSV = (downloads: Download[]): string => {
@@ -226,6 +92,7 @@ const DownloadsTab: React.FC = () => {
     hideLocalhost: localStorage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
     hideUnknownGames: localStorage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
     selectedService: localStorage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
+    selectedClient: localStorage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
     itemsPerPage:
       localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
         ? 'unlimited' as const
@@ -242,6 +109,7 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
     localStorage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
     localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
+    localStorage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
     localStorage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
     localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
     localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
@@ -262,18 +130,22 @@ const DownloadsTab: React.FC = () => {
     if (!loading && latestDownloads.length > 0) {
       setFilterLoading(true);
 
-      // Clear loading state after a short delay to show spinner briefly
       const timer = setTimeout(() => {
         setFilterLoading(false);
       }, 300);
 
       return () => clearTimeout(timer);
     }
-  }, [settings.selectedService, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode]);
+  }, [settings.selectedService, settings.selectedClient, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode]);
 
   const availableServices = useMemo(() => {
     const services = new Set(latestDownloads.map((d) => d.service.toLowerCase()));
     return Array.from(services).sort();
+  }, [latestDownloads]);
+
+  const availableClients = useMemo(() => {
+    const clients = new Set(latestDownloads.map((d) => d.clientIp));
+    return Array.from(clients).sort();
   }, [latestDownloads]);
 
   // Filter out services that only have small files (< 1MB) from the dropdown
@@ -310,6 +182,14 @@ const DownloadsTab: React.FC = () => {
 
     return baseOptions;
   }, [filteredAvailableServices, availableServices, latestDownloads]);
+
+  const clientOptions = useMemo(() => [
+    { value: 'all', label: 'All Clients' },
+    ...availableClients.map((client) => ({
+      value: client,
+      label: client
+    }))
+  ], [availableClients]);
 
   const itemsPerPageOptions = useMemo(
     () => [
@@ -360,8 +240,12 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter((d) => d.service.toLowerCase() === settings.selectedService);
     }
 
+    if (settings.selectedClient !== 'all') {
+      filtered = filtered.filter((d) => d.clientIp === settings.selectedClient);
+    }
+
     return filtered;
-  }, [latestDownloads, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.selectedService]);
+  }, [latestDownloads, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.selectedService, settings.selectedClient]);
 
   const serviceFilteredDownloads = useMemo(() => {
     if (!Array.isArray(latestDownloads)) {
@@ -605,7 +489,7 @@ const DownloadsTab: React.FC = () => {
         contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
-  }, [settings.selectedService, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode, settings.itemsPerPage]);
+  }, [settings.selectedService, settings.selectedClient, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode, settings.itemsPerPage]);
 
   // Handle page changes with smooth scroll
   const handlePageChange = (newPage: number) => {
@@ -744,6 +628,15 @@ const DownloadsTab: React.FC = () => {
                   setSettings({ ...settings, selectedService: value })
                 }
                 className="w-full sm:w-40"
+              />
+
+              <EnhancedDropdown
+                options={clientOptions}
+                value={settings.selectedClient}
+                onChange={(value) =>
+                  setSettings({ ...settings, selectedClient: value })
+                }
+                className="w-full sm:w-48"
               />
 
               <EnhancedDropdown
@@ -950,12 +843,29 @@ const DownloadsTab: React.FC = () => {
 
       {/* Stats */}
       <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-        {settings.itemsPerPage !== 'unlimited' && `Page ${currentPage} of ${totalPages} - `}
-        Showing {itemsToDisplay.length} of {allItemsSorted.length} groups
-        ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'})
-        {filteredDownloads.length !== serviceFilteredDownloads.length &&
-          ` of ${serviceFilteredDownloads.length} total`}
-        {settings.selectedService !== 'all' && ` for ${settings.selectedService}`}
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <span>
+            {settings.itemsPerPage !== 'unlimited' && `Page ${currentPage} of ${totalPages} - `}
+            Showing {itemsToDisplay.length} of {allItemsSorted.length} groups
+            ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'})
+            {filteredDownloads.length !== serviceFilteredDownloads.length &&
+              ` of ${serviceFilteredDownloads.length} total`}
+            {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
+              <span className="ml-1">
+                {settings.selectedService !== 'all' && ` • Service: ${settings.selectedService}`}
+                {settings.selectedClient !== 'all' && ` • Client: ${settings.selectedClient}`}
+              </span>
+            )}
+          </span>
+          {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
+            <button
+              onClick={() => setSettings({ ...settings, selectedService: 'all', selectedClient: 'all' })}
+              className="text-xs px-2 py-1 rounded bg-themed-accent text-white hover:opacity-80 transition-opacity"
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
       </Alert>
 
       {/* Help message for empty time ranges */}

@@ -89,7 +89,7 @@ const DatabaseManager: React.FC<{
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-}> = ({ isAuthenticated, authMode, mockMode, onError, onSuccess, onDataRefresh }) => {
+}> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh }) => {
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
@@ -210,10 +210,10 @@ const LogFileManager: React.FC<{
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
   onBackgroundOperation?: (service: string | null) => void;
-}> = ({ isAuthenticated, authMode, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
+}> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
   const [config, setConfig] = useState({
-    logPath: '/logs/access.log',
+    logPath: 'Loading...',
     services: [] as string[]
   });
   const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
@@ -241,11 +241,7 @@ const LogFileManager: React.FC<{
       setServiceCounts(counts);
     } catch (err) {
       console.error('Failed to load config:', err);
-      // Only use fallback if we truly failed to load
-      setConfig({
-        logPath: '/logs/access.log',
-        services: ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot']
-      });
+      // Keep the "Loading..." state - API service will handle fallback if needed
     } finally {
       setIsLoading(false);
     }
@@ -352,7 +348,6 @@ const LogFileManager: React.FC<{
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {servicesWithData.map((service) => {
           const isRemoving = activeServiceRemoval === service;
-          const entryCount = serviceCounts[service] || 0;
           return (
             <Button
               key={service}

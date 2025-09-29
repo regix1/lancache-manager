@@ -67,7 +67,6 @@ public class SteamService : IHostedService, IDisposable
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _scopeFactory = scopeFactory;
 
-        // Initialize timer but don't start it yet (will be started in StartAsync)
         _refreshTimer = new Timer(async _ => await RefreshMappingsAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
@@ -415,15 +414,27 @@ public class SteamService : IHostedService, IDisposable
 
     /// <summary>
     /// Get all app IDs associated with a depot.
+    /// Queries database directly for authoritative data.
     /// </summary>
     public IReadOnlyCollection<uint> GetAppIdsForDepot(uint depotId)
     {
-        if (_depotMappings.TryGetValue(depotId, out var appIds) && appIds.Count > 0)
+        try
         {
-            return appIds.ToArray();
-        }
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        return Array.Empty<uint>();
+            var appIds = context.SteamDepotMappings
+                .Where(m => m.DepotId == depotId)
+                .Select(m => m.AppId)
+                .ToList();
+
+            return appIds;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to query database for depot {DepotId}", depotId);
+            return Array.Empty<uint>();
+        }
     }
 
     /// <summary>

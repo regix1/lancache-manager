@@ -4,6 +4,7 @@ using LancacheManager.Data;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Services;
+using LancacheManager.Utilities;
 
 namespace LancacheManager.Services;
 
@@ -72,8 +73,8 @@ public class DatabaseService
             {
                 if (_sessionTracker.TryGetValue(sessionKey, out var lastActivity))
                 {
-                    // If more than 5 minutes since last activity, it's a new download session
-                    if (firstEntry.Timestamp - lastActivity > TimeSpan.FromMinutes(5))
+                    // If more than session gap timeout since last activity, it's a new download session
+                    if (firstEntry.Timestamp - lastActivity > ProcessingConstants.SessionGapTimeout)
                     {
                         shouldCreateNewDownload = true;
                     }

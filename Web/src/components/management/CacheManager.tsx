@@ -20,7 +20,6 @@ interface CacheManagerProps {
 }
 
 const CacheManager: React.FC<CacheManagerProps> = ({
-  isAuthenticated,
   authMode = 'unauthenticated',
   mockMode,
   onError,
@@ -31,8 +30,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [config, setConfig] = useState<Config>({
-    cachePath: '/cache',
-    logPath: '/logs/access.log',
+    cachePath: 'Loading...',
+    logPath: 'Loading...',
     services: []
   });
 

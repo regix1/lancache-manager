@@ -29,6 +29,7 @@ public class StateService
         public List<OperationState> OperationStates { get; set; } = new();
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
+        public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public DateTime? LastDataLoadTime { get; set; }
@@ -284,6 +285,17 @@ public class StateService
     public void SetLastPicsCrawl(DateTime crawlTime)
     {
         UpdateState(state => state.LastPicsCrawl = crawlTime);
+    }
+
+    // Crawl Interval Methods
+    public double GetCrawlIntervalHours()
+    {
+        return GetState().CrawlIntervalHours;
+    }
+
+    public void SetCrawlIntervalHours(double hours)
+    {
+        UpdateState(state => state.CrawlIntervalHours = hours);
     }
 
     // Depot Processing Methods

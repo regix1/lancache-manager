@@ -1,6 +1,7 @@
 import React, { memo, useMemo, useState, useEffect } from 'react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
+import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 import ApiService from '../../services/api.service';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
 
@@ -28,6 +29,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
   ({ timeRange = 'live' }) => {
     const [allDownloads, setAllDownloads] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedService, setSelectedService] = useState<string>('all');
+    const [selectedClient, setSelectedClient] = useState<string>('all');
     const { getTimeRangeParams } = useTimeFilter();
 
     // Fetch ALL downloads for the recent downloads panel
@@ -134,12 +137,33 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
       return { groups: Object.values(groups), individuals };
     };
 
+    const availableServices = useMemo(() => {
+      const services = new Set(allDownloads.map(d => d.service));
+      return ['all', ...Array.from(services).sort()];
+    }, [allDownloads]);
+
+    const availableClients = useMemo(() => {
+      const clients = new Set(allDownloads.map(d => d.clientIp));
+      return ['all', ...Array.from(clients).sort()];
+    }, [allDownloads]);
+
+    const filteredDownloads = useMemo(() => {
+      return allDownloads.filter(download => {
+        if (selectedService !== 'all' && download.service !== selectedService) {
+          return false;
+        }
+        if (selectedClient !== 'all' && download.clientIp !== selectedClient) {
+          return false;
+        }
+        return true;
+      });
+    }, [allDownloads, selectedService, selectedClient]);
+
     const displayCount = 10;
     const groupedItems = useMemo(() => {
-      const { groups, individuals } = createGroups(allDownloads);
+      const { groups, individuals } = createGroups(filteredDownloads);
       const allItems: (DownloadGroup | any)[] = [...groups, ...individuals];
 
-      // Sort by latest activity
       allItems.sort((a, b) => {
         const aTime = 'downloads' in a
           ? Math.max(...a.downloads.map((d: any) => new Date(d.startTime).getTime()))
@@ -154,36 +178,76 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         displayedItems: allItems.slice(0, displayCount),
         totalGroups: allItems.length
       };
-    }, [allDownloads]);
+    }, [filteredDownloads]);
 
     const stats = useMemo(() => {
-      const totalDownloads = allDownloads.length;
-      const totalBytes = allDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
-      const totalCacheHits = allDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
+      const totalDownloads = filteredDownloads.length;
+      const totalBytes = filteredDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
+      const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
       const overallHitRate = totalBytes > 0 ? (totalCacheHits / totalBytes) * 100 : 0;
 
       return { totalDownloads, totalBytes, totalCacheHits, overallHitRate };
-    }, [allDownloads]);
+    }, [filteredDownloads]);
 
     return (
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-themed-primary">Recent Downloads</h3>
-          <div className="flex items-center gap-3">
-            {!loading && allDownloads.length > 0 && (
-              <>
-                <span className="text-xs text-themed-muted">{stats.totalDownloads} total</span>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded ${
-                    stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
-                  }`}
-                >
-                  {formatPercent(stats.overallHitRate)} hit
-                </span>
-              </>
-            )}
-            <span className="text-xs text-themed-muted">{getTimeRangeLabel}</span>
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-themed-primary">Recent Downloads</h3>
+            <div className="flex items-center gap-3">
+              {!loading && allDownloads.length > 0 && (
+                <>
+                  <span className="text-xs text-themed-muted">{stats.totalDownloads} shown</span>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded ${
+                      stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
+                    }`}
+                  >
+                    {formatPercent(stats.overallHitRate)} hit
+                  </span>
+                </>
+              )}
+              <span className="text-xs text-themed-muted">{getTimeRangeLabel}</span>
+            </div>
           </div>
+
+          {!loading && allDownloads.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
+              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1 w-full sm:w-auto">
+                <EnhancedDropdown
+                  options={availableServices.map(service => ({
+                    value: service,
+                    label: service === 'all' ? 'All Services' : service.charAt(0).toUpperCase() + service.slice(1)
+                  }))}
+                  value={selectedService}
+                  onChange={setSelectedService}
+                  className="w-full sm:w-40"
+                />
+
+                <EnhancedDropdown
+                  options={availableClients.map(client => ({
+                    value: client,
+                    label: client === 'all' ? 'All Clients' : client
+                  }))}
+                  value={selectedClient}
+                  onChange={setSelectedClient}
+                  className="w-full sm:w-48"
+                />
+              </div>
+
+              {(selectedService !== 'all' || selectedClient !== 'all') && (
+                <button
+                  onClick={() => {
+                    setSelectedService('all');
+                    setSelectedClient('all');
+                  }}
+                  className="text-xs px-3 py-2 rounded-lg bg-themed-accent text-white hover:opacity-80 transition-opacity w-full sm:w-auto"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
@@ -236,22 +300,28 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                     (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
                   }
                 >
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="font-medium text-sm text-themed-accent">{display.service}</span>
-                    <span className="text-xs text-themed-muted">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="text-sm font-medium text-themed-primary truncate">
+                          {display.name}
+                        </div>
+                        {isGroup && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
+                            {display.count}×
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
+                          {display.service}
+                        </span>
+                        <span className="text-xs text-themed-muted">{display.clientIp}</span>
+                      </div>
+                    </div>
+                    <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
                       {formatDateTime(display.startTime)}
                     </span>
-                  </div>
-                  <div className="text-xs text-themed-muted">{display.clientIp}</div>
-                  <div className="flex justify-between items-center mt-1">
-                    <div className="text-sm font-medium text-themed-primary truncate">
-                      {display.name}
-                    </div>
-                    {isGroup && (
-                      <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary ml-2">
-                        {display.count} downloads
-                      </span>
-                    )}
                   </div>
                   <div className="flex justify-between items-center mt-2">
                     <div className="flex items-center gap-3">
@@ -287,13 +357,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
           )}
         </div>
 
-        {groupedItems.totalGroups > displayCount && (
+        {(groupedItems.totalGroups > displayCount || (selectedService !== 'all' || selectedClient !== 'all')) && (
           <div
             className="mt-3 pt-3 border-t text-center"
             style={{ borderColor: 'var(--theme-border-primary)' }}
           >
             <span className="text-xs text-themed-muted">
-              Showing {Math.min(displayCount, groupedItems.displayedItems.length)} of {groupedItems.totalGroups} groups ({allDownloads.length} downloads)
+              {groupedItems.totalGroups > displayCount && (
+                <>Showing {Math.min(displayCount, groupedItems.displayedItems.length)} of {groupedItems.totalGroups} groups • </>
+              )}
+              {filteredDownloads.length} of {allDownloads.length} downloads
             </span>
           </div>
         )}

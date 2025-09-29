@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
 using LancacheManager.Security;
+using LancacheManager.Utilities;
 using System.Text.Json;
 
 namespace LancacheManager.Controllers;
@@ -42,18 +43,17 @@ public class ManagementController : ControllerBase
         _logWatcherService = logWatcherService;
         _logProcessingService = logProcessingService;
 
-        // Ensure data directory exists
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
         {
             try
             {
                 Directory.CreateDirectory(dataDirectory);
-                _logger.LogInformation($"Created data directory: {dataDirectory}");
+                _logger.LogInformation("Created data directory: {DataDirectory}", dataDirectory);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to create data directory: {dataDirectory}");
+                _logger.LogError(ex, "Failed to create data directory");
             }
         }
     }
@@ -65,21 +65,18 @@ public class ManagementController : ControllerBase
         return Ok(info);
     }
 
-    // New async endpoint for clearing all cache
     [HttpPost("cache/clear-all")]
     [RequireAuth]
     public async Task<IActionResult> ClearAllCache()
     {
         try
         {
-            // Start the background operation
             var operationId = await _cacheClearingService.StartCacheClearAsync();
-            
-            _logger.LogInformation($"Started cache clear operation: {operationId}");
-            
-            return Ok(new { 
+            _logger.LogInformation("Started cache clear operation: {OperationId}", operationId);
+
+            return Ok(new {
                 message = "Cache clearing started in background",
-                operationId = operationId,
+                operationId,
                 status = "running"
             });
         }
@@ -90,36 +87,33 @@ public class ManagementController : ControllerBase
         }
     }
 
-    // Get status of cache clearing operation
     [HttpGet("cache/clear-status/{operationId}")]
     public IActionResult GetClearStatus(string operationId)
     {
         var status = _cacheClearingService.GetOperationStatus(operationId);
-        
+
         if (status == null)
         {
             return NotFound(new { error = "Operation not found" });
         }
-        
+
         return Ok(status);
     }
 
-    // Cancel cache clearing operation
     [HttpPost("cache/clear-cancel/{operationId}")]
     [RequireAuth]
     public IActionResult CancelClearOperation(string operationId)
     {
         var cancelled = _cacheClearingService.CancelOperation(operationId);
-        
+
         if (!cancelled)
         {
             return NotFound(new { error = "Operation not found or already completed" });
         }
-        
-        return Ok(new { message = "Operation cancelled", operationId = operationId });
+
+        return Ok(new { message = "Operation cancelled", operationId });
     }
 
-    // Legacy endpoint for compatibility
     [HttpDelete("cache")]
     [RequireAuth]
     public async Task<IActionResult> ClearCache([FromQuery] string? service = null)
@@ -128,24 +122,20 @@ public class ManagementController : ControllerBase
         {
             if (string.IsNullOrEmpty(service))
             {
-                // Use the new async method for clearing all cache
                 var operationId = await _cacheClearingService.StartCacheClearAsync();
-                return Ok(new { 
+                return Ok(new {
                     message = "Cache clearing started in background",
-                    operationId = operationId,
+                    operationId,
                     status = "running"
                 });
             }
-            else
-            {
-                // For specific service, remove from logs instead
-                await _cacheService.RemoveServiceFromLogs(service);
-                return Ok(new { message = $"Removed {service} entries from logs" });
-            }
+
+            await _cacheService.RemoveServiceFromLogs(service);
+            return Ok(new { message = $"Removed {service} entries from logs" });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error in clear cache operation");
+            _logger.LogError(ex, "Error in clear cache operation");
             return StatusCode(500, new { error = "Failed to clear cache", details = ex.Message });
         }
     }
@@ -156,9 +146,9 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("Database reset requested");
             await _dbService.ResetDatabase();
-            _logger.LogInformation("Database reset completed successfully");
+            _logger.LogInformation("Database reset completed");
+
             return Ok(new {
                 message = "Database reset successfully",
                 status = "completed",
@@ -168,11 +158,7 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resetting database");
-            return StatusCode(500, new {
-                error = "Failed to reset database",
-                details = ex.Message,
-                status = "failed"
-            });
+            return StatusCode(500, new { error = "Failed to reset database", details = ex.Message });
         }
     }
 
@@ -183,6 +169,7 @@ public class ManagementController : ControllerBase
         {
             var hasData = _stateService.HasDataLoaded();
             var state = _stateService.GetState();
+
             return Ok(new
             {
                 hasDataLoaded = hasData,
@@ -194,7 +181,7 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error checking data availability");
-            return StatusCode(500, new { error = "Failed to check data availability" });
+            return StatusCode(500, new { error = "Failed to check data availability", details = ex.Message });
         }
     }
 
@@ -204,18 +191,16 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            // Clear position to start from end
             _stateService.SetLogPosition(0);
-            
-            // Only reset database if explicitly requested
+
             if (clearDatabase)
             {
                 await _dbService.ResetDatabase();
             }
-            
-            _logger.LogInformation("Log position reset - will start from end of log");
-            
-            return Ok(new { 
+
+            _logger.LogInformation("Log position reset");
+
+            return Ok(new {
                 message = "Log position reset successfully. Will start monitoring from the current end of the log file.",
                 requiresRestart = false,
                 databaseCleared = clearDatabase
@@ -224,7 +209,7 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resetting log position");
-            return StatusCode(500, new { error = "Failed to reset log position" });
+            return StatusCode(500, new { error = "Failed to reset log position", details = ex.Message });
         }
     }
 
@@ -234,17 +219,15 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            // Cancel any existing processing
             _processingCancellation?.Cancel();
             await Task.Delay(1000);
-            
+
             _processingCancellation = new CancellationTokenSource();
-            
-            // Check if log file exists
+
             var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
             if (!System.IO.File.Exists(logPath))
             {
-                _logger.LogWarning($"Log file not found at: {logPath}");
+                _logger.LogWarning("Log file not found at: {LogPath}", logPath);
                 return Ok(new {
                     message = $"Log file not found at: {logPath}",
                     logSizeMB = 0,
@@ -254,17 +237,15 @@ public class ManagementController : ControllerBase
                 });
             }
 
-            // Get log file size
             var fileInfo = new FileInfo(logPath);
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
             var resumePosition = _stateService.GetLogPosition();
             bool resumeFromSavedPosition = resumePosition > 0 && resumePosition < fileInfo.Length;
-            
-            // CHECK IF FILE IS EMPTY
+
             if (fileInfo.Length == 0)
             {
-                _logger.LogWarning($"Log file is empty (0 bytes): {logPath}");
-                return Ok(new { 
+                _logger.LogWarning("Log file is empty");
+                return Ok(new {
                     message = "Log file is empty. No data to process.",
                     logSizeMB = 0,
                     estimatedTimeMinutes = 0,
@@ -272,11 +253,10 @@ public class ManagementController : ControllerBase
                     status = "empty_file"
                 });
             }
-            
-            // CHECK IF FILE IS TOO SMALL (less than 100 bytes probably means no real data)
+
             if (fileInfo.Length < 100)
             {
-                _logger.LogWarning($"Log file is very small ({fileInfo.Length} bytes): {logPath}");
+                _logger.LogWarning("Log file is very small: {FileLength} bytes", fileInfo.Length);
                 return Ok(new {
                     message = $"Log file only contains {fileInfo.Length} bytes. Likely no game data yet.",
                     logSizeMB = sizeMB,
@@ -285,13 +265,8 @@ public class ManagementController : ControllerBase
                     status = "insufficient_data"
                 });
             }
-
-            // CHECK FOR DUPLICATE PROCESSING - Count lines in log file vs database entries
             try
             {
-                _logger.LogInformation("Checking for duplicate processing by comparing log file lines to database entries");
-
-                // Count lines in log file
                 long logFileLineCount = 0;
                 using (var reader = new StreamReader(logPath))
                 {
@@ -302,15 +277,12 @@ public class ManagementController : ControllerBase
                     }
                 }
 
-                // Count existing database entries
                 var databaseEntryCount = await _dbService.GetLogEntryCountAsync();
+                _logger.LogInformation("Log file: {LogLines:N0} lines, database: {DbEntries:N0} entries", logFileLineCount, databaseEntryCount);
 
-                _logger.LogInformation($"Log file contains {logFileLineCount:N0} lines, database contains {databaseEntryCount:N0} entries");
-
-                // If database has same or more entries than log file, skip processing
                 if (databaseEntryCount >= logFileLineCount && logFileLineCount > 0)
                 {
-                    _logger.LogInformation("Skipping log processing - database already contains all log entries");
+                    _logger.LogInformation("Skipping log processing - database up to date");
                     return Ok(new {
                         message = $"Processing skipped - database already contains {databaseEntryCount:N0} entries which matches or exceeds the {logFileLineCount:N0} lines in the log file. No new data to process.",
                         logSizeMB = sizeMB,
@@ -323,25 +295,23 @@ public class ManagementController : ControllerBase
                     });
                 }
 
-                // If database has significantly fewer entries, log the delta
                 if (databaseEntryCount < logFileLineCount)
                 {
                     var newEntriesToProcess = logFileLineCount - databaseEntryCount;
-                    _logger.LogInformation($"Database is behind by {newEntriesToProcess:N0} entries - proceeding with processing");
+                    _logger.LogInformation("Database behind by {NewEntries:N0} entries", newEntriesToProcess);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to check for duplicate processing - proceeding with normal processing");
+                _logger.LogWarning(ex, "Failed to check for duplicate processing");
             }
-            
-            _logger.LogInformation($"Starting full log processing: {sizeMB:F1} MB");
+
+            _logger.LogInformation("Starting full log processing: {SizeMB:F1} MB", sizeMB);
             if (resumeFromSavedPosition)
             {
-                _logger.LogInformation($"Resuming from saved position {resumePosition:N0} ({resumePosition / (1024.0 * 1024.0):F1} MB already processed)");
+                _logger.LogInformation("Resuming from position {Position:N0}", resumePosition);
             }
-            
-            // Delete old marker first
+
             var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
             if (System.IO.File.Exists(processingMarker))
             {
@@ -353,12 +323,7 @@ public class ManagementController : ControllerBase
             {
                 _stateService.SetLogPosition(0);
             }
-            else
-            {
-                _logger.LogInformation($"Preserving saved log position {resumePosition:N0} for resume");
-            }
 
-            // Create marker with file size info
             var markerData = new
             {
                 startTime = DateTime.UtcNow,
@@ -373,12 +338,8 @@ public class ManagementController : ControllerBase
                 System.Text.Json.JsonSerializer.Serialize(markerData));
 
             _processingStartTime = DateTime.UtcNow;
+            _logger.LogInformation("Marker file created");
 
-            // Log processing services are already running automatically
-            // The marker file will signal them to enter bulk processing mode
-            _logger.LogInformation("Marker file created - log processing services will enter bulk mode automatically");
-
-            // Create operation state
             var remainingBytes = resumeFromSavedPosition ? fileInfo.Length - resumePosition : fileInfo.Length;
             var remainingMB = remainingBytes / (1024.0 * 1024.0);
 
@@ -404,10 +365,10 @@ public class ManagementController : ControllerBase
                 ExpiresAt = DateTime.UtcNow.AddHours(24)
             };
             stateService.SaveState("activeLogProcessing", operationState);
-            
+
             var estimatedMinutes = Math.Max(1, Math.Ceiling((remainingMB > 0 ? remainingMB : sizeMB) / 100));
 
-            return Ok(new { 
+            return Ok(new {
                 message = resumeFromSavedPosition
                     ? $"Resuming log processing. {remainingMB:F1} MB remaining..."
                     : $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",
@@ -424,7 +385,7 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting up full log processing");
-            return StatusCode(500, new { error = $"Failed to setup full log processing: {ex.Message}" });
+            return StatusCode(500, new { error = "Failed to setup full log processing", details = ex.Message });
         }
     }
 
@@ -434,34 +395,28 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("Initiating processing cancellation");
-
-            // Get the saved position before canceling
             var currentPosition = _stateService.GetLogPosition();
 
-            // Remove processing marker to signal services to exit bulk mode
             var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
             if (System.IO.File.Exists(processingMarker))
             {
                 System.IO.File.Delete(processingMarker);
-                _logger.LogInformation("Removed processing marker - services will exit bulk mode");
             }
 
-            // Give services a moment to detect marker removal and save state
             await Task.Delay(1000);
 
-            _logger.LogInformation($"Processing cancelled at position {currentPosition:N0}, position preserved for resume");
+            _logger.LogInformation("Processing cancelled at position {Position:N0}", currentPosition);
 
             return Ok(new {
-                message = $"Bulk processing cancelled. Services will continue monitoring new log entries.",
-                currentPosition = currentPosition,
+                message = "Bulk processing cancelled. Services will continue monitoring new log entries.",
+                currentPosition,
                 requiresRestart = false
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error cancelling processing");
-            return StatusCode(500, new { error = "Failed to cancel processing" });
+            return StatusCode(500, new { error = "Failed to cancel processing", details = ex.Message });
         }
     }
 
@@ -469,20 +424,20 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            _logger.LogInformation($"Stopping {serviceName} with {timeout.TotalSeconds}s timeout");
+            _logger.LogInformation("Stopping service {ServiceName} with {Timeout}s timeout", serviceName, timeout.TotalSeconds);
 
             using var cts = new CancellationTokenSource(timeout);
             await service.StopAsync(cts.Token);
 
-            _logger.LogInformation($"{serviceName} stopped successfully");
+            _logger.LogInformation("Service {ServiceName} stopped successfully", serviceName);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning($"{serviceName} stop operation timed out after {timeout.TotalSeconds}s - forcing shutdown");
+            _logger.LogWarning("Service {ServiceName} stop operation timed out after {Timeout}s - forcing shutdown", serviceName, timeout.TotalSeconds);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error stopping {serviceName}: {ex.Message}");
+            _logger.LogError(ex, "Error stopping service {ServiceName}", serviceName);
         }
     }
 
@@ -505,7 +460,7 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during depot mapping post-processing");
-            return StatusCode(500, new { error = $"Failed to post-process depot mappings: {ex.Message}" });
+            return StatusCode(500, new { error = "Failed to post-process depot mappings", details = ex.Message });
         }
     }
 
@@ -514,12 +469,10 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            // Check operation state first for accurate status
             var activeOperation = operationStateService.GetState("activeLogProcessing");
             if (activeOperation != null && activeOperation.Data.TryGetValue("isProcessing", out var staleProcessingObj) &&
                 staleProcessingObj is bool staleProcessing && !staleProcessing)
             {
-                // Fully complete state is already available in the OperationStateService cache
                 return Ok(new {
                     isProcessing = false,
                     message = "Processing complete",
@@ -537,11 +490,9 @@ public class ManagementController : ControllerBase
             var operationState = operationStates.FirstOrDefault(o => o.Id == "activeLogProcessing");
             if (operationState?.Data != null)
             {
-                // Cast Data to Dictionary or JsonElement
                 var dataDict = operationState.Data as Dictionary<string, object>;
                 if (dataDict == null && operationState.Data is System.Text.Json.JsonElement jsonElement)
                 {
-                    // Convert JsonElement to Dictionary
                     dataDict = new Dictionary<string, object>();
                     foreach (var prop in jsonElement.EnumerateObject())
                     {
@@ -558,7 +509,6 @@ public class ManagementController : ControllerBase
 
                 if (dataDict != null)
                 {
-                    // Get status from operation state
                     bool isProcessing = dataDict.TryGetValue("isProcessing", out var processingObj)
                         && processingObj is bool processing && processing;
 
@@ -638,7 +588,6 @@ public class ManagementController : ControllerBase
                         });
                     }
 
-                    // Detect and repair stuck processing states hovering at ~100%
                     if (isProcessing && mbTotal > 0)
                     {
                         var processedDelta = Math.Abs(mbTotal - mbProcessed);
@@ -718,7 +667,6 @@ public class ManagementController : ControllerBase
                         }
                     }
 
-                    // If status is complete, always return not processing
                     if (status == "complete" || (!isProcessing && percentComplete >= 100))
                     {
                         return Ok(new {
@@ -737,7 +685,6 @@ public class ManagementController : ControllerBase
 
                     if (isProcessing)
                     {
-                        // Calculate processing rate
                         double processingRate = 0;
                         string estimatedTime = "calculating...";
 
@@ -779,11 +726,9 @@ public class ManagementController : ControllerBase
                 }
             }
 
-            // Fallback to checking marker and position
             var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
             bool markerExists = System.IO.File.Exists(processingMarker);
 
-            // Then check position file
             long currentPosition = 0;
             long totalSize = 0;
 
@@ -796,7 +741,6 @@ public class ManagementController : ControllerBase
 
             currentPosition = _stateService.GetLogPosition();
 
-            // If no marker and position is at 0, we're not processing
             if (!markerExists && currentPosition == 0)
             {
                 return Ok(new {
@@ -807,12 +751,10 @@ public class ManagementController : ControllerBase
                 });
             }
 
-            // If marker exists or position > 0, we might be processing
             if (markerExists || currentPosition > 0)
             {
                 var percentComplete = totalSize > 0 ? (currentPosition * 100.0) / totalSize : 0;
 
-                // Check if we're actually at the end
                 if (currentPosition >= totalSize - 1000 && !markerExists)
                 {
                     return Ok(new {
@@ -825,7 +767,6 @@ public class ManagementController : ControllerBase
                     });
                 }
 
-                // Calculate processing rate
                 double processingRate = 0;
                 string estimatedTime = "calculating...";
 
@@ -848,7 +789,7 @@ public class ManagementController : ControllerBase
                 }
 
                 return Ok(new {
-                    isProcessing = markerExists, // Only return true if marker actually exists
+                    isProcessing = markerExists,
                     currentPosition,
                     totalSize,
                     percentComplete,
@@ -909,7 +850,6 @@ public class ManagementController : ControllerBase
         }
     }
 
-    // New endpoint to remove service entries from log file
     [HttpPost("logs/remove-service")]
     [RequireAuth]
     public async Task<IActionResult> RemoveServiceFromLogs([FromBody] RemoveServiceRequest request)
@@ -922,32 +862,32 @@ public class ManagementController : ControllerBase
             }
 
             await _cacheService.RemoveServiceFromLogs(request.Service);
-            
-            return Ok(new { 
+
+            return Ok(new {
                 message = $"Successfully removed {request.Service} entries from log file",
                 backupFile = $"{Path.Combine(_pathResolver.GetLogsDirectory(), "access.log")}.bak"
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error removing {request.Service} from logs");
-            return StatusCode(500, new { error = $"Failed to remove {request.Service} from logs", details = ex.Message });
+            _logger.LogError(ex, "Error removing service from logs: {Service}", request.Service);
+            return StatusCode(500, new { error = "Failed to remove service from logs", details = ex.Message });
         }
     }
 
-    // New endpoint to get service log counts
     [HttpGet("logs/service-counts")]
     public async Task<IActionResult> GetServiceLogCounts()
     {
         try
         {
             var counts = await _cacheService.GetServiceLogCounts();
+
             return Ok(counts);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting service log counts");
-            return StatusCode(500, new { error = "Failed to get service log counts" });
+            return StatusCode(500, new { error = "Failed to get service log counts", details = ex.Message });
         }
     }
 
@@ -957,12 +897,13 @@ public class ManagementController : ControllerBase
         try
         {
             var operations = _cacheClearingService.GetAllOperations();
+
             return Ok(operations);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting cache clear operations");
-            return StatusCode(500, new { error = "Failed to get operations", message = ex.Message });
+            return StatusCode(500, new { error = "Failed to get cache clear operations", details = ex.Message });
         }
     }
 
@@ -974,9 +915,9 @@ public class ManagementController : ControllerBase
             var operations = _cacheClearingService.GetAllOperations()
                 .Where(op => op.Status == "Running" || op.Status == "Preparing")
                 .ToList();
-            
-            return Ok(new 
-            { 
+
+            return Ok(new
+            {
                 hasActive = operations.Any(),
                 operations = operations
             });
@@ -984,11 +925,10 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting active cache clear operations");
-            return StatusCode(500, new { error = "Failed to get active operations", message = ex.Message });
+            return StatusCode(500, new { error = "Failed to get active cache clear operations", details = ex.Message });
         }
     }
 
-    // Get configuration info
     [HttpGet("config")]
     public async Task<IActionResult> GetConfig()
     {
@@ -996,7 +936,7 @@ public class ManagementController : ControllerBase
         {
             var services = await _cacheService.GetServicesFromLogs();
             var cachePath = _cacheService.GetCachePath();
-            
+
             return Ok(new {
                 cachePath,
                 logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log"),
@@ -1014,19 +954,17 @@ public class ManagementController : ControllerBase
         }
     }
 
-    // Debug endpoint to check permissions
     [HttpGet("debug/permissions")]
     public IActionResult CheckPermissions()
     {
         var results = new Dictionary<string, object>();
-        
-        // Check /logs directory
+
         try
         {
             var logsDir = _pathResolver.GetLogsDirectory();
             results["logsDirectory"] = logsDir;
             results["logsExists"] = Directory.Exists(logsDir);
-            
+
             if (Directory.Exists(logsDir))
             {
                 var testFile = Path.Combine(logsDir, ".write_test");
@@ -1047,14 +985,13 @@ public class ManagementController : ControllerBase
         {
             results["logsCheckError"] = ex.Message;
         }
-        
-        // Check /cache directory
+
         try
         {
             var cachePath = _cacheService.GetCachePath();
             results["cacheDirectory"] = cachePath;
             results["cacheExists"] = Directory.Exists(cachePath);
-            
+
             if (Directory.Exists(cachePath))
             {
                 var testFile = Path.Combine(cachePath, ".write_test");
@@ -1069,8 +1006,7 @@ public class ManagementController : ControllerBase
                     results["cacheWritable"] = false;
                     results["cacheError"] = ex.Message;
                 }
-                
-                // Count cache directories and estimate size
+
                 try
                 {
                     var dirs = Directory.GetDirectories(cachePath)
@@ -1079,23 +1015,22 @@ public class ManagementController : ControllerBase
                             return name.Length == 2 && IsHex(name);
                         })
                         .ToList();
-                    
+
                     results["cacheDirectoryCount"] = dirs.Count;
-                    
-                    // Sample a few directories to estimate total size
+
                     if (dirs.Count > 0)
                     {
                         long totalFiles = 0;
                         long totalSize = 0;
                         int sampleCount = Math.Min(3, dirs.Count);
-                        
+
                         for (int i = 0; i < sampleCount; i++)
                         {
                             var dir = dirs[i];
                             var files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
                             totalFiles += files.Length;
-                            
-                            foreach (var file in files.Take(100)) // Sample first 100 files
+
+                            foreach (var file in files.Take(100))
                             {
                                 try
                                 {
@@ -1105,14 +1040,13 @@ public class ManagementController : ControllerBase
                                 catch { }
                             }
                         }
-                        
-                        // Extrapolate
+
                         if (sampleCount > 0)
                         {
                             var avgFilesPerDir = totalFiles / sampleCount;
                             var estimatedTotalFiles = avgFilesPerDir * dirs.Count;
                             results["estimatedCacheFiles"] = estimatedTotalFiles;
-                            
+
                             if (totalFiles > 0)
                             {
                                 var avgFileSize = totalSize / Math.Min(totalFiles, 100 * sampleCount);
@@ -1132,8 +1066,7 @@ public class ManagementController : ControllerBase
         {
             results["cacheCheckError"] = ex.Message;
         }
-        
-        // Check /data directory
+
         try
         {
             var dataDirectory = _pathResolver.GetDataDirectory();
@@ -1160,8 +1093,7 @@ public class ManagementController : ControllerBase
         {
             results["dataCheckError"] = ex.Message;
         }
-        
-        // Check log file
+
         try
         {
             var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
@@ -1180,12 +1112,11 @@ public class ManagementController : ControllerBase
         {
             results["logFileError"] = ex.Message;
         }
-        
-        // Environment info
+
         results["user"] = Environment.UserName;
         results["userId"] = Environment.GetEnvironmentVariable("USER") ?? "unknown";
         results["workingDirectory"] = Environment.CurrentDirectory;
-        
+
         return Ok(results);
     }
 
@@ -1195,6 +1126,7 @@ public class ManagementController : ControllerBase
         try
         {
             var isSetupCompleted = _stateService.GetSetupCompleted();
+
             return Ok(new { isSetupCompleted });
         }
         catch (Exception ex)
@@ -1211,12 +1143,13 @@ public class ManagementController : ControllerBase
         {
             _stateService.SetSetupCompleted(true);
             _logger.LogInformation("Setup marked as completed");
+
             return Ok(new { success = true, message = "Setup marked as completed" });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error marking setup as completed");
-            return StatusCode(500, new { success = false, message = "Failed to mark setup as completed" });
+            return StatusCode(500, new { error = "Failed to mark setup as completed", details = ex.Message });
         }
     }
 
@@ -1229,7 +1162,6 @@ public class ManagementController : ControllerBase
 
             if (!System.IO.File.Exists(settingsFile))
             {
-                // Create default settings
                 var defaultSettings = CreateDefaultSettings();
                 System.IO.File.WriteAllText(settingsFile, System.Text.Json.JsonSerializer.Serialize(defaultSettings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                 return Ok(defaultSettings);
@@ -1237,12 +1169,13 @@ public class ManagementController : ControllerBase
 
             var settingsJson = System.IO.File.ReadAllText(settingsFile);
             var settings = System.Text.Json.JsonSerializer.Deserialize<object>(settingsJson);
+
             return Ok(settings);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error reading settings");
-            return StatusCode(500, new { error = "Failed to read settings" });
+            return StatusCode(500, new { error = "Failed to read settings", details = ex.Message });
         }
     }
 
@@ -1255,12 +1188,13 @@ public class ManagementController : ControllerBase
             var settingsJson = System.Text.Json.JsonSerializer.Serialize(settings, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
             System.IO.File.WriteAllText(settingsFile, settingsJson);
             _logger.LogInformation("Settings updated successfully");
+
             return Ok(new { success = true, message = "Settings updated successfully" });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating settings");
-            return StatusCode(500, new { success = false, message = "Failed to update settings" });
+            return StatusCode(500, new { error = "Failed to update settings", details = ex.Message });
         }
     }
 
@@ -1322,68 +1256,10 @@ public class ManagementController : ControllerBase
         return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 
-    private static int ConvertToInt32Safe(object? obj)
-    {
-        if (obj == null) return 0;
-
-        if (obj is JsonElement jsonElement)
-        {
-            return jsonElement.ValueKind switch
-            {
-                JsonValueKind.Number => jsonElement.GetInt32(),
-                JsonValueKind.String => int.TryParse(jsonElement.GetString(), out var intVal) ? intVal : 0,
-                _ => 0
-            };
-        }
-
-        if (obj is int intValue) return intValue;
-        if (obj is double doubleValue) return (int)doubleValue;
-        if (obj is long longValue) return (int)longValue;
-
-        return int.TryParse(obj.ToString(), out var parsedInt) ? parsedInt : 0;
-    }
-
-    private static long ConvertToInt64Safe(object? obj)
-    {
-        if (obj == null) return 0;
-
-        if (obj is JsonElement jsonElement)
-        {
-            return jsonElement.ValueKind switch
-            {
-                JsonValueKind.Number => jsonElement.GetInt64(),
-                JsonValueKind.String => long.TryParse(jsonElement.GetString(), out var longVal) ? longVal : 0,
-                _ => 0
-            };
-        }
-
-        if (obj is long longValue) return longValue;
-        if (obj is int intValue) return intValue;
-        if (obj is double doubleValue) return (long)doubleValue;
-
-        return long.TryParse(obj.ToString(), out var parsedLong) ? parsedLong : 0;
-    }
-
-    private static double ConvertToDoubleSafe(object? obj)
-    {
-        if (obj == null) return 0;
-
-        if (obj is JsonElement jsonElement)
-        {
-            return jsonElement.ValueKind switch
-            {
-                JsonValueKind.Number => jsonElement.GetDouble(),
-                JsonValueKind.String => double.TryParse(jsonElement.GetString(), out var dbl) ? dbl : 0,
-                _ => 0
-            };
-        }
-
-        if (obj is double doubleValue) return doubleValue;
-        if (obj is int intValue) return intValue;
-        if (obj is long longValue) return longValue;
-
-        return double.TryParse(obj.ToString(), out var parsedDouble) ? parsedDouble : 0;
-    }
+    // Conversion methods moved to LancacheManager.Utilities.JsonConverters
+    private static int ConvertToInt32Safe(object? obj) => JsonConverters.ToInt32Safe(obj);
+    private static long ConvertToInt64Safe(object? obj) => JsonConverters.ToInt64Safe(obj);
+    private static double ConvertToDoubleSafe(object? obj) => JsonConverters.ToDoubleSafe(obj);
 }
 
 // Request model for removing service

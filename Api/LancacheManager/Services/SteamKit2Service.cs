@@ -40,7 +40,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;
-    private static readonly TimeSpan CrawlInterval = TimeSpan.FromHours(1); // Run incremental updates every hour
+    private TimeSpan _crawlInterval = TimeSpan.FromHours(1); // Default: Run incremental updates every hour
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
 
@@ -93,6 +93,14 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             // Initialize session tracking to current count (so session shows 0 when idle)
             _sessionStartDepotCount = _depotToAppMappings.Count;
+
+            // Load saved crawl interval from state
+            var savedInterval = _stateService.GetCrawlIntervalHours();
+            if (savedInterval > 0)
+            {
+                _crawlInterval = TimeSpan.FromHours(savedInterval);
+                _logger.LogInformation("Loaded crawl interval from state: {Hours} hour(s)", savedInterval);
+            }
 
             // Check for interrupted depot processing and resume if needed
             var depotState = _stateService.GetDepotProcessingState();
@@ -248,8 +256,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         });
 
         // Set up the periodic timer for subsequent crawls
-        _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, CrawlInterval, CrawlInterval);
-        _logger.LogInformation($"Scheduled incremental PICS updates every {CrawlInterval.TotalHours} hour(s)");
+        _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
+        _logger.LogInformation($"Scheduled incremental PICS updates every {_crawlInterval.TotalHours} hour(s)");
     }
 
     private void OnPeriodicCrawlTimer(object? state)
@@ -1412,7 +1420,36 @@ public class SteamKit2Service : IHostedService, IDisposable
 
         // Fallback to time-based check
         var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
-        return _lastCrawlTime == DateTime.MinValue || timeSinceLastCrawl >= CrawlInterval;
+        return _lastCrawlTime == DateTime.MinValue || timeSinceLastCrawl >= _crawlInterval;
+    }
+
+    /// <summary>
+    /// Get or set the crawl interval in hours
+    /// </summary>
+    public double CrawlIntervalHours
+    {
+        get => _crawlInterval.TotalHours;
+        set
+        {
+            _crawlInterval = TimeSpan.FromHours(value);
+
+            // Save to state for persistence across restarts
+            _stateService.SetCrawlIntervalHours(value);
+            _logger.LogInformation("Saved crawl interval to state: {Hours} hour(s)", value);
+
+            // Reset the last crawl time to now so the countdown starts fresh with the new interval
+            _lastCrawlTime = DateTime.UtcNow;
+            _stateService.SetLastPicsCrawl(_lastCrawlTime);
+            _logger.LogInformation("Reset last crawl time to now due to interval change");
+
+            // Restart the timer with new interval if it's running
+            if (_periodicTimer != null)
+            {
+                _periodicTimer?.Dispose();
+                _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
+                _logger.LogInformation($"Updated crawl interval to {value} hour(s)");
+            }
+        }
     }
 
     /// <summary>
@@ -1420,8 +1457,14 @@ public class SteamKit2Service : IHostedService, IDisposable
     /// </summary>
     public object GetProgress()
     {
+        // If never crawled, initialize to current time so next crawl is in the future
+        if (_lastCrawlTime == DateTime.MinValue)
+        {
+            _lastCrawlTime = DateTime.UtcNow;
+        }
+
         var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
-        var nextCrawlIn = _lastCrawlTime == DateTime.MinValue ? TimeSpan.Zero : CrawlInterval - timeSinceLastCrawl;
+        var nextCrawlIn = TimeSpan.FromTicks(Math.Max(0, (_crawlInterval - timeSinceLastCrawl).Ticks)); // Clamp to zero if negative
 
         var totalMappings = _depotToAppMappings.Count;
         var newMappingsInSession = Math.Max(0, totalMappings - _sessionStartDepotCount);
@@ -1439,7 +1482,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             DepotMappingsFoundInSession = newMappingsInSession,
             IsReady = IsReady,
             LastCrawlTime = _lastCrawlTime == DateTime.MinValue ? (DateTime?)null : _lastCrawlTime,
-            NextCrawlIn = nextCrawlIn.TotalSeconds > 0 ? nextCrawlIn : TimeSpan.Zero,
+            NextCrawlIn = nextCrawlIn.TotalSeconds, // Return as a number (total seconds) instead of TimeSpan object
+            CrawlIntervalHours = _crawlInterval.TotalHours,
             IsConnected = _steamClient?.IsConnected == true,
             IsLoggedOn = _isLoggedOn
         };

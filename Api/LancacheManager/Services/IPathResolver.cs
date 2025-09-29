@@ -6,6 +6,16 @@ namespace LancacheManager.Services;
 public interface IPathResolver
 {
     /// <summary>
+    /// Resolves a relative path to an absolute path based on the operating system
+    /// </summary>
+    string ResolvePath(string relativePath);
+
+    /// <summary>
+    /// Normalizes path separators for the current platform
+    /// </summary>
+    string NormalizePath(string path);
+
+    /// <summary>
     /// Gets the base directory for the application
     /// </summary>
     string GetBasePath();

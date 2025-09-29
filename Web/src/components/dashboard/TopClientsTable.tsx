@@ -1,7 +1,8 @@
-import React, { useMemo, memo } from 'react';
+import React, { useMemo, memo, useState } from 'react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { CacheInfoTooltip } from '../common/Tooltip';
 import { Card } from '../ui/Card';
+import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 
 interface TopClientsTableProps {
   clientStats?: any[];
@@ -11,8 +12,11 @@ interface TopClientsTableProps {
   customEndDate?: Date | null;
 }
 
+type SortOption = 'total' | 'hits' | 'misses' | 'hitRate';
+
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
   ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate }) => {
+    const [sortBy, setSortBy] = useState<SortOption>('total');
     const timeRangeLabel = useMemo(() => {
       if (timeRange === 'custom' && customStartDate && customEndDate) {
         const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
@@ -36,16 +40,50 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
       return labels[timeRange] || 'Live Data';
     }, [timeRange, customStartDate, customEndDate]);
 
-    const displayClients = useMemo(() => clientStats.slice(0, 10), [clientStats]);
+    const sortedClients = useMemo(() => {
+      const sorted = [...clientStats];
+
+      switch (sortBy) {
+        case 'total':
+          sorted.sort((a, b) => (b.totalBytes || 0) - (a.totalBytes || 0));
+          break;
+        case 'hits':
+          sorted.sort((a, b) => (b.totalCacheHitBytes || 0) - (a.totalCacheHitBytes || 0));
+          break;
+        case 'misses':
+          sorted.sort((a, b) => (b.totalCacheMissBytes || 0) - (a.totalCacheMissBytes || 0));
+          break;
+        case 'hitRate':
+          sorted.sort((a, b) => (b.cacheHitPercent || 0) - (a.cacheHitPercent || 0));
+          break;
+      }
+
+      return sorted;
+    }, [clientStats, sortBy]);
+
+    const displayClients = useMemo(() => sortedClients.slice(0, 10), [sortedClients]);
 
     return (
       <Card>
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
             Top Clients
             <CacheInfoTooltip />
           </h3>
-          <span className="text-xs text-themed-muted">{timeRangeLabel}</span>
+          <div className="flex items-center gap-2">
+            <EnhancedDropdown
+              options={[
+                { value: 'total', label: 'Total Downloaded' },
+                { value: 'hits', label: 'Cache Hits' },
+                { value: 'misses', label: 'Cache Misses' },
+                { value: 'hitRate', label: 'Hit Rate' }
+              ]}
+              value={sortBy}
+              onChange={(value) => setSortBy(value as SortOption)}
+              className="w-48"
+            />
+            <span className="text-xs text-themed-muted whitespace-nowrap">{timeRangeLabel}</span>
+          </div>
         </div>
 
         {displayClients.length > 0 ? (

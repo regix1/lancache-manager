@@ -191,6 +191,36 @@ public class GameInfoController : ControllerBase
     }
 
     /// <summary>
+    /// Set the crawl interval for periodic depot mapping updates
+    /// </summary>
+    /// <param name="intervalHours">Interval in hours</param>
+    [HttpPost("steamkit/interval")]
+    public IActionResult SetCrawlInterval([FromBody] double intervalHours)
+    {
+        try
+        {
+            if (intervalHours < 0.1 || intervalHours > 168) // Min 6 minutes, max 1 week
+            {
+                return BadRequest(new { error = "Interval must be between 0.1 and 168 hours" });
+            }
+
+            _steamKit2Service.CrawlIntervalHours = intervalHours;
+            _logger.LogInformation("Crawl interval updated to {IntervalHours} hours", intervalHours);
+
+            return Ok(new
+            {
+                intervalHours = _steamKit2Service.CrawlIntervalHours,
+                message = $"Crawl interval updated to {intervalHours} hour(s)"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting crawl interval");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Update all downloads with depot IDs to include game information
     /// </summary>
     [HttpPost("update-depot-mappings")]

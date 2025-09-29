@@ -13,7 +13,8 @@ interface PicsProgress {
   depotMappingsFoundInSession: number;
   isReady: boolean;
   lastCrawlTime?: string;
-  nextCrawlIn: { totalHours: number };
+  nextCrawlIn: any; // Can be TimeSpan string, object, or number from backend
+  crawlIntervalHours: number;
   isConnected: boolean;
   isLoggedOn: boolean;
 }
@@ -121,9 +122,18 @@ const PicsProgressBar: React.FC = () => {
                     ? `Found ${progress.depotMappingsFoundInSession.toLocaleString()} new mappings (Total: ${progress.depotMappingsFound.toLocaleString()})`
                     : `${progress.depotMappingsFound.toLocaleString()} depot mappings`
                 }
-                {progress.isReady && progress.nextCrawlIn.totalHours > 0 &&
-                  ` • Next: ${Math.round(progress.nextCrawlIn.totalHours)}h`
-                }
+                {progress.isReady && progress.nextCrawlIn && (() => {
+                  let totalHours = 0;
+                  if (typeof progress.nextCrawlIn === 'object' && progress.nextCrawlIn.totalHours !== undefined) {
+                    totalHours = progress.nextCrawlIn.totalHours;
+                  } else if (typeof progress.nextCrawlIn === 'string') {
+                    const parts = progress.nextCrawlIn.split(':');
+                    totalHours = parseInt(parts[0]) + (parseInt(parts[1]) / 60);
+                  } else if (typeof progress.nextCrawlIn === 'number') {
+                    totalHours = progress.nextCrawlIn / 3600;
+                  }
+                  return totalHours > 0 ? ` • Next: ${Math.round(totalHours)}h` : '';
+                })()}
               </span>
             </div>
 

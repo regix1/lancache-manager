@@ -7,6 +7,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../types';
 
@@ -40,7 +41,8 @@ interface PicsProgress {
   depotMappingsFoundInSession: number;
   isReady: boolean;
   lastCrawlTime?: string;
-  nextCrawlIn: { totalHours: number };
+  nextCrawlIn: any; // Can be TimeSpan string, object, or number from backend
+  crawlIntervalHours: number;
   isConnected: boolean;
   isLoggedOn: boolean;
 }
@@ -69,14 +71,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
     | null
   >(null);
-
-  // Depot mapping schedule state
-  const [depotSchedule, setDepotSchedule] = useState({
-    enabled: true,
-    intervalHours: 24,
-    lastRun: null as Date | null,
-    nextRun: new Date(Date.now() + 24 * 60 * 60 * 1000) as Date | null // 24 hours from now by default
-  });
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
@@ -714,15 +708,74 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   };
 
   const formatNextRun = () => {
-    if (!depotSchedule.nextRun) return 'Not scheduled';
-    const now = new Date();
-    const diff = depotSchedule.nextRun.getTime() - now.getTime();
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    if (hours > 24) {
-      return `${Math.floor(hours / 24)} days`;
+    // Check if actually running first
+    if (depotProcessing?.isRunning) {
+      return 'Running now';
     }
-    return `${hours}h ${minutes}m`;
+
+    // Use backend data
+    if (depotProcessing?.nextCrawlIn !== undefined && depotProcessing?.nextCrawlIn !== null) {
+      // Handle TimeSpan object from backend (has hours, minutes, seconds, etc.)
+      let totalSeconds: number;
+
+      if (typeof depotProcessing.nextCrawlIn === 'object' && depotProcessing.nextCrawlIn.totalSeconds !== undefined) {
+        // Backend sends TimeSpan with totalSeconds property
+        totalSeconds = depotProcessing.nextCrawlIn.totalSeconds;
+      } else if (typeof depotProcessing.nextCrawlIn === 'object' && depotProcessing.nextCrawlIn.totalHours !== undefined) {
+        // Fallback: convert totalHours to seconds
+        totalSeconds = depotProcessing.nextCrawlIn.totalHours * 3600;
+      } else if (typeof depotProcessing.nextCrawlIn === 'string') {
+        // Parse TimeSpan string format "HH:MM:SS" or "D.HH:MM:SS"
+        const parts = depotProcessing.nextCrawlIn.split(':');
+        if (parts.length >= 3) {
+          const dayHourPart = parts[0].split('.');
+          let hours = 0;
+          let days = 0;
+
+          if (dayHourPart.length === 2) {
+            // Format: "D.HH:MM:SS"
+            days = parseInt(dayHourPart[0]) || 0;
+            hours = parseInt(dayHourPart[1]) || 0;
+          } else {
+            // Format: "HH:MM:SS"
+            hours = parseInt(parts[0]) || 0;
+          }
+
+          const minutes = parseInt(parts[1]) || 0;
+          const seconds = parseInt(parts[2]) || 0;
+          totalSeconds = (days * 86400) + (hours * 3600) + (minutes * 60) + seconds;
+        } else {
+          return 'Loading...';
+        }
+      } else if (typeof depotProcessing.nextCrawlIn === 'number') {
+        // Direct number - assume it's already in seconds
+        totalSeconds = depotProcessing.nextCrawlIn;
+      } else {
+        return 'Loading...';
+      }
+
+      if (!isFinite(totalSeconds) || isNaN(totalSeconds)) return 'Loading...';
+
+      // If time is negative or zero but not running, show "Due now"
+      if (totalSeconds <= 0) {
+        return 'Due now';
+      }
+
+      // Convert seconds to hours and minutes for display
+      const totalHours = totalSeconds / 3600;
+
+      if (totalHours > 24) {
+        const days = Math.floor(totalHours / 24);
+        const hours = Math.floor(totalHours % 24);
+        return hours > 0 ? `${days}d ${hours}h` : `${days} days`;
+      }
+      const hours = Math.floor(totalHours);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+    }
+
+    // Fallback when backend data not yet loaded
+    return 'Loading...';
   };
 
   return (
@@ -825,54 +878,93 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               <div className="text-xs text-themed-muted space-y-1">
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Runs every:</span>
-                  <span className="font-medium text-themed-primary">{depotSchedule.intervalHours} hours</span>
+                  <span className="font-medium text-themed-primary">
+                    {depotProcessing?.crawlIntervalHours
+                      ? `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`
+                      : 'Loading...'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Next run:</span>
                   <span className="font-medium text-themed-primary">{formatNextRun()}</span>
                 </div>
-                {depotSchedule.lastRun && (
+                {depotProcessing?.lastCrawlTime && (
                   <div className="flex items-center gap-2">
                     <span style={{ opacity: 0.6 }}>Last run:</span>
                     <span className="font-medium text-themed-primary">
-                      {new Date(depotSchedule.lastRun).toLocaleString()}
+                      {new Date(depotProcessing.lastCrawlTime).toLocaleString()}
                     </span>
                   </div>
                 )}
               </div>
             </div>
             <div className="flex flex-col gap-2 min-w-[120px]">
-              <select
-                className="px-3 py-1.5 text-sm rounded border themed-input"
-                style={{
-                  borderColor: 'var(--theme-input-border)',
-                  backgroundColor: 'var(--theme-input-bg)',
-                  color: 'var(--theme-text-primary)'
+              <EnhancedDropdown
+                options={[
+                  { value: '1', label: 'Every hour' },
+                  { value: '6', label: 'Every 6 hours' },
+                  { value: '12', label: 'Every 12 hours' },
+                  { value: '24', label: 'Every 24 hours' },
+                  { value: '48', label: 'Every 2 days' },
+                  { value: '168', label: 'Weekly' }
+                ]}
+                value={String(depotProcessing?.crawlIntervalHours || 1)}
+                onChange={async (value) => {
+                  const newInterval = Number(value);
+                  try {
+                    await fetch('/api/gameinfo/steamkit/interval', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(newInterval)
+                    });
+
+                    // Immediately fetch updated status to show new next run time
+                    const response = await fetch('/api/gameinfo/steamkit/progress');
+                    if (response.ok) {
+                      const data: PicsProgress = await response.json();
+                      setDepotProcessing(data);
+                    }
+                  } catch (error) {
+                    console.error('Failed to update crawl interval:', error);
+                  }
                 }}
-                value={depotSchedule.intervalHours}
-                onChange={(e) => {
-                  const newInterval = Number(e.target.value);
-                  setDepotSchedule({
-                    ...depotSchedule,
-                    intervalHours: newInterval,
-                    nextRun: new Date(Date.now() + newInterval * 60 * 60 * 1000)
-                  });
-                }}
-                disabled={mockMode || !isAuthenticated}
-              >
-                <option value={1}>Every hour</option>
-                <option value={6}>Every 6 hours</option>
-                <option value={12}>Every 12 hours</option>
-                <option value={24}>Every 24 hours</option>
-                <option value={48}>Every 2 days</option>
-                <option value={168}>Weekly</option>
-              </select>
+                className="w-full"
+              />
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {formatNextRun() === 'Due now' && !depotProcessing?.isRunning && (
+            <Button
+              variant="filled"
+              color="blue"
+              leftSection={<RefreshCw className="w-4 h-4" />}
+              onClick={async () => {
+                try {
+                  setActionLoading(true);
+                  await ApiService.triggerSteamKitRebuild(true); // Incremental
+                  onSuccess?.('Depot scan started');
+
+                  // Refresh status
+                  const response = await fetch('/api/gameinfo/steamkit/progress');
+                  if (response.ok) {
+                    const data: PicsProgress = await response.json();
+                    setDepotProcessing(data);
+                  }
+                } catch (error: any) {
+                  onError?.(error.message || 'Failed to start depot scan');
+                } finally {
+                  setActionLoading(false);
+                }
+              }}
+              disabled={actionLoading || mockMode || !isAuthenticated}
+              fullWidth
+            >
+              Run Scan Now
+            </Button>
+          )}
           <Button
             variant="default"
             leftSection={<Zap className="w-4 h-4" />}
