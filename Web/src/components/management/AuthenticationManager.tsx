@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Lock, Unlock, AlertCircle, AlertTriangle } from 'lucide-react';
-import authService from '../../services/auth.service';
+import { Key, Lock, Unlock, AlertCircle, AlertTriangle, Clock, Eye } from 'lucide-react';
+import authService, { AuthMode } from '../../services/auth.service';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { Modal } from '../ui/Modal';
@@ -10,15 +10,19 @@ interface AuthenticationManagerProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onApiKeyRegenerated?: () => void;
+  onAuthModeChange?: (authMode: AuthMode) => void;
 }
 
 const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   onAuthChange,
   onError,
   onSuccess,
-  onApiKeyRegenerated
+  onApiKeyRegenerated,
+  onAuthModeChange
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
+  const [guestTimeRemaining, setGuestTimeRemaining] = useState<number>(0);
   const [authChecking, setAuthChecking] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showRegenerateModal, setShowRegenerateModal] = useState(false);
@@ -28,22 +32,60 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
   useEffect(() => {
     checkAuth();
-  }, []);
+
+    // Set up callback for guest mode expiry
+    authService.onGuestExpired(() => {
+      setAuthMode('expired');
+      setIsAuthenticated(false);
+      setGuestTimeRemaining(0);
+      onAuthChange?.(false);
+      onAuthModeChange?.('expired');
+      onError?.('Guest session has expired. Please authenticate or start a new guest session.');
+    });
+
+    return () => {
+      // Cleanup callback on unmount
+      authService.onGuestExpired(null);
+    };
+  }, [onAuthChange, onAuthModeChange, onError]);
+
+  // Update guest time remaining every minute
+  useEffect(() => {
+    if (authMode !== 'guest') return;
+
+    const interval = setInterval(() => {
+      const timeRemaining = authService.getGuestTimeRemaining();
+      if (timeRemaining <= 0) {
+        // Guest mode has expired, check auth to update state
+        checkAuth();
+      } else {
+        setGuestTimeRemaining(timeRemaining);
+      }
+    }, 60000); // Check every minute
+
+    return () => clearInterval(interval);
+  }, [authMode]);
 
   const checkAuth = async () => {
     setAuthChecking(true);
     try {
       const result = await authService.checkAuth();
       setIsAuthenticated(result.isAuthenticated);
-      onAuthChange?.(result.isAuthenticated);
+      setAuthMode(result.authMode);
+      setGuestTimeRemaining(result.guestTimeRemaining || 0);
 
-      if (!result.isAuthenticated && authService.isRegistered()) {
+      onAuthChange?.(result.isAuthenticated);
+      onAuthModeChange?.(result.authMode);
+
+      if (!result.isAuthenticated && authService.isRegistered() && result.authMode !== 'guest') {
         authService.clearAuthAndDevice();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
       setIsAuthenticated(false);
+      setAuthMode('unauthenticated');
       onAuthChange?.(false);
+      onAuthModeChange?.('unauthenticated');
     } finally {
       setAuthChecking(false);
     }
@@ -62,8 +104,15 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       const result = await authService.register(apiKey);
 
       if (result.success) {
+        // Update state immediately to prevent modal flash
         setIsAuthenticated(true);
+        setAuthMode('authenticated');
+
+        // Then notify parent
         onAuthChange?.(true);
+        onAuthModeChange?.('authenticated');
+
+        // Close modal and clear
         setShowAuthModal(false);
         setApiKey('');
         onSuccess?.('Authentication successful! You can now use management features.');
@@ -78,6 +127,29 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     }
   };
 
+  const handleStartGuestMode = () => {
+    authService.startGuestMode();
+    setAuthMode('guest');
+    setGuestTimeRemaining(6 * 60); // 6 hours in minutes
+    setIsAuthenticated(false);
+    onAuthChange?.(false);
+    onAuthModeChange?.('guest');
+    setShowAuthModal(false);
+    setApiKey('');
+    setAuthError('');
+    onSuccess?.('Guest mode activated! You have 6 hours to view data before re-authentication is required.');
+  };
+
+  const formatTimeRemaining = (minutes: number): string => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+
+    if (hours > 0) {
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+    }
+    return `${mins}m`;
+  };
+
   const handleRegenerateKey = () => {
     setShowRegenerateModal(true);
   };
@@ -90,7 +162,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
       if (result.success) {
         setIsAuthenticated(false);
+        setAuthMode('unauthenticated');
         onAuthChange?.(false);
+        onAuthModeChange?.('unauthenticated');
         setShowAuthModal(false);
         onSuccess?.(result.message);
         onApiKeyRegenerated?.();
@@ -110,45 +184,114 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     return null;
   }
 
+  const getAlertColor = () => {
+    switch (authMode) {
+      case 'authenticated': return 'green';
+      case 'guest': return 'blue';
+      case 'expired': return 'orange';
+      default: return 'yellow';
+    }
+  };
+
+  const getAlertIcon = () => {
+    switch (authMode) {
+      case 'authenticated': return <Unlock className="w-5 h-5" />;
+      case 'guest': return <Eye className="w-5 h-5" />;
+      case 'expired': return <AlertTriangle className="w-5 h-5" />;
+      default: return <Lock className="w-5 h-5" />;
+    }
+  };
+
+  const getStatusText = () => {
+    switch (authMode) {
+      case 'authenticated': return 'Authenticated';
+      case 'guest': return `Guest Mode (${formatTimeRemaining(guestTimeRemaining)} remaining)`;
+      case 'expired': return 'Guest Session Expired';
+      default: return 'Not Authenticated';
+    }
+  };
+
+  const getDescriptionText = () => {
+    switch (authMode) {
+      case 'authenticated': return 'Management features enabled';
+      case 'guest': return 'View-only access active';
+      case 'expired': return 'Authentication required to continue';
+      default: return 'Management features require API key or guest access';
+    }
+  };
+
   return (
     <>
       <Alert
-        color={isAuthenticated ? 'green' : 'yellow'}
-        icon={isAuthenticated ? <Unlock className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+        color={getAlertColor()}
+        icon={getAlertIcon()}
       >
         <div className="flex items-center justify-between">
-          <div>
+          <div className="flex-1 min-w-0">
             <span className="font-medium">
-              {isAuthenticated ? 'Authenticated' : 'Not Authenticated'}
+              {getStatusText()}
             </span>
             <p className="text-xs mt-1 opacity-75">
-              {isAuthenticated
-                ? 'Management features enabled'
-                : 'Management features require API key'}
+              {getDescriptionText()}
             </p>
+            {authMode === 'guest' && guestTimeRemaining > 0 && (
+              <div className="flex items-center mt-2 text-xs opacity-75">
+                <Clock className="w-3 h-3 mr-1" />
+                <span>Session expires in {formatTimeRemaining(guestTimeRemaining)}</span>
+              </div>
+            )}
           </div>
 
-          {isAuthenticated ? (
-            <Button
-              variant="filled"
-              color="red"
-              size="sm"
-              leftSection={<AlertCircle className="w-3 h-3" />}
-              onClick={handleRegenerateKey}
-              loading={authLoading}
-            >
-              Regenerate Key
-            </Button>
-          ) : (
-            <Button
-              variant="filled"
-              color="yellow"
-              leftSection={<Key className="w-4 h-4" />}
-              onClick={() => setShowAuthModal(true)}
-            >
-              Authenticate
-            </Button>
-          )}
+          <div className="flex items-center gap-2 ml-4">
+            {authMode === 'authenticated' && (
+              <Button
+                variant="filled"
+                color="red"
+                size="sm"
+                leftSection={<AlertCircle className="w-3 h-3" />}
+                onClick={handleRegenerateKey}
+                loading={authLoading}
+              >
+                Regenerate Key
+              </Button>
+            )}
+
+            {(authMode === 'unauthenticated' || authMode === 'expired') && (
+              <>
+                <Button
+                  variant="filled"
+                  color="blue"
+                  leftSection={<Eye className="w-4 h-4" />}
+                  onClick={handleStartGuestMode}
+                  disabled={authLoading}
+                  size="sm"
+                >
+                  Guest Mode
+                </Button>
+                <Button
+                  variant="filled"
+                  color="yellow"
+                  leftSection={<Key className="w-4 h-4" />}
+                  onClick={() => setShowAuthModal(true)}
+                  size="sm"
+                >
+                  Authenticate
+                </Button>
+              </>
+            )}
+
+            {authMode === 'guest' && (
+              <Button
+                variant="filled"
+                color="yellow"
+                size="sm"
+                leftSection={<Key className="w-3 h-3" />}
+                onClick={() => setShowAuthModal(true)}
+              >
+                Full Access
+              </Button>
+            )}
+          </div>
         </div>
       </Alert>
 
@@ -162,13 +305,21 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <Key className="w-6 h-6 text-themed-warning" />
-            <span>Authentication Required</span>
+            <span>
+              {authMode === 'expired' ? 'Session Expired' :
+               authMode === 'guest' ? 'Full Access Required' :
+               'Authentication Required'}
+            </span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Management operations require authentication. Please enter your API key to continue.
+            {authMode === 'expired'
+              ? 'Your guest session has expired. Please authenticate with an API key or start a new guest session.'
+              : authMode === 'guest'
+              ? 'For full management features, please authenticate with your API key.'
+              : 'Management operations require authentication. Please enter your API key or continue as guest.'}
           </p>
 
           <div>
@@ -189,38 +340,50 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
           <Alert color="blue">
             <div>
               <p className="font-medium mb-2">To find your API key:</p>
-              <ol className="list-decimal list-inside text-xs space-y-1">
-                <li>SSH into your server</li>
-                <li>
-                  Check the file:{' '}
-                  <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>
-                </li>
-                <li>Or check the API container logs on startup</li>
+              <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
+                <li>SSH into your LANCache Manager server</li>
+                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code></li>
+                <li>Or check container logs: <code className="bg-themed-tertiary px-1 rounded">docker logs lancache-manager-api</code></li>
               </ol>
             </div>
           </Alert>
 
-          <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
-            <Button
-              variant="default"
-              onClick={() => {
-                setShowAuthModal(false);
-                setApiKey('');
-                setAuthError('');
-              }}
-              disabled={authLoading}
-            >
-              Cancel
-            </Button>
+          <div className="flex flex-col sm:flex-row justify-between gap-3 pt-4 border-t border-themed-secondary">
+            <div className="flex gap-3">
+              <Button
+                variant="default"
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setApiKey('');
+                  setAuthError('');
+                }}
+                disabled={authLoading}
+              >
+                Cancel
+              </Button>
+              {/* Show guest mode option only when not already in guest mode and guest mode can be activated */}
+              {(authMode === 'unauthenticated' || authMode === 'expired') && (
+                <Button
+                  variant="filled"
+                  color="blue"
+                  leftSection={<Eye className="w-4 h-4" />}
+                  onClick={handleStartGuestMode}
+                  disabled={authLoading}
+                >
+                  Continue as Guest
+                </Button>
+              )}
+            </div>
+
             <Button
               variant="filled"
-              color="blue"
+              color="green"
               leftSection={<Lock className="w-4 h-4" />}
               onClick={handleAuthenticate}
               loading={authLoading}
               disabled={!apiKey.trim()}
             >
-              Authenticate
+              {authMode === 'guest' ? 'Upgrade to Full Access' : 'Authenticate'}
             </Button>
           </div>
         </div>
@@ -242,17 +405,18 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Regenerating the API key will immediately revoke all existing device registrations and require
-            every user to re-authenticate.
+            Regenerating the API key will immediately log out all connected devices and require everyone to re-authenticate with the new key.
           </p>
 
           <Alert color="yellow">
-            <p className="font-medium">This action cannot be undone.</p>
-            <ul className="list-disc list-inside text-xs space-y-1 mt-2">
-              <li>A new API key will be generated on the server.</li>
-              <li>All connected devices will be logged out.</li>
-              <li>Check the container logs for the new key after confirmation.</li>
-            </ul>
+            <div>
+              <p className="font-medium mb-2">Important:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This action cannot be undone</li>
+                <li>All users will be logged out immediately</li>
+                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code> for the new key</li>
+              </ul>
+            </div>
           </Alert>
 
           <div className="flex justify-end space-x-3 pt-2">

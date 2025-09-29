@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, Database, AlertTriangle, Loader, Key } from 'lucide-react';
+import { Cloud, Database, AlertTriangle, Loader, Key, Eye } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import authService from '@services/auth.service';
@@ -412,6 +412,35 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   };
 
+  const handleStartGuestMode = async () => {
+    authService.startGuestMode();
+
+    // Notify parent component of auth mode change
+    onAuthChanged?.();
+
+    // For API key only mode, we need to close the modal after setting guest mode
+    if (apiKeyOnlyMode) {
+      setProgress('Starting guest mode... (6 hour access)');
+      setTimeout(() => {
+        onInitialized(); // This will close the modal
+      }, 1000);
+    } else {
+      // For initial setup, check if we need to show depot initialization
+      const setupResponse = await fetch('/api/management/setup-status');
+      const setupData = await setupResponse.json();
+
+      if (setupData.isSetupCompleted) {
+        // Setup is complete, just close and proceed
+        onInitialized();
+      } else {
+        // Setup not complete, but in guest mode we can skip depot initialization
+        // Mark setup as completed and proceed
+        await markSetupCompleted();
+        onInitialized();
+      }
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] bg-[var(--theme-bg-primary)] flex items-center justify-center">
       {/* Background pattern */}
@@ -448,8 +477,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             <>
               <p className="text-themed-secondary text-center mb-6">
                 {apiKeyOnlyMode
-                  ? 'Your API key has been regenerated. Please enter the new API key to continue:'
-                  : 'Please enter your API key to authenticate and continue with setup:'
+                  ? 'Your API key has been regenerated. Enter the new API key for full access, or continue as guest to view data only:'
+                  : 'Enter your API key for full management access, or continue as guest to view data for 6 hours:'
                 }
               </p>
 
@@ -470,16 +499,34 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
                 </div>
 
 
-                <Button
-                  variant="filled"
-                  color="blue"
-                  leftSection={authenticating ? <Loader className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
-                  onClick={handleAuthenticate}
-                  disabled={authenticating || !apiKey.trim()}
-                  fullWidth
-                >
-                  {authenticating ? 'Authenticating...' : 'Authenticate'}
-                </Button>
+                <div className="flex flex-col gap-3">
+                  <Button
+                    variant="filled"
+                    color="blue"
+                    leftSection={authenticating ? <Loader className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                    onClick={handleAuthenticate}
+                    disabled={authenticating || !apiKey.trim()}
+                    fullWidth
+                  >
+                    {authenticating ? 'Authenticating...' : 'Authenticate'}
+                  </Button>
+
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 h-px bg-themed-border"></div>
+                    <span className="text-xs text-themed-muted">OR</span>
+                    <div className="flex-1 h-px bg-themed-border"></div>
+                  </div>
+
+                  <Button
+                    variant="default"
+                    leftSection={<Eye className="w-4 h-4" />}
+                    onClick={handleStartGuestMode}
+                    disabled={authenticating}
+                    fullWidth
+                  >
+                    Continue as Guest (6 hours)
+                  </Button>
+                </div>
               </div>
 
               {/* API Key Help */}

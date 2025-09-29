@@ -13,6 +13,7 @@ import {
 import * as signalR from '@microsoft/signalr';
 import { useData } from '@contexts/DataContext';
 import ApiService from '@services/api.service';
+import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import operationStateService from '@services/operationState.service';
 import { formatBytes } from '@utils/formatters';
@@ -64,7 +65,7 @@ const MockModeManager: React.FC<{
           leftSection={
             mockMode ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />
           }
-          className="w-full sm:w-auto"
+          className="w-full sm:w-48"
         >
           {mockMode ? 'Enabled' : 'Disabled'}
         </Button>
@@ -83,17 +84,18 @@ const MockModeManager: React.FC<{
 // Database Manager Component
 const DatabaseManager: React.FC<{
   isAuthenticated: boolean;
+  authMode: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-}> = ({ isAuthenticated, mockMode, onError, onSuccess, onDataRefresh }) => {
+}> = ({ isAuthenticated, authMode, mockMode, onError, onSuccess, onDataRefresh }) => {
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
   const confirmResetDatabase = async () => {
-    if (!isAuthenticated) {
-      onError?.('Authentication required');
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
       return;
     }
 
@@ -113,8 +115,8 @@ const DatabaseManager: React.FC<{
   };
 
   const handleResetDatabase = () => {
-    if (!isAuthenticated) {
-      onError?.('Authentication required');
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
       return;
     }
 
@@ -128,21 +130,25 @@ const DatabaseManager: React.FC<{
         <Database className="w-5 h-5 text-themed-accent flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
       </div>
-      <p className="text-themed-muted text-sm mb-4 break-words">Manage download history and statistics</p>
-      <Button
-        onClick={handleResetDatabase}
-        disabled={loading || mockMode || !isAuthenticated}
-        loading={loading}
-        variant="filled"
-        color="red"
-        leftSection={<Database className="w-4 h-4" />}
-        fullWidth
-      >
-        Reset Database
-      </Button>
-      <p className="text-xs text-themed-muted mt-2">
-        Clears all download history (does not affect cached files)
-      </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex-1">
+          <p className="text-themed-secondary">Manage download history and statistics</p>
+          <p className="text-xs text-themed-muted mt-1">
+            Clears all download history (does not affect cached files)
+          </p>
+        </div>
+        <Button
+          onClick={handleResetDatabase}
+          disabled={loading || mockMode || authMode !== 'authenticated'}
+          loading={loading}
+          variant="filled"
+          color="red"
+          leftSection={<Database className="w-4 h-4" />}
+          className="w-full sm:w-48"
+        >
+          Reset Database
+        </Button>
+      </div>
       </Card>
 
       <Modal
@@ -165,7 +171,14 @@ const DatabaseManager: React.FC<{
           </p>
 
           <Alert color="yellow">
-            <p className="text-sm">Export any data you need before continuing.</p>
+            <div>
+              <p className="text-sm font-medium mb-2">Important:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This action cannot be undone</li>
+                <li>Export any data you need before continuing</li>
+                <li>Historical reports will be empty after reset</li>
+              </ul>
+            </div>
           </Alert>
 
           <div className="flex justify-end space-x-3 pt-2">
@@ -191,12 +204,13 @@ const DatabaseManager: React.FC<{
 // Log File Manager Component
 const LogFileManager: React.FC<{
   isAuthenticated: boolean;
+  authMode: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
   onBackgroundOperation?: (service: string | null) => void;
-}> = ({ isAuthenticated, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
+}> = ({ isAuthenticated, authMode, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
   const [config, setConfig] = useState({
     logPath: '/logs/access.log',
@@ -262,8 +276,8 @@ const LogFileManager: React.FC<{
   };
 
   const executeRemoveServiceLogs = async (serviceName: string) => {
-    if (!isAuthenticated) {
-      onError?.('Authentication required');
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
       return;
     }
 
@@ -306,8 +320,8 @@ const LogFileManager: React.FC<{
   };
 
   const handleRemoveServiceLogs = (serviceName: string) => {
-    if (!isAuthenticated) {
-      onError?.('Authentication required');
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
       return;
     }
 
@@ -338,12 +352,13 @@ const LogFileManager: React.FC<{
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {servicesWithData.map((service) => {
           const isRemoving = activeServiceRemoval === service;
+          const entryCount = serviceCounts[service] || 0;
           return (
             <Button
               key={service}
               onClick={() => handleRemoveServiceLogs(service)}
               disabled={
-                mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || !isAuthenticated
+                mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || authMode !== 'authenticated'
               }
               variant="default"
               loading={isRemoving || serviceRemovalOp.loading}
@@ -399,11 +414,18 @@ const LogFileManager: React.FC<{
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Remove all <strong>{pendingServiceRemoval}</strong> entries from the log file? This action cannot be undone.
+            Remove all <strong>{pendingServiceRemoval}</strong> entries from the log file? This will reduce log size and improve performance.
           </p>
 
           <Alert color="yellow">
-            <p className="text-sm">The operation may take several minutes for large log files.</p>
+            <div>
+              <p className="text-sm font-medium mb-2">Important:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This action cannot be undone</li>
+                <li>May take several minutes for large log files</li>
+                <li>Cached {pendingServiceRemoval} game files will remain intact</li>
+              </ul>
+            </div>
           </Alert>
 
           <div className="flex justify-end space-x-3 pt-2">
@@ -437,6 +459,7 @@ interface ManagementTabProps {
 const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
   const { mockMode, setMockMode, fetchData } = useData();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [alerts, setAlerts] = useState<{
     errors: { id: number; message: string }[];
     success: string | null;
@@ -598,6 +621,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         {/* Authentication - Always at top */}
       <AuthenticationManager
         onAuthChange={setIsAuthenticated}
+        onAuthModeChange={setAuthMode}
         onError={addError}
         onSuccess={setSuccess}
         onApiKeyRegenerated={onApiKeyRegenerated}
@@ -781,6 +805,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       {/* Database Manager */}
       <DatabaseManager
         isAuthenticated={isAuthenticated}
+        authMode={authMode}
         mockMode={mockMode}
         onError={addError}
         onSuccess={setSuccess}
@@ -790,6 +815,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       {/* Cache Manager - Pass notification callback */}
       <CacheManager
         isAuthenticated={isAuthenticated}
+        authMode={authMode}
         mockMode={mockMode}
         onError={addError}
         onSuccess={setSuccess}
@@ -813,6 +839,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       {/* Log File Manager - Pass notification callback */}
       <LogFileManager
         isAuthenticated={isAuthenticated}
+        authMode={authMode}
         mockMode={mockMode}
         onError={addError}
         onSuccess={setSuccess}

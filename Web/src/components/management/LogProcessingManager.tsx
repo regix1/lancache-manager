@@ -826,7 +826,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
         <Alert color="yellow">
           <p className="text-sm">
-            Please make sure no other maintenance tasks are running before continuing.
+            <strong>Important:</strong> Ensure no other maintenance tasks are running before continuing.
           </p>
         </Alert>
 

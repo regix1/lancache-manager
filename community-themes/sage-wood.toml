@@ -55,6 +55,14 @@ buttonText = "#ffffff"
 inputBg = "#404040"
 inputBorder = "#505050"
 inputFocus = "#87a96b"
+checkboxAccent = "#87a96b"
+checkboxBorder = "#505050"
+checkboxBg = "#424242"
+checkboxCheckmark = "#ffffff"
+checkboxShadow = "none"
+checkboxHoverShadow = "0 0 0 3px rgba(135, 169, 107, 0.15)"
+checkboxHoverBg = "#4a4a4a"
+checkboxFocus = "#87a96b"
 badgeBg = "#87a96b"
 badgeText = "#ffffff"
 progressBar = "#87a96b"
@@ -97,12 +105,6 @@ chartCacheHitColor = "#6b8e4e"
 chartCacheMissColor = "#d4a574"
 dragHandleColor = "#808080"
 dragHandleHover = "#a5b896"
-publicAccessBg = "rgba(107, 142, 78, 0.2)"
-publicAccessText = "#a5b896"
-publicAccessBorder = "rgba(107, 142, 78, 0.3)"
-securedAccessBg = "rgba(212, 165, 116, 0.2)"
-securedAccessText = "#e8d4b8"
-securedAccessBorder = "rgba(212, 165, 116, 0.3)"
 
 [css]
 content = """
@@ -110,11 +112,11 @@ content = """
 
 /* Subtle wood grain effect on cards */
 .themed-card {
-  background-image:
+  background-image: 
     linear-gradient(
-      135deg,
-      rgba(139, 111, 71, 0.03) 0%,
-      transparent 50%,
+      135deg, 
+      rgba(139, 111, 71, 0.03) 0%, 
+      transparent 50%, 
       rgba(139, 111, 71, 0.03) 100%
     );
 }
@@ -126,10 +128,10 @@ content = """
 
 /* Natural hover effects */
 .hover\:bg-themed-hover:hover {
-  background-image:
+  background-image: 
     radial-gradient(
-      circle at center,
-      rgba(135, 169, 107, 0.05),
+      circle at center, 
+      rgba(135, 169, 107, 0.05), 
       transparent
     );
 }
@@ -156,4 +158,25 @@ button:hover {
 *::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #9caf88, #87a96b);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 """

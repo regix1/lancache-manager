@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { HardDrive, Trash2, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
+import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { formatBytes } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
@@ -11,6 +12,7 @@ import type { CacheClearStatus, Config } from '../../types';
 
 interface CacheManagerProps {
   isAuthenticated: boolean;
+  authMode?: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
@@ -19,6 +21,7 @@ interface CacheManagerProps {
 
 const CacheManager: React.FC<CacheManagerProps> = ({
   isAuthenticated,
+  authMode = 'unauthenticated',
   mockMode,
   onError,
   onSuccess,
@@ -115,8 +118,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   };
 
   const handleClearAllCache = () => {
-    if (!isAuthenticated) {
-      onError?.('Authentication required');
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
       return;
     }
 
@@ -206,30 +209,34 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           <HardDrive className="w-5 h-5 text-themed-primary" />
           <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
         </div>
-        <p className="text-themed-muted text-sm mb-4">
-          Manage cached game files in{' '}
-          <code className="bg-themed-tertiary px-2 py-1 rounded">{config.cachePath}</code>
-        </p>
-        <Button
-          fullWidth
-          variant="filled"
-          color="red"
-          leftSection={<Trash2 className="w-4 h-4" />}
-          onClick={handleClearAllCache}
-          disabled={
-            actionLoading ||
-            mockMode ||
-            isCacheClearingActive ||
-            cacheOp.loading ||
-            !isAuthenticated
-          }
-          loading={actionLoading || cacheOp.loading}
-        >
-          {isCacheClearingActive ? 'Cache Clearing in Progress...' : 'Clear All Cached Files'}
-        </Button>
-        <p className="text-xs text-themed-muted mt-2">
-          ⚠️ This deletes ALL cached game files from disk
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex-1">
+            <p className="text-themed-secondary">
+              Manage cached game files in{' '}
+              <code className="bg-themed-tertiary px-2 py-1 rounded">{config.cachePath}</code>
+            </p>
+            <p className="text-xs text-themed-muted mt-1">
+              ⚠️ This deletes ALL cached game files from disk
+            </p>
+          </div>
+          <Button
+            variant="filled"
+            color="red"
+            leftSection={<Trash2 className="w-4 h-4" />}
+            onClick={handleClearAllCache}
+            disabled={
+              actionLoading ||
+              mockMode ||
+              isCacheClearingActive ||
+              cacheOp.loading ||
+              authMode !== 'authenticated'
+            }
+            loading={actionLoading || cacheOp.loading}
+            className="w-full sm:w-48"
+          >
+            {isCacheClearingActive ? 'Clearing...' : 'Clear Cache'}
+          </Button>
+        </div>
       </Card>
 
       <Modal
@@ -250,15 +257,18 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <div className="space-y-4">
           <p className="text-themed-secondary">
             This will permanently delete <strong>all cached game files</strong> from{' '}
-            <code className="bg-themed-tertiary px-1 py-0.5 rounded">{config.cachePath}</code>. Make sure no
-            downloads are actively using the cache before continuing.
+            <code className="bg-themed-tertiary px-1 py-0.5 rounded">{config.cachePath}</code>. Games will need to redownload content after clearing.
           </p>
 
           <Alert color="yellow">
-            <p className="font-medium">This action cannot be undone.</p>
-            <p className="text-sm mt-1">
-              You will need to redownload content after the cache is cleared.
-            </p>
+            <div>
+              <p className="text-sm font-medium mb-2">Important:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This action cannot be undone</li>
+                <li>Stop all active downloads before proceeding</li>
+                <li>Download history and settings will be preserved</li>
+              </ul>
+            </div>
           </Alert>
 
           <div className="flex justify-end space-x-3 pt-2">

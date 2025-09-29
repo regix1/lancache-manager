@@ -1,6 +1,10 @@
+export type AuthMode = 'authenticated' | 'guest' | 'expired' | 'unauthenticated';
+
 interface AuthCheckResponse {
   requiresAuth: boolean;
   isAuthenticated: boolean;
+  authMode: AuthMode;
+  guestTimeRemaining?: number; // minutes
   error?: string;
 }
 
@@ -28,11 +32,15 @@ class AuthService {
   private deviceId: string;
   public isAuthenticated: boolean;
   public authChecked: boolean;
+  public authMode: AuthMode = 'unauthenticated';
+  private guestCheckInterval: NodeJS.Timeout | null = null;
+  private onGuestExpiredCallback: (() => void) | null = null;
 
   constructor() {
     this.deviceId = this.getOrCreateDeviceId();
     this.isAuthenticated = false;
     this.authChecked = false;
+    this.startGuestModeTimer();
   }
 
   private getOrCreateDeviceId(): string {
@@ -48,8 +56,114 @@ class AuthService {
     return deviceId;
   }
 
+  private startGuestModeTimer(): void {
+    // Check guest mode status every minute
+    this.guestCheckInterval = setInterval(() => {
+      this.checkGuestModeExpiry();
+    }, 60000); // Check every minute
+
+    // Initial check
+    this.checkGuestModeExpiry();
+  }
+
+  private checkGuestModeExpiry(): void {
+    const guestExpires = localStorage.getItem('lancache_guest_expires');
+    if (!guestExpires) return;
+
+    const expiryTime = parseInt(guestExpires);
+    const now = Date.now();
+
+    if (now >= expiryTime) {
+      this.expireGuestMode();
+    }
+  }
+
+  public startGuestMode(): void {
+    const now = Date.now();
+    const sixHoursInMs = 6 * 60 * 60 * 1000; // 6 hours
+    const expiryTime = now + sixHoursInMs;
+
+    localStorage.setItem('lancache_guest_session_start', now.toString());
+    localStorage.setItem('lancache_guest_expires', expiryTime.toString());
+
+    this.authMode = 'guest';
+    this.isAuthenticated = false; // Guest mode is not fully authenticated
+    this.authChecked = true;
+  }
+
+  public getGuestTimeRemaining(): number {
+    const guestExpires = localStorage.getItem('lancache_guest_expires');
+    if (!guestExpires) return 0;
+
+    const expiryTime = parseInt(guestExpires);
+    const now = Date.now();
+    const remainingMs = Math.max(0, expiryTime - now);
+
+    return Math.floor(remainingMs / (60 * 1000)); // Return minutes
+  }
+
+  public isGuestModeActive(): boolean {
+    const guestExpires = localStorage.getItem('lancache_guest_expires');
+    if (!guestExpires) return false;
+
+    const expiryTime = parseInt(guestExpires);
+    return Date.now() < expiryTime;
+  }
+
+  public expireGuestMode(): void {
+    localStorage.removeItem('lancache_guest_session_start');
+    localStorage.removeItem('lancache_guest_expires');
+    this.authMode = 'expired';
+    this.isAuthenticated = false;
+
+    // Notify callbacks about expiry
+    if (this.onGuestExpiredCallback) {
+      this.onGuestExpiredCallback();
+    }
+  }
+
+  public onGuestExpired(callback: (() => void) | null): void {
+    this.onGuestExpiredCallback = callback;
+  }
+
+  public exitGuestMode(): void {
+    localStorage.removeItem('lancache_guest_session_start');
+    localStorage.removeItem('lancache_guest_expires');
+    this.authMode = 'unauthenticated';
+    this.isAuthenticated = false;
+  }
+
   async checkAuth(): Promise<AuthCheckResponse> {
     try {
+      // First check guest mode status
+      if (this.isGuestModeActive()) {
+        this.authMode = 'guest';
+        this.isAuthenticated = false; // Guest is not fully authenticated
+        this.authChecked = true;
+
+        return {
+          requiresAuth: true,
+          isAuthenticated: false,
+          authMode: 'guest',
+          guestTimeRemaining: this.getGuestTimeRemaining()
+        };
+      }
+
+      // Check for expired guest mode
+      const hasExpiredGuest = localStorage.getItem('lancache_guest_expires');
+      if (hasExpiredGuest) {
+        this.authMode = 'expired';
+        this.isAuthenticated = false;
+        this.authChecked = true;
+
+        return {
+          requiresAuth: true,
+          isAuthenticated: false,
+          authMode: 'expired'
+        };
+      }
+
+      // Standard authentication check
       const response = await fetch(`${API_URL}/api/auth/check`, {
         headers: {
           'X-Device-Id': this.deviceId
@@ -61,24 +175,45 @@ class AuthService {
         this.isAuthenticated = result.isAuthenticated;
         this.authChecked = true;
 
+        if (result.isAuthenticated) {
+          this.authMode = 'authenticated';
+        } else {
+          this.authMode = 'unauthenticated';
+        }
+
         // If device is not authenticated but auth is required, clear the stored device ID
         // This handles the case where the backend was reset
         if (result.requiresAuth && !result.isAuthenticated && result.authenticationType !== 'device') {
           this.clearAuthAndDevice();
         }
 
-        return result;
+        return {
+          ...result,
+          authMode: this.authMode,
+          guestTimeRemaining: this.authMode === 'guest' ? this.getGuestTimeRemaining() : undefined
+        };
       }
 
       this.isAuthenticated = false;
       this.authChecked = true;
-      return { requiresAuth: true, isAuthenticated: false };
+      this.authMode = 'unauthenticated';
+      return {
+        requiresAuth: true,
+        isAuthenticated: false,
+        authMode: 'unauthenticated'
+      };
     } catch (error: any) {
       console.error('Auth check failed:', error);
       this.isAuthenticated = false;
       this.authChecked = true;
+      this.authMode = 'unauthenticated';
       // If we can't reach the backend, assume authentication is required
-      return { requiresAuth: true, isAuthenticated: false, error: error.message };
+      return {
+        requiresAuth: true,
+        isAuthenticated: false,
+        authMode: 'unauthenticated',
+        error: error.message
+      };
     }
   }
 
@@ -99,7 +234,11 @@ class AuthService {
       const result = await response.json();
 
       if (response.ok && result.success) {
+        // Clear any existing guest session FIRST when successfully authenticated
+        this.exitGuestMode();
+
         this.isAuthenticated = true;
+        this.authMode = 'authenticated';
         localStorage.setItem('lancache_auth_registered', 'true');
         return { success: true, message: result.message };
       }
@@ -180,19 +319,31 @@ class AuthService {
 
   handleUnauthorized(): void {
     this.isAuthenticated = false;
+    this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
   }
 
   clearAuth(): void {
     this.isAuthenticated = false;
+    this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
+    this.exitGuestMode(); // Also clear guest mode
   }
 
   clearAuthAndDevice(): void {
     this.isAuthenticated = false;
+    this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
     localStorage.removeItem('lancache_device_id');
     this.deviceId = this.getOrCreateDeviceId();
+    this.exitGuestMode(); // Also clear guest mode
+  }
+
+  cleanup(): void {
+    if (this.guestCheckInterval) {
+      clearInterval(this.guestCheckInterval);
+      this.guestCheckInterval = null;
+    }
   }
 
   isRegistered(): boolean {
