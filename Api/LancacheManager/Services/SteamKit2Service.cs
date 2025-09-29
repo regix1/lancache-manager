@@ -91,6 +91,9 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Load existing depot mappings from database first
             await LoadExistingDepotMappings();
 
+            // Initialize session tracking to current count (so session shows 0 when idle)
+            _sessionStartDepotCount = _depotToAppMappings.Count;
+
             // Check for interrupted depot processing and resume if needed
             var depotState = _stateService.GetDepotProcessingState();
             if (depotState.IsActive && depotState.RemainingApps.Any())
@@ -399,53 +402,62 @@ public class SteamKit2Service : IHostedService, IDisposable
         try
         {
             _currentStatus = "Connecting and enumerating apps";
-            _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental})...", incrementalOnly);
+            _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental}, Current mappings in memory: {Count})...",
+                incrementalOnly, _depotToAppMappings.Count);
+
+            // Always check database for existing data first
+            int databaseDepotCount = 0;
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                databaseDepotCount = await context.SteamDepotMappings.CountAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to count database depot mappings");
+            }
 
             // Load existing data from JSON file if it exists
             var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
-            bool hasExistingData = existingData?.DepotMappings?.Any() == true;
+            bool hasExistingJsonData = existingData?.DepotMappings?.Any() == true;
+            bool hasExistingDatabaseData = databaseDepotCount > 0;
+            bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
 
             if (hasExistingData && !incrementalOnly)
             {
                 // We're doing a "full rebuild" but have existing data - this means we're RESUMING
                 _isResumingGeneration = true;
-                _logger.LogInformation("Loading {Count} existing depot mappings from JSON to resume generation",
-                    existingData.Metadata?.TotalMappings ?? 0);
 
-                // Load existing mappings into memory to preserve them
-                foreach (var mapping in existingData.DepotMappings ?? new Dictionary<string, PicsDepotMapping>())
+                // First, load all existing mappings from database
+                await LoadExistingDepotMappings();
+                _logger.LogInformation("Loaded {Count} existing depot mappings from database for resume", _depotToAppMappings.Count);
+
+                // Then, if we have JSON data, load from there too (might have newer data)
+                if (hasExistingJsonData)
                 {
-                    if (uint.TryParse(mapping.Key, out var depotId) && mapping.Value?.AppIds != null)
+                    var previousChangeNumber = _lastChangeNumberSeen;
+                    var (jsonMappingsMerged, changeNumberUpdated) = MergeDepotMappingsFromJson(existingData);
+
+                    _logger.LogInformation("Loading {Count} existing depot mappings from JSON to resume generation",
+                        existingData?.Metadata?.TotalMappings ?? 0);
+
+                    if (jsonMappingsMerged > 0)
                     {
-                        var set = _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>());
-                        foreach (var appId in mapping.Value.AppIds)
-                        {
-                            set.Add(appId);
-                        }
-
-                        if (mapping.Value.AppNames?.Any() == true && mapping.Value.AppIds?.Any() == true)
-                        {
-                            // Add each app name to the dictionary
-                            for (int i = 0; i < Math.Min(mapping.Value.AppIds.Count, mapping.Value.AppNames.Count); i++)
-                            {
-                                _appNames.TryAdd(mapping.Value.AppIds[i], mapping.Value.AppNames[i]);
-                            }
-                        }
+                        _logger.LogDebug("Merged {Count} app-to-depot relationships from JSON for resume", jsonMappingsMerged);
                     }
-                }
 
-                // Also load the last change number to potentially resume from there
-                if (existingData.Metadata?.LastChangeNumber > 0)
-                {
-                    _lastChangeNumberSeen = existingData.Metadata.LastChangeNumber;
-                    _logger.LogInformation("Resuming from change number: {ChangeNumber}", _lastChangeNumberSeen);
+                    if (changeNumberUpdated || _lastChangeNumberSeen > 0 && _lastChangeNumberSeen != previousChangeNumber)
+                    {
+                        _logger.LogInformation("Resuming from change number: {ChangeNumber}", _lastChangeNumberSeen);
+                    }
                 }
             }
             else if (!incrementalOnly && !hasExistingData)
             {
-                // Only clear if we're doing a full rebuild AND have no existing data
+                // Only clear if we're doing a full rebuild AND have no existing data (JSON or database)
                 _isResumingGeneration = false;
-                _logger.LogInformation("Starting fresh PICS generation - no existing data found");
+                _logger.LogInformation("Starting fresh PICS generation - no existing data found in JSON or database");
                 _depotToAppMappings.Clear();
                 _appNames.Clear();
             }
@@ -453,6 +465,40 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 // For incremental updates, we always preserve existing mappings (no clearing)
                 _isResumingGeneration = false;
+
+                // Log the current state before loading
+                _logger.LogInformation("Incremental update starting. Current depot mappings in memory: {Count}", _depotToAppMappings.Count);
+
+                // Reload existing depot mappings to ensure we have all current data in memory
+                await LoadExistingDepotMappings();
+
+                if (hasExistingJsonData)
+                {
+                    var previousChangeNumber = _lastChangeNumberSeen;
+                    var (jsonMappingsMerged, changeNumberUpdated) = MergeDepotMappingsFromJson(existingData);
+
+                    _logger.LogInformation("Merged persisted JSON depot mappings into memory for incremental scan. JSON reported {TotalMappings} total mappings",
+                        existingData?.Metadata?.TotalMappings ?? 0);
+
+                    if (jsonMappingsMerged > 0)
+                    {
+                        _logger.LogDebug("Applied {Count} app-to-depot relationships from JSON while preparing incremental scan", jsonMappingsMerged);
+                    }
+
+                    if (changeNumberUpdated || _lastChangeNumberSeen > 0 && _lastChangeNumberSeen != previousChangeNumber)
+                    {
+                        _logger.LogInformation("Using persisted change number {ChangeNumber} for incremental crawl baseline", _lastChangeNumberSeen);
+                    }
+                }
+
+                if (_sessionStartDepotCount < _depotToAppMappings.Count)
+                {
+                    _sessionStartDepotCount = _depotToAppMappings.Count;
+                    _logger.LogInformation("Updated session start count to {Count} after loading persisted depot mappings", _sessionStartDepotCount);
+                }
+
+                // Log the state after loading
+                _logger.LogInformation("After loading from database, depot mappings in memory: {Count}", _depotToAppMappings.Count);
             }
 
             // Enumerate every appid by crawling the PICS changelist with retry logic
@@ -533,7 +579,18 @@ public class SteamKit2Service : IHostedService, IDisposable
             _totalBatches = allBatches.Count;
             _processedBatches = 0;
             _currentStatus = "Processing app data";
-            _sessionStartDepotCount = _depotToAppMappings.Count;  // Capture starting depot count
+
+            // Only reset session start count for fresh scans, not incremental updates
+            if (!incrementalOnly)
+            {
+                _sessionStartDepotCount = _depotToAppMappings.Count;  // Capture starting depot count
+                _logger.LogInformation("Reset session start count to {Count} for fresh scan", _sessionStartDepotCount);
+            }
+            else
+            {
+                _logger.LogInformation("Preserving session start count {StartCount}, current count {CurrentCount} for incremental scan",
+                    _sessionStartDepotCount, _depotToAppMappings.Count);
+            }
 
             _logger.LogInformation("Processing {BatchCount} appinfo batches via PICS", allBatches.Count);
 
@@ -1482,6 +1539,60 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     public bool IsRebuildRunning => Interlocked.CompareExchange(ref _rebuildActive, 0, 0) == 1;
+
+    /// <summary>
+    /// Merge JSON-backed depot mappings into the in-memory dictionaries.
+    /// </summary>
+    private (int mappingsMerged, bool changeNumberUpdated) MergeDepotMappingsFromJson(PicsJsonData? jsonData)
+    {
+        if (jsonData?.DepotMappings == null || jsonData.DepotMappings.Count == 0)
+        {
+            return (0, false);
+        }
+
+        int mappingsMerged = 0;
+
+        foreach (var mappingEntry in jsonData.DepotMappings)
+        {
+            if (!uint.TryParse(mappingEntry.Key, out var depotId))
+            {
+                continue;
+            }
+
+            var mapping = mappingEntry.Value;
+            if (mapping?.AppIds == null)
+            {
+                continue;
+            }
+
+            var set = _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>());
+
+            foreach (var appId in mapping.AppIds)
+            {
+                if (set.Add(appId))
+                {
+                    mappingsMerged++;
+                }
+            }
+
+            if (mapping.AppNames?.Any() == true && mapping.AppIds.Count == mapping.AppNames.Count)
+            {
+                for (int i = 0; i < mapping.AppIds.Count; i++)
+                {
+                    _appNames.TryAdd(mapping.AppIds[i], mapping.AppNames[i]);
+                }
+            }
+        }
+
+        var changeNumberUpdated = false;
+        if (jsonData.Metadata?.LastChangeNumber > 0 && jsonData.Metadata.LastChangeNumber > _lastChangeNumberSeen)
+        {
+            _lastChangeNumberSeen = jsonData.Metadata.LastChangeNumber;
+            changeNumberUpdated = true;
+        }
+
+        return (mappingsMerged, changeNumberUpdated);
+    }
 
     /// <summary>
     /// Load existing depot mappings from database on startup
