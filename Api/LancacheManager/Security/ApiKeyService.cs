@@ -99,6 +99,35 @@ public class ApiKeyService
         return string.Equals(apiKey, validKey, StringComparison.Ordinal);
     }
 
+    public (string oldKey, string newKey) ForceRegenerateApiKey()
+    {
+        lock (_keyLock)
+        {
+            var oldKey = GetOrCreateApiKey();
+
+            string newKey;
+            do
+            {
+                newKey = GenerateApiKey();
+            }
+            while (newKey == oldKey);
+
+            _apiKey = newKey;
+
+            try
+            {
+                File.WriteAllText(_apiKeyPath, _apiKey);
+                _logger.LogInformation("Generated and saved regenerated API key to {Path}", _apiKeyPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save regenerated API key to {Path}", _apiKeyPath);
+            }
+
+            return (oldKey, newKey);
+        }
+    }
+
     private string GenerateApiKey()
     {
         // Generate a secure random API key

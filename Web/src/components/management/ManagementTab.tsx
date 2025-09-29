@@ -7,7 +7,8 @@ import {
   FileText,
   Eye,
   CheckCircle,
-  StopCircle
+  StopCircle,
+  AlertTriangle
 } from 'lucide-react';
 import * as signalR from '@microsoft/signalr';
 import { useData } from '@contexts/DataContext';
@@ -26,6 +27,7 @@ import GrafanaEndpoints from './GrafanaEndpoints';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { Modal } from '@components/ui/Modal';
 import { SIGNALR_BASE } from '@utils/constants';
 
 interface DepotMappingProgress {
@@ -87,14 +89,13 @@ const DatabaseManager: React.FC<{
   onDataRefresh?: () => void;
 }> = ({ isAuthenticated, mockMode, onError, onSuccess, onDataRefresh }) => {
   const [loading, setLoading] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
 
-  const handleResetDatabase = async () => {
+  const confirmResetDatabase = async () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
     }
-
-    if (!window.confirm('Delete all download history?')) return;
 
     setLoading(true);
     try {
@@ -107,11 +108,22 @@ const DatabaseManager: React.FC<{
       onError?.(err.message || 'Failed to reset database');
     } finally {
       setLoading(false);
+      setShowResetModal(false);
     }
   };
 
+  const handleResetDatabase = () => {
+    if (!isAuthenticated) {
+      onError?.('Authentication required');
+      return;
+    }
+
+    setShowResetModal(true);
+  };
+
   return (
-    <Card>
+    <>
+      <Card>
       <div className="flex items-center gap-2 mb-4">
         <Database className="w-5 h-5 text-themed-accent flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
@@ -131,7 +143,48 @@ const DatabaseManager: React.FC<{
       <p className="text-xs text-themed-muted mt-2">
         Clears all download history (does not affect cached files)
       </p>
-    </Card>
+      </Card>
+
+      <Modal
+        opened={showResetModal}
+        onClose={() => {
+          if (!loading) {
+            setShowResetModal(false);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Reset Database</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            This will permanently delete all download history and statistics. Cached files on disk will remain untouched.
+          </p>
+
+          <Alert color="yellow">
+            <p className="text-sm">Export any data you need before continuing.</p>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setShowResetModal(false)} disabled={loading}>
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              leftSection={<Database className="w-4 h-4" />}
+              onClick={confirmResetDatabase}
+              loading={loading}
+            >
+              Delete History
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 };
 
@@ -151,6 +204,7 @@ const LogFileManager: React.FC<{
   });
   const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [pendingServiceRemoval, setPendingServiceRemoval] = useState<string | null>(null);
 
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
 
@@ -207,13 +261,11 @@ const LogFileManager: React.FC<{
     }
   };
 
-  const handleRemoveServiceLogs = async (serviceName: string) => {
+  const executeRemoveServiceLogs = async (serviceName: string) => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
     }
-
-    if (!window.confirm(`Remove all ${serviceName} entries?`)) return;
 
     try {
       setActiveServiceRemoval(serviceName);
@@ -248,7 +300,18 @@ const LogFileManager: React.FC<{
         ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
         : err.message || 'Action failed';
       onError?.(errorMessage);
+    } finally {
+      setPendingServiceRemoval(null);
     }
+  };
+
+  const handleRemoveServiceLogs = (serviceName: string) => {
+    if (!isAuthenticated) {
+      onError?.('Authentication required');
+      return;
+    }
+
+    setPendingServiceRemoval(serviceName);
   };
 
   // Only show services that actually have log entries (non-zero counts)
@@ -257,7 +320,8 @@ const LogFileManager: React.FC<{
   );
 
   return (
-    <Card>
+    <>
+      <Card>
       <div className="flex items-center gap-2 mb-4">
         <FileText className="w-5 h-5 text-themed-accent flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
@@ -317,7 +381,51 @@ const LogFileManager: React.FC<{
           </p>
         </Alert>
       </div>
-    </Card>
+      </Card>
+
+      <Modal
+        opened={pendingServiceRemoval !== null}
+        onClose={() => {
+          if (!serviceRemovalOp.loading) {
+            setPendingServiceRemoval(null);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Remove Service Logs</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Remove all <strong>{pendingServiceRemoval}</strong> entries from the log file? This action cannot be undone.
+          </p>
+
+          <Alert color="yellow">
+            <p className="text-sm">The operation may take several minutes for large log files.</p>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setPendingServiceRemoval(null)}
+              disabled={serviceRemovalOp.loading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={() => pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval)}
+              loading={serviceRemovalOp.loading}
+            >
+              Remove Logs
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 };
 

@@ -14,6 +14,20 @@ public class DeviceAuthService
     private readonly Dictionary<string, DeviceRegistration> _deviceCache = new();
     private readonly object _cacheLock = new object();
 
+    private static readonly string[] DeviceAdjectives = new[]
+    {
+        "brisk", "bright", "calm", "clever", "crisp", "daring", "eager", "fierce",
+        "gentle", "glowing", "keen", "lively", "noble", "quick", "quiet", "steady",
+        "swift", "vivid", "wild", "zen"
+    };
+
+    private static readonly string[] DeviceNouns = new[]
+    {
+        "aurora", "banyan", "cascade", "citadel", "comet", "ember", "grove", "harbor",
+        "lagoon", "mesa", "monsoon", "nebula", "oasis", "quartz", "ridge", "summit",
+        "tidal", "velvet", "willow", "zephyr"
+    };
+
     public DeviceAuthService(
         ILogger<DeviceAuthService> logger,
         ApiKeyService apiKeyService,
@@ -58,6 +72,7 @@ public class DeviceAuthService
         public string? Message { get; set; }
         public string? DeviceId { get; set; }
         public DateTime? ExpiresAt { get; set; }
+        public string? DeviceName { get; set; }
     }
 
     public AuthResponse RegisterDevice(RegisterDeviceRequest request, string? ipAddress = null, string? userAgent = null)
@@ -87,14 +102,18 @@ public class DeviceAuthService
 
             // Encrypt the API key with device-specific encryption
             var encryptedKey = EncryptApiKey(request.ApiKey, request.DeviceId);
-            
+
+            var friendlyName = string.IsNullOrWhiteSpace(request.DeviceName)
+                ? GenerateFriendlyDeviceName()
+                : request.DeviceName!.Trim();
+
             var registration = new DeviceRegistration
             {
                 DeviceId = request.DeviceId,
                 EncryptedApiKey = encryptedKey,
                 RegisteredAt = DateTime.UtcNow,
                 ExpiresAt = DateTime.UtcNow.AddYears(100), // Effectively never expires
-                DeviceName = request.DeviceName ?? "Unknown Device",
+                DeviceName = friendlyName,
                 IpAddress = ipAddress,
                 UserAgent = userAgent
             };
@@ -115,7 +134,8 @@ public class DeviceAuthService
                 Success = true,
                 Message = "Device registered successfully",
                 DeviceId = registration.DeviceId,
-                ExpiresAt = registration.ExpiresAt
+                ExpiresAt = registration.ExpiresAt,
+                DeviceName = registration.DeviceName
             };
         }
         catch (Exception ex)
@@ -343,8 +363,21 @@ public class DeviceAuthService
             .Replace("/", "_")
             .Replace("+", "-")
             .Replace("=", "");
-        
+
         return Path.Combine(_devicesDirectory, $"{safeId}.json");
+    }
+
+    private string GenerateFriendlyDeviceName()
+    {
+        Span<byte> buffer = stackalloc byte[4];
+        RandomNumberGenerator.Fill(buffer);
+        var seed = BitConverter.ToUInt32(buffer);
+
+        var adjective = DeviceAdjectives[seed % (uint)DeviceAdjectives.Length];
+        var noun = DeviceNouns[(seed / (uint)DeviceAdjectives.Length) % (uint)DeviceNouns.Length];
+        var numeric = RandomNumberGenerator.GetInt32(100, 999);
+
+        return $"{adjective}-{noun}-{numeric}";
     }
 
     public int RevokeAllDevices()

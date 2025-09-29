@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, X, Database } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, CheckCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { Modal } from '@components/ui/Modal';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../types';
 
@@ -59,6 +60,15 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [depotProcessing, setDepotProcessing] = useState<PicsProgress | null>(null);
   const [showPostDepotPopup, setShowPostDepotPopup] = useState(false);
   const [postDepotTimer, setPostDepotTimer] = useState(60);
+  const [confirmModal, setConfirmModal] = useState<
+    | {
+        title: string;
+        message: string;
+        confirmLabel?: string;
+        onConfirm: () => Promise<void> | void;
+      }
+    | null
+  >(null);
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
@@ -446,13 +456,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   };
 
-  const handleProcessAllLogs = async () => {
+  const executeProcessAllLogs = async () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
     }
-
-    if (!window.confirm('Process entire log file?')) return;
 
     setActionLoading(true);
     try {
@@ -477,7 +485,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         if (result.logSizeMB > 0) {
           await logProcessingOp.save({ type: 'processAll', resume: result.resume });
           const remainingMBRaw = typeof result.remainingMB === 'number' ? result.remainingMB : result.logSizeMB || 0;
-          // Don't set initial progress based on file position for resuming - let SignalR/polling provide actual progress
           const initialProgress = 0;
 
           setIsProcessingLogs(true);
@@ -515,13 +522,21 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   };
 
-  const handleCancelProcessing = async () => {
+  const handleProcessAllLogs = () => {
+    setConfirmModal({
+      title: 'Process All Logs',
+      message:
+        'Process the entire access log? This may take several minutes and will re-import all entries.',
+      confirmLabel: 'Process Logs',
+      onConfirm: executeProcessAllLogs
+    });
+  };
+
+  const executeCancelProcessing = async () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
     }
-
-    if (!window.confirm('Cancel log processing?')) return;
 
     setActionLoading(true);
     try {
@@ -541,6 +556,15 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handleCancelProcessing = () => {
+    setConfirmModal({
+      title: 'Cancel Log Processing',
+      message: 'Cancel the current log processing job? Any progress made so far will be preserved.',
+      confirmLabel: 'Cancel Processing',
+      onConfirm: executeCancelProcessing
+    });
   };
 
   const startDepotPolling = () => {
@@ -599,36 +623,41 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     handleProcessAllLogs();
   };
 
-  const handlePostProcessDepotMappings = async () => {
+  const executePostProcessDepotMappings = async () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
     }
 
-    if (!window.confirm('Apply Depot Mappings to identify Steam games? This will map depot IDs to game names for all unidentified Steam downloads.')) return;
-
     setActionLoading(true);
     try {
-      const response = await fetch('/api/management/post-process-depot-mappings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        onSuccess?.(result.message || `Successfully processed ${result.mappingsProcessed} downloads`);
-        setTimeout(() => onDataRefresh?.(), 2000);
-      } else {
-        const error = await response.json();
-        onError?.(error.error || 'Failed to process depot mappings');
-      }
+      await ApiService.postProcessDepotMappings();
+      setTimeout(() => onDataRefresh?.(), 2000);
     } catch (err: any) {
       onError?.(err.message || 'Failed to process depot mappings');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const handlePostProcessDepotMappings = () => {
+    setConfirmModal({
+      title: 'Apply Depot Mappings',
+      message:
+        'Apply depot mappings now? This will attempt to map depot IDs to Steam game names for all unidentified downloads.',
+      confirmLabel: 'Apply Mappings',
+      onConfirm: executePostProcessDepotMappings
+    });
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmModal) {
+      return;
+    }
+
+    const { onConfirm } = confirmModal;
+    setConfirmModal(null);
+    await onConfirm();
   };
 
   return (
@@ -728,60 +757,98 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       )}
       </Card>
 
-    {/* Post-Depot Processing Popup */}
-    {showPostDepotPopup && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div
-          className="rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
-          style={{
-            backgroundColor: 'var(--theme-bg-primary)',
-            border: '1px solid var(--theme-border-primary)'
-          }}
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-themed-primary">
-              Depot Processing Complete
-            </h3>
-            <button
-              onClick={handleClosePostDepotPopup}
-              className="text-themed-muted hover:text-themed-primary transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+    {/* Post-Depot Processing Modal */}
+    <Modal
+      opened={showPostDepotPopup}
+      onClose={handleClosePostDepotPopup}
+      title={
+        <div className="flex items-center space-x-3">
+          <CheckCircle className="w-6 h-6 text-themed-success" />
+          <span>Depot Processing Complete</span>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-themed-secondary">
+          Steam depot mapping has finished! Would you like to process all logs now to update download statistics with the new depot mappings?
+        </p>
 
-          <p className="text-themed-secondary mb-6">
-            Steam depot mapping has finished! Would you like to process all logs now to update download statistics with the new depot mappings?
+        <Alert color="green">
+          <p className="text-sm">
+            New depot mappings are ready to be applied to your download history.
           </p>
+        </Alert>
 
-          <div className="flex flex-col gap-3">
-            <Button
-              variant="filled"
-              color="green"
-              leftSection={<PlayCircle className="w-4 h-4" />}
-              onClick={handleProcessLogsFromPopup}
-              disabled={!isAuthenticated || mockMode}
-              fullWidth
-            >
-              Process All Logs
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleClosePostDepotPopup}
-              fullWidth
-            >
-              Maybe Later
-            </Button>
-          </div>
+        <div className="flex flex-col gap-3">
+          <Button
+            variant="filled"
+            color="green"
+            leftSection={<PlayCircle className="w-4 h-4" />}
+            onClick={handleProcessLogsFromPopup}
+            disabled={!isAuthenticated || mockMode}
+            fullWidth
+          >
+            Process All Logs
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleClosePostDepotPopup}
+            fullWidth
+          >
+            Maybe Later
+          </Button>
+        </div>
 
-          <div className="mt-4 text-center">
-            <span className="text-xs text-themed-muted">
-              This popup will close in {postDepotTimer} seconds
-            </span>
-          </div>
+        <div className="text-center">
+          <span className="text-xs text-themed-muted">
+            This dialog will close in {postDepotTimer} seconds
+          </span>
         </div>
       </div>
-    )}
+    </Modal>
+
+    <Modal
+      opened={confirmModal !== null}
+      onClose={() => {
+        if (!actionLoading) {
+          setConfirmModal(null);
+        }
+      }}
+      title={
+        <div className="flex items-center space-x-3">
+          <AlertTriangle className="w-6 h-6 text-themed-warning" />
+          <span>{confirmModal?.title}</span>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-themed-secondary">{confirmModal?.message}</p>
+
+        <Alert color="yellow">
+          <p className="text-sm">
+            Please make sure no other maintenance tasks are running before continuing.
+          </p>
+        </Alert>
+
+        <div className="flex justify-end space-x-3 pt-2">
+          <Button
+            variant="default"
+            onClick={() => setConfirmModal(null)}
+            disabled={actionLoading}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="filled"
+            color="red"
+            onClick={handleConfirmAction}
+            loading={actionLoading}
+          >
+            {confirmModal?.confirmLabel || 'Confirm'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
     </>
   );
 };

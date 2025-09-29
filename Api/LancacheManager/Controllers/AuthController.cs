@@ -185,31 +185,20 @@ public class AuthController : ControllerBase
     {
         try
         {
-            // Get the old key for comparison
-            var oldKey = _apiKeyService.GetOrCreateApiKey();
-            
-            // Delete the existing key file to force regeneration
-            var keyPath = _pathResolver.GetApiKeyPath();
-            if (System.IO.File.Exists(keyPath))
-            {
-                System.IO.File.Delete(keyPath);
-                _logger.LogWarning("API key file deleted for regeneration by user request");
-            }
-            
-            // Clear the cached key in the service
-            _apiKeyService.ClearCachedKey();
-            
-            // Generate new key
-            var newKey = _apiKeyService.GetOrCreateApiKey();
-            
+            var (oldKey, newKey) = _apiKeyService.ForceRegenerateApiKey();
+
             // Display the new key
             _apiKeyService.DisplayApiKey();
-            
+
             // Revoke all existing device registrations
             var revokedCount = _deviceAuthService.RevokeAllDevices();
-            
-            _logger.LogWarning($"API key regenerated. Old key: {oldKey.Substring(0, 10)}... New key: {newKey.Substring(0, 10)}... Revoked {revokedCount} device registrations.");
-            
+
+            _logger.LogWarning(
+                "API key regenerated. Old key prefix: {OldPrefix}, New key prefix: {NewPrefix}. {RevokedCount} device registration(s) revoked.",
+                oldKey[..System.Math.Min(oldKey.Length, 12)],
+                newKey[..System.Math.Min(newKey.Length, 12)],
+                revokedCount);
+
             return Ok(new 
             { 
                 success = true,

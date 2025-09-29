@@ -24,6 +24,7 @@ import {
   Type,
   Square,
   AlertCircle,
+  AlertTriangle,
   Component,
   Sparkles,
   Activity,
@@ -94,6 +95,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [themePendingDeletion, setThemePendingDeletion] = useState<{ id: string; name: string } | null>(null);
+  const [showCleanupModal, setShowCleanupModal] = useState(false);
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['foundation']);
   const [activeTab, setActiveTab] = useState<'themes' | 'customize'>('themes');
@@ -1487,7 +1490,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
   };
 
-  const handleDelete = async (themeId: string, themeName: string) => {
+  const handleDelete = (themeId: string, themeName: string) => {
     const isSystemTheme = ['dark-default', 'light-default'].includes(themeId);
 
     if (isSystemTheme) {
@@ -1501,8 +1504,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setTimeout(() => setUploadError(null), 5000);
       return;
     }
+    setThemePendingDeletion({ id: themeId, name: themeName });
+  };
 
-    if (!window.confirm(`Delete theme "${themeName}"? This cannot be undone.`)) return;
+  const executeDeleteTheme = async () => {
+    if (!themePendingDeletion) {
+      return;
+    }
+
+    const { id: themeId, name: themeName } = themePendingDeletion;
 
     setLoading(true);
     try {
@@ -1532,9 +1542,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           handleThemeChange('dark-default');
         }
 
-        if (result.availableThemes) {
-        }
-
         setTimeout(() => setUploadError(null), 10000);
       } else {
         const errorMsg = result.error || result.message || 'Failed to delete theme';
@@ -1548,21 +1555,25 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setTimeout(() => setUploadError(null), 7000);
     } finally {
       setLoading(false);
+      setThemePendingDeletion(null);
     }
   };
 
-  const cleanupThemes = async () => {
+  const cleanupThemes = () => {
     if (!isAuthenticated) {
       setUploadError('Authentication required to clean up themes');
       setTimeout(() => setUploadError(null), 5000);
       return;
     }
 
-    if (
-      !window.confirm(
-        'This will DELETE all custom themes (keeping only system themes). This cannot be undone. Continue?'
-      )
-    ) {
+    setShowCleanupModal(true);
+  };
+
+  const executeCleanupThemes = async () => {
+    if (!isAuthenticated) {
+      setUploadError('Authentication required to clean up themes');
+      setTimeout(() => setUploadError(null), 5000);
+      setShowCleanupModal(false);
       return;
     }
 
@@ -1597,6 +1608,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setTimeout(() => setUploadError(null), 5000);
     } finally {
       setLoading(false);
+      setShowCleanupModal(false);
     }
   };
 
@@ -2628,11 +2640,93 @@ content = """
         )}
 
         {uploadSuccess && (
-          <Alert color="green" withCloseButton onClose={() => setUploadSuccess(null)}>
-            {uploadSuccess}
-          </Alert>
-        )}
+        <Alert color="green" withCloseButton onClose={() => setUploadSuccess(null)}>
+          {uploadSuccess}
+        </Alert>
+      )}
       </Card>
+
+      <Modal
+        opened={themePendingDeletion !== null}
+        onClose={() => {
+          if (!loading) {
+            setThemePendingDeletion(null);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Delete Theme</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Delete theme <strong>{themePendingDeletion?.name}</strong>? This will permanently remove the theme files from
+            the server.
+          </p>
+
+          <Alert color="yellow">
+            <p className="text-sm">This action cannot be undone.</p>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setThemePendingDeletion(null)} disabled={loading}>
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              leftSection={<Trash2 className="w-4 h-4" />}
+              onClick={executeDeleteTheme}
+              loading={loading}
+            >
+              Delete Theme
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        opened={showCleanupModal}
+        onClose={() => {
+          if (!loading) {
+            setShowCleanupModal(false);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Clean Up Custom Themes</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Remove all custom themes, keeping only the built-in defaults? This will permanently delete uploaded theme
+            files.
+          </p>
+
+          <Alert color="yellow">
+            <p className="text-sm">You will need to re-upload any custom themes you want to use after this operation.</p>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setShowCleanupModal(false)} disabled={loading}>
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              leftSection={<Trash2 className="w-4 h-4" />}
+              onClick={executeCleanupThemes}
+              loading={loading}
+            >
+              Delete Custom Themes
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         opened={createModalOpen}

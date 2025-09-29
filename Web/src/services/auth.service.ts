@@ -64,8 +64,7 @@ class AuthService {
         // If device is not authenticated but auth is required, clear the stored device ID
         // This handles the case where the backend was reset
         if (result.requiresAuth && !result.isAuthenticated && result.authenticationType !== 'device') {
-          localStorage.removeItem('lancache_device_id');
-          this.deviceId = this.getOrCreateDeviceId();
+          this.clearAuthAndDevice();
         }
 
         return result;
@@ -131,7 +130,7 @@ class AuthService {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        this.clearAuth();
+        this.clearAuthAndDevice();
         this.isAuthenticated = false;
 
         return {
@@ -187,6 +186,13 @@ class AuthService {
   clearAuth(): void {
     this.isAuthenticated = false;
     localStorage.removeItem('lancache_auth_registered');
+  }
+
+  clearAuthAndDevice(): void {
+    this.isAuthenticated = false;
+    localStorage.removeItem('lancache_auth_registered');
+    localStorage.removeItem('lancache_device_id');
+    this.deviceId = this.getOrCreateDeviceId();
   }
 
   isRegistered(): boolean {

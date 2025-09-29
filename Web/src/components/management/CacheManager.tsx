@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { HardDrive, Trash2, Loader, CheckCircle, AlertCircle, StopCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { HardDrive, Trash2, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { formatBytes } from '@utils/formatters';
@@ -25,7 +25,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   onBackgroundOperation
 }) => {
   const [cacheClearProgress, setCacheClearProgress] = useState<CacheClearStatus | null>(null);
-  const [showCacheClearModal, setShowCacheClearModal] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [config, setConfig] = useState<Config>({
     cachePath: '/cache',
@@ -42,23 +42,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   });
 
   // Report cache clearing status to parent
-  useEffect(() => {
-    const isCacheClearingInBackground =
-      (cacheOp.operation as any)?.data &&
-      !showCacheClearModal &&
-      cacheClearProgress &&
-      ['Running', 'Preparing'].includes(cacheClearProgress.status);
-
-    if (isCacheClearingInBackground && onBackgroundOperationRef.current) {
-      onBackgroundOperationRef.current({
-        bytesDeleted: cacheClearProgress.bytesDeleted,
-        progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
-        showModal: () => setShowCacheClearModal(true)
-      });
-    } else if (onBackgroundOperationRef.current) {
-      onBackgroundOperationRef.current(null);
-    }
-  }, [cacheOp.operation, showCacheClearModal, cacheClearProgress]);
 
   useEffect(() => {
     loadConfig();
@@ -116,31 +99,33 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     if (progress.status === 'Completed') {
       onSuccess?.(`Cache cleared successfully! ${formatBytes(progress.bytesDeleted || 0)} freed.`);
       setTimeout(() => {
-        setShowCacheClearModal(false);
         setCacheClearProgress(null);
       }, 2000);
     } else if (progress.status === 'Failed') {
       onError?.(`Cache clearing failed: ${progress.error || progress.message || 'Unknown error'}`);
       setTimeout(() => {
-        setShowCacheClearModal(false);
         setCacheClearProgress(null);
       }, 5000);
     } else if (progress.status === 'Cancelled') {
       onSuccess?.('Cache clearing cancelled');
-      setShowCacheClearModal(false);
+      setCacheClearProgress(null);
+    } else {
       setCacheClearProgress(null);
     }
   };
 
-  const handleClearAllCache = async () => {
+  const handleClearAllCache = () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
     }
 
-    if (!window.confirm('This will clear ALL cached game files. Continue?')) return;
+    setShowConfirmModal(true);
+  };
 
+  const startCacheClear = async () => {
     setActionLoading(true);
+    setShowConfirmModal(false);
 
     try {
       const result = await ApiService.clearAllCache();
@@ -154,17 +139,16 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           bytesDeleted: 0,
           totalBytesToDelete: 0
         });
-        setShowCacheClearModal(true);
         startCacheClearPolling(result.operationId);
       }
     } catch (err: any) {
-      onError?.('Failed to start cache clearing: ' + err.message);
+      onError?.('Failed to start cache clearing: ' + (err?.message || 'Unknown error'));
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleCancelCacheClear = async () => {
+  const handleCancelCacheClear = useCallback(async () => {
     const operation = cacheOp.operation as any;
     if (!operation?.data?.operationId) return;
 
@@ -183,25 +167,37 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       await cacheOp.clear();
 
       setTimeout(() => {
-        setShowCacheClearModal(false);
         setCacheClearProgress(null);
         onSuccess?.('Cache clearing operation cancelled');
       }, 1500);
     } catch (err) {
       console.error('Failed to cancel cache clear:', err);
-      setShowCacheClearModal(false);
       setCacheClearProgress(null);
       await cacheOp.clear();
     }
-  };
+  }, [cacheOp, onSuccess]);
 
-  const isCacheClearingInBackground =
+  useEffect(() => {
+    const isActive =
+      (cacheOp.operation as any)?.data &&
+      cacheClearProgress &&
+      ['Running', 'Preparing', 'Cancelling'].includes(cacheClearProgress.status);
+
+    if (isActive && onBackgroundOperationRef.current) {
+      onBackgroundOperationRef.current({
+        bytesDeleted: cacheClearProgress.bytesDeleted || 0,
+        progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
+        cancel: handleCancelCacheClear
+      });
+    } else if (onBackgroundOperationRef.current) {
+      onBackgroundOperationRef.current(null);
+    }
+  }, [cacheOp.operation, cacheClearProgress, handleCancelCacheClear]);
+
+  const isCacheClearingActive =
     (cacheOp.operation as any)?.data &&
-    !showCacheClearModal &&
     cacheClearProgress &&
-    ['Running', 'Preparing'].includes(cacheClearProgress.status);
-
-  const progressPercent = cacheClearProgress?.percentComplete || cacheClearProgress?.progress || 0;
+    ['Running', 'Preparing', 'Cancelling'].includes(cacheClearProgress.status);
 
   return (
     <>
@@ -223,13 +219,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           disabled={
             actionLoading ||
             mockMode ||
-            isCacheClearingInBackground ||
+            isCacheClearingActive ||
             cacheOp.loading ||
             !isAuthenticated
           }
           loading={actionLoading || cacheOp.loading}
         >
-          {isCacheClearingInBackground ? 'Cache Clearing in Progress...' : 'Clear All Cached Files'}
+          {isCacheClearingActive ? 'Cache Clearing in Progress...' : 'Clear All Cached Files'}
         </Button>
         <p className="text-xs text-themed-muted mt-2">
           ⚠️ This deletes ALL cached game files from disk
@@ -237,94 +233,51 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       </Card>
 
       <Modal
-        opened={showCacheClearModal && cacheClearProgress !== null}
+        opened={showConfirmModal}
         onClose={() => {
-          if (!['Running', 'Preparing'].includes(cacheClearProgress?.status || '')) {
-            setShowCacheClearModal(false);
-            setCacheClearProgress(null);
+          if (!actionLoading) {
+            setShowConfirmModal(false);
           }
         }}
-        title="Clearing Cache"
-        size="lg"
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Confirm Cache Clear</span>
+          </div>
+        }
+        size="md"
       >
         <div className="space-y-4">
-          <div className="flex items-center space-x-2">
-            {cacheClearProgress?.status === 'Completed' ? (
-              <CheckCircle className="w-5 h-5 cache-hit" />
-            ) : cacheClearProgress?.status === 'Failed' ? (
-              <AlertCircle className="w-5 h-5 text-themed-error" />
-            ) : (
-              <Loader className="w-5 h-5 text-themed-primary animate-spin" />
-            )}
-            <div className="flex-1">
-              <span className="text-themed-primary font-medium">{cacheClearProgress?.status}</span>
-              {(cacheClearProgress?.statusMessage || cacheClearProgress?.message) && (
-                <p className="text-sm text-themed-muted">
-                  {cacheClearProgress?.statusMessage || cacheClearProgress?.message}
-                </p>
-              )}
-            </div>
-          </div>
+          <p className="text-themed-secondary">
+            This will permanently delete <strong>all cached game files</strong> from{' '}
+            <code className="bg-themed-tertiary px-1 py-0.5 rounded">{config.cachePath}</code>. Make sure no
+            downloads are actively using the cache before continuing.
+          </p>
 
-          {cacheClearProgress && ['Running', 'Preparing'].includes(cacheClearProgress.status) && (
-            <>
-              <div className="w-full progress-track rounded-full h-4 relative overflow-hidden">
-                <div
-                  className="progress-bar-medium h-4 rounded-full smooth-transition"
-                  style={{ width: `${Math.min(100, progressPercent)}%` }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-xs text-themed-primary font-medium">
-                    {progressPercent.toFixed(0)}%
-                  </span>
-                </div>
-              </div>
+          <Alert color="yellow">
+            <p className="font-medium">This action cannot be undone.</p>
+            <p className="text-sm mt-1">
+              You will need to redownload content after the cache is cleared.
+            </p>
+          </Alert>
 
-              {cacheClearProgress.bytesDeleted !== undefined &&
-                cacheClearProgress.totalBytesToDelete &&
-                cacheClearProgress.totalBytesToDelete > 0 && (
-                  <div className="text-sm text-themed-muted text-center">
-                    <span className="cache-hit font-semibold">
-                      {formatBytes(cacheClearProgress.bytesDeleted || 0)}
-                    </span>
-                    {' / '}
-                    <span className="text-themed-primary">
-                      {formatBytes(cacheClearProgress.totalBytesToDelete)}
-                    </span>
-                    {' cleared'}
-                  </div>
-                )}
-            </>
-          )}
-
-          {cacheClearProgress?.error && <Alert color="red">{cacheClearProgress.error}</Alert>}
-
-          <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
-            {cacheClearProgress && ['Running', 'Preparing'].includes(cacheClearProgress.status) ? (
-              <>
-                <Button
-                  variant="filled"
-                  color="red"
-                  leftSection={<StopCircle className="w-4 h-4" />}
-                  onClick={handleCancelCacheClear}
-                >
-                  Cancel
-                </Button>
-                <Button variant="default" onClick={() => setShowCacheClearModal(false)}>
-                  Run in Background
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="default"
-                onClick={() => {
-                  setShowCacheClearModal(false);
-                  setCacheClearProgress(null);
-                }}
-              >
-                Close
-              </Button>
-            )}
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setShowConfirmModal(false)}
+              disabled={actionLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              leftSection={<Trash2 className="w-4 h-4" />}
+              onClick={startCacheClear}
+              loading={actionLoading}
+            >
+              Delete Cached Files
+            </Button>
           </div>
         </div>
       </Modal>

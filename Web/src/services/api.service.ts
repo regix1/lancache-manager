@@ -196,6 +196,14 @@ class ApiService {
     }
   }
 
+  static async postProcessDepotMappings(): Promise<{ message?: string; mappingsProcessed?: number }> {
+    const res = await fetch(`${API_BASE}/management/post-process-depot-mappings`, {
+      method: 'POST',
+      headers: this.getHeaders({ 'Content-Type': 'application/json' })
+    });
+    return this.handleResponse(res);
+  }
+
   // Bandwidth saved stats
   static async getBandwidthSaved(period = 'all', signal?: AbortSignal): Promise<any> {
     try {

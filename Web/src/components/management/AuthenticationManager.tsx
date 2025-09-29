@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Lock, Unlock, AlertCircle } from 'lucide-react';
+import { Key, Lock, Unlock, AlertCircle, AlertTriangle } from 'lucide-react';
 import authService from '../../services/auth.service';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
@@ -21,6 +21,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showRegenerateModal, setShowRegenerateModal] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
@@ -37,7 +38,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       onAuthChange?.(result.isAuthenticated);
 
       if (!result.isAuthenticated && authService.isRegistered()) {
-        authService.clearAuth();
+        authService.clearAuthAndDevice();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -77,17 +78,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     }
   };
 
-  const handleRegenerateKey = async () => {
-    const message =
-      'WARNING: This will:\n\n' +
-      '1. Generate a NEW API key on the server\n' +
-      '2. Revoke ALL existing device registrations\n' +
-      '3. Require ALL users to re-authenticate\n' +
-      '4. You must check the container logs for the new key\n\n' +
-      'This cannot be undone. Continue?';
+  const handleRegenerateKey = () => {
+    setShowRegenerateModal(true);
+  };
 
-    if (!window.confirm(message)) return;
-
+  const confirmRegenerateKey = async () => {
     setAuthLoading(true);
 
     try {
@@ -97,13 +92,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         setIsAuthenticated(false);
         onAuthChange?.(false);
         setShowAuthModal(false);
-
         onSuccess?.(result.message);
-
-        // Trigger the API key regeneration modal from App.tsx
-        setTimeout(() => {
-          onApiKeyRegenerated?.();
-        }, 1000);
+        onApiKeyRegenerated?.();
       } else {
         onError?.(result.message || 'Failed to regenerate API key');
       }
@@ -112,6 +102,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       onError?.('Failed to regenerate API key: ' + error.message);
     } finally {
       setAuthLoading(false);
+      setShowRegenerateModal(false);
     }
   };
 
@@ -230,6 +221,56 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               disabled={!apiKey.trim()}
             >
               Authenticate
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        opened={showRegenerateModal}
+        onClose={() => {
+          if (!authLoading) {
+            setShowRegenerateModal(false);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Regenerate API Key</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Regenerating the API key will immediately revoke all existing device registrations and require
+            every user to re-authenticate.
+          </p>
+
+          <Alert color="yellow">
+            <p className="font-medium">This action cannot be undone.</p>
+            <ul className="list-disc list-inside text-xs space-y-1 mt-2">
+              <li>A new API key will be generated on the server.</li>
+              <li>All connected devices will be logged out.</li>
+              <li>Check the container logs for the new key after confirmation.</li>
+            </ul>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setShowRegenerateModal(false)}
+              disabled={authLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              leftSection={<AlertCircle className="w-4 h-4" />}
+              onClick={confirmRegenerateKey}
+              loading={authLoading}
+            >
+              Regenerate Key
             </Button>
           </div>
         </div>
