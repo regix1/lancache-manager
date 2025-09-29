@@ -56,15 +56,9 @@ public class LogWatcherService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // This service is only started manually via the API endpoint
-        _logger.LogInformation("LogWatcherService started for manual log processing");
-
+        _logger.LogInformation("LogWatcherService started - will monitor log file automatically");
 
         SetupMarkerWatcher();
-
-        _processingComplete = false;
-        _isBulkProcessing = true;
-        _processingService.SetBulkProcessingMode(true);
 
         // Wait for log file to exist
         int waitAttempts = 0;
@@ -155,12 +149,12 @@ public class LogWatcherService : BackgroundService
         var fileInfo = new FileInfo(_logPath);
         _logger.LogInformation($"Log file size: {fileInfo.Length / 1024.0 / 1024.0:F1} MB");
 
-        // Check for bulk processing marker
+        // Check for bulk processing marker (only set via API "Process All Logs" endpoint)
         bool hasBulkProcessingMarker = File.Exists(_processingMarker);
 
         if (hasBulkProcessingMarker)
         {
-            _logger.LogInformation("Found bulk processing marker from previous session");
+            _logger.LogInformation("Found bulk processing marker - entering bulk processing mode");
 
             // Try to read marker data to see if this is a manual bulk processing request
             bool isManualBulkRequest = false;
@@ -189,6 +183,7 @@ public class LogWatcherService : BackgroundService
                 _lastPosition = 0;
                 _isBulkProcessing = true;
                 _processingService.SetBulkProcessingMode(true);
+                _processingComplete = false;
                 await SavePosition();
                 return;
             }
@@ -199,6 +194,7 @@ public class LogWatcherService : BackgroundService
                 _logger.LogInformation($"Resuming bulk processing from saved position: {_lastPosition:N0} ({behind / 1024.0 / 1024.0:F1} MB remaining)");
                 _isBulkProcessing = true;
                 _processingService.SetBulkProcessingMode(true);
+                _processingComplete = false;
                 return;
             }
             else
@@ -215,43 +211,42 @@ public class LogWatcherService : BackgroundService
                 }
             }
         }
-        else
-        {
-            // No marker exists, load normal position
-            await LoadPosition();
-        }
+
+        // No marker exists - normal tail mode
+        await LoadPosition();
 
         _logger.LogInformation($"Loaded position: {_lastPosition:N0} (File size: {fileInfo.Length:N0})");
 
-        if (_lastPosition >= 0 && _lastPosition <= fileInfo.Length)
+        // Check if this is a fresh install (position = 0 and file has content)
+        if (_lastPosition == 0 && fileInfo.Length > 0)
         {
-            var behind = fileInfo.Length - _lastPosition;
-            _logger.LogInformation($"Starting from saved position: {_lastPosition:N0} ({behind / 1024.0 / 1024.0:F1} MB behind)");
-
-            if (behind > 100_000_000) // 100MB behind
-            {
-                _logger.LogInformation($"Large backlog detected: {behind / 1024.0 / 1024.0:F1} MB to process - enabling bulk mode");
-                _isBulkProcessing = true;
-                _processingService.SetBulkProcessingMode(true);
-            }
+            // Fresh install: Start from END of file to only process new entries
+            // User must click "Process All Logs" to import historical data
+            _lastPosition = fileInfo.Length;
+            _logger.LogInformation($"Fresh install detected - starting from END of log file for tail mode (position: {_lastPosition:N0}, skipping {fileInfo.Length / 1024.0 / 1024.0:F1} MB of historical data)");
+            await SavePosition();
         }
-        else
+        else if (_lastPosition > 0 && _lastPosition <= fileInfo.Length)
         {
-            var startFromEnd = _configuration.GetValue<bool>("LanCache:StartFromEndOfLog", true);
+            // Valid saved position - resume from there
+            var behind = fileInfo.Length - _lastPosition;
+            _logger.LogInformation($"Resuming from saved position: {_lastPosition:N0} ({behind / 1024.0 / 1024.0:F1} MB behind if any)");
 
-            if (startFromEnd)
-            {
-                _lastPosition = fileInfo.Length;
-                _logger.LogInformation($"Starting from END of log file (position: {_lastPosition:N0})");
-            }
-            else
-            {
-                _lastPosition = 0;
-                _logger.LogInformation("Starting from beginning of log file");
-                _isBulkProcessing = true;
-                _processingService.SetBulkProcessingMode(true);
-            }
-
+            // Note: In normal mode, we don't enable bulk processing even if behind
+            // The user should use "Process All Logs" button if they want bulk processing
+        }
+        else if (_lastPosition > fileInfo.Length)
+        {
+            // Position is past end of file (file was truncated?) - seek to end
+            _lastPosition = fileInfo.Length;
+            _logger.LogWarning($"Saved position ({_lastPosition:N0}) is past end of file ({fileInfo.Length:N0}) - resetting to end of file");
+            await SavePosition();
+        }
+        else if (_lastPosition < 0)
+        {
+            // Invalid negative position - start from end for tail mode
+            _lastPosition = fileInfo.Length;
+            _logger.LogWarning($"Invalid saved position ({_lastPosition:N0}) - starting from END of log file (position: {_lastPosition:N0})");
             await SavePosition();
         }
     }
@@ -287,21 +282,21 @@ public class LogWatcherService : BackgroundService
                 await ProcessLogFileInternal(stoppingToken);
                 retryCount = 0;
 
-                if (_processingComplete)
+                // After bulk processing completes, reset flag and continue in normal tail mode
+                if (_processingComplete && _isBulkProcessing)
                 {
-                    _logger.LogInformation("Processing completed - exiting LogWatcherService loop");
-                    break;
+                    _logger.LogInformation("Bulk processing completed - continuing in normal tail mode");
+                    _processingComplete = false;
+                    _isBulkProcessing = false;
+                    _processingService.SetBulkProcessingMode(false);
+                    await Task.Delay(1000, stoppingToken);
+                    continue;
                 }
 
                 // Loop back to start normal processing after bulk
                 if (wasBulkProcessing && !_isBulkProcessing)
                 {
-                    if (_processingComplete)
-                    {
-                        _logger.LogInformation("Processing completed during bulk to normal transition - exiting");
-                        break;
-                    }
-                    _logger.LogInformation("Transitioning from bulk to normal processing mode");
+                    _logger.LogInformation("Transitioning from bulk to normal processing mode - continuing tail");
                     await Task.Delay(1000, stoppingToken);
                     continue;
                 }
@@ -619,20 +614,23 @@ public class LogWatcherService : BackgroundService
                         await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesQueued, linesProcessed, stream.Position);
                     }
                     
-                    // Check if bulk processing is complete
-                    var currentFileInfo = new FileInfo(_logPath);
-
-                    // More accurate completion check
-                    var isAtEnd = stream.Position >= currentFileInfo.Length; // At or past end of file
-                    var nearEnd = stream.Position >= currentFileInfo.Length - 100; // Within 100 bytes of end
-                    var noMoreData = emptyReadCount > 10;
-
-                    // Complete if we're at the end, or near the end with no more data
-                    if (isAtEnd || (nearEnd && emptyReadCount > 3) || noMoreData)
+                    // Check if bulk processing is complete (only if in bulk mode)
+                    if (isBulkMode)
                     {
-                        _logger.LogInformation($"Bulk processing complete check: position={stream.Position}, fileLength={currentFileInfo.Length}, emptyReads={emptyReadCount}");
-                        await CompleteBulkProcessing(entriesQueued, linesProcessed, stream.Position, currentFileInfo.Length);
-                        return;
+                        var currentFileInfo = new FileInfo(_logPath);
+
+                        // More accurate completion check
+                        var isAtEnd = stream.Position >= currentFileInfo.Length; // At or past end of file
+                        var nearEnd = stream.Position >= currentFileInfo.Length - 100; // Within 100 bytes of end
+                        var noMoreData = emptyReadCount > 10;
+
+                        // Complete if we're at the end, or near the end with no more data
+                        if (isAtEnd || (nearEnd && emptyReadCount > 3) || noMoreData)
+                        {
+                            _logger.LogInformation($"Bulk processing complete check: position={stream.Position}, fileLength={currentFileInfo.Length}, emptyReads={emptyReadCount}");
+                            await CompleteBulkProcessing(entriesQueued, linesProcessed, stream.Position, currentFileInfo.Length);
+                            return;
+                        }
                     }
 
                     // Check for new data

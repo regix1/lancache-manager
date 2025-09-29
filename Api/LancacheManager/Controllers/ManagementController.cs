@@ -374,20 +374,9 @@ public class ManagementController : ControllerBase
 
             _processingStartTime = DateTime.UtcNow;
 
-            // Start the log processing services for manual processing
-            // (They are no longer auto-started, only run on manual trigger)
-            try
-            {
-                _logger.LogInformation("Starting LogProcessingService for manual log processing");
-                await _logProcessingService.StartAsync(_processingCancellation.Token);
-
-                _logger.LogInformation("Starting LogWatcherService for manual log processing");
-                await _logWatcherService.StartAsync(_processingCancellation.Token);
-            }
-            catch (Exception serviceEx)
-            {
-                _logger.LogWarning(serviceEx, "Error starting log processing services, they may already be running");
-            }
+            // Log processing services are already running automatically
+            // The marker file will signal them to enter bulk processing mode
+            _logger.LogInformation("Marker file created - log processing services will enter bulk mode automatically");
 
             // Create operation state
             var remainingBytes = resumeFromSavedPosition ? fileInfo.Length - resumePosition : fileInfo.Length;
@@ -447,41 +436,24 @@ public class ManagementController : ControllerBase
         {
             _logger.LogInformation("Initiating processing cancellation");
 
-            // Signal cancellation
-            _processingCancellation?.Cancel();
-
-            // Stop the log processing services with timeouts to prevent hanging
-            _logger.LogInformation("Stopping log processing services with timeouts");
-
-            var stopTimeout = TimeSpan.FromSeconds(15);
-            using var timeoutCts = new CancellationTokenSource(stopTimeout);
-
-            var stopTasks = new[]
-            {
-                StopServiceWithTimeout(_logWatcherService, "LogWatcherService", stopTimeout),
-                StopServiceWithTimeout(_logProcessingService, "LogProcessingService", stopTimeout)
-            };
-
-            // Wait for all services to stop or timeout
-            await Task.WhenAll(stopTasks);
-
-            // Give services a moment to save their state
-            await Task.Delay(500);
-
-            // Get the saved position after services have stopped
+            // Get the saved position before canceling
             var currentPosition = _stateService.GetLogPosition();
-            _logger.LogInformation($"Processing cancelled at position {currentPosition:N0}, position preserved for resume");
 
-            // Remove processing marker AFTER services have stopped and saved position
+            // Remove processing marker to signal services to exit bulk mode
             var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
             if (System.IO.File.Exists(processingMarker))
             {
                 System.IO.File.Delete(processingMarker);
-                _logger.LogInformation("Removed processing marker");
+                _logger.LogInformation("Removed processing marker - services will exit bulk mode");
             }
 
+            // Give services a moment to detect marker removal and save state
+            await Task.Delay(1000);
+
+            _logger.LogInformation($"Processing cancelled at position {currentPosition:N0}, position preserved for resume");
+
             return Ok(new {
-                message = $"Processing cancelled at position {currentPosition:N0}. Position saved for resume.",
+                message = $"Bulk processing cancelled. Services will continue monitoring new log entries.",
                 currentPosition = currentPosition,
                 requiresRestart = false
             });

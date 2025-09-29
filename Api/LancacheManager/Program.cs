@@ -98,13 +98,13 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddScoped<StatsService>();
 builder.Services.AddSingleton<PicsDataService>();
 
-// Register LogProcessingService for high-performance log processing (manual trigger only)
+// Register LogProcessingService for high-performance log processing
 builder.Services.AddSingleton<LogProcessingService>();
-// NOTE: LogProcessingService is NOT registered as a hosted service - manual trigger only
+builder.Services.AddHostedService(provider => provider.GetRequiredService<LogProcessingService>());
 
-// Register LogWatcherService (manual trigger only, not auto-started)
+// Register LogWatcherService for automatic log monitoring
 builder.Services.AddSingleton<LogWatcherService>();
-// NOTE: LogWatcherService is NOT registered as a hosted service - manual trigger only
+builder.Services.AddHostedService(provider => provider.GetRequiredService<LogWatcherService>());
 
 // Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();

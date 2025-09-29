@@ -45,12 +45,9 @@ public class DatabaseService
 
         try
         {
-            // Only trigger PICS crawler for real-time processing, not during bulk processing
-            if (sendRealtimeUpdates && !_steamKit2Service.IsReady && _steamKit2Service.ShouldRunPicsCrawl())
-            {
-                _steamKit2Service.TryStartRebuild();
-                _logger.LogInformation("Triggered PICS crawler for real-time log processing");
-            }
+            // Note: We do NOT automatically trigger PICS crawler during real-time processing
+            // The PICS data should already exist from manual "Apply Depot Mappings" button
+            // or from the initial app startup. Real-time processing just uses existing data.
 
             // During bulk reprocessing, be more aggressive about processing
             if (!sendRealtimeUpdates) // This indicates bulk processing

@@ -3,6 +3,7 @@ using LancacheManager.Models;
 using LancacheManager.Data;
 using LancacheManager.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 
 namespace LancacheManager.Services;
 
@@ -427,13 +428,25 @@ public class PicsDataService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var batch = newMappings.Skip(i).Take(batchSize).ToList();
-                await context.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
-                await context.SaveChangesAsync(cancellationToken);
+
+                try
+                {
+                    await context.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
+                    await context.SaveChangesAsync(cancellationToken);
+                    _logger.LogDebug($"Imported batch {i / batchSize + 1}/{(newMappings.Count + batchSize - 1) / batchSize} ({batch.Count} mappings)");
+                }
+                catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
+                {
+                    // UNIQUE constraint violation - duplicates already exist, this is fine
+                    // This can happen if the import is called multiple times or run concurrently
+                    _logger.LogDebug($"Batch {i / batchSize + 1} contains duplicate mappings (already in database) - skipping");
+
+                    // Clear the context to avoid tracking issues
+                    context.ChangeTracker.Clear();
+                }
 
                 // Yield after each batch
                 await Task.Yield();
-
-                _logger.LogDebug($"Imported batch {i / batchSize + 1}/{(newMappings.Count + batchSize - 1) / batchSize} ({batch.Count} mappings)");
             }
 
             // Save any remaining updates

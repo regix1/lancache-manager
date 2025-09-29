@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, CheckCircle } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, CheckCircle, Clock, Zap, RotateCcw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
@@ -69,6 +69,14 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
     | null
   >(null);
+
+  // Depot mapping schedule state
+  const [depotSchedule, setDepotSchedule] = useState({
+    enabled: true,
+    intervalHours: 24,
+    lastRun: null as Date | null,
+    nextRun: new Date(Date.now() + 24 * 60 * 60 * 1000) as Date | null // 24 hours from now by default
+  });
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
@@ -623,7 +631,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     handleProcessAllLogs();
   };
 
-  const executePostProcessDepotMappings = async () => {
+  const executePostProcessDepotMappings = async (mode: 'incremental' | 'full') => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
@@ -631,8 +639,51 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     setActionLoading(true);
     try {
-      await ApiService.postProcessDepotMappings();
-      setTimeout(() => onDataRefresh?.(), 2000);
+      if (mode === 'incremental') {
+        // For incremental mode: trigger crawl, wait for completion, then apply mappings
+        onSuccess?.('Starting incremental depot crawl - check progress at top of page');
+
+        // Trigger PICS crawl (incremental)
+        await ApiService.triggerSteamKitRebuild(true);
+
+        // Wait for PICS crawl to complete by polling
+        let attempts = 0;
+        const maxAttempts = 600; // 10 minutes max (600 * 1 second)
+
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+          attempts++;
+
+          try {
+            const progress = await fetch('/api/gameinfo/steamkit/progress');
+            if (progress.ok) {
+              const data = await progress.json();
+
+              // Check if crawl is complete (not running and status is Complete)
+              if (!data.isRunning && data.status === 'Complete') {
+                onSuccess?.('Depot crawl complete! Now applying mappings to downloads...');
+
+                // Apply the new depot mappings to existing downloads
+                const applyResult = await ApiService.postProcessDepotMappings();
+                onSuccess?.(applyResult.message || `Applied depot mappings to ${applyResult.mappingsProcessed || 0} downloads`);
+                setTimeout(() => onDataRefresh?.(), 2000);
+                break;
+              }
+            }
+          } catch (pollErr) {
+            console.warn('Error polling PICS progress:', pollErr);
+          }
+        }
+
+        if (attempts >= maxAttempts) {
+          onError?.('Depot crawl timed out. Mappings may not have been applied.');
+        }
+      } else {
+        // For full rebuild: just trigger it, don't auto-apply
+        await ApiService.triggerSteamKitRebuild(false);
+        onSuccess?.('Full depot rebuild initiated - check progress at top of page');
+        setTimeout(() => onDataRefresh?.(), 2000);
+      }
     } catch (err: any) {
       onError?.(err.message || 'Failed to process depot mappings');
     } finally {
@@ -640,13 +691,15 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   };
 
-  const handlePostProcessDepotMappings = () => {
+  const handlePostProcessDepotMappings = (mode: 'incremental' | 'full') => {
     setConfirmModal({
-      title: 'Apply Depot Mappings',
+      title: mode === 'full' ? 'Regenerate All Mappings' : 'Apply Depot Mappings',
       message:
-        'Apply depot mappings now? This will attempt to map depot IDs to Steam game names for all unidentified downloads.',
-      confirmLabel: 'Apply Mappings',
-      onConfirm: executePostProcessDepotMappings
+        mode === 'full'
+          ? 'Regenerate depot mappings from scratch? This will re-map all depot IDs to Steam game names.'
+          : 'Apply depot mappings now? This will attempt to map depot IDs to Steam game names for all unidentified downloads.',
+      confirmLabel: mode === 'full' ? 'Regenerate All' : 'Apply Mappings',
+      onConfirm: () => executePostProcessDepotMappings(mode)
     });
   };
 
@@ -660,195 +713,299 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     await onConfirm();
   };
 
+  const formatNextRun = () => {
+    if (!depotSchedule.nextRun) return 'Not scheduled';
+    const now = new Date();
+    const diff = depotSchedule.nextRun.getTime() - now.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 24) {
+      return `${Math.floor(hours / 24)} days`;
+    }
+    return `${hours}h ${minutes}m`;
+  };
+
   return (
     <>
       <Card>
-      <div className="flex items-center space-x-2 mb-4">
-        <FileText className="w-5 h-5 cache-hit" />
-        <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
-      </div>
-      <p className="text-themed-muted text-sm mb-4">
-        Control how access.log is processed for statistics
-      </p>
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Button
-            variant="filled"
-            color="yellow"
-            leftSection={<RefreshCw className="w-4 h-4" />}
-            onClick={handleResetLogs}
-            disabled={
-              actionLoading ||
-              isProcessingLogs ||
-              depotProcessing?.isRunning ||
-              mockMode ||
-              logProcessingOp.loading ||
-              !isAuthenticated
-            }
-            fullWidth
-          >
-            Reset Log Position
-          </Button>
-          <Button
-            variant="filled"
-            color="green"
-            leftSection={<PlayCircle className="w-4 h-4" />}
-            onClick={handleProcessAllLogs}
-            disabled={
-              actionLoading ||
-              isProcessingLogs ||
-              depotProcessing?.isRunning ||
-              mockMode ||
-              logProcessingOp.loading ||
-              !isAuthenticated
-            }
-            loading={logProcessingOp.loading}
-            fullWidth
-          >
-            Process All Logs
-          </Button>
+        <div className="flex items-center space-x-2 mb-4">
+          <FileText className="w-5 h-5 cache-hit" />
+          <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
         </div>
-        <Button
-          variant="filled"
-          color="blue"
-          leftSection={<Database className="w-4 h-4" />}
-          onClick={handlePostProcessDepotMappings}
-          disabled={
-            actionLoading ||
-            isProcessingLogs ||
-            depotProcessing?.isRunning ||
-            mockMode ||
-            !isAuthenticated
-          }
-          fullWidth
-        >
-          Apply Depot Mappings
-        </Button>
-      </div>
-      {depotProcessing?.isRunning && (
-        <div
-          className="mt-4 p-3 rounded-lg border"
-          style={{
-            backgroundColor: 'var(--theme-info-bg)',
-            borderColor: 'var(--theme-info)',
-            color: 'var(--theme-info-text)'
-          }}
-        >
-          <p className="text-xs">
-            <strong>Depot Processing Active:</strong> Log processing is disabled while Steam PICS depot mapping is running.
-            Progress: {Math.round(depotProcessing.progressPercent)}% ({depotProcessing.processedBatches}/{depotProcessing.totalBatches} batches)
+        <p className="text-themed-muted text-sm mb-4">
+          Import historical data or reset to monitor only new downloads
+        </p>
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Button
+              variant="default"
+              leftSection={<RefreshCw className="w-4 h-4" />}
+              onClick={handleResetLogs}
+              disabled={
+                actionLoading ||
+                isProcessingLogs ||
+                depotProcessing?.isRunning ||
+                mockMode ||
+                logProcessingOp.loading ||
+                !isAuthenticated
+              }
+              fullWidth
+            >
+              Reset Log Position
+            </Button>
+            <Button
+              variant="filled"
+              color="green"
+              leftSection={<PlayCircle className="w-4 h-4" />}
+              onClick={handleProcessAllLogs}
+              disabled={
+                actionLoading ||
+                isProcessingLogs ||
+                depotProcessing?.isRunning ||
+                mockMode ||
+                logProcessingOp.loading ||
+                !isAuthenticated
+              }
+              loading={logProcessingOp.loading}
+              fullWidth
+            >
+              Process All Logs
+            </Button>
+          </div>
+        </div>
+
+        {depotProcessing?.isRunning && (
+          <div
+            className="mt-4 p-3 rounded-lg border"
+            style={{
+              backgroundColor: 'var(--theme-info-bg)',
+              borderColor: 'var(--theme-info)',
+              color: 'var(--theme-info-text)'
+            }}
+          >
+            <p className="text-xs">
+              <strong>Depot Processing Active:</strong> Log processing is disabled while Steam PICS depot mapping is running.
+              Progress: {Math.round(depotProcessing.progressPercent)}% ({depotProcessing.processedBatches}/{depotProcessing.totalBatches} batches)
+            </p>
+          </div>
+        )}
+
+        <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
+          <p className="text-xs text-themed-muted leading-relaxed">
+            <strong>Reset:</strong> Start monitoring from current end of log file
+            <br />
+            <strong>Process All:</strong> Import entire log history into database
           </p>
         </div>
-      )}
 
-
-      <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
-        <p className="text-xs text-themed-muted">
-          <strong>Reset:</strong> Start from current end of log
-          <br />
-          <strong>Process All:</strong> Import entire log history
-          <br />
-          <strong>Reapply Depot Mappings:</strong> Apply depot mappings to identify games from Steam downloads. Run this after log processing completes.
-        </p>
-      </div>
-
-      {logProcessingOp.error && (
-        <Alert color="orange">Backend storage error: {logProcessingOp.error}</Alert>
-      )}
+        {logProcessingOp.error && (
+          <Alert color="orange">Backend storage error: {logProcessingOp.error}</Alert>
+        )}
       </Card>
 
-    {/* Post-Depot Processing Modal */}
-    <Modal
-      opened={showPostDepotPopup}
-      onClose={handleClosePostDepotPopup}
-      title={
-        <div className="flex items-center space-x-3">
-          <CheckCircle className="w-6 h-6 text-themed-success" />
-          <span>Depot Processing Complete</span>
+      {/* Depot Mapping Section */}
+      <Card>
+        <div className="flex items-center space-x-2 mb-4">
+          <Database className="w-5 h-5 text-themed-primary" />
+          <h3 className="text-lg font-semibold text-themed-primary">Depot Mapping</h3>
         </div>
-      }
-    >
-      <div className="space-y-4">
-        <p className="text-themed-secondary">
-          Steam depot mapping has finished! Would you like to process all logs now to update download statistics with the new depot mappings?
+
+        <p className="text-themed-secondary mb-4">
+          Automatically identifies Steam games from depot IDs in download history
         </p>
 
-        <Alert color="green">
-          <p className="text-sm">
-            New depot mappings are ready to be applied to your download history.
-          </p>
-        </Alert>
-
-        <div className="flex flex-col gap-3">
-          <Button
-            variant="filled"
-            color="green"
-            leftSection={<PlayCircle className="w-4 h-4" />}
-            onClick={handleProcessLogsFromPopup}
-            disabled={!isAuthenticated || mockMode}
-            fullWidth
-          >
-            Process All Logs
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleClosePostDepotPopup}
-            fullWidth
-          >
-            Maybe Later
-          </Button>
+        {/* Schedule Status */}
+        <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-4 h-4 text-themed-primary" />
+                <span className="text-sm font-medium text-themed-secondary">Automatic Schedule</span>
+              </div>
+              <div className="text-xs text-themed-muted space-y-1">
+                <div className="flex items-center gap-2">
+                  <span style={{ opacity: 0.6 }}>Runs every:</span>
+                  <span className="font-medium text-themed-primary">{depotSchedule.intervalHours} hours</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span style={{ opacity: 0.6 }}>Next run:</span>
+                  <span className="font-medium text-themed-primary">{formatNextRun()}</span>
+                </div>
+                {depotSchedule.lastRun && (
+                  <div className="flex items-center gap-2">
+                    <span style={{ opacity: 0.6 }}>Last run:</span>
+                    <span className="font-medium text-themed-primary">
+                      {new Date(depotSchedule.lastRun).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 min-w-[120px]">
+              <select
+                className="px-3 py-1.5 text-sm rounded border themed-input"
+                style={{
+                  borderColor: 'var(--theme-input-border)',
+                  backgroundColor: 'var(--theme-input-bg)',
+                  color: 'var(--theme-text-primary)'
+                }}
+                value={depotSchedule.intervalHours}
+                onChange={(e) => {
+                  const newInterval = Number(e.target.value);
+                  setDepotSchedule({
+                    ...depotSchedule,
+                    intervalHours: newInterval,
+                    nextRun: new Date(Date.now() + newInterval * 60 * 60 * 1000)
+                  });
+                }}
+                disabled={mockMode || !isAuthenticated}
+              >
+                <option value={1}>Every hour</option>
+                <option value={6}>Every 6 hours</option>
+                <option value={12}>Every 12 hours</option>
+                <option value={24}>Every 24 hours</option>
+                <option value={48}>Every 2 days</option>
+                <option value={168}>Weekly</option>
+              </select>
+            </div>
+          </div>
         </div>
 
-        <div className="text-center">
-          <span className="text-xs text-themed-muted">
-            This dialog will close in {postDepotTimer} seconds
-          </span>
-        </div>
-      </div>
-    </Modal>
-
-    <Modal
-      opened={confirmModal !== null}
-      onClose={() => {
-        if (!actionLoading) {
-          setConfirmModal(null);
-        }
-      }}
-      title={
-        <div className="flex items-center space-x-3">
-          <AlertTriangle className="w-6 h-6 text-themed-warning" />
-          <span>{confirmModal?.title}</span>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        <p className="text-themed-secondary">{confirmModal?.message}</p>
-
-        <Alert color="yellow">
-          <p className="text-sm">
-            <strong>Important:</strong> Ensure no other maintenance tasks are running before continuing.
-          </p>
-        </Alert>
-
-        <div className="flex justify-end space-x-3 pt-2">
+        {/* Action Buttons */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Button
             variant="default"
-            onClick={() => setConfirmModal(null)}
-            disabled={actionLoading}
+            leftSection={<Zap className="w-4 h-4" />}
+            onClick={() => handlePostProcessDepotMappings('incremental')}
+            disabled={
+              actionLoading ||
+              isProcessingLogs ||
+              depotProcessing?.isRunning ||
+              mockMode ||
+              !isAuthenticated
+            }
+            fullWidth
           >
-            Cancel
+            Apply Now
           </Button>
           <Button
-            variant="filled"
-            color="red"
-            onClick={handleConfirmAction}
-            loading={actionLoading}
+            variant="default"
+            leftSection={<RotateCcw className="w-4 h-4" />}
+            onClick={() => handlePostProcessDepotMappings('full')}
+            disabled={
+              actionLoading ||
+              isProcessingLogs ||
+              depotProcessing?.isRunning ||
+              mockMode ||
+              !isAuthenticated
+            }
+            fullWidth
           >
-            {confirmModal?.confirmLabel || 'Confirm'}
+            Regenerate All
           </Button>
         </div>
-      </div>
-    </Modal>
+
+        <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
+          <p className="text-xs text-themed-muted leading-relaxed">
+            <strong>Apply Now:</strong> Maps unmapped downloads using existing depot data
+            <br />
+            <strong>Regenerate All:</strong> Re-fetches depot data from Steam and re-maps all downloads
+          </p>
+        </div>
+      </Card>
+
+      {/* Post-Depot Processing Modal */}
+      <Modal
+        opened={showPostDepotPopup}
+        onClose={handleClosePostDepotPopup}
+        title={
+          <div className="flex items-center space-x-3">
+            <CheckCircle className="w-6 h-6 text-themed-success" />
+            <span>Depot Processing Complete</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Steam depot mapping has finished! Would you like to process all logs now to update download statistics with the new depot mappings?
+          </p>
+
+          <Alert color="green">
+            <p className="text-sm">
+              New depot mappings are ready to be applied to your download history.
+            </p>
+          </Alert>
+
+          <div className="flex flex-col gap-3">
+            <Button
+              variant="filled"
+              color="green"
+              leftSection={<PlayCircle className="w-4 h-4" />}
+              onClick={handleProcessLogsFromPopup}
+              disabled={!isAuthenticated || mockMode}
+              fullWidth
+            >
+              Process All Logs
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleClosePostDepotPopup}
+              fullWidth
+            >
+              Maybe Later
+            </Button>
+          </div>
+
+          <div className="text-center">
+            <span className="text-xs text-themed-muted">
+              This dialog will close in {postDepotTimer} seconds
+            </span>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        opened={confirmModal !== null}
+        onClose={() => {
+          if (!actionLoading) {
+            setConfirmModal(null);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>{confirmModal?.title}</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">{confirmModal?.message}</p>
+
+          <Alert color="yellow">
+            <p className="text-sm">
+              <strong>Important:</strong> Ensure no other maintenance tasks are running before continuing.
+            </p>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setConfirmModal(null)}
+              disabled={actionLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={handleConfirmAction}
+              loading={actionLoading}
+            >
+              {confirmModal?.confirmLabel || 'Confirm'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 };
