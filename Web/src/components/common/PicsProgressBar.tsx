@@ -10,6 +10,7 @@ interface PicsProgress {
   processedBatches: number;
   progressPercent: number;
   depotMappingsFound: number;
+  depotMappingsFoundInSession: number;
   isReady: boolean;
   lastCrawlTime?: string;
   nextCrawlIn: { totalHours: number };
@@ -116,7 +117,9 @@ const PicsProgressBar: React.FC = () => {
               <span className="text-xs text-themed-muted">
                 {progress.isRunning && progress.totalBatches > 0
                   ? `${progress.processedBatches}/${progress.totalBatches} batches (${Math.round(progress.progressPercent)}%)`
-                  : `${progress.depotMappingsFound.toLocaleString()} depot mappings`
+                  : progress.depotMappingsFoundInSession > 0
+                    ? `Found ${progress.depotMappingsFoundInSession.toLocaleString()} new mappings (Total: ${progress.depotMappingsFound.toLocaleString()})`
+                    : `${progress.depotMappingsFound.toLocaleString()} depot mappings`
                 }
                 {progress.isReady && progress.nextCrawlIn.totalHours > 0 &&
                   ` • Next: ${Math.round(progress.nextCrawlIn.totalHours)}h`

@@ -147,6 +147,8 @@ export interface ProcessingStatus {
   processingRate?: number;
   status?: string;
   entriesProcessed?: number;
+  entriesQueued?: number;
+  pendingEntries?: number;
   linesProcessed?: number;
   currentPosition?: number;
   totalSize?: number;

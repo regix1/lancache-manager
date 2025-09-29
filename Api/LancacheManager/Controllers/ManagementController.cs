@@ -255,13 +255,62 @@ public class ManagementController : ControllerBase
             if (fileInfo.Length < 100)
             {
                 _logger.LogWarning($"Log file is very small ({fileInfo.Length} bytes): {logPath}");
-                return Ok(new { 
+                return Ok(new {
                     message = $"Log file only contains {fileInfo.Length} bytes. Likely no game data yet.",
                     logSizeMB = sizeMB,
                     estimatedTimeMinutes = 0,
                     requiresRestart = false,
                     status = "insufficient_data"
                 });
+            }
+
+            // CHECK FOR DUPLICATE PROCESSING - Count lines in log file vs database entries
+            try
+            {
+                _logger.LogInformation("Checking for duplicate processing by comparing log file lines to database entries");
+
+                // Count lines in log file
+                long logFileLineCount = 0;
+                using (var reader = new StreamReader(logPath))
+                {
+                    while (!reader.EndOfStream)
+                    {
+                        await reader.ReadLineAsync();
+                        logFileLineCount++;
+                    }
+                }
+
+                // Count existing database entries
+                var databaseEntryCount = await _dbService.GetLogEntryCountAsync();
+
+                _logger.LogInformation($"Log file contains {logFileLineCount:N0} lines, database contains {databaseEntryCount:N0} entries");
+
+                // If database has same or more entries than log file, skip processing
+                if (databaseEntryCount >= logFileLineCount && logFileLineCount > 0)
+                {
+                    _logger.LogInformation("Skipping log processing - database already contains all log entries");
+                    return Ok(new {
+                        message = $"Processing skipped - database already contains {databaseEntryCount:N0} entries which matches or exceeds the {logFileLineCount:N0} lines in the log file. No new data to process.",
+                        logSizeMB = sizeMB,
+                        logFileLines = logFileLineCount,
+                        databaseEntries = databaseEntryCount,
+                        estimatedTimeMinutes = 0,
+                        requiresRestart = false,
+                        status = "already_processed",
+                        skipReason = "database_up_to_date"
+                    });
+                }
+
+                // If database has significantly fewer entries, log the delta
+                if (databaseEntryCount < logFileLineCount)
+                {
+                    var newEntriesToProcess = logFileLineCount - databaseEntryCount;
+                    _logger.LogInformation($"Database is behind by {newEntriesToProcess:N0} entries - proceeding with processing");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to check for duplicate processing - proceeding with normal processing");
             }
             
             _logger.LogInformation($"Starting full log processing: {sizeMB:F1} MB");

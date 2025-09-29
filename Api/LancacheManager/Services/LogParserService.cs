@@ -8,21 +8,13 @@ public class LogParserService
     private readonly ILogger<LogParserService> _logger;
     private int _failedParseCount = 0;
 
-    // Primary regex to match standard lancache log format:
-    // [service] IP / - - - [timestamp] "METHOD URL HTTP/version" status bytes "-" "user-agent" "HIT/MISS" "domain" "-"
-    private static readonly Regex LogRegex = new(
-        @"^\[(?<service>[\w\.]+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+)\s+""[^""]*""\s+""[^""]*""\s+""(?<cache>HIT|MISS|EXPIRED|UPDATING|STALE|BYPASS|REVALIDATED|-)?""",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    // General-purpose matcher that supports both lancache logs (with service prefix)
+    // and standard combined logs without the leading [service] token.
+    private static readonly Regex LogLineRegex = new(
+        @"^(?:\[(?<service>[^\]]+)\]\s+)?(?<ip>\S+)\s+[^\[]*\[(?<time>[^\]]+)\]\s+""(?<method>[A-Z]+)\s+(?<url>\S+)(?:\s+HTTP/(?<httpVersion>[^""\s]+))?""\s+(?<status>\d{3})\s+(?<bytes>-|\d+)(?<rest>.*)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    // Fallback regex with more lenient matching - captures logs even without cache status field
-    private static readonly Regex FallbackLogRegex = new(
-        @"^\[(?<service>[\w\.]+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?:GET|POST|HEAD|PUT|OPTIONS|DELETE|PATCH)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+)",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    // Ultra-lenient fallback for any HTTP request line
-    private static readonly Regex UltraFallbackRegex = new(
-        @"^\[(?<service>[^\]]+)\]\s+(?<ip>[\d\.]+).*?\[(?<time>[^\]]+)\].*?""(?<method>\w+)\s+(?<url>[^\s]+).*?""\s+(?<status>\d+)\s+(?<bytes>\d+)",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex QuotedFieldRegex = new(@"""([^""]*)""", RegexOptions.Compiled);
 
     // Regex pattern for Steam depot extraction
     private static readonly Regex DepotRegex = new(@"/depot/(\d+)/", RegexOptions.Compiled);
@@ -38,73 +30,24 @@ public class LogParserService
 
         try
         {
-            // Don't skip anything - process ALL entries
-            // if (line.Contains("lancache-heartbeat"))
-            // {
-            //     return null;
-            // }
-
-            // Try primary regex first
-            var match = LogRegex.Match(line);
+            var match = LogLineRegex.Match(line);
             if (!match.Success)
             {
-                // Try fallback regex if primary fails
-                match = FallbackLogRegex.Match(line);
-                if (!match.Success)
-                {
-                    // Try ultra-lenient fallback for ANY HTTP method
-                    match = UltraFallbackRegex.Match(line);
-                    if (!match.Success)
-                    {
-                        // Log parsing failures - these lines are being lost!
-                        if (_failedParseCount < 100) // Log first 100 failures
-                        {
-                            _logger.LogWarning($"Failed to parse line #{_failedParseCount}: {line.Substring(0, Math.Min(200, line.Length))}...");
-                        }
-                        _failedParseCount++;
-
-                        // Track total failed lines
-                        if (_failedParseCount % 10000 == 0)
-                        {
-                            _logger.LogError($"CRITICAL: {_failedParseCount} lines have failed to parse and been lost!");
-                        }
-                        return null;
-                    }
-                    else
-                    {
-                        _logger.LogTrace("Used ultra-fallback regex for parsing");
-                    }
-                }
-                else
-                {
-                    _logger.LogTrace("Used fallback regex for parsing");
-                }
+                LogParseFailure(line);
+                return null;
             }
 
-            // Parse matched groups
-            var serviceRaw = match.Groups["service"].Value.ToLower();
-            // If service is an IP address, default to "unknown"
-            var service = System.Net.IPAddress.TryParse(serviceRaw, out _) ? "unknown" : serviceRaw;
-
+            var service = NormalizeService(match.Groups["service"].Value);
             var clientIp = match.Groups["ip"].Value;
             var url = match.Groups["url"].Value;
             var statusCode = int.Parse(match.Groups["status"].Value);
-            var bytesServed = long.Parse(match.Groups["bytes"].Value);
 
-            // Cache status might not exist in fallback regex
-            var cacheStatusRaw = match.Groups["cache"]?.Value?.ToUpper() ?? "";
-            // Handle "-" or empty cache status
-            var cacheStatus = (string.IsNullOrEmpty(cacheStatusRaw) || cacheStatusRaw == "-") ? "UNKNOWN" : cacheStatusRaw;
+            var bytesValue = match.Groups["bytes"].Value;
+            var bytesServed = bytesValue == "-" ? 0L : long.Parse(bytesValue);
 
             var timestamp = ParseTimestamp(match.Groups["time"].Value);
+            var cacheStatus = ResolveCacheStatus(match.Groups["rest"].Value);
 
-            // Don't skip localhost - process ALL entries
-            // if (clientIp == "127.0.0.1" && bytesServed < 1000)
-            // {
-            //     return null;
-            // }
-
-            // Extract depot ID from Steam URLs only
             var depotId = ExtractDepotIdFromUrl(url, service);
 
             _logger.LogTrace($"Parsed: {service} {clientIp} {bytesServed} bytes {cacheStatus}" +
@@ -130,7 +73,58 @@ public class LogParserService
         return null;
     }
 
-    // Replace with more flexible parsing:
+    private void LogParseFailure(string line)
+    {
+        if (_failedParseCount < 100)
+        {
+            _logger.LogWarning($"Failed to parse line #{_failedParseCount}: {TruncateLineForLog(line)}");
+        }
+
+        _failedParseCount++;
+
+        if (_failedParseCount % 10000 == 0)
+        {
+            _logger.LogError($"CRITICAL: {_failedParseCount} lines have failed to parse and been lost!");
+        }
+    }
+
+    private static string NormalizeService(string rawService)
+    {
+        if (string.IsNullOrWhiteSpace(rawService))
+        {
+            return "unknown";
+        }
+
+        var lowered = rawService.Trim().ToLowerInvariant();
+        return System.Net.IPAddress.TryParse(lowered, out _) ? "unknown" : lowered;
+    }
+
+    private static string TruncateLineForLog(string line)
+    {
+        const int maxLength = 200;
+        return line.Length <= maxLength ? line : $"{line.Substring(0, maxLength)}...";
+    }
+
+    private string ResolveCacheStatus(string rest)
+    {
+        if (string.IsNullOrWhiteSpace(rest))
+        {
+            return "UNKNOWN";
+        }
+
+        var matches = QuotedFieldRegex.Matches(rest);
+        if (matches.Count >= 3)
+        {
+            var raw = matches[2].Groups[1].Value.Trim();
+            if (!string.IsNullOrEmpty(raw) && raw != "-")
+            {
+                return raw.ToUpperInvariant();
+            }
+        }
+
+        return "UNKNOWN";
+    }
+
     private DateTime ParseTimestamp(string timestamp)
     {
         try

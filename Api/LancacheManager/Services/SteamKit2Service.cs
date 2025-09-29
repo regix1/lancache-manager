@@ -64,6 +64,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private int _totalBatches;
     private int _processedBatches;
     private string _currentStatus = "Idle";
+    private int _sessionStartDepotCount = 0;  // Track depot count at start of session
 
     public SteamKit2Service(
         ILogger<SteamKit2Service> logger,
@@ -532,6 +533,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             _totalBatches = allBatches.Count;
             _processedBatches = 0;
             _currentStatus = "Processing app data";
+            _sessionStartDepotCount = _depotToAppMappings.Count;  // Capture starting depot count
 
             _logger.LogInformation("Processing {BatchCount} appinfo batches via PICS", allBatches.Count);
 
@@ -1360,6 +1362,9 @@ public class SteamKit2Service : IHostedService, IDisposable
         var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
         var nextCrawlIn = _lastCrawlTime == DateTime.MinValue ? TimeSpan.Zero : CrawlInterval - timeSinceLastCrawl;
 
+        var totalMappings = _depotToAppMappings.Count;
+        var newMappingsInSession = Math.Max(0, totalMappings - _sessionStartDepotCount);
+
         return new
         {
             IsRunning = IsRebuildRunning,
@@ -1369,7 +1374,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             TotalBatches = _totalBatches,
             ProcessedBatches = _processedBatches,
             ProgressPercent = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
-            DepotMappingsFound = _depotToAppMappings.Count,
+            DepotMappingsFound = totalMappings,
+            DepotMappingsFoundInSession = newMappingsInSession,
             IsReady = IsReady,
             LastCrawlTime = _lastCrawlTime == DateTime.MinValue ? (DateTime?)null : _lastCrawlTime,
             NextCrawlIn = nextCrawlIn.TotalSeconds > 0 ? nextCrawlIn : TimeSpan.Zero,

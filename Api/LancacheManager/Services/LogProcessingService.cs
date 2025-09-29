@@ -21,12 +21,14 @@ public class LogProcessingService : BackgroundService
     private readonly List<LogEntry> _batchBuffer = new();
     private readonly object _batchLock = new();
     private Timer? _batchTimer;
-    private readonly SemaphoreSlim _batchSemaphore = new(1, 1); // Only 1 concurrent batch operation to prevent race conditions and ensure consistent results
+    private readonly SemaphoreSlim _batchSemaphore = new(4, 4); // Allow 4 concurrent batch operations for better performance during bulk processing
     private volatile bool _isRunning = false;
     private volatile bool _isBulkProcessing = false; // Track if we're in bulk processing mode
     private long _pendingLogLines = 0;
     private long _pendingBatchEntries = 0;
     private int _activeBatchTasks = 0;
+    private long _totalQueuedEntries = 0;
+    private long _totalProcessedEntries = 0;
     private static readonly TimeSpan BulkDrainWaitInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan BulkDrainTimeout = TimeSpan.FromMinutes(5);
 
@@ -261,6 +263,7 @@ public class LogProcessingService : BackgroundService
             else
             {
                 Interlocked.Increment(ref _pendingLogLines);
+                Interlocked.Increment(ref _totalQueuedEntries);
             }
             return result;
         }
@@ -293,7 +296,7 @@ public class LogProcessingService : BackgroundService
                         Interlocked.Increment(ref _pendingBatchEntries);
 
                         // Use different batch sizes based on processing mode
-                        var batchSize = _isBulkProcessing ? 200 : 50; // Much larger batches for bulk processing
+                        var batchSize = _isBulkProcessing ? 2000 : 50; // Much larger batches for bulk processing (10x increase)
                         if (_batchBuffer.Count >= batchSize)
                         {
                             var batch = _batchBuffer.ToList();
@@ -313,8 +316,12 @@ public class LogProcessingService : BackgroundService
                     await Task.Yield();
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    // Add small delay every 1000 lines to prevent overwhelming the system
-                    if (lineCount % 1000 == 0)
+                    // Add small delay every 5000 lines during bulk processing to prevent overwhelming the system
+                    if (_isBulkProcessing && lineCount % 5000 == 0)
+                    {
+                        await Task.Delay(1, cancellationToken).ConfigureAwait(false);
+                    }
+                    else if (!_isBulkProcessing && lineCount % 1000 == 0)
                     {
                         await Task.Delay(1, cancellationToken).ConfigureAwait(false);
                     }
@@ -433,8 +440,8 @@ public class LogProcessingService : BackgroundService
                 {
                     await ProcessBatch(entries).ConfigureAwait(false);
 
-                    // Add delay based on processing mode to prevent resource exhaustion
-                    var delay = _isBulkProcessing ? 50 : 200; // Increased delays to give other operations a chance
+                    // Add minimal delay for bulk processing to maximize throughput
+                    var delay = _isBulkProcessing ? 5 : 200; // Minimal delay for bulk processing (10x faster)
                     await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -512,22 +519,32 @@ public class LogProcessingService : BackgroundService
                 e.Service
             });
 
+            var processedCount = 0;
+
             foreach (var group in grouped)
             {
                 // Check if still running before each group
                 if (!_isRunning) break;
+
+                var groupEntries = group.ToList();
 
                 try
                 {
                     // Pass false for sendRealtimeUpdates when in bulk processing mode
                     // This prevents PICS from starting during log processing
                     bool sendRealtimeUpdates = !_isBulkProcessing;
-                    await dbService.ProcessLogEntryBatch(group.ToList(), sendRealtimeUpdates).ConfigureAwait(false);
+                    await dbService.ProcessLogEntryBatch(groupEntries, sendRealtimeUpdates).ConfigureAwait(false);
+                    processedCount += groupEntries.Count;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, $"Error processing batch for {group.Key.ClientIp}/{group.Key.Service}");
                 }
+            }
+
+            if (processedCount > 0)
+            {
+                Interlocked.Add(ref _totalProcessedEntries, processedCount);
             }
 
             // Only send real-time updates if not in bulk processing mode and still running
@@ -645,4 +662,34 @@ public class LogProcessingService : BackgroundService
 
         _logger.LogInformation("LogProcessingService stopped");
     }
+
+    public sealed class LogProcessingStatusSnapshot
+    {
+        public long PendingLogLines { get; init; }
+        public long PendingBatchEntries { get; init; }
+        public int ActiveBatchTasks { get; init; }
+        public int BufferedEntries { get; init; }
+        public long TotalQueuedEntries { get; init; }
+        public long TotalProcessedEntries { get; init; }
+    }
+
+    public LogProcessingStatusSnapshot GetStatusSnapshot()
+    {
+        int bufferedEntries;
+        lock (_batchLock)
+        {
+            bufferedEntries = _batchBuffer.Count;
+        }
+
+        return new LogProcessingStatusSnapshot
+        {
+            PendingLogLines = Volatile.Read(ref _pendingLogLines),
+            PendingBatchEntries = Volatile.Read(ref _pendingBatchEntries),
+            ActiveBatchTasks = Volatile.Read(ref _activeBatchTasks),
+            BufferedEntries = bufferedEntries,
+            TotalQueuedEntries = Volatile.Read(ref _totalQueuedEntries),
+            TotalProcessedEntries = Volatile.Read(ref _totalProcessedEntries)
+        };
+    }
+
 }

@@ -36,6 +36,7 @@ interface PicsProgress {
   processedBatches: number;
   progressPercent: number;
   depotMappingsFound: number;
+  depotMappingsFoundInSession: number;
   isReady: boolean;
   lastCrawlTime?: string;
   nextCrawlIn: { totalHours: number };
@@ -88,6 +89,41 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   }, [isProcessingLogs, processingStatus]);
 
+  const parseMetric = (value: unknown) => {
+    const numeric = Number(value ?? 0);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  const formatProgressDetail = (queued: number, processed: number, lines: number, pending: number) => {
+    const safeProcessed = Math.max(processed, 0);
+    const safeQueued = Math.max(queued, safeProcessed);
+    const safeLines = Math.max(lines, 0);
+    const safePending = Math.max(pending, safeQueued - safeProcessed, 0);
+
+    if (safeQueued === 0 && safeProcessed === 0 && safeLines === 0) {
+      return '';
+    }
+
+    if (safePending > 0) {
+      return (
+        safeProcessed.toLocaleString() +
+        ' saved / ' +
+        safeQueued.toLocaleString() +
+        ' queued (' +
+        safePending.toLocaleString() +
+        ' pending)'
+      );
+    }
+
+    return (
+      safeProcessed.toLocaleString() +
+      ' entries from ' +
+      safeLines.toLocaleString() +
+      ' lines'
+    );
+  };
+
+
   useEffect(() => {
     restoreLogProcessing();
     setupSignalR();
@@ -118,12 +154,22 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       const status = await ApiService.getProcessingStatus().catch(() => null);
       if (status?.isProcessing) {
         setIsProcessingLogs(true);
+        const queued = parseMetric(status.entriesQueued ?? status.entriesProcessed);
+        const processedEntries = parseMetric(status.entriesProcessed);
+        const pendingEntries = parseMetric(status.pendingEntries ?? Math.max(queued - processedEntries, 0));
+        const lines = parseMetric(status.linesProcessed);
+        const detailSegments = [
+          formatProgressDetail(queued, processedEntries, lines, pendingEntries),
+          status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : ''
+        ].filter(Boolean);
+
+        // Cap progress at 99.9% if still processing
+        const progressValue = Math.min(99.9, status.percentComplete || status.progress || 0);
+
         setProcessingStatus({
           message: `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`,
-          detailMessage: status.processingRate
-            ? `Speed: ${status.processingRate.toFixed(1)} MB/s`
-            : '',
-          progress: status.percentComplete || status.progress || 0,
+          detailMessage: detailSegments.join(' • '),
+          progress: progressValue,
           estimatedTime: status.estimatedTime,
           status: status.status || 'processing'
         });
@@ -131,9 +177,18 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       } else {
         await logProcessingOp.clear();
         if (status) {
+          const queued = parseMetric(status.entriesQueued ?? status.entriesProcessed);
+          const processedEntries = parseMetric(status.entriesProcessed);
+          const pendingEntries = parseMetric(status.pendingEntries ?? Math.max(queued - processedEntries, 0));
+          const lines = parseMetric(status.linesProcessed);
+          const detailSegments = [
+            `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
+            formatProgressDetail(queued, processedEntries, lines, pendingEntries)
+          ].filter(Boolean);
+
           setProcessingStatus({
             message: 'Processing Complete!',
-            detailMessage: `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
+            detailMessage: detailSegments.join(' • '),
             progress: 100,
             status: 'complete'
           });
@@ -164,26 +219,34 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         const currentProgress = progress.percentComplete || progress.progress || 0;
         const status = progress.status || 'processing';
 
+        const queued = parseMetric(progress.entriesQueued ?? progress.entriesProcessed);
+        const processedEntries = parseMetric(progress.entriesProcessed);
+        const pendingEntries = parseMetric(progress.pendingEntries ?? Math.max(queued - processedEntries, 0));
+        const lines = parseMetric(progress.linesProcessed);
+
+        // Always set isProcessingLogs to true when we receive progress updates (unless complete)
+        if (status !== 'complete') {
+          setIsProcessingLogs(true);
+        }
+
         setProcessingStatus(() => {
-          // If progress is 100% or status is complete/finalizing, mark as complete
-          if (currentProgress >= 100 || status === 'complete') {
-            // Stop polling when we hit 100% via progress update
+          // Only mark as complete when status is explicitly 'complete', not just based on percentage
+          if (status === 'complete') {
             if (pollingInterval.current) {
               clearInterval(pollingInterval.current);
             }
             return {
               message: 'Processing Complete!',
-              detailMessage: `Successfully processed ${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
+              detailMessage: formatProgressDetail(queued, processedEntries, lines, pendingEntries),
               progress: 100,
               status: 'complete'
             };
           }
 
-          // Handle finalizing status
           if (status === 'finalizing') {
             return {
               message: progress.message || 'Finalizing log processing...',
-              detailMessage: `${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
+              detailMessage: formatProgressDetail(queued, processedEntries, lines, pendingEntries),
               progress: currentProgress,
               status: 'finalizing'
             };
@@ -191,23 +254,21 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
           return {
             message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
-            detailMessage: `${progress.entriesProcessed || 0} entries from ${progress.linesProcessed || 0} lines`,
-            progress: currentProgress,
+            detailMessage: formatProgressDetail(queued, processedEntries, lines, pendingEntries),
+            progress: Math.min(99.9, currentProgress), // Cap at 99.9% until truly complete
             status: 'processing'
           };
         });
-
-        // Only set to true if not already complete
-        if (processingStatus?.status !== 'complete') {
-          setIsProcessingLogs(true);
-        }
 
         await logProcessingOp.update({
           lastProgress: progress.percentComplete || progress.progress || 0,
           mbProcessed: progress.mbProcessed,
           mbTotal: progress.mbTotal,
-          entriesProcessed: progress.entriesProcessed,
-          linesProcessed: progress.linesProcessed
+          entriesProcessed: processedEntries,
+          entriesQueued: queued,
+          pendingEntries,
+          linesProcessed: lines,
+          status
         });
       });
 
@@ -293,17 +354,20 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         const status: ApiProcessingStatus = await ApiService.getProcessingStatus();
         if (status?.isProcessing) {
           setIsProcessingLogs(true);
+          // Cap progress at 99.9% while still processing
+          const progressValue = Math.min(99.9, status.percentComplete || status.progress || 0);
+
           setProcessingStatus({
             message: `Processing: ${status.mbProcessed?.toFixed(1) || 0} MB of ${status.mbTotal?.toFixed(1) || 0} MB`,
             detailMessage: status.processingRate
               ? `Speed: ${status.processingRate.toFixed(1)} MB/s`
               : '',
-            progress: status.percentComplete || status.progress || 0,
+            progress: progressValue,
             estimatedTime: status.estimatedTime,
             status: status.status || 'processing'
           });
           await logProcessingOp.update({
-            lastProgress: status.percentComplete || status.progress || 0,
+            lastProgress: progressValue,
             mbProcessed: status.mbProcessed,
             mbTotal: status.mbTotal
           });
@@ -316,10 +380,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           const finalProgress = status?.percentComplete || status?.progress || 0;
           const reachedEnd = status?.currentPosition && status?.totalSize &&
             status.currentPosition >= status.totalSize;
-          const isComplete = finalProgress >= 100 ||
-                            status?.status === 'complete' ||
-                            reachedEnd;
-          const isAlmostComplete = !status?.isProcessing && finalProgress >= 99;
+          // Only consider complete when status is explicitly 'complete'
+          const isComplete = status?.status === 'complete' || reachedEnd;
+          const isAlmostComplete = false; // Don't auto-complete based on percentage alone
 
           console.log('Processing complete detected via polling:', {
             finalProgress,
@@ -399,9 +462,14 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         if (
           result.status === 'empty_file' ||
           result.status === 'no_log_file' ||
-          result.status === 'insufficient_data'
+          result.status === 'insufficient_data' ||
+          result.status === 'already_processed'
         ) {
-          onError?.(result.message);
+          if (result.status === 'already_processed') {
+            onSuccess?.(result.message);
+          } else {
+            onError?.(result.message);
+          }
           setActionLoading(false);
           return;
         }
@@ -409,14 +477,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         if (result.logSizeMB > 0) {
           await logProcessingOp.save({ type: 'processAll', resume: result.resume });
           const remainingMBRaw = typeof result.remainingMB === 'number' ? result.remainingMB : result.logSizeMB || 0;
-          const processedMB = Math.max(0, (result.logSizeMB || 0) - remainingMBRaw);
-          const initialProgress = result.resume && (result.logSizeMB || 0) > 0
-            ? Math.min(99, Math.max(0, (processedMB / (result.logSizeMB || 1)) * 100))
-            : 0;
+          // Don't set initial progress based on file position for resuming - let SignalR/polling provide actual progress
+          const initialProgress = 0;
 
           setIsProcessingLogs(true);
           setProcessingStatus({
-            message: result.resume ? 'Resuming log processing...' : 'Preparing to process logs...',
+            message: result.resume ? 'Resuming log processing...' : 'Starting log processing...',
             detailMessage: result.resume
               ? `${remainingMBRaw.toFixed(1)} MB remaining to import`
               : `${result.logSizeMB?.toFixed(1) || 0} MB to process`,

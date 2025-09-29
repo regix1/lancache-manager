@@ -25,6 +25,9 @@ public class LogWatcherService : BackgroundService
     private volatile bool _restartProcessing = false;
     private DateTime _bulkProcessingStartTime = default; // Track when bulk processing started
     private volatile bool _processingComplete = false;
+    private long _baselineQueuedEntries = 0;
+    private long _baselineProcessedEntries = 0;
+    private double _lastReportedPercent = 0;
 
     public LogWatcherService(
         IServiceProvider serviceProvider,
@@ -441,7 +444,7 @@ public class LogWatcherService : BackgroundService
                     var percentComplete = stream.Length > 0 ? (targetPosition * 100.0) / stream.Length : 0;
                     var mbProcessed = targetPosition / (1024.0 * 1024.0);
                     var mbTotal = stream.Length / (1024.0 * 1024.0);
-                    UpdateOperationState(percentComplete, mbProcessed, mbTotal, 0, 0, targetPosition);
+                    UpdateOperationState(percentComplete, mbProcessed, mbTotal, 0, 0, 0, 0, targetPosition);
                 }
             }
             else if (_lastPosition > 0 && _lastPosition < stream.Length)
@@ -465,6 +468,12 @@ public class LogWatcherService : BackgroundService
                 stream.Seek(0, SeekOrigin.Begin);
             }
 
+            // Reset progress tracking baseline for this session
+            var processingSnapshot = _processingService.GetStatusSnapshot();
+            _baselineQueuedEntries = processingSnapshot.TotalQueuedEntries;
+            _baselineProcessedEntries = processingSnapshot.TotalProcessedEntries;
+            _lastReportedPercent = 0;
+
             // Process the file
             await ProcessFileContent(reader, stream, isBulkMode, stoppingToken);
         }
@@ -478,7 +487,7 @@ public class LogWatcherService : BackgroundService
     private async Task ProcessFileContent(StreamReader reader, FileStream stream, bool isBulkMode, CancellationToken stoppingToken)
     {
         var linesProcessed = 0;
-        var entriesProcessed = 0;
+        var entriesQueued = 0;
         var lastProgressUpdate = DateTime.UtcNow;
         var lastPositionSave = DateTime.UtcNow;
         var emptyReadCount = 0;
@@ -510,12 +519,12 @@ public class LogWatcherService : BackgroundService
 
                     if (enqueued)
                     {
-                        entriesProcessed++;
+                        entriesQueued++;
                         consecutiveFailures = 0; // Reset failure counter on success
 
-                        if (isBulkMode && entriesProcessed <= 5)
+                        if (isBulkMode && entriesQueued <= 5)
                         {
-                            _logger.LogInformation($"Enqueued line {entriesProcessed} for processing");
+                            _logger.LogInformation($"Enqueued line {entriesQueued} for processing");
                         }
                     }
                     else
@@ -541,7 +550,7 @@ public class LogWatcherService : BackgroundService
                         {
                             _logger.LogError($"CRITICAL: Giving up on line after 100 retries at position {stream.Position}. Line will be lost!");
                             // Skip this line and continue - but don't count it as processed
-                            entriesProcessed--; // Decrement since we incremented it but failed to process
+                            entriesQueued--; // Decrement since we incremented it but failed to process
                         }
                         else
                         {
@@ -567,7 +576,7 @@ public class LogWatcherService : BackgroundService
                     // Progress reporting for bulk processing
                     if (isBulkMode)
                     {
-                        var progressResult = await ReportProgressIfNeeded(stream, linesProcessed, entriesProcessed, 
+                        var progressResult = await ReportProgressIfNeeded(stream, linesProcessed, entriesQueued, 
                             lastProgressUpdate, lastPercentReported, fileLength);
                         lastProgressUpdate = progressResult.lastUpdate;
                         lastPercentReported = progressResult.lastPercent;
@@ -583,7 +592,7 @@ public class LogWatcherService : BackgroundService
                     }
 
                     // Additionally save every 100 entries in bulk mode for better recovery
-                    if (isBulkMode && entriesProcessed % 100 == 0 && entriesProcessed > 0)
+                    if (isBulkMode && entriesQueued % 100 == 0 && entriesQueued > 0)
                     {
                         await SavePosition();
                     }
@@ -599,7 +608,7 @@ public class LogWatcherService : BackgroundService
                     await SavePosition();
                     
                     // Report progress for bulk mode
-                    if (isBulkMode && entriesProcessed > 0)
+                    if (isBulkMode && entriesQueued > 0)
                     {
                         var rawPercent = (stream.Position * 100.0) / fileLength;
                         // Don't artificially cap progress - let it reach 100% naturally
@@ -607,7 +616,7 @@ public class LogWatcherService : BackgroundService
                         var mbProcessed = stream.Position / (1024.0 * 1024.0);
                         var mbTotal = fileLength / (1024.0 * 1024.0);
 
-                        await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesProcessed, linesProcessed, stream.Position);
+                        await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesQueued, linesProcessed, stream.Position);
                     }
                     
                     // Check if bulk processing is complete
@@ -622,7 +631,7 @@ public class LogWatcherService : BackgroundService
                     if (isAtEnd || (nearEnd && emptyReadCount > 3) || noMoreData)
                     {
                         _logger.LogInformation($"Bulk processing complete check: position={stream.Position}, fileLength={currentFileInfo.Length}, emptyReads={emptyReadCount}");
-                        await CompleteBulkProcessing(entriesProcessed, linesProcessed, stream.Position, currentFileInfo.Length);
+                        await CompleteBulkProcessing(entriesQueued, linesProcessed, stream.Position, currentFileInfo.Length);
                         return;
                     }
 
@@ -669,7 +678,7 @@ public class LogWatcherService : BackgroundService
     }
 
     private async Task<(DateTime lastUpdate, double lastPercent)> ReportProgressIfNeeded(
-        FileStream stream, int linesProcessed, int entriesProcessed,
+        FileStream stream, int linesProcessed, int entriesQueued,
         DateTime lastProgressUpdate, double lastPercentReported, long fileLength)
     {
         var currentPosition = stream.Position;
@@ -690,9 +699,9 @@ public class LogWatcherService : BackgroundService
             var mbProcessed = currentPosition / (1024.0 * 1024.0);
             var mbTotal = fileLength / (1024.0 * 1024.0);
 
-            _logger.LogInformation($"Progress: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesProcessed} entries from {linesProcessed} lines");
+            _logger.LogInformation($"Progress: {percentComplete:F1}% ({mbProcessed:F1}/{mbTotal:F1} MB) - {entriesQueued} entries from {linesProcessed} lines");
 
-            await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesProcessed, linesProcessed, currentPosition);
+            await SendProgressUpdate(percentComplete, mbProcessed, mbTotal, entriesQueued, linesProcessed, currentPosition);
 
             return (DateTime.UtcNow, percentComplete);
         }
@@ -700,27 +709,87 @@ public class LogWatcherService : BackgroundService
         return (lastProgressUpdate, lastPercentReported);
     }
 
-    private async Task SendProgressUpdate(double percentComplete, double mbProcessed, double mbTotal, 
-        int entriesProcessed, int linesProcessed, long currentPosition)
+    private async Task SendProgressUpdate(double percentComplete, double mbProcessed, double mbTotal,
+        int entriesQueued, int linesProcessed, long currentPosition)
     {
-        // Update operation state
-        UpdateOperationState(percentComplete, mbProcessed, mbTotal, entriesProcessed, linesProcessed, currentPosition);
+        var processingSnapshot = _processingService.GetStatusSnapshot();
+        var totalQueued = Math.Max(0L, processingSnapshot.TotalQueuedEntries - _baselineQueuedEntries);
+        if (totalQueued == 0 && entriesQueued > 0)
+        {
+            totalQueued = entriesQueued;
+        }
+
+        var totalProcessed = Math.Max(0L, processingSnapshot.TotalProcessedEntries - _baselineProcessedEntries);
+        var pendingFromSnapshot = Math.Max(0L, processingSnapshot.PendingLogLines + processingSnapshot.PendingBatchEntries + processingSnapshot.BufferedEntries);
+        var pendingEntries = Math.Max(0L, totalQueued - totalProcessed);
+        if (pendingEntries < pendingFromSnapshot)
+        {
+            pendingEntries = pendingFromSnapshot;
+        }
+
+        // Calculate progress based on actual processing completion, not file position
+        double adjustedPercent;
+        if (totalQueued > 0)
+        {
+            // Primary progress is based on entries processed vs queued
+            var processingProgress = Math.Clamp((double)totalProcessed / totalQueued * 100.0, 0.0, 100.0);
+
+            // If file reading is still in progress, weight between file and processing progress
+            // Otherwise, use pure processing progress
+            if (percentComplete < 100.0)
+            {
+                // While reading: 70% weight to file position, 30% to processing
+                // This shows smooth progress during reading phase
+                adjustedPercent = (percentComplete * 0.7) + (processingProgress * 0.3);
+            }
+            else
+            {
+                // After reading complete: 100% based on actual processing
+                adjustedPercent = processingProgress;
+            }
+        }
+        else
+        {
+            // No entries queued yet, use file position
+            adjustedPercent = percentComplete;
+        }
+
+        // Cap at 99.9% if there are still pending entries
+        if (pendingEntries > 0)
+        {
+            adjustedPercent = Math.Min(adjustedPercent, 99.9);
+        }
+
+        if (adjustedPercent < _lastReportedPercent)
+        {
+            adjustedPercent = _lastReportedPercent;
+        }
+        else
+        {
+            _lastReportedPercent = adjustedPercent;
+        }
+
+        UpdateOperationState(adjustedPercent, mbProcessed, mbTotal, totalQueued, totalProcessed, pendingEntries, linesProcessed, currentPosition);
         
-        // Send SignalR notification
         try
         {
             var progressData = new {
-                percentComplete,
+                percentComplete = adjustedPercent,
+                rawPercent = percentComplete,
                 mbProcessed,
                 mbTotal,
-                entriesProcessed,
+                entriesQueued = totalQueued,
+                entriesProcessed = totalProcessed,
+                pendingEntries,
+                backlog = pendingFromSnapshot,
                 linesProcessed,
+                currentPosition,
                 timestamp = DateTime.UtcNow,
-                status = "processing"
+                status = pendingEntries > 0 && percentComplete >= 99 ? "finalizing" : "processing"
             };
             
             await _hubContext.Clients.All.SendAsync("ProcessingProgress", progressData);
-            _logger.LogTrace($"Sent SignalR progress update: {percentComplete:F1}%");
+            _logger.LogTrace($"Sent SignalR progress update: {adjustedPercent:F1}% (raw: {percentComplete:F1}%)");
         }
         catch (Exception ex)
         {
@@ -728,22 +797,39 @@ public class LogWatcherService : BackgroundService
         }
     }
 
-    private async Task CompleteBulkProcessing(int entriesProcessed, int linesProcessed, long finalPosition, long fileLength)
+
+    private async Task CompleteBulkProcessing(int entriesQueued, int linesProcessed, long finalPosition, long fileLength)
     {
         var elapsed = DateTime.UtcNow - _bulkProcessingStartTime;
         _logger.LogInformation($"File reading completed in {elapsed.TotalMinutes:F1} minutes");
-        _logger.LogInformation($"Final stats: Read {entriesProcessed} entries from {linesProcessed} lines");
+        _logger.LogInformation($"Final stats: queued {entriesQueued} entries from {linesProcessed} lines");
         _logger.LogInformation($"Final position: {finalPosition} / {fileLength}");
 
-        // Calculate final values FIRST
         var mbProcessed = fileLength / (1024.0 * 1024.0);
         var mbTotal = fileLength / (1024.0 * 1024.0);
 
-        // Skip the finalizing update - we'll go straight to 100% completion
-
-        // Wait for LogProcessingService to finish
         _logger.LogInformation("Waiting for LogProcessingService to finish processing all queued entries...");
-        _isBulkProcessing = false;
+
+        // Send periodic progress updates while waiting for processing to complete
+        using var progressCts = new CancellationTokenSource();
+        var progressTask = Task.Run(async () =>
+        {
+            while (!progressCts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    // Pass 100.0 as file position (since file is fully read) but the SendProgressUpdate
+                    // will calculate the actual progress based on entries processed vs queued
+                    await SendProgressUpdate(100.0, mbProcessed, mbTotal, entriesQueued, linesProcessed, finalPosition);
+                    await Task.Delay(1000, progressCts.Token); // Update every second
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        });
+
         try
         {
             await _processingService.CompleteBulkProcessingAsync();
@@ -753,42 +839,77 @@ public class LogWatcherService : BackgroundService
         {
             _logger.LogDebug("Bulk completion cancellation observed while finalizing log processing");
         }
-        _bulkProcessingStartTime = default;
+        finally
+        {
+            // Stop progress updates
+            progressCts.Cancel();
+            try { await progressTask; } catch { }
+        }
 
-        // NOW send the final 100% progress update via SignalR
+        _bulkProcessingStartTime = default;
+        _isBulkProcessing = false;
+
+        var processingSnapshot = _processingService.GetStatusSnapshot();
+        var totalQueued = Math.Max(0L, processingSnapshot.TotalQueuedEntries - _baselineQueuedEntries);
+        if (totalQueued == 0 && entriesQueued > 0)
+        {
+            totalQueued = entriesQueued;
+        }
+
+        var totalProcessed = Math.Max(0L, processingSnapshot.TotalProcessedEntries - _baselineProcessedEntries);
+        var backlog = Math.Max(0L, processingSnapshot.PendingLogLines + processingSnapshot.PendingBatchEntries + processingSnapshot.BufferedEntries);
+        var pendingEntries = Math.Max(0L, totalQueued - totalProcessed);
+        if (pendingEntries < backlog)
+        {
+            pendingEntries = backlog;
+        }
+
+        if (pendingEntries > 0)
+        {
+            _logger.LogWarning($"Pending entries remained after completion wait: {pendingEntries}");
+        }
+
+        // Only report 100% if all entries are truly processed
+        var finalPercent = pendingEntries > 0 ? 99.9 : 100.0;
+        _lastReportedPercent = finalPercent;
+
         try
         {
             var finalProgressData = new {
-                percentComplete = 100.0,
+                percentComplete = finalPercent,
+                rawPercent = 100.0,  // File reading is 100%
                 mbProcessed,
                 mbTotal,
-                entriesProcessed,
+                entriesQueued = totalQueued,
+                entriesProcessed = totalProcessed,
+                pendingEntries = Math.Max(0L, pendingEntries),
                 linesProcessed,
                 timestamp = DateTime.UtcNow,
-                status = "complete"
+                status = pendingEntries > 0 ? "finalizing" : "complete"
             };
 
             await _hubContext.Clients.All.SendAsync("ProcessingProgress", finalProgressData);
-            _logger.LogInformation("Sent final 100% progress update via SignalR with data: {@ProgressData}", finalProgressData);
+            _logger.LogInformation("Sent final progress update via SignalR with data: {@ProgressData}", finalProgressData);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to send final progress update via SignalR");
         }
 
-        // NOW mark operation as complete with ALL data fields
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
             stateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
             {
-                { "isProcessing", false },
-                { "status", "complete" },
-                { "percentComplete", 100.0 },
+                { "isProcessing", pendingEntries > 0 },
+                { "status", pendingEntries > 0 ? "finalizing" : "complete" },
+                { "percentComplete", pendingEntries > 0 ? 99.9 : 100.0 },
                 { "mbProcessed", mbProcessed },
                 { "mbTotal", mbTotal },
-                { "entriesProcessed", entriesProcessed },
+                { "entriesQueued", totalQueued },
+                { "entriesProcessed", totalProcessed },
+                { "pendingEntries", Math.Max(0L, pendingEntries) },
                 { "linesProcessed", linesProcessed },
                 { "currentPosition", finalPosition },
                 { "completedAt", DateTime.UtcNow }
@@ -800,7 +921,7 @@ public class LogWatcherService : BackgroundService
             _logger.LogWarning(ex, "Failed to mark operation as complete");
         }
 
-        if (entriesProcessed == 0 && linesProcessed == 0)
+        if (totalProcessed == 0 && linesProcessed == 0)
         {
             _logger.LogError("BULK PROCESSING FAILED: No lines were read. File may be inaccessible or in wrong format.");
         }
@@ -818,18 +939,14 @@ public class LogWatcherService : BackgroundService
             }
         }
 
-        // Don't immediately cleanup - let the UI see the completion status
-        // The state will be cleaned up on the next processing run or after expiration
-        // CleanupOperationState();
-
-        // Send completion notification first (without depot mapping count since we haven't done it yet)
         try
         {
             await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new {
-                entriesProcessed,
+                entriesQueued = totalQueued,
+                entriesProcessed = totalProcessed,
                 linesProcessed,
                 elapsed = elapsed.TotalMinutes,
-                depotMappingsProcessed = 0,  // Will be processed separately after this
+                depotMappingsProcessed = 0,
                 timestamp = DateTime.UtcNow
             });
         }
@@ -838,55 +955,13 @@ public class LogWatcherService : BackgroundService
             _logger.LogWarning(ex, "Failed to send completion notification");
         }
 
-        _logger.LogInformation($"Log processing complete. {entriesProcessed} entries processed.");
+        _logger.LogInformation($"Log processing complete. {totalProcessed} entries saved (queued {totalQueued}).");
 
         _processingComplete = true;
 
-        // Don't automatically run depot mapping - let the user trigger it manually when needed
         _logger.LogInformation("Log processing finished. Depot mapping can be triggered manually if needed.");
     }
 
-    private async Task<int> RunDepotPostProcessingAsync()
-    {
-        // Send SignalR notification that depot mapping is starting
-        try
-        {
-            await _hubContext.Clients.All.SendAsync("DepotMappingStarted", new
-            {
-                message = "Starting depot mapping post-processing...",
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send depot mapping start notification");
-        }
-
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
-            var processed = await dbService.PostProcessDepotMappings();
-            _logger.LogInformation($"Depot mapping post-processing completed automatically. Updated {processed} downloads.");
-            return processed;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to automatically post-process depot mappings after log processing");
-            try
-            {
-                await _hubContext.Clients.All.SendAsync("DepotPostProcessingFailed", new {
-                    error = ex.Message,
-                    timestamp = DateTime.UtcNow
-                });
-            }
-            catch (Exception hubEx)
-            {
-                _logger.LogTrace(hubEx, "Failed to publish depot post-processing error to clients");
-            }
-            return 0;
-        }
-    }
 
     private void CreateInitialOperationState(long fileSize)
     {
@@ -895,7 +970,6 @@ public class LogWatcherService : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var stateService = scope.ServiceProvider.GetRequiredService<OperationStateService>();
 
-            // Clear any existing operation first to prevent duplicates or stale operations
             stateService.RemoveState("activeLogProcessing");
 
             var operationState = new OperationState
@@ -908,9 +982,14 @@ public class LogWatcherService : BackgroundService
                 {
                     { "startTime", DateTime.UtcNow },
                     { "fileSize", fileSize },
-                    { "percentComplete", 0 },
+                    { "percentComplete", 0d },
                     { "status", "processing" },
-                    { "isProcessing", true }
+                    { "isProcessing", true },
+                    { "entriesQueued", 0L },
+                    { "entriesProcessed", 0L },
+                    { "pendingEntries", 0L },
+                    { "linesProcessed", 0 },
+                    { "currentPosition", 0L }
                 },
                 ExpiresAt = DateTime.UtcNow.AddHours(24)
             };
@@ -922,8 +1001,8 @@ public class LogWatcherService : BackgroundService
         }
     }
 
-    private void UpdateOperationState(double percentComplete, double mbProcessed, double mbTotal, 
-        int entriesProcessed, int linesProcessed, long currentPosition)
+    private void UpdateOperationState(double percentComplete, double mbProcessed, double mbTotal,
+        long entriesQueued, long entriesProcessed, long pendingEntries, int linesProcessed, long currentPosition)
     {
         try
         {
@@ -934,7 +1013,9 @@ public class LogWatcherService : BackgroundService
                 { "percentComplete", percentComplete },
                 { "mbProcessed", mbProcessed },
                 { "mbTotal", mbTotal },
+                { "entriesQueued", entriesQueued },
                 { "entriesProcessed", entriesProcessed },
+                { "pendingEntries", pendingEntries },
                 { "linesProcessed", linesProcessed },
                 { "currentPosition", currentPosition },
                 { "isProcessing", true },

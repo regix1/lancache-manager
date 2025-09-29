@@ -713,4 +713,17 @@ public class DatabaseService
             _logger.LogWarning(ex, $"Failed to store depot mapping {depotId} -> {appId}");
         }
     }
+
+    public async Task<long> GetLogEntryCountAsync()
+    {
+        try
+        {
+            return await _context.LogEntries.LongCountAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to count log entries");
+            return 0;
+        }
+    }
 }
