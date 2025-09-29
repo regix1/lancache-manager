@@ -67,7 +67,7 @@ const StatTooltips: Record<string, string> = {
 
 const Dashboard: React.FC = () => {
   const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats, dashboardStats } = useData();
-  const { timeRange } = useTimeFilter();
+  const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -106,6 +106,39 @@ const Dashboard: React.FC = () => {
       return hasLargeFiles;
     });
   }, [serviceStats, latestDownloads]);
+
+  // Filter client stats based on date range
+  const filteredClientStats = useMemo(() => {
+    if (!clientStats || clientStats.length === 0) {
+      return [];
+    }
+
+    // For 'live' mode, show all clients
+    if (timeRange === 'live') {
+      return clientStats;
+    }
+
+    // Get the time range parameters
+    const { startTime, endTime } = getTimeRangeParams();
+
+    // Filter clients based on lastSeen date
+    return clientStats.filter(client => {
+      if (!client.lastSeen) {
+        return false;
+      }
+
+      // Parse the lastSeen date
+      const lastSeenDate = new Date(client.lastSeen);
+      const lastSeenTimestamp = Math.floor(lastSeenDate.getTime() / 1000);
+
+      // Check if lastSeen is within the selected range
+      if (startTime && endTime) {
+        return lastSeenTimestamp >= startTime && lastSeenTimestamp <= endTime;
+      }
+
+      return true;
+    });
+  }, [clientStats, timeRange, getTimeRangeParams]);
   const [loading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -344,9 +377,9 @@ const Dashboard: React.FC = () => {
       addedToCache: dashboardStats?.period?.addedToCache || 0,
       totalServed: dashboardStats?.period?.totalServed || 0,
       cacheHitRatio: dashboardStats?.period?.hitRatio || 0,
-      uniqueClients: dashboardStats?.uniqueClients || clientStats.length
+      uniqueClients: dashboardStats?.uniqueClients || filteredClientStats.length
     };
-  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, clientStats]);
+  }, [filteredActiveDownloads, filteredServiceStats, dashboardStats, filteredClientStats]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
@@ -782,11 +815,13 @@ const Dashboard: React.FC = () => {
         <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} />
       </div>
 
-      {/* Top Clients - Pass the actual data arrays */}
+      {/* Top Clients - Pass the filtered data arrays */}
       <TopClientsTable
-        clientStats={clientStats || []}
+        clientStats={filteredClientStats || []}
         downloads={filteredLatestDownloads || []}
         timeRange={timeRange}
+        customStartDate={customStartDate}
+        customEndDate={customEndDate}
       />
     </div>
   );

@@ -7,11 +7,20 @@ interface TopClientsTableProps {
   clientStats?: any[];
   downloads?: any[];
   timeRange?: string;
+  customStartDate?: Date | null;
+  customEndDate?: Date | null;
 }
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
-  ({ clientStats = [], timeRange = 'live' }) => {
+  ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate }) => {
     const timeRangeLabel = useMemo(() => {
+      if (timeRange === 'custom' && customStartDate && customEndDate) {
+        const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+        const start = customStartDate.toLocaleDateString(undefined, options);
+        const end = customEndDate.toLocaleDateString(undefined, options);
+        return `${start} - ${end}`;
+      }
+
       const labels: Record<string, string> = {
         '15m': 'Last 15 Minutes',
         '30m': 'Last 30 Minutes',
@@ -25,7 +34,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         live: 'Live Data'
       };
       return labels[timeRange] || 'Live Data';
-    }, [timeRange]);
+    }, [timeRange, customStartDate, customEndDate]);
 
     const displayClients = useMemo(() => clientStats.slice(0, 10), [clientStats]);
 
