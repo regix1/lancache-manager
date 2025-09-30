@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { HardDrive, Trash2, AlertTriangle } from 'lucide-react';
+import { HardDrive, Trash2, AlertTriangle, Loader } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
@@ -29,6 +29,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [cacheClearProgress, setCacheClearProgress] = useState<CacheClearStatus | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
   const [config, setConfig] = useState<Config>({
     cachePath: 'Loading...',
     logPath: 'Loading...',
@@ -52,10 +53,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   const loadConfig = async () => {
     try {
+      setIsLoadingConfig(true);
       const configData = await ApiService.getConfig();
       setConfig(configData);
     } catch (err) {
       console.error('Failed to load config:', err);
+    } finally {
+      setIsLoadingConfig(false);
     }
   };
 
@@ -210,13 +214,22 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         </div>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex-1">
-            <p className="text-themed-secondary">
-              Manage cached game files in{' '}
-              <code className="bg-themed-tertiary px-2 py-1 rounded">{config.cachePath}</code>
-            </p>
-            <p className="text-xs text-themed-muted mt-1">
-              ⚠️ This deletes ALL cached game files from disk
-            </p>
+            {isLoadingConfig ? (
+              <div className="flex items-center gap-2">
+                <Loader className="w-4 h-4 animate-spin text-themed-accent" />
+                <p className="text-sm text-themed-secondary">Loading cache configuration...</p>
+              </div>
+            ) : (
+              <>
+                <p className="text-themed-secondary">
+                  Manage cached game files in{' '}
+                  <code className="bg-themed-tertiary px-2 py-1 rounded">{config.cachePath}</code>
+                </p>
+                <p className="text-xs text-themed-muted mt-1">
+                  ⚠️ This deletes ALL cached game files from disk
+                </p>
+              </>
+            )}
           </div>
           <Button
             variant="filled"

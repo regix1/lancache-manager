@@ -6,7 +6,8 @@ public class DownloadHub : Hub
 {
     public override async Task OnConnectedAsync()
     {
-        await Clients.Caller.SendAsync("Connected", Context.ConnectionId);
+        // Connection is established - no need to send explicit notification
+        // Clients can check connection.connectionId directly if needed
         await base.OnConnectedAsync();
     }
 }

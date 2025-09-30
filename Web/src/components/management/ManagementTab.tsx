@@ -342,8 +342,10 @@ const LogFileManager: React.FC<{
         <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
       </p>
       {isLoading ? (
-        <div className="flex items-center justify-center py-8">
-          <Loader className="w-6 h-6 animate-spin text-themed-muted" />
+        <div className="flex flex-col items-center justify-center py-8 gap-3">
+          <Loader className="w-6 h-6 animate-spin text-themed-accent" />
+          <p className="text-sm text-themed-secondary">Scanning log file for services...</p>
+          <p className="text-xs text-themed-muted">This may take up to 5 minutes for large log files</p>
         </div>
       ) : servicesWithData.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">

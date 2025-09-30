@@ -5,11 +5,8 @@ namespace LancacheManager.Constants;
 /// </summary>
 public static class LancacheConstants
 {
-
-
     // Configuration keys
     public const string CONFIG_KEY_REQUIRE_AUTH_METRICS = "Security:RequireAuthForMetrics";
-    public const string CONFIG_KEY_REQUIRE_AUTH_PERFORMANCE = "Security:RequireAuthForPerformance";
     public const string CONFIG_KEY_API_KEY = "Security:ApiKey";
 
     // Default values
@@ -37,4 +34,25 @@ public static class LancacheConstants
     // Size constants
     public const long MIN_CACHE_SIZE_FOR_WARNING = 1073741824; // 1GB in bytes
     public const int MAX_LOG_BATCH_SIZE = 10000;
+
+    /// <summary>
+    /// Known lancache services for log filtering and identification
+    /// </summary>
+    public static readonly HashSet<string> KNOWN_SERVICES = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "steam", "epic", "epicgames", "origin", "blizzard", "battle.net", "battlenet",
+        "wsus", "riot", "riotgames", "uplay", "ubisoft", "gog", "nintendo", "sony",
+        "microsoft", "xbox", "apple", "frontier", "nexusmods", "wargaming", "arenanet"
+    };
+
+    /// <summary>
+    /// Checks if a string contains only hexadecimal characters (0-9, a-f, A-F)
+    /// </summary>
+    public static bool IsHex(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return false;
+
+        return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
+    }
 }

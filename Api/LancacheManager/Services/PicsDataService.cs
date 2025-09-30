@@ -31,7 +31,7 @@ public class PicsDataService
     /// <summary>
     /// Save PICS depot mappings to JSON file
     /// </summary>
-    public async Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0)
+    public Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0)
     {
         try
         {
@@ -88,11 +88,13 @@ public class PicsDataService
 
             // Update state to indicate data is loaded
             _stateService.SetDataLoaded(true, picsData.Metadata.TotalMappings);
+
+            return Task.CompletedTask;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error saving PICS data to JSON file");
-            throw;
+            return Task.FromException(ex);
         }
     }
 

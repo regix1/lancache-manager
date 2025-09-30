@@ -274,7 +274,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 type: item.type
               } : {
                 service: item.service,
-                name: item.gameName || 'Individual Download',
+                name: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
+                  ? item.gameName
+                  : 'Individual Download',
                 totalBytes: item.totalBytes,
                 cacheHitBytes: item.cacheHitBytes,
                 cacheMissBytes: item.cacheMissBytes,

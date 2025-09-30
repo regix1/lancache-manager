@@ -12,20 +12,17 @@ public class AuthController : ControllerBase
     private readonly DeviceAuthService _deviceAuthService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
-    private readonly PathResolverService _pathResolver;
 
     public AuthController(
         ApiKeyService apiKeyService,
         DeviceAuthService deviceAuthService,
         IConfiguration configuration,
-        ILogger<AuthController> logger,
-        PathResolverService pathResolver)
+        ILogger<AuthController> logger)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
         _configuration = configuration;
         _logger = logger;
-        _pathResolver = pathResolver;
     }
 
     /// <summary>

@@ -157,7 +157,7 @@ public class CacheManagementService
             var dirs = Directory.GetDirectories(_cachePath)
                 .Where(d => {
                     var name = Path.GetFileName(d);
-                    return name.Length == 2 && IsHex(name);
+                    return name.Length == 2 && LancacheConstants.IsHex(name);
                 })
                 .ToList();
             
@@ -233,21 +233,9 @@ public class CacheManagementService
             throw;
         }
     }
-    
-    private bool IsHex(string value)
-    {
-        return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
-    }
 
     public async Task RemoveServiceFromLogs(string service)
     {
-        // Known lancache services
-        var knownServices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "steam", "epic", "epicgames", "origin", "blizzard", "battle.net", "battlenet",
-            "wsus", "riot", "riotgames", "uplay", "ubisoft", "gog", "nintendo", "sony",
-            "microsoft", "xbox", "apple", "frontier", "nexusmods", "wargaming", "arenanet"
-        };
 
         try
         {
@@ -303,7 +291,7 @@ public class CacheManagementService
                             // If removing "unknown", remove all non-known services (except localhost)
                             if (service.Equals("unknown", StringComparison.OrdinalIgnoreCase))
                             {
-                                if (lineService != "127" && lineService != "localhost" && !knownServices.Contains(lineService))
+                                if (lineService != "127" && lineService != "localhost" && !LancacheConstants.KNOWN_SERVICES.Contains(lineService))
                                 {
                                     shouldRemove = true;
                                 }
@@ -355,14 +343,6 @@ public class CacheManagementService
     {
         var counts = new Dictionary<string, long>();
 
-        // Known lancache services
-        var knownServices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "steam", "epic", "epicgames", "origin", "blizzard", "battle.net", "battlenet",
-            "wsus", "riot", "riotgames", "uplay", "ubisoft", "gog", "nintendo", "sony",
-            "microsoft", "xbox", "apple", "frontier", "nexusmods", "wargaming", "arenanet"
-        };
-
         try
         {
             if (!File.Exists(_logPath))
@@ -377,9 +357,12 @@ public class CacheManagementService
                 {
                     string? line;
                     var serviceSet = new HashSet<string>();
+                    int linesProcessed = 0;
 
                     while ((line = await reader.ReadLineAsync()) != null)
                     {
+                        linesProcessed++;
+
                         // Extract service name from line
                         if (line.StartsWith("[") && line.IndexOf(']') > 0)
                         {
@@ -392,7 +375,7 @@ public class CacheManagementService
 
                             // Determine if this is a known service or unknown
                             string serviceKey;
-                            if (knownServices.Contains(service))
+                            if (LancacheConstants.KNOWN_SERVICES.Contains(service))
                             {
                                 serviceKey = service;
                             }
@@ -417,7 +400,7 @@ public class CacheManagementService
                         }
                     }
 
-                    _logger.LogInformation($"Found {serviceSet.Count} services in logs: {string.Join(", ", serviceSet)}");
+                    _logger.LogInformation($"Found {serviceSet.Count} services in logs (scanned {linesProcessed} lines): {string.Join(", ", serviceSet)}");
                 }
             });
 

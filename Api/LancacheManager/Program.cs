@@ -90,8 +90,6 @@ builder.Services.AddSingleton<SteamService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamService>());
 
 // Register services
-builder.Services.AddSingleton<PathResolverService>();
-builder.Services.AddSingleton<LogParserService>();
 builder.Services.AddSingleton<StateService>();
 builder.Services.AddScoped<DatabaseService>();
 builder.Services.AddSingleton<CacheManagementService>();
@@ -233,84 +231,11 @@ using (var scope = app.Services.CreateScope())
         await statsCache.RefreshFromDatabase(dbContext);
         
         logger.LogInformation("Database initialization complete");
-
-        // Disabled automatic depot mapping - users now choose initialization method via UI
-        // _ = Task.Run(async () => await EnsureDepotMappingsUpdated(app.Services, logger));
     }
     catch (Exception ex)
     {
         logger.LogError(ex, "Database initialization failed");
         throw; // Fail fast if database init fails
-    }
-}
-
-// Background task to ensure depot mappings are updated after startup
-static async Task EnsureDepotMappingsUpdated(IServiceProvider serviceProvider, ILogger<Program> logger)
-{
-    try
-    {
-        logger.LogInformation("Starting background depot mapping update task");
-
-        // Wait for services to be fully started (longer delay to ensure SteamKit2 has time to initialize)
-        await Task.Delay(TimeSpan.FromSeconds(30));
-
-        // Create a scope to resolve scoped services
-        using var scope = serviceProvider.CreateScope();
-        var steamKit2Service = scope.ServiceProvider.GetRequiredService<SteamKit2Service>();
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        // Wait up to 10 minutes for SteamKit2Service to become ready or complete its initial crawl
-        var maxWait = TimeSpan.FromMinutes(10);
-        var waited = TimeSpan.Zero;
-        var checkInterval = TimeSpan.FromSeconds(10);
-
-        logger.LogInformation("Waiting for SteamKit2Service to be ready or complete initial crawl...");
-
-        while (waited < maxWait && !steamKit2Service.IsReady)
-        {
-            await Task.Delay(checkInterval);
-            waited += checkInterval;
-
-            if (waited.TotalMinutes % 1 == 0) // Log every minute
-            {
-                logger.LogInformation($"Still waiting for SteamKit2Service... ({waited.TotalMinutes:F0}/{maxWait.TotalMinutes:F0} minutes)");
-            }
-        }
-
-        if (steamKit2Service.IsReady)
-        {
-            logger.LogInformation("SteamKit2Service is ready, checking for downloads needing depot mapping");
-
-            // Check if there are downloads with depot IDs but no game app IDs
-            var unmappedDownloads = await dbContext.Downloads
-                .Where(d => d.DepotId.HasValue && d.GameAppId == null)
-                .CountAsync();
-
-            if (unmappedDownloads > 0)
-            {
-                logger.LogInformation($"Found {unmappedDownloads} downloads needing depot mapping, triggering update...");
-
-                // Create a scope for the GameInfoController to update depot mappings
-                using var innerScope = serviceProvider.CreateScope();
-                var gameInfoController = innerScope.ServiceProvider.GetRequiredService<LancacheManager.Controllers.GameInfoController>();
-
-                // Trigger the depot mapping update
-                var result = await gameInfoController.UpdateDepotMappings();
-                logger.LogInformation("Automatic depot mapping update completed at startup");
-            }
-            else
-            {
-                logger.LogInformation("No downloads found needing depot mapping");
-            }
-        }
-        else
-        {
-            logger.LogWarning($"SteamKit2Service did not become ready within {maxWait.TotalMinutes} minutes - depot mapping update skipped");
-        }
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Error in background depot mapping update task");
     }
 }
 

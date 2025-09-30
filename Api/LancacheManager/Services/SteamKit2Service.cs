@@ -970,87 +970,27 @@ public class SteamKit2Service : IHostedService, IDisposable
     /// </summary>
     private void AddAppsFromMathematicalRanges(HashSet<uint> allApps)
     {
-        // Dynamic ranges based on Steam's app ID allocation patterns
-        var currentYear = DateTime.UtcNow.Year;
-        var steamLaunchYear = 2003;
-        var yearsActive = currentYear - steamLaunchYear;
-
-        // Complete Steam catalog coverage - no app should be missed
+        // Simplified coverage of Steam's app ID range with practical step sizes
+        // This is a fallback discovery method - most apps should come from PICS enumeration
         var ranges = new List<(uint start, uint end, uint step)>
         {
-            // Classic Steam era (2003-2007) - complete coverage
-            (1U, 1000U, 1U),
-
-            // Early growth era (2007-2010) - tighter coverage
-            (1000U, 50000U, 5U),
-
-            // Expansion era (2010-2015) - much tighter coverage
-            (50000U, 400000U, 25U),
-
-            // Modern era (2015-2020) - comprehensive coverage
-            (400000U, 800000U, 50U),
-
-            // Recent era (2020-2022) - tight coverage
-            (800000U, 1500000U, 100U),
-
-            // Current era (2022-2024) - comprehensive coverage for new games
-            (1500000U, 2500000U, 250U),
-
-            // Extended coverage for newest games like Marvel Rivals
-            (2500000U, 5000000U, 500U),
-
-            // Maximum range for any possible Steam app
-            (5000000U, 10000000U, 2000U)
+            (1U, 1000U, 1U),           // Classic games - full coverage
+            (1000U, 100000U, 10U),     // Early/popular games - tight coverage
+            (100000U, 1000000U, 100U), // Modern games - moderate coverage
+            (1000000U, 3000000U, 500U) // Recent games - sparse coverage
         };
 
-        // Remove limits to allow maximum discovery
+        int addedCount = 0;
         foreach (var (start, end, step) in ranges)
         {
             for (uint appId = start; appId <= end && allApps.Count < 300000; appId += step)
             {
-                allApps.Add(appId);
+                if (allApps.Add(appId))
+                    addedCount++;
             }
         }
 
-        // Complete problematic app ranges with guaranteed coverage for all eras
-        var problematicRanges = new List<(uint start, uint end, uint step)>
-        {
-            // Rainbow Six Siege area - complete coverage
-            (350000U, 370000U, 1U),
-
-            // Classic high-value ranges with fine-grained coverage
-            (1000U, 10000U, 1U),     // Classic Steam games
-            (20000U, 30000U, 1U),    // Early Source games
-            (40000U, 60000U, 5U),    // Popular indie range
-            (100000U, 110000U, 1U),  // Popular Steam range
-            (200000U, 250000U, 5U),  // Early modern Steam
-            (300000U, 320000U, 1U),  // Around common game ranges
-            (380000U, 420000U, 10U), // Extended modern range
-            (500000U, 600000U, 25U), // Newer Steam apps
-            (700000U, 750000U, 25U), // Recent apps
-
-            // 2020+ era games - potential Marvel Rivals territory
-            (1000000U, 1100000U, 10U), // Early 2020s games
-            (1500000U, 1600000U, 10U), // Mid 2020s games
-            (2000000U, 2100000U, 25U), // Recent major releases
-            (2500000U, 2600000U, 10U), // Very recent games
-            (3000000U, 3200000U, 50U), // Newest game range
-
-            // Extended coverage for potential edge cases
-            (4000000U, 4100000U, 100U), // Extreme high range
-            (5000000U, 5100000U, 250U), // Maximum coverage
-        };
-
-        foreach (var (start, end, step) in problematicRanges)
-        {
-            for (uint appId = start; appId <= end; appId += step)
-            {
-                allApps.Add(appId);
-            }
-        }
-
-        _logger.LogDebug("Added apps from {RangeCount} mathematical ranges and {ProblematicCount} problematic ranges",
-            ranges.Count, problematicRanges.Count);
+        _logger.LogDebug("Mathematical range discovery added {Count} potential app IDs", addedCount);
     }
 
     /// <summary>

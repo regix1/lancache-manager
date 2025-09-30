@@ -32,131 +32,6 @@ public class GameInfoController : ControllerBase
         _logger = logger;
     }
 
-    /// <summary>
-    /// List available depot mappings (first 10) from SteamKit2
-    /// </summary>
-    [HttpGet("list-depots")]
-    public IActionResult ListAvailableDepots()
-    {
-        try
-        {
-            var mappings = _steamKit2Service.GetSampleDepotMappings(10).Select(m => new {
-                depotId = m.Key,
-                appId = m.Value
-            }).ToList();
-
-            return Ok(new {
-                totalMappings = _steamKit2Service.GetDepotMappingCount(),
-                sampleMappings = mappings,
-                steamKit2Ready = _steamKit2Service.IsReady,
-                rebuildInProgress = _steamKit2Service.IsRebuildRunning,
-                source = "SteamKit2"
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error listing depot mappings");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Test depot mapping for a specific depot ID
-    /// </summary>
-    [HttpGet("test-depot/{id}")]
-    public async Task<IActionResult> TestDepotMapping(uint id)
-    {
-        try
-        {
-            _logger.LogInformation($"Testing depot mapping for depot {id}");
-
-            // Heuristic: depot IDs rarely match their owner AppID,
-            // and DLC appids like 2278280 will never be valid depots.
-            if (_steamKit2Service.GetAppIdsForDepot(id).Count == 0 &&
-                (await _picsDataService.GetAppIdsForDepotFromJsonAsync(id)).Count == 0)
-            {
-                // If it looks like an AppID with a valid store page, tell the user
-                var maybeAppInfo = await _steamService.GetGameInfoAsync(id);
-                if (maybeAppInfo != null)
-                {
-                    return Ok(new {
-                        depotId = (uint?)null,
-                        appId = id,
-                        gameName = maybeAppInfo.Name,
-                        message = $"The ID {id} looks like an AppID (\"{maybeAppInfo.Name}\"), not a depot ID.",
-                        success = false,
-                        source = "AppID-Detection"
-                    });
-                }
-            }
-
-            // Try to get app ID from depot using SteamKit2 first
-            var appId = _steamKit2Service.GetAppIdFromDepot(id);
-            string source = "SteamKit2";
-
-            // Fallback to JSON file if no database mapping found
-            if (!appId.HasValue)
-            {
-                var jsonAppIds = await _picsDataService.GetAppIdsForDepotFromJsonAsync(id);
-                if (jsonAppIds.Any())
-                {
-                    appId = jsonAppIds.First();
-                    source = "JSON";
-                }
-            }
-
-
-            if (!appId.HasValue)
-            {
-                return Ok(new {
-                    depotId = id,
-                    appId = (uint?)null,
-                    gameName = "No mapping found",
-                    success = false,
-                    source = "None",
-                    steamKit2Ready = _steamKit2Service.IsReady,
-                    rebuildInProgress = _steamKit2Service.IsRebuildRunning
-                });
-            }
-
-            // Get game info
-            var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
-
-            return Ok(new {
-                depotId = id,
-                appId = appId.Value,
-                gameName = gameInfo?.Name ?? "Unknown",
-                gameType = gameInfo?.Type,
-                success = true,
-                source = source,
-                steamKit2Ready = _steamKit2Service.IsReady,
-                rebuildInProgress = _steamKit2Service.IsRebuildRunning
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error testing depot mapping for depot {id}");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Get current PICS crawl progress
-    /// </summary>
-    [HttpGet("steamkit/progress")]
-    public IActionResult GetSteamKitProgress()
-    {
-        try
-        {
-            var progress = _steamKit2Service.GetProgress();
-            return Ok(progress);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting SteamKit PICS progress");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
 
     /// <summary>
     /// Trigger a background Steam PICS crawl to rebuild depot mappings.
@@ -190,6 +65,25 @@ public class GameInfoController : ControllerBase
         }
     }
 
+
+    /// <summary>
+    /// Get current PICS crawl progress and status
+    /// </summary>
+    [HttpGet("steamkit/progress")]
+    public IActionResult GetSteamKitProgress()
+    {
+        try
+        {
+            var progress = _steamKit2Service.GetProgress();
+            return Ok(progress);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting SteamKit PICS progress");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
     /// <summary>
     /// Set the crawl interval for periodic depot mapping updates
     /// </summary>
@@ -216,145 +110,6 @@ public class GameInfoController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error setting crawl interval");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Update all downloads with depot IDs to include game information
-    /// </summary>
-    [HttpPost("update-depot-mappings")]
-    public async Task<IActionResult> UpdateDepotMappings()
-    {
-        return await UpdateDepotMappingsInternal(false);
-    }
-
-    /// <summary>
-    /// Force update all downloads with depot IDs, overriding existing mappings
-    /// </summary>
-    [HttpPost("update-depot-mappings/force")]
-    public async Task<IActionResult> ForceUpdateDepotMappings()
-    {
-        return await UpdateDepotMappingsInternal(true);
-    }
-
-    private async Task<IActionResult> UpdateDepotMappingsInternal(bool forceUpdate)
-    {
-        try
-        {
-            _logger.LogInformation($"Starting depot mapping update for downloads (force={forceUpdate})");
-
-            // Get downloads that have depot IDs and either no game info or force update all
-            var downloadsNeedingGameInfo = await _context.Downloads
-                .Where(d => d.DepotId.HasValue && (forceUpdate || d.GameAppId == null))
-                .ToListAsync();
-
-            _logger.LogInformation($"Found {downloadsNeedingGameInfo.Count} downloads needing game info");
-
-            int updated = 0;
-            int notFound = 0;
-
-            foreach (var download in downloadsNeedingGameInfo)
-            {
-                try
-                {
-                    uint? appId = null;
-
-                    // Use SteamKit2Service PICS mappings first
-                    var appIds = _steamKit2Service.GetAppIdsForDepot(download.DepotId.Value);
-                    if (appIds.Any())
-                    {
-                        appId = appIds.First(); // Take the first app ID if multiple exist
-                    }
-                    else
-                    {
-                        // Fallback to JSON file
-                        var jsonAppIds = await _picsDataService.GetAppIdsForDepotFromJsonAsync(download.DepotId.Value);
-                        if (jsonAppIds.Any())
-                        {
-                            appId = jsonAppIds.First();
-                        }
-                    }
-
-
-                    if (appId.HasValue)
-                    {
-                        download.GameAppId = appId.Value;
-
-                        // Get game info from Steam API
-                        var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
-                        if (gameInfo != null)
-                        {
-                            download.GameName = gameInfo.Name;
-                            download.GameImageUrl = gameInfo.HeaderImage;
-                            updated++;
-
-                            _logger.LogDebug($"Updated download {download.Id}: depot {download.DepotId} -> {gameInfo.Name} (App {appId})");
-                        }
-                        else
-                        {
-                            download.GameName = $"Steam App {appId}";
-                            updated++;
-                        }
-                    }
-                    else
-                    {
-                        notFound++;
-                        _logger.LogDebug($"No mapping found for depot {download.DepotId}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, $"Failed to get game info for depot {download.DepotId}");
-                    notFound++;
-                }
-            }
-
-            if (updated > 0)
-            {
-                await _context.SaveChangesAsync();
-                _logger.LogInformation($"Updated {updated} downloads with game information");
-            }
-
-            return Ok(new
-            {
-                message = "Depot mapping update completed",
-                totalProcessed = downloadsNeedingGameInfo.Count,
-                updated = updated,
-                notFound = notFound,
-                steamKit2Ready = _steamKit2Service.IsReady,
-                steamKit2DepotCount = _steamKit2Service.GetDepotMappingCount()
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error updating depot mappings");
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Import PICS depot mappings from JSON file to database
-    /// </summary>
-    [HttpPost("import-json-data")]
-    public async Task<IActionResult> ImportJsonDataToDatabase()
-    {
-        try
-        {
-            _logger.LogInformation("Starting import of PICS JSON data to database");
-
-            await _picsDataService.ImportJsonDataToDatabaseAsync();
-
-            return Ok(new
-            {
-                message = "PICS JSON data imported to database successfully",
-                timestamp = DateTime.UtcNow,
-                picsJsonPath = _picsDataService.GetPicsJsonFilePath()
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error importing PICS JSON data to database");
             return StatusCode(500, new { error = ex.Message });
         }
     }
@@ -402,129 +157,6 @@ public class GameInfoController : ControllerBase
             return StatusCode(500, new { error = ex.Message });
         }
     }
-
-    /// <summary>
-    /// Get detailed game information for a specific download
-    /// </summary>
-    [HttpGet("download/{downloadId}")]
-    public async Task<IActionResult> GetDownloadGameInfo(int downloadId)
-    {
-        try
-        {
-            var download = await _context.Downloads
-                .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == downloadId);
-
-            if (download == null)
-            {
-                return NotFound(new { error = "Download not found" });
-            }
-
-            // For non-Steam services, return basic info
-            if (download.Service.ToLower() != "steam")
-            {
-                return Ok(new GameDownloadDetails
-                {
-                    DownloadId = download.Id,
-                    Service = download.Service,
-                    GameName = $"{download.Service} Content",
-                    TotalBytes = download.TotalBytes,
-                    CacheHitBytes = download.CacheHitBytes,
-                    CacheMissBytes = download.CacheMissBytes,
-                    CacheHitPercent = download.CacheHitPercent,
-                    StartTime = download.StartTime,
-                    EndTime = download.EndTime,
-                    ClientIp = download.ClientIp,
-                    IsActive = download.IsActive
-                });
-            }
-
-            // Try to get game info from download record first
-            if (download.GameAppId.HasValue && !string.IsNullOrEmpty(download.GameName))
-            {
-                var cachedInfo = await _steamService.GetGameInfoAsync(download.GameAppId.Value);
-                
-                return Ok(new GameDownloadDetails
-                {
-                    DownloadId = download.Id,
-                    Service = download.Service,
-                    AppId = download.GameAppId,
-                    GameName = cachedInfo?.Name ?? download.GameName,
-                    GameType = cachedInfo?.Type,
-                    HeaderImage = cachedInfo?.HeaderImage ?? download.GameImageUrl,
-                    Description = cachedInfo?.Description,
-                    TotalBytes = download.TotalBytes,
-                    CacheHitBytes = download.CacheHitBytes,
-                    CacheMissBytes = download.CacheMissBytes,
-                    CacheHitPercent = download.CacheHitPercent,
-                    StartTime = download.StartTime,
-                    EndTime = download.EndTime,
-                    ClientIp = download.ClientIp,
-                    IsActive = download.IsActive
-                });
-            }
-
-            // Try to extract app ID from URL if we have one
-            if (!string.IsNullOrEmpty(download.LastUrl))
-            {
-                var appId = _steamService.ExtractAppIdFromUrl(download.LastUrl);
-                if (appId.HasValue)
-                {
-                    var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
-                    
-                    // Update the download record with game info
-                    download.GameAppId = appId;
-                    download.GameName = gameInfo?.Name;
-                    download.GameImageUrl = gameInfo?.HeaderImage;
-                    _context.Downloads.Update(download);
-                    await _context.SaveChangesAsync();
-
-                    return Ok(new GameDownloadDetails
-                    {
-                        DownloadId = download.Id,
-                        Service = download.Service,
-                        AppId = appId,
-                        GameName = gameInfo?.Name ?? "Unknown Steam Game",
-                        GameType = gameInfo?.Type,
-                        HeaderImage = gameInfo?.HeaderImage,
-                        Description = gameInfo?.Description,
-                        TotalBytes = download.TotalBytes,
-                        CacheHitBytes = download.CacheHitBytes,
-                        CacheMissBytes = download.CacheMissBytes,
-                        CacheHitPercent = download.CacheHitPercent,
-                        StartTime = download.StartTime,
-                        EndTime = download.EndTime,
-                        ClientIp = download.ClientIp,
-                        IsActive = download.IsActive
-                    });
-                }
-            }
-
-            // Return basic info if we can't determine the game
-            return Ok(new GameDownloadDetails
-            {
-                DownloadId = download.Id,
-                Service = download.Service,
-                GameName = "Unknown Steam Game",
-                TotalBytes = download.TotalBytes,
-                CacheHitBytes = download.CacheHitBytes,
-                CacheMissBytes = download.CacheMissBytes,
-                CacheHitPercent = download.CacheHitPercent,
-                StartTime = download.StartTime,
-                EndTime = download.EndTime,
-                ClientIp = download.ClientIp,
-                IsActive = download.IsActive
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error getting game info for download {downloadId}");
-            return StatusCode(500, new { error = "Failed to get game information" });
-        }
-    }
-
-
-
 
 
 

@@ -398,7 +398,7 @@ class ApiService {
   static async getServiceLogCounts(): Promise<Record<string, number>> {
     try {
       const res = await fetch(`${API_BASE}/management/logs/service-counts`, {
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(300000), // 5 minute timeout for large log files
         headers: this.getHeaders()
       });
       return await this.handleResponse<Record<string, number>>(res);
@@ -411,7 +411,7 @@ class ApiService {
   // Get configuration info
   static async getConfig(): Promise<Config> {
     const res = await fetch(`${API_BASE}/management/config`, {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(300000), // 5 minute timeout for large log files
       headers: this.getHeaders()
     });
     return await this.handleResponse<Config>(res);
