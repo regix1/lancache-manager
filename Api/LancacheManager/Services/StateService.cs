@@ -13,6 +13,8 @@ public class StateService
     private readonly string _stateFilePath;
     private readonly object _lock = new object();
     private AppState? _cachedState;
+    private volatile bool _skipSavesDuringBulkProcessing = false;
+    private int _consecutiveFailures = 0;
 
     public StateService(ILogger<StateService> logger, IPathResolver pathResolver)
     {
@@ -122,6 +124,12 @@ public class StateService
     /// </summary>
     public void SaveState(AppState state)
     {
+        // Skip saves if we've had too many failures or bulk processing mode
+        if (_skipSavesDuringBulkProcessing || _consecutiveFailures > 5)
+        {
+            return;
+        }
+
         lock (_lock)
         {
             try
@@ -143,21 +151,37 @@ public class StateService
                 File.Move(tempFile, _stateFilePath, true);
 
                 _cachedState = state;
+                _consecutiveFailures = 0; // Reset on success
                 _logger.LogTrace("State saved successfully with position: {Position}", state.LogProcessing.Position);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save state");
-                // Try direct write as fallback
-                try
+                _consecutiveFailures++;
+
+                // Only log first few failures to avoid spam
+                if (_consecutiveFailures <= 3)
                 {
-                    File.WriteAllText(_stateFilePath, JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true }));
+                    _logger.LogWarning(ex, "Failed to save state (failure #{Count})", _consecutiveFailures);
                 }
-                catch (Exception fallbackEx)
+                else if (_consecutiveFailures == 6)
                 {
-                    _logger.LogError(fallbackEx, "Fallback save also failed");
+                    _logger.LogError("Too many consecutive save failures ({Count}), disabling state saves", _consecutiveFailures);
                 }
             }
+        }
+    }
+
+    public void SetBulkProcessingMode(bool enabled)
+    {
+        _skipSavesDuringBulkProcessing = enabled;
+        if (enabled)
+        {
+            _logger.LogInformation("State saving disabled during bulk processing");
+        }
+        else
+        {
+            _logger.LogInformation("State saving re-enabled");
+            _consecutiveFailures = 0; // Reset failure counter
         }
     }
 

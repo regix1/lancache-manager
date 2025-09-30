@@ -98,13 +98,8 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddScoped<StatsService>();
 builder.Services.AddSingleton<PicsDataService>();
 
-// Register LogProcessingService for high-performance log processing
-builder.Services.AddSingleton<LogProcessingService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<LogProcessingService>());
-
-// Register LogWatcherService for automatic log monitoring
-builder.Services.AddSingleton<LogWatcherService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<LogWatcherService>());
+// Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
+builder.Services.AddSingleton<RustLogProcessorService>();
 
 // Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();
@@ -134,7 +129,7 @@ builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.WindowsPathResolver", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Information);
-builder.Logging.AddFilter("LancacheManager.Services.LogProcessingService", LogLevel.Information);
+builder.Logging.AddFilter("LancacheManager.Services.RustLogProcessorService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.Information);
 builder.Logging.SetMinimumLevel(LogLevel.Information);

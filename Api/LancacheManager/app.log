@@ -1,0 +1,403 @@
+Using launch settings from H:\_git\lancache-manager\Api\LancacheManager\Properties\launchSettings.json...
+Building...
+info: LancacheManager.Security.ApiKeyService[0]
+      Loaded existing API key from H:\_git\lancache-manager\data\api_key.txt
+info: LancacheManager.Security.ApiKeyService[0]
+      ========================================
+info: LancacheManager.Security.ApiKeyService[0]
+      API Key: lm_GAkdvAkYx2GFWUoNNenFz9TbmK0ay_Jm9AkX1xRS8DE
+info: LancacheManager.Security.ApiKeyService[0]
+      Save this key! It's required for authentication.
+info: LancacheManager.Security.ApiKeyService[0]
+      Location: H:\_git\lancache-manager\data\api_key.txt
+info: LancacheManager.Security.ApiKeyService[0]
+      ========================================
+Using database path: H:\_git\lancache-manager\data\LancacheManager.db
+info: Program[0]
+      Checking database migrations...
+info: Program[0]
+      Database migrations applied successfully
+info: LancacheManager.Services.StatsCache[0]
+      Cached 5 client stats
+info: LancacheManager.Services.StatsCache[0]
+      Cached 4 service stats
+info: LancacheManager.Services.StatsCache[0]
+      Cached 29 recent downloads
+info: LancacheManager.Services.StatsCache[0]
+      Cached 0 active downloads
+info: Program[0]
+      Database initialization complete
+info: LancacheManager.Services.LogProcessingService[0]
+      LogProcessingService initialized
+info: LancacheManager.Services.LogWatcherService[0]
+      LogWatcherService using log path: H:\_git\lancache-manager\logs\access.log
+info: LancacheManager.Services.LogWatcherService[0]
+      Processing marker: H:\_git\lancache-manager\data\processing.marker
+warn: LancacheManager.Services.CacheClearingService[0]
+      No cache detected, using configured path: H:\_git\lancache-manager\cache
+info: LancacheManager.Services.CacheClearingService[0]
+      CacheClearingService initialized with cache path: H:\_git\lancache-manager\cache
+info: LancacheManager.Services.SteamKit2Service[0]
+      Starting SteamKit2Service with PICS depot mapping
+info: LancacheManager.Services.SteamKit2Service[0]
+      Loaded 293739 existing depot mappings from database. Total unique depots: 290543
+info: LancacheManager.Services.SteamKit2Service[0]
+      Loaded crawl interval from state: 1 hour(s)
+info: LancacheManager.Services.SteamKit2Service[0]
+      Loaded last PICS crawl time: 2025-09-30 03:21:35
+info: LancacheManager.Services.SteamKit2Service[0]
+      SteamKit2Service started with incremental PICS updates every hour
+info: LancacheManager.Services.SteamService[0]
+      Starting SteamService...
+info: LancacheManager.Services.SteamService[0]
+      Refreshing Steam depot mappings and app info...
+info: LancacheManager.Services.SteamService[0]
+      Loaded 290543 depots with 293739 mappings from database
+info: LancacheManager.Services.SteamService[0]
+      Loaded 203713 Steam apps from API
+info: LancacheManager.Services.SteamService[0]
+      Depot mappings refresh completed (using database and real-time extraction)
+info: LancacheManager.Services.SteamService[0]
+      Steam data refreshed: 203713 apps, 290543 depots, 293739 depot mappings
+info: LancacheManager.Services.SteamService[0]
+      SteamService started successfully
+info: LancacheManager.Services.LogProcessingService[0]
+      LogProcessingService starting...
+info: LancacheManager.Services.LogProcessingService[0]
+      Log processor started
+info: LancacheManager.Services.LogWatcherService[0]
+      LogWatcherService started - will monitor log file automatically
+info: LancacheManager.Services.LogWatcherService[0]
+      Marker file watcher initialized
+info: LancacheManager.Services.LogWatcherService[0]
+      Log file size: 874.0 MB
+info: LancacheManager.Services.LogWatcherService[0]
+      Found bulk processing marker - entering bulk processing mode
+info: LancacheManager.Services.CacheClearingService[0]
+      Loaded 0 persisted cache clear operations
+info: LancacheManager.Services.OperationStateService[0]
+      Loaded 0 operation states from StateService
+info: LancacheManager.Services.LogWatcherService[0]
+      Loaded saved position: 0
+info: LancacheManager.Services.LogWatcherService[0]
+      Manual bulk processing detected - starting from beginning
+info: LancacheManager.Services.LogProcessingService[0]
+      Bulk processing mode: True
+info: LancacheManager.Services.StateService[0]
+      State saving disabled during bulk processing
+info: LancacheManager.Services.OperationStateService[0]
+      Checking for interrupted log processing operations...
+info: LancacheManager.Services.OperationStateService[0]
+      No activeLogProcessing operation found
+info: LancacheManager.Services.LogWatcherService[0]
+      BULK PROCESSING MODE ACTIVE - starting full reprocess from beginning of log
+info: LancacheManager.Services.LogWatcherService[0]
+      Successfully opened log file on attempt 1
+info: LancacheManager.Services.LogWatcherService[0]
+      BULK MODE: Seeking to position 0 (file length: 916447593)
+info: LancacheManager.Services.LogWatcherService[0]
+      Starting to read from position 0 (bulk=True, file size=916447593)
+info: LancacheManager.Services.LogWatcherService[0]
+      Processing line 1: [127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:16:28:34 -0600] "GET /lancache-heartbeat HTTP/1.1" 204 0 ...
+info: LancacheManager.Services.LogWatcherService[0]
+      Enqueued line 1 for processing
+info: LancacheManager.Services.LogWatcherService[0]
+      Processing line 2: [127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:17:28:35 -0600] "GET /lancache-heartbeat HTTP/1.1" 204 0 ...
+info: LancacheManager.Services.LogWatcherService[0]
+      Enqueued line 2 for processing
+info: LancacheManager.Services.LogWatcherService[0]
+      Processing line 3: [127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:18:28:36 -0600] "GET /lancache-heartbeat HTTP/1.1" 204 0 ...
+info: LancacheManager.Services.LogWatcherService[0]
+      Enqueued line 3 for processing
+info: LancacheManager.Services.LogWatcherService[0]
+      Processing line 4: [127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:19:28:37 -0600] "GET /lancache-heartbeat HTTP/1.1" 204 0 ...
+info: LancacheManager.Services.LogWatcherService[0]
+      Enqueued line 4 for processing
+info: LancacheManager.Services.LogWatcherService[0]
+      Processing line 5: [127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:20:28:38 -0600] "GET /lancache-heartbeat HTTP/1.1" 204 0 ...
+info: LancacheManager.Services.LogWatcherService[0]
+      Enqueued line 5 for processing
+info: LancacheManager.Security.DeviceAuthService[0]
+      Loaded 1 device registrations
+info: Microsoft.Hosting.Lifetime[14]
+      Now listening on: http://localhost:5000
+info: Microsoft.Hosting.Lifetime[0]
+      Application started. Press Ctrl+C to shut down.
+info: Microsoft.Hosting.Lifetime[0]
+      Hosting environment: Development
+info: Microsoft.Hosting.Lifetime[0]
+      Content root path: H:\_git\lancache-manager\Api\LancacheManager
+info: LancacheManager.Services.LogWatcherService[0]
+      Progress: 24.0% (209.8/874.0 MB) - 960969 entries from 960969 lines
+info: LancacheManager.Services.LogWatcherService[0]
+      Progress: 49.0% (428.3/874.0 MB) - 1963122 entries from 1963122 lines
+info: LancacheManager.Services.LogWatcherService[0]
+      Progress: 74.0% (646.8/874.0 MB) - 2963864 entries from 2963864 lines
+info: LancacheManager.Services.LogWatcherService[0]
+      Progress: 99.0% (865.3/874.0 MB) - 3974617 entries from 3974617 lines
+info: LancacheManager.Services.LogWatcherService[0]
+      Bulk processing complete check: position=916447593, fileLength=916447593, emptyReads=1
+info: LancacheManager.Services.LogWatcherService[0]
+      File reading completed in 0.1 minutes
+info: LancacheManager.Services.LogWatcherService[0]
+      Final stats: queued 4014982 entries from 4014982 lines
+info: LancacheManager.Services.LogWatcherService[0]
+      Final position: 916447593 / 916447593
+info: LancacheManager.Services.LogWatcherService[0]
+      Waiting for LogProcessingService to finish processing all queued entries...
+info: LancacheManager.Services.LogProcessingService[0]
+      Waiting for log processing queue to drain before leaving bulk mode
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.DownloadCleanupService[0]
+      Marked 7 downloads as complete
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3908151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3830151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3738151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3656151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3584151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3496151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.DownloadCleanupService[0]
+      Marked 6 downloads as complete
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3402151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3312151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3226151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3134151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=3040151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2954151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.DownloadCleanupService[0]
+      Marked 5 downloads as complete
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2856151, pendingEntries=4000, activeBatches=2, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2764151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2678151, pendingEntries=2000, activeBatches=1, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+warn: LancacheManager.Controllers.ManagementController[0]
+      Detected stuck log processing state at 80.54% with 873.99/873.99 MB. Forcing completion.
+info: LancacheManager.Controllers.ManagementController[0]
+      Stopping log processing services automatically: forced completion after stalled progress
+info: LancacheManager.Controllers.ManagementController[0]
+      Stopping service LogWatcherService with 15s timeout
+info: LancacheManager.Services.LogWatcherService[0]
+      LogWatcherService stopping, current position: 916,447,593
+info: LancacheManager.Services.LogWatcherService[0]
+      Position saved: 916,447,593
+info: LancacheManager.Controllers.ManagementController[0]
+      Stopping service LogProcessingService with 15s timeout
+info: LancacheManager.Services.LogProcessingService[0]
+      Stopping LogProcessingService
+info: LancacheManager.Services.LogWatcherService[0]
+      Position confirmed saved: 916,447,593
+info: LancacheManager.Services.LogProcessingService[0]
+      Log processing cancelled
+info: LancacheManager.Services.LogProcessingService[0]
+      Log processor stopped
+info: LancacheManager.Services.LogProcessingService[0]
+      LogProcessingService stopped
+info: LancacheManager.Services.LogProcessingService[0]
+      LogProcessingService stopped
+info: LancacheManager.Controllers.ManagementController[0]
+      Service LogProcessingService stopped successfully
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2559982, pendingEntries=-168, activeBatches=0, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+warn: LancacheManager.Security.AuthenticationMiddleware[0]
+      Unauthorized access attempt to /api/management/clear-database from ::1
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2559982, pendingEntries=-168, activeBatches=0, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+warn: LancacheManager.Security.AuthenticationMiddleware[0]
+      Unauthorized access attempt to /api/management/clear-database from ::1
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2559982, pendingEntries=-168, activeBatches=0, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.DownloadCleanupService[0]
+      Marked 4 downloads as complete
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%
+info: LancacheManager.Services.LogWatcherService[0]
+      LogWatcherService stopped successfully with position: 916,447,593
+info: LancacheManager.Controllers.ManagementController[0]
+      Service LogWatcherService stopped successfully
+info: LancacheManager.Services.LogProcessingService[0]
+      Still waiting for queue to drain - pendingLines=2559982, pendingEntries=-168, activeBatches=0, buffered=0
+info: LancacheManager.Services.LogProcessingService[0]
+      Sent SignalR ProcessingProgress update: 99.95%

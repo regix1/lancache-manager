@@ -17,10 +17,7 @@ public class ManagementController : ControllerBase
     private readonly ILogger<ManagementController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly StateService _stateService;
-    private readonly LogWatcherService _logWatcherService;
-    private readonly LogProcessingService _logProcessingService;
-    private static CancellationTokenSource? _processingCancellation;
-    private static DateTime? _processingStartTime;
+    private readonly RustLogProcessorService _rustLogProcessorService;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -30,8 +27,7 @@ public class ManagementController : ControllerBase
         ILogger<ManagementController> logger,
         IPathResolver pathResolver,
         StateService stateService,
-        LogWatcherService logWatcherService,
-        LogProcessingService logProcessingService)
+        RustLogProcessorService rustLogProcessorService)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -40,8 +36,7 @@ public class ManagementController : ControllerBase
         _logger = logger;
         _pathResolver = pathResolver;
         _stateService = stateService;
-        _logWatcherService = logWatcherService;
-        _logProcessingService = logProcessingService;
+        _rustLogProcessorService = rustLogProcessorService;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -215,177 +210,42 @@ public class ManagementController : ControllerBase
 
     [HttpPost("process-all-logs")]
     [RequireAuth]
-    public async Task<IActionResult> ProcessAllLogs([FromServices] OperationStateService stateService)
+    public async Task<IActionResult> ProcessAllLogs()
     {
         try
         {
-            _processingCancellation?.Cancel();
-            await Task.Delay(1000);
-
-            _processingCancellation = new CancellationTokenSource();
+            if (_rustLogProcessorService.IsProcessing)
+            {
+                return BadRequest(new { error = "Log processing is already running" });
+            }
 
             var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
             if (!System.IO.File.Exists(logPath))
             {
-                _logger.LogWarning("Log file not found at: {LogPath}", logPath);
-                return Ok(new {
-                    message = $"Log file not found at: {logPath}",
-                    logSizeMB = 0,
-                    estimatedTimeMinutes = 0,
-                    requiresRestart = false,
-                    status = "no_log_file"
-                });
+                return NotFound(new { error = $"Log file not found at: {logPath}" });
             }
 
             var fileInfo = new FileInfo(logPath);
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
-            var resumePosition = _stateService.GetLogPosition();
-            bool resumeFromSavedPosition = resumePosition > 0 && resumePosition < fileInfo.Length;
+            var startPosition = _stateService.GetLogPosition();
 
-            if (fileInfo.Length == 0)
+            _logger.LogInformation("Starting Rust log processing from position {Position}", startPosition);
+
+            // Start Rust processor in background
+            _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, startPosition));
+
+            return Ok(new
             {
-                _logger.LogWarning("Log file is empty");
-                return Ok(new {
-                    message = "Log file is empty. No data to process.",
-                    logSizeMB = 0,
-                    estimatedTimeMinutes = 0,
-                    requiresRestart = false,
-                    status = "empty_file"
-                });
-            }
-
-            if (fileInfo.Length < 100)
-            {
-                _logger.LogWarning("Log file is very small: {FileLength} bytes", fileInfo.Length);
-                return Ok(new {
-                    message = $"Log file only contains {fileInfo.Length} bytes. Likely no game data yet.",
-                    logSizeMB = sizeMB,
-                    estimatedTimeMinutes = 0,
-                    requiresRestart = false,
-                    status = "insufficient_data"
-                });
-            }
-            try
-            {
-                long logFileLineCount = 0;
-                using (var reader = new StreamReader(logPath))
-                {
-                    while (!reader.EndOfStream)
-                    {
-                        await reader.ReadLineAsync();
-                        logFileLineCount++;
-                    }
-                }
-
-                var databaseEntryCount = await _dbService.GetLogEntryCountAsync();
-                _logger.LogInformation("Log file: {LogLines:N0} lines, database: {DbEntries:N0} entries", logFileLineCount, databaseEntryCount);
-
-                if (databaseEntryCount >= logFileLineCount && logFileLineCount > 0)
-                {
-                    _logger.LogInformation("Skipping log processing - database up to date");
-                    return Ok(new {
-                        message = $"Processing skipped - database already contains {databaseEntryCount:N0} entries which matches or exceeds the {logFileLineCount:N0} lines in the log file. No new data to process.",
-                        logSizeMB = sizeMB,
-                        logFileLines = logFileLineCount,
-                        databaseEntries = databaseEntryCount,
-                        estimatedTimeMinutes = 0,
-                        requiresRestart = false,
-                        status = "already_processed",
-                        skipReason = "database_up_to_date"
-                    });
-                }
-
-                if (databaseEntryCount < logFileLineCount)
-                {
-                    var newEntriesToProcess = logFileLineCount - databaseEntryCount;
-                    _logger.LogInformation("Database behind by {NewEntries:N0} entries", newEntriesToProcess);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to check for duplicate processing");
-            }
-
-            _logger.LogInformation("Starting full log processing: {SizeMB:F1} MB", sizeMB);
-            if (resumeFromSavedPosition)
-            {
-                _logger.LogInformation("Resuming from position {Position:N0}", resumePosition);
-            }
-
-            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
-            if (System.IO.File.Exists(processingMarker))
-            {
-                System.IO.File.Delete(processingMarker);
-                await Task.Delay(100);
-            }
-
-            if (!resumeFromSavedPosition)
-            {
-                _stateService.SetLogPosition(0);
-            }
-
-            var markerData = new
-            {
-                startTime = DateTime.UtcNow,
-                startPosition = resumeFromSavedPosition ? resumePosition : 0L,
-                fileSize = fileInfo.Length,
-                triggerType = resumeFromSavedPosition ? "manual_resume" : "manual",
-                resume = resumeFromSavedPosition,
-                requestId = Guid.NewGuid().ToString()
-            };
-
-            await System.IO.File.WriteAllTextAsync(processingMarker,
-                System.Text.Json.JsonSerializer.Serialize(markerData));
-
-            _processingStartTime = DateTime.UtcNow;
-            _logger.LogInformation("Marker file created");
-
-            var remainingBytes = resumeFromSavedPosition ? fileInfo.Length - resumePosition : fileInfo.Length;
-            var remainingMB = remainingBytes / (1024.0 * 1024.0);
-
-            var operationState = new OperationState
-            {
-                Key = "activeLogProcessing",
-                Type = "log_processing",
-                Status = "processing",
-                Message = resumeFromSavedPosition ? $"Resuming log processing from {resumePosition:N0}" : "Processing entire log file from beginning",
-                Data = new Dictionary<string, object>
-                {
-                    { "startTime", DateTime.UtcNow },
-                    { "startPosition", resumeFromSavedPosition ? resumePosition : 0L },
-                    { "fileSize", fileInfo.Length },
-                    { "percentComplete", resumeFromSavedPosition && fileInfo.Length > 0 ? (resumePosition * 100.0) / fileInfo.Length : 0 },
-                    { "status", "processing" },
-                    { "resume", resumeFromSavedPosition },
-                    { "resumePosition", resumePosition },
-                    { "remainingBytes", remainingBytes },
-                    { "remainingMB", remainingMB },
-                    { "requestId", markerData.requestId }
-                },
-                ExpiresAt = DateTime.UtcNow.AddHours(24)
-            };
-            stateService.SaveState("activeLogProcessing", operationState);
-
-            var estimatedMinutes = Math.Max(1, Math.Ceiling((remainingMB > 0 ? remainingMB : sizeMB) / 100));
-
-            return Ok(new {
-                message = resumeFromSavedPosition
-                    ? $"Resuming log processing. {remainingMB:F1} MB remaining..."
-                    : $"Processing entire log file ({sizeMB:F1} MB) from the beginning...",
+                message = "Log processing started with Rust processor",
                 logSizeMB = sizeMB,
-                resume = resumeFromSavedPosition,
-                resumePosition,
-                remainingMB,
-                estimatedTimeMinutes = estimatedMinutes,
-                requiresRestart = false,
-                status = "processing",
-                requestId = markerData.requestId
+                startPosition = startPosition,
+                status = "started"
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error setting up full log processing");
-            return StatusCode(500, new { error = "Failed to setup full log processing", details = ex.Message });
+            _logger.LogError(ex, "Error starting log processor");
+            return StatusCode(500, new { error = "Failed to start log processor", details = ex.Message });
         }
     }
 
@@ -395,28 +255,38 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            var currentPosition = _stateService.GetLogPosition();
-
-            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
-            if (System.IO.File.Exists(processingMarker))
-            {
-                System.IO.File.Delete(processingMarker);
-            }
-
-            await Task.Delay(1000);
-
-            _logger.LogInformation("Processing cancelled at position {Position:N0}", currentPosition);
-
-            return Ok(new {
-                message = "Bulk processing cancelled. Services will continue monitoring new log entries.",
-                currentPosition,
-                requiresRestart = false
-            });
+            await _rustLogProcessorService.StopProcessingAsync();
+            return Ok(new { message = "Log processing cancelled" });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error cancelling processing");
             return StatusCode(500, new { error = "Failed to cancel processing", details = ex.Message });
+        }
+    }
+
+    [HttpGet("processing-progress")]
+    public async Task<IActionResult> GetProcessingProgress()
+    {
+        try
+        {
+            var dataDirectory = _pathResolver.GetDataDirectory();
+            var progressPath = Path.Combine(dataDirectory, "rust_progress.json");
+
+            if (!System.IO.File.Exists(progressPath))
+            {
+                return Ok(new { isProcessing = _rustLogProcessorService.IsProcessing, progress = (object?)null });
+            }
+
+            var json = await System.IO.File.ReadAllTextAsync(progressPath);
+            var progress = System.Text.Json.JsonSerializer.Deserialize<object>(json);
+
+            return Ok(new { isProcessing = _rustLogProcessorService.IsProcessing, progress });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting processing progress");
+            return Ok(new { isProcessing = _rustLogProcessorService.IsProcessing, error = ex.Message });
         }
     }
 
@@ -465,388 +335,78 @@ public class ManagementController : ControllerBase
     }
 
     [HttpGet("processing-status")]
-    public async Task<IActionResult> GetProcessingStatus([FromServices] OperationStateService operationStateService)
+    public async Task<IActionResult> GetProcessingStatus()
     {
         try
         {
-            var activeOperation = operationStateService.GetState("activeLogProcessing");
-            if (activeOperation != null && activeOperation.Data.TryGetValue("isProcessing", out var staleProcessingObj) &&
-                staleProcessingObj is bool staleProcessing && !staleProcessing)
-            {
-                return Ok(new {
-                    isProcessing = false,
-                    message = "Processing complete",
-                    percentComplete = 100,
-                    mbProcessed = activeOperation.Data.TryGetValue("mbProcessed", out var completedMbObj) ? ConvertToDoubleSafe(completedMbObj) : 0,
-                    mbTotal = activeOperation.Data.TryGetValue("mbTotal", out var totalMbObj) ? ConvertToDoubleSafe(totalMbObj) : 0,
-                    status = "complete",
-                    entriesProcessed = activeOperation.Data.TryGetValue("entriesProcessed", out var entriesObj) ? ConvertToInt32Safe(entriesObj) : 0,
-                    linesProcessed = activeOperation.Data.TryGetValue("linesProcessed", out var linesObj) ? ConvertToInt32Safe(linesObj) : 0,
-                    completedAt = activeOperation.Data.TryGetValue("completedAt", out var completedObj) ? completedObj : DateTime.UtcNow
-                });
-            }
-
-            var operationStates = _stateService.GetOperationStates();
-            var operationState = operationStates.FirstOrDefault(o => o.Id == "activeLogProcessing");
-            if (operationState?.Data != null)
-            {
-                var dataDict = operationState.Data as Dictionary<string, object>;
-                if (dataDict == null && operationState.Data is System.Text.Json.JsonElement jsonElement)
-                {
-                    dataDict = new Dictionary<string, object>();
-                    foreach (var prop in jsonElement.EnumerateObject())
-                    {
-                        dataDict[prop.Name] = prop.Value.ValueKind switch
-                        {
-                            System.Text.Json.JsonValueKind.String => prop.Value.GetString(),
-                            System.Text.Json.JsonValueKind.Number => prop.Value.GetDouble(),
-                            System.Text.Json.JsonValueKind.True => true,
-                            System.Text.Json.JsonValueKind.False => false,
-                            _ => prop.Value.ToString()
-                        };
-                    }
-                }
-
-                if (dataDict != null)
-                {
-                    bool isProcessing = dataDict.TryGetValue("isProcessing", out var processingObj)
-                        && processingObj is bool processing && processing;
-
-                    string status = dataDict.TryGetValue("status", out var statusObj)
-                        ? statusObj?.ToString() ?? "processing"
-                        : "processing";
-
-                    double percentComplete = 0;
-                    if (dataDict.TryGetValue("percentComplete", out var percentObj) && percentObj != null)
-                    {
-                        if (percentObj is JsonElement percentElement && percentElement.ValueKind == JsonValueKind.Number)
-                        {
-                            percentComplete = percentElement.GetDouble();
-                        }
-                        else if (double.TryParse(percentObj.ToString(), out var parsedPercent))
-                        {
-                            percentComplete = parsedPercent;
-                        }
-                    }
-
-                    double mbProcessed = 0;
-                    if (dataDict.TryGetValue("mbProcessed", out var mbProcObj) && mbProcObj != null)
-                    {
-                        if (mbProcObj is JsonElement mbProcElement && mbProcElement.ValueKind == JsonValueKind.Number)
-                        {
-                            mbProcessed = mbProcElement.GetDouble();
-                        }
-                        else if (double.TryParse(mbProcObj.ToString(), out var parsedMbProc))
-                        {
-                            mbProcessed = parsedMbProc;
-                        }
-                    }
-
-                    double mbTotal = 0;
-                    if (dataDict.TryGetValue("mbTotal", out var mbTotalObj) && mbTotalObj != null)
-                    {
-                        if (mbTotalObj is JsonElement mbTotalElement && mbTotalElement.ValueKind == JsonValueKind.Number)
-                        {
-                            mbTotal = mbTotalElement.GetDouble();
-                        }
-                        else if (double.TryParse(mbTotalObj.ToString(), out var parsedMbTotal))
-                        {
-                            mbTotal = parsedMbTotal;
-                        }
-                    }
-
-                    if (!isProcessing && percentComplete >= 99)
-                    {
-                        try
-                        {
-                            operationStateService.UpdateState("activeLogProcessing", new Dictionary<string, object>
-                            {
-                                { "isProcessing", false },
-                                { "status", "complete" },
-                                { "percentComplete", 100.0 },
-                                { "mbProcessed", mbProcessed },
-                                { "mbTotal", mbTotal },
-                                { "completedAt", DateTime.UtcNow }
-                            });
-                        }
-                        catch (Exception updateEx)
-                        {
-                            _logger.LogWarning(updateEx, "Failed to normalize near-complete operation state");
-                        }
-
-                        return Ok(new {
-                            isProcessing = false,
-                            message = "Processing complete",
-                            percentComplete = 100,
-                            mbProcessed,
-                            mbTotal,
-                            status = "complete",
-                            entriesProcessed = dataDict.TryGetValue("entriesProcessed", out var entriesObj)
-                                ? ConvertToInt32Safe(entriesObj) : 0,
-                            linesProcessed = dataDict.TryGetValue("linesProcessed", out var linesObj)
-                                ? ConvertToInt32Safe(linesObj) : 0
-                        });
-                    }
-
-                    if (isProcessing && mbTotal > 0)
-                    {
-                        var processedDelta = Math.Abs(mbTotal - mbProcessed);
-                        var nearComplete = percentComplete >= 99.9 || processedDelta <= Math.Max(0.5, mbTotal * 0.005);
-
-                        if (nearComplete)
-                        {
-                            _logger.LogWarning("Detected stuck log processing state at {Percent:F2}% with {Processed:F2}/{Total:F2} MB. Forcing completion.",
-                                percentComplete, mbProcessed, mbTotal);
-
-                            try
-                            {
-                                var forcedData = new Dictionary<string, object>
-                                {
-                                    { "isProcessing", false },
-                                    { "status", "complete" },
-                                    { "percentComplete", 100.0 },
-                                    { "mbProcessed", mbTotal },
-                                    { "mbTotal", mbTotal },
-                                    { "entriesProcessed", dataDict.TryGetValue("entriesProcessed", out var entriesObj) ? ConvertToInt32Safe(entriesObj) : 0 },
-                                    { "linesProcessed", dataDict.TryGetValue("linesProcessed", out var linesObj) ? ConvertToInt32Safe(linesObj) : 0 },
-                                    { "completedAt", DateTime.UtcNow }
-                                };
-
-                                var forcedState = new OperationState
-                                {
-                                    Key = "activeLogProcessing",
-                                    Type = "logProcessing",
-                                    Status = "complete",
-                                    Message = "Processing complete",
-                                    CreatedAt = DateTime.UtcNow,
-                                    UpdatedAt = DateTime.UtcNow,
-                                    ExpiresAt = DateTime.UtcNow.AddHours(24),
-                                    Data = forcedData
-                                };
-
-                                operationStateService.SaveState("activeLogProcessing", forcedState);
-                                dataDict = forcedData;
-                                isProcessing = false;
-                                status = "complete";
-                                percentComplete = 100;
-                                mbProcessed = mbTotal;
-                            }
-                            catch (Exception repairEx)
-                            {
-                                _logger.LogError(repairEx, "Failed to force-complete stuck log processing state");
-                            }
-
-                            try
-                            {
-                                var logFilePath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
-                                if (System.IO.File.Exists(logFilePath))
-                                {
-                                    var fileInfo = new FileInfo(logFilePath);
-                                    _stateService.SetLogPosition(fileInfo.Length);
-                                }
-                            }
-                            catch (Exception positionEx)
-                            {
-                                _logger.LogWarning(positionEx, "Failed to update log position while forcing completion");
-                            }
-
-                            try
-                            {
-                                var marker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
-                                if (System.IO.File.Exists(marker))
-                                {
-                                    System.IO.File.Delete(marker);
-                                }
-                            }
-                            catch (Exception markerEx)
-                            {
-                                _logger.LogWarning(markerEx, "Failed to remove processing marker during forced completion");
-                            }
-
-                            _ = Task.Run(() => StopProcessingServicesAsync("forced completion after stalled progress"));
-                        }
-                    }
-
-                    if (status == "complete" || (!isProcessing && percentComplete >= 100))
-                    {
-                        return Ok(new {
-                            isProcessing = false,
-                            message = "Processing complete",
-                            percentComplete = 100,
-                            mbProcessed,
-                            mbTotal,
-                            status = "complete",
-                            entriesProcessed = dataDict.TryGetValue("entriesProcessed", out var entriesObj)
-                                ? ConvertToInt32Safe(entriesObj) : 0,
-                            linesProcessed = dataDict.TryGetValue("linesProcessed", out var linesObj)
-                                ? ConvertToInt32Safe(linesObj) : 0
-                        });
-                    }
-
-                    if (isProcessing)
-                    {
-                        double processingRate = 0;
-                        string estimatedTime = "calculating...";
-
-                        if (_processingStartTime.HasValue)
-                        {
-                            var elapsed = DateTime.UtcNow - _processingStartTime.Value;
-                            if (elapsed.TotalSeconds > 0 && mbProcessed > 0)
-                            {
-                                processingRate = mbProcessed / elapsed.TotalSeconds;
-                                if (processingRate > 0 && mbTotal > mbProcessed)
-                                {
-                                    var remainingMB = mbTotal - mbProcessed;
-                                    var remainingSeconds = remainingMB / processingRate;
-                                    var remainingMinutes = Math.Ceiling(remainingSeconds / 60);
-                                    estimatedTime = remainingMinutes > 60
-                                        ? $"{remainingMinutes / 60:F1} hours"
-                                        : $"{remainingMinutes} minutes";
-                                }
-                            }
-                        }
-
-                        return Ok(new {
-                            isProcessing = true,
-                            currentPosition = dataDict.TryGetValue("currentPosition", out var posObj)
-                                ? ConvertToInt64Safe(posObj) : 0,
-                            percentComplete,
-                            mbProcessed,
-                            mbTotal,
-                            processingRate,
-                            estimatedTime,
-                            message = $"Processing log file... {percentComplete:F1}% complete",
-                            status = status,
-                            entriesProcessed = dataDict.TryGetValue("entriesProcessed", out var entries2Obj)
-                                ? ConvertToInt32Safe(entries2Obj) : 0,
-                            linesProcessed = dataDict.TryGetValue("linesProcessed", out var lines2Obj)
-                                ? ConvertToInt32Safe(lines2Obj) : 0
-                        });
-                    }
-                }
-            }
-
-            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
-            bool markerExists = System.IO.File.Exists(processingMarker);
-
-            long currentPosition = 0;
-            long totalSize = 0;
-
+            var dataDirectory = _pathResolver.GetDataDirectory();
+            var progressPath = Path.Combine(dataDirectory, "rust_progress.json");
             var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
-            if (System.IO.File.Exists(logPath))
-            {
-                var fileInfo = new FileInfo(logPath);
-                totalSize = fileInfo.Length;
-            }
 
-            currentPosition = _stateService.GetLogPosition();
+            // Get log file size for MB calculations
+            var logFileInfo = new FileInfo(logPath);
+            var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
 
-            if (!markerExists && currentPosition == 0)
+            if (!System.IO.File.Exists(progressPath))
             {
                 return Ok(new {
-                    isProcessing = false,
+                    isProcessing = _rustLogProcessorService.IsProcessing,
+                    percentComplete = 0,
+                    progress = 0,
+                    status = "idle",
                     message = "Not processing",
-                    currentPosition = 0,
-                    totalSize = totalSize
+                    mbProcessed = 0.0,
+                    mbTotal = mbTotal,
+                    entriesProcessed = 0,
+                    entriesQueued = 0,
+                    linesProcessed = 0
                 });
             }
 
-            if (markerExists || currentPosition > 0)
+            var json = await System.IO.File.ReadAllTextAsync(progressPath);
+            var rustProgress = System.Text.Json.JsonSerializer.Deserialize<RustLogProcessorService.ProgressData>(json);
+
+            if (rustProgress == null)
             {
-                var percentComplete = totalSize > 0 ? (currentPosition * 100.0) / totalSize : 0;
-
-                if (currentPosition >= totalSize - 1000 && !markerExists)
-                {
-                    return Ok(new {
-                        isProcessing = false,
-                        message = "Processing complete",
-                        percentComplete = 100,
-                        mbProcessed = totalSize / (1024.0 * 1024.0),
-                        mbTotal = totalSize / (1024.0 * 1024.0),
-                        status = "complete"
-                    });
-                }
-
-                double processingRate = 0;
-                string estimatedTime = "calculating...";
-
-                if (_processingStartTime.HasValue && currentPosition > 0)
-                {
-                    var elapsed = DateTime.UtcNow - _processingStartTime.Value;
-                    if (elapsed.TotalSeconds > 0)
-                    {
-                        processingRate = currentPosition / elapsed.TotalSeconds;
-                        if (processingRate > 0)
-                        {
-                            var remainingBytes = totalSize - currentPosition;
-                            var remainingSeconds = remainingBytes / processingRate;
-                            var remainingMinutes = Math.Ceiling(remainingSeconds / 60);
-                            estimatedTime = remainingMinutes > 60
-                                ? $"{remainingMinutes / 60:F1} hours"
-                                : $"{remainingMinutes} minutes";
-                        }
-                    }
-                }
-
                 return Ok(new {
-                    isProcessing = markerExists,
-                    currentPosition,
-                    totalSize,
-                    percentComplete,
-                    mbProcessed = currentPosition / (1024.0 * 1024.0),
-                    mbTotal = totalSize / (1024.0 * 1024.0),
-                    processingRate = processingRate / (1024.0 * 1024.0), // MB/s
-                    estimatedTime,
-                    message = markerExists ? $"Processing log file... {percentComplete:F1}% complete" : "Processing complete",
-                    status = markerExists ? "processing" : "complete",
-                    markerExists
+                    isProcessing = _rustLogProcessorService.IsProcessing,
+                    percentComplete = 0,
+                    progress = 0,
+                    status = "idle",
+                    mbProcessed = 0.0,
+                    mbTotal = mbTotal,
+                    entriesProcessed = 0,
+                    entriesQueued = 0,
+                    linesProcessed = 0
                 });
             }
+
+            // Calculate MB processed based on percentage
+            var mbProcessed = mbTotal * (rustProgress.PercentComplete / 100.0);
 
             return Ok(new {
-                isProcessing = false,
-                message = "Not processing"
+                isProcessing = _rustLogProcessorService.IsProcessing,
+                // Legacy field names for compatibility
+                totalLines = rustProgress.TotalLines,
+                linesParsed = rustProgress.LinesParsed,
+                entriesSaved = rustProgress.EntriesSaved,
+                // New field names that React expects
+                percentComplete = rustProgress.PercentComplete,
+                progress = rustProgress.PercentComplete,
+                status = rustProgress.Status,
+                message = rustProgress.Message,
+                mbProcessed = Math.Round(mbProcessed, 1),
+                mbTotal = Math.Round(mbTotal, 1),
+                entriesProcessed = rustProgress.EntriesSaved,
+                entriesQueued = rustProgress.EntriesSaved,  // Rust saves directly, no queue
+                pendingEntries = 0, // Rust doesn't have a pending queue
+                linesProcessed = rustProgress.LinesParsed
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting processing status");
-            return Ok(new { isProcessing = false, error = ex.Message });
-        }
-    }
-
-    private async Task StopProcessingServicesAsync(string reason)
-    {
-        try
-        {
-            _logger.LogInformation("Stopping log processing services automatically: {Reason}", reason);
-
-            _processingCancellation?.Cancel();
-
-            var stopTimeout = TimeSpan.FromSeconds(15);
-            var stopTasks = new[]
-            {
-                StopServiceWithTimeout(_logWatcherService, "LogWatcherService", stopTimeout),
-                StopServiceWithTimeout(_logProcessingService, "LogProcessingService", stopTimeout)
-            };
-
-            await Task.WhenAll(stopTasks);
-
-            await Task.Delay(500);
-
-            _processingStartTime = null;
-            _processingCancellation?.Dispose();
-            _processingCancellation = null;
-
-            var processingMarker = Path.Combine(_pathResolver.GetDataDirectory(), "processing.marker");
-            if (System.IO.File.Exists(processingMarker))
-            {
-                System.IO.File.Delete(processingMarker);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to automatically stop log processing services");
+            return Ok(new { isProcessing = _rustLogProcessorService.IsProcessing, error = ex.Message });
         }
     }
 

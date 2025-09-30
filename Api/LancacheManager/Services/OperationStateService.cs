@@ -510,23 +510,9 @@ public class OperationStateService : IHostedService
     {
         try
         {
-            _logger.LogInformation("Starting log processing services to resume interrupted operation");
-
-            using var scope = _serviceProvider.CreateScope();
-            var logProcessingService = scope.ServiceProvider.GetRequiredService<LogProcessingService>();
-            var logWatcherService = scope.ServiceProvider.GetRequiredService<LogWatcherService>();
-
-            // Create a cancellation token for the services (similar to ManagementController)
-            var cancellationTokenSource = new CancellationTokenSource();
-
-            // Start the log processing services for manual processing
-            _logger.LogInformation("Starting LogProcessingService for resumed log processing");
-            await logProcessingService.StartAsync(cancellationTokenSource.Token);
-
-            _logger.LogInformation("Starting LogWatcherService for resumed log processing");
-            await logWatcherService.StartAsync(cancellationTokenSource.Token);
-
-            _logger.LogInformation("Log processing services started successfully for resume operation");
+            _logger.LogInformation("Log processing resume requested - user should manually restart processing via API");
+            // Note: The old C# log processing services have been replaced with Rust processor
+            // Users should call /api/management/process-all-logs to resume processing
         }
         catch (Exception ex)
         {

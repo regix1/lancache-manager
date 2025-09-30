@@ -246,6 +246,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           if (status === 'complete') {
             if (pollingInterval.current) {
               clearInterval(pollingInterval.current);
+              pollingInterval.current = null;
             }
             return {
               message: 'Processing Complete!',
@@ -289,6 +290,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         // Stop polling immediately when we receive completion signal
         if (pollingInterval.current) {
           clearInterval(pollingInterval.current);
+          pollingInterval.current = null;
         }
 
         const depotMappingsProcessed = result.depotMappingsProcessed ?? 0;
@@ -387,6 +389,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           // Processing is complete - stop polling immediately
           if (pollingInterval.current) {
             clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
           }
 
           const finalProgress = status?.percentComplete || status?.progress || 0;
@@ -431,6 +434,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         }
       } catch (err) {
         console.error('Error checking processing status:', err);
+        // Stop polling on error
+        if (pollingInterval.current) {
+          clearInterval(pollingInterval.current);
+          pollingInterval.current = null;
+        }
       }
     };
 

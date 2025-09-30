@@ -194,7 +194,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     } else if (onBackgroundOperationRef.current) {
       onBackgroundOperationRef.current(null);
     }
-  }, [cacheOp.operation, cacheClearProgress, handleCancelCacheClear]);
+  }, [cacheOp.operation, cacheClearProgress]);
 
   const isCacheClearingActive =
     (cacheOp.operation as any)?.data &&
