@@ -59,9 +59,9 @@ interface NormalViewSectionLabels {
 }
 
 const DEFAULT_SECTION_LABELS: NormalViewSectionLabels = {
-  multipleDownloads: 'Multiple Downloads',
-  singleDownloads: 'Single Downloads',
-  individual: 'Individual Downloads'
+  multipleDownloads: 'Frequently Downloaded Games (2+ sessions)',
+  singleDownloads: 'Single Session Downloads',
+  individual: 'Uncategorized Downloads'
 };
 
 interface NormalViewProps {
@@ -70,25 +70,10 @@ interface NormalViewProps {
   onItemClick: (id: string) => void;
   sectionLabels?: NormalViewSectionLabels;
   aestheticMode?: boolean;
+  groupByFrequency?: boolean;
 }
 
-interface InfoRowProps {
-  label: string;
-  value: React.ReactNode;
-  highlight?: boolean;
-}
-
-const InfoRow: React.FC<InfoRowProps> = ({ label, value, highlight }) => (
-  <div className="flex justify-between items-center py-1">
-    <span className="text-sm text-themed-muted">{label}</span>
-    <span className={`text-sm font-medium ${highlight ? 'text-themed-primary' : 'text-[var(--theme-text-primary)]'}`}>
-      {value}
-    </span>
-  </div>
-);
-
-
-const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false }) => {
+const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false, groupByFrequency = true }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const renderDownloadCard = (download: Download) => {
     const totalBytes = download.totalBytes || 0;
@@ -130,89 +115,94 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
     return (
       <div
         key={group.id}
-        className={`rounded-xl border bg-[var(--theme-bg-secondary)] shadow-sm transition-all duration-300 overflow-hidden ${isExpanded ? 'border-[var(--theme-primary)]/70 shadow-xl' : 'hover:shadow-xl'}`}
-        style={{ borderColor: 'var(--theme-border-primary)' }}
+        className={`rounded-xl border bg-[var(--theme-bg-secondary)] shadow-sm transition-all duration-300 overflow-hidden ${isExpanded ? 'border-[var(--theme-primary)] shadow-2xl ring-2 ring-[var(--theme-primary)]/20' : 'hover:shadow-lg hover:border-[var(--theme-primary)]/40'}`}
+        style={{ borderColor: isExpanded ? 'var(--theme-primary)' : 'var(--theme-border-primary)' }}
       >
         <button
           type="button"
           onClick={() => onItemClick(group.id)}
           className="w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary)]"
         >
-          <div className="flex items-center">
+          <div className="flex items-stretch">
             {showGameImage && primaryDownload?.gameAppId && (
-              <div className="flex-shrink-0">
+              <div className="flex-shrink-0 overflow-hidden">
                 {aestheticMode ? (
                   <div
-                    className="w-[230px] h-[107px] flex items-center justify-center rounded-lg border"
+                    className="w-[280px] h-[130px] flex items-center justify-center"
                     style={{
                       backgroundColor: 'var(--theme-bg-tertiary)',
-                      borderColor: 'var(--theme-border-primary)'
                     }}
                   >
                     <Gamepad2
-                      size={48}
-                      style={{ color: 'var(--theme-primary)', opacity: '0.6' }}
+                      size={56}
+                      style={{ color: 'var(--theme-primary)', opacity: '0.5' }}
                     />
                   </div>
                 ) : (
                   <img
                     src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
                     alt={primaryDownload.gameName || group.name}
-                    className="w-[230px] h-[107px] object-cover"
+                    className="w-[280px] h-[130px] object-cover transition-transform duration-300 hover:scale-105"
                     loading="lazy"
                   />
                 )}
               </div>
             )}
-            <div className="flex-1 px-4 py-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3 flex-1">
-                  <ChevronRight
-                    size={14}
-                    className={`mt-0.5 text-[var(--theme-text-secondary)] transition-transform flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-                  />
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="px-2 py-0.5 text-xs font-bold rounded"
-                        style={getServiceBadgeStyles(group.service)}
-                      >
-                        {group.service.toUpperCase()}
+            <div className="flex-1 p-5">
+              <div className="flex items-start gap-4">
+                <ChevronRight
+                  size={20}
+                  className={`mt-1 text-[var(--theme-primary)] transition-all duration-300 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+                  style={{ opacity: isExpanded ? 1 : 0.6 }}
+                />
+                <div className="flex-1 min-w-0">
+                  {/* Title Row */}
+                  <div className="flex items-center gap-3 mb-3">
+                    <span
+                      className="px-2.5 py-1 text-xs font-extrabold rounded-md shadow-sm"
+                      style={getServiceBadgeStyles(group.service)}
+                    >
+                      {group.service.toUpperCase()}
+                    </span>
+                    <h3 className="text-xl font-bold text-[var(--theme-text-primary)] truncate flex-1">
+                      {group.name}
+                    </h3>
+                    {group.count > 1 && (
+                      <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]">
+                        {group.count}× downloads
                       </span>
-                      <h3 className="text-base font-semibold text-[var(--theme-text-primary)]">
-                        {group.name}
-                      </h3>
-                      <span className="text-xs text-themed-muted">
-                        {group.count} download{group.count !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-4 text-xs text-themed-muted">
-                      <span className="inline-flex items-center gap-1">
-                        <Clock size={10} />
-                        {formatRelativeTime(group.lastSeen)}
-                      </span>
-                      <span>
-                        Total Size
-                      </span>
-                      <span className="font-semibold text-[var(--theme-text-primary)]">
+                    )}
+                  </div>
+
+                  {/* Stats Grid - Better aligned */}
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Total Size</span>
+                      <span className="text-base font-bold text-[var(--theme-text-primary)]">
                         {formatBytes(group.totalBytes)}
                       </span>
-                      <span>
-                        Clients
-                      </span>
-                      <span className="font-semibold text-[var(--theme-text-primary)]">
+                    </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Clients</span>
+                      <span className="text-base font-bold text-[var(--theme-text-primary)]">
                         {group.clientsSet.size}
                       </span>
                     </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Last Active</span>
+                      <span className="text-sm font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5">
+                        <Clock size={14} />
+                        {formatRelativeTime(group.lastSeen)}
+                      </span>
+                    </div>
                     {group.cacheHitBytes > 0 && (
-                      <div className="flex items-center gap-3 text-xs">
-                        <span>Cache Hit</span>
-                        <span className="cache-hit font-semibold">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm text-themed-muted font-medium min-w-[80px]">Cache Hit</span>
+                        <span className="text-sm font-bold cache-hit inline-flex items-center gap-1.5">
                           {formatPercent(hitPercent)}
-                        </span>
-                        <span>Saved</span>
-                        <span className="font-semibold text-[var(--theme-success-text)]">
-                          {formatBytes(group.cacheHitBytes)}
+                          <span className="text-xs font-normal text-[var(--theme-success-text)]">
+                            ({formatBytes(group.cacheHitBytes)})
+                          </span>
                         </span>
                       </div>
                     )}
@@ -225,143 +215,199 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
 
         {isExpanded && (
           <div
-            className="border-t bg-[var(--theme-bg-secondary)]/70 px-5 pb-5 pt-4 overflow-hidden"
+            className="border-t bg-gradient-to-b from-[var(--theme-bg-secondary)] to-[var(--theme-bg-primary)] px-6 pb-6 pt-5"
             style={{
-              borderColor: 'var(--theme-border-primary)',
-              animation: 'expandDown 0.4s ease-out',
-              transformOrigin: 'top'
+              borderColor: 'var(--theme-primary)',
+              animation: 'expandDown 0.3s ease-out'
             }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span
-                    className="px-3 py-1 font-bold rounded shadow-sm"
-                    style={getServiceBadgeStyles(group.service)}
-                  >
-                    {group.service.toUpperCase()}
-                  </span>
-                </div>
-                {storeLink && (
+            <div className="flex flex-col gap-6">
+              {/* Quick Actions Bar */}
+              {storeLink && (
+                <div className="flex justify-end">
                   <a
                     href={storeLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] hover:bg-[var(--theme-primary)]/10 transition-all duration-200 font-medium border border-transparent hover:border-[var(--theme-primary)]/20"
+                    className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg font-semibold transition-all duration-200 shadow-sm hover:shadow-md"
+                    style={{
+                      backgroundColor: 'var(--theme-primary)',
+                      color: 'var(--theme-button-text)'
+                    }}
                     title="View in Steam Store"
                   >
-                    <ExternalLink size={16} />
-                    <span>Store Page</span>
+                    <ExternalLink size={18} />
+                    <span>View Store Page</span>
                   </a>
-                )}
-              </div>
-
-              {/* Group Statistics */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Cache Performance</h4>
-                  <div className="space-y-2">
-                    <InfoRow label="Total Size" value={formatBytes(group.totalBytes)} highlight />
-                    <InfoRow
-                      label="Cache Hit"
-                      value={group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : 'No cache hits yet'}
-                      highlight={group.cacheHitBytes > 0}
-                    />
-                    <InfoRow label="Cache Miss" value={formatBytes(group.cacheMissBytes || 0)} />
-                    <InfoRow
-                      label="Cache Efficiency"
-                      value={hitPercent > 0 ? formatPercent(hitPercent) : 'N/A'}
-                      highlight={hitPercent > 0}
-                    />
-                  </div>
                 </div>
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Activity</h4>
-                  <div className="space-y-2">
-                    <InfoRow label={`Download${group.count !== 1 ? 's' : ''}`} value={group.count} />
-                    <InfoRow label="Unique Clients" value={group.clientsSet.size} />
-                    <InfoRow label="First Seen" value={formatRelativeTime(group.firstSeen)} />
-                    <InfoRow label="Last Seen" value={formatRelativeTime(group.lastSeen)} />
+              )}
+
+              {/* Summary Stats Banner */}
+              <div className="rounded-xl border p-4 bg-[var(--theme-bg-tertiary)]/50" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="text-center">
+                    <div className="text-xs text-themed-muted mb-1 font-medium">Total Downloaded</div>
+                    <div className="text-lg font-bold text-[var(--theme-text-primary)]">{formatBytes(group.totalBytes)}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-themed-muted mb-1 font-medium">Cache Saved</div>
+                    <div className="text-lg font-bold text-[var(--theme-success-text)]">
+                      {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-themed-muted mb-1 font-medium">Efficiency</div>
+                    <div className="text-lg font-bold cache-hit">
+                      {hitPercent > 0 ? formatPercent(hitPercent) : '—'}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-themed-muted mb-1 font-medium">Downloads</div>
+                    <div className="text-lg font-bold text-[var(--theme-text-primary)]">{group.count}</div>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-lg border bg-[var(--theme-bg-tertiary)]/40 px-4 py-3 text-xs text-themed-muted" style={{ borderColor: 'var(--theme-border-primary)' }}>
-                <div className="flex flex-wrap items-center gap-4">
-                  <span className="inline-flex items-center gap-1 text-[var(--theme-success-text)]">
-                    <CheckCircle size={14} />
-                    {group.cacheHitBytes > 0 ? `${formatBytes(group.cacheHitBytes)} served from cache` : 'No cache hits yet'}
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <AlertCircle size={14} className="text-[var(--theme-text-secondary)]" />
-                    {formatBytes(group.cacheMissBytes || 0)} fetched from origin
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">
-                    Download Sessions
+              {/* Detailed Statistics */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Cache Performance Card */}
+                <div className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                  <h4 className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                    Cache Performance
                   </h4>
-                  <span className="text-xs text-themed-muted bg-[var(--theme-bg-tertiary)] px-2 py-1 rounded-full">
-                    {group.downloads.length} {group.downloads.length !== 1 ? 'entries' : 'entry'}
-                  </span>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-themed-muted font-medium">Cache Hit</span>
+                      <span className="text-sm font-bold text-[var(--theme-success-text)]">
+                        {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : 'None'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-themed-muted font-medium">Cache Miss</span>
+                      <span className="text-sm font-semibold text-[var(--theme-text-secondary)]">
+                        {formatBytes(group.cacheMissBytes || 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                      <span className="text-sm text-themed-muted font-medium">Efficiency Rate</span>
+                      <span className="text-base font-bold cache-hit">
+                        {hitPercent > 0 ? formatPercent(hitPercent) : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  {group.downloads.map((download) => {
-                    const totalBytes = download.totalBytes || 0;
-                    const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
 
-                    return (
-                      <div
-                        key={download.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 rounded-lg border hover:bg-[var(--theme-bg-tertiary)]/20 transition-colors"
-                        style={{ borderColor: 'var(--theme-border-secondary)' }}
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                          <span className="font-mono text-sm text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] px-2 py-1 rounded">
-                            {download.clientIp}
-                          </span>
-                          <div className="flex items-center gap-4 text-xs text-themed-muted">
-                            <span className="flex items-center gap-1">
-                              <Clock size={12} />
-                              Started {formatRelativeTime(download.startTime)}
-                            </span>
-                            {download.endTime && (
-                              <span className="flex items-center gap-1">
-                                <CheckCircle size={12} />
-                                Finished {formatRelativeTime(download.endTime)}
+                {/* Activity Card */}
+                <div className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]" style={{ borderColor: 'var(--theme-border-primary)' }}>
+                  <h4 className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                    Activity Timeline
+                  </h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-themed-muted font-medium">Download Sessions</span>
+                      <span className="text-sm font-bold text-[var(--theme-text-primary)]">{group.count}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-themed-muted font-medium">Unique Clients</span>
+                      <span className="text-sm font-bold text-[var(--theme-text-primary)]">{group.clientsSet.size}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-themed-muted font-medium">First Seen</span>
+                      <span className="text-sm font-semibold text-[var(--theme-text-secondary)]">{formatRelativeTime(group.firstSeen)}</span>
+                    </div>
+                    <div className="flex justify-between items-center pt-2 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                      <span className="text-sm text-themed-muted font-medium">Last Activity</span>
+                      <span className="text-sm font-bold text-[var(--theme-text-primary)]">{formatRelativeTime(group.lastSeen)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Download Sessions List */}
+              {group.downloads.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-base font-bold text-[var(--theme-text-primary)]">
+                      Download Sessions
+                    </h4>
+                    <span className="text-xs font-semibold bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] px-3 py-1.5 rounded-full">
+                      {group.downloads.length} session{group.downloads.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {group.downloads.map((download) => {
+                      const totalBytes = download.totalBytes || 0;
+                      const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+
+                      return (
+                        <div
+                          key={download.id}
+                          className="rounded-lg border p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200"
+                          style={{ borderColor: 'var(--theme-border-secondary)' }}
+                        >
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-center">
+                            {/* Client Info */}
+                            <div>
+                              <div className="text-xs text-themed-muted mb-1 font-medium">Client</div>
+                              <span className="font-mono text-sm font-semibold text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] px-2.5 py-1 rounded inline-block">
+                                {download.clientIp}
                               </span>
-                            )}
-                            {!download.endTime && (
-                              <span className="flex items-center gap-1 text-[var(--theme-info-text)]">
-                                <AlertCircle size={12} />
-                                In progress
-                              </span>
-                            )}
+                            </div>
+
+                            {/* Time Info */}
+                            <div>
+                              <div className="text-xs text-themed-muted mb-1 font-medium">Timeline</div>
+                              <div className="flex flex-col gap-1 text-xs">
+                                <span className="flex items-center gap-1.5 text-[var(--theme-text-secondary)]">
+                                  <Clock size={12} />
+                                  Started {formatRelativeTime(download.startTime)}
+                                </span>
+                                {download.endTime ? (
+                                  <span className="flex items-center gap-1.5 text-[var(--theme-success-text)]">
+                                    <CheckCircle size={12} />
+                                    Completed {formatRelativeTime(download.endTime)}
+                                  </span>
+                                ) : (
+                                  <span className="flex items-center gap-1.5 text-[var(--theme-info-text)]">
+                                    <AlertCircle size={12} />
+                                    In progress
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Size & Cache */}
+                            <div className="flex items-center justify-between lg:justify-end gap-4">
+                              <div>
+                                <div className="text-xs text-themed-muted mb-1 font-medium">Size</div>
+                                <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                                  {formatBytes(totalBytes)}
+                                </span>
+                              </div>
+                              {download.cacheHitBytes > 0 ? (
+                                <div className="text-center">
+                                  <div className="text-xs text-themed-muted mb-1 font-medium">Cache</div>
+                                  <span className="cache-hit font-bold text-sm px-3 py-1.5 rounded-full bg-[var(--theme-success-bg)] inline-block">
+                                    {formatPercent(cachePercent)}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="text-center">
+                                  <div className="text-xs text-themed-muted mb-1 font-medium">Cache</div>
+                                  <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--theme-bg-tertiary)] text-themed-muted inline-block font-medium">
+                                    No hits
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-4 text-sm">
-                          <span className="font-semibold text-[var(--theme-text-primary)]">
-                            {formatBytes(totalBytes)}
-                          </span>
-                          {download.cacheHitBytes > 0 ? (
-                            <span className="cache-hit font-semibold text-xs px-2 py-1 rounded-full bg-[var(--theme-success-bg)] text-[var(--theme-success-text)]">
-                              {formatPercent(cachePercent)}
-                            </span>
-                          ) : (
-                            <span className="text-xs px-2 py-1 rounded-full bg-[var(--theme-bg-tertiary)] text-themed-muted">
-                              No cache
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -380,36 +426,42 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
         const key = isGroup ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
         let header: React.ReactNode = null;
 
-        if (isGroup) {
-          const group = item as DownloadGroup;
-          if (group.count > 1 && !multipleDownloadsHeaderRendered) {
-            multipleDownloadsHeaderRendered = true;
+        // Only show section headers if groupByFrequency is enabled
+        if (groupByFrequency) {
+          if (isGroup) {
+            const group = item as DownloadGroup;
+            if (group.count > 1 && !multipleDownloadsHeaderRendered) {
+              multipleDownloadsHeaderRendered = true;
+              header = (
+                <div className="mb-4 mt-6 first:mt-0">
+                  <h2 className="text-lg font-bold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                    {labels.multipleDownloads}
+                  </h2>
+                  <p className="text-xs text-themed-muted mt-1">Games that have been downloaded multiple times</p>
+                </div>
+              );
+            } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
+              singleDownloadsHeaderRendered = true;
+              header = (
+                <div className="mb-4 mt-6 first:mt-0">
+                  <h2 className="text-lg font-bold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                    {labels.singleDownloads}
+                  </h2>
+                  <p className="text-xs text-themed-muted mt-1">Games downloaded once in a single session</p>
+                </div>
+              );
+            }
+          } else if (!isGroup && !individualHeaderRendered) {
+            individualHeaderRendered = true;
             header = (
               <div className="mb-4 mt-6 first:mt-0">
-                <h2 className="text-lg font-semibold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                  {labels.multipleDownloads}
+                <h2 className="text-lg font-bold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                  {labels.individual}
                 </h2>
-              </div>
-            );
-          } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
-            singleDownloadsHeaderRendered = true;
-            header = (
-              <div className="mb-4 mt-6 first:mt-0">
-                <h2 className="text-lg font-semibold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                  {labels.singleDownloads}
-                </h2>
+                <p className="text-xs text-themed-muted mt-1">Downloads that couldn't be grouped by game name</p>
               </div>
             );
           }
-        } else if (!isGroup && !individualHeaderRendered) {
-          individualHeaderRendered = true;
-          header = (
-            <div className="mb-4 mt-6 first:mt-0">
-              <h2 className="text-lg font-semibold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                {labels.individual}
-              </h2>
-            </div>
-          );
         }
 
         return (

@@ -61,9 +61,9 @@ interface CompactViewSectionLabels {
 }
 
 const DEFAULT_SECTION_LABELS: CompactViewSectionLabels = {
-  multipleDownloads: 'Multiple Downloads',
-  singleDownloads: 'Single Downloads',
-  individual: 'Individual Downloads',
+  multipleDownloads: 'Frequently Downloaded Games (2+ sessions)',
+  singleDownloads: 'Single Session Downloads',
+  individual: 'Uncategorized Downloads',
   banner: 'Game Banner',
   downloadList: 'Download Sessions'
 };
@@ -74,6 +74,7 @@ interface CompactViewProps {
   onItemClick: (id: string) => void;
   sectionLabels?: CompactViewSectionLabels;
   aestheticMode?: boolean;
+  groupByFrequency?: boolean;
 }
 
 
@@ -82,7 +83,8 @@ const CompactView: React.FC<CompactViewProps> = ({
   expandedItem,
   onItemClick,
   sectionLabels,
-  aestheticMode = false
+  aestheticMode = false,
+  groupByFrequency = true
 }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
 
@@ -305,30 +307,42 @@ const CompactView: React.FC<CompactViewProps> = ({
           const key = isGroup ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
           let header: React.ReactNode = null;
 
-          if (isGroup) {
-            const group = item as DownloadGroup;
-            if (group.count > 1 && !multipleDownloadsHeaderRendered) {
-              multipleDownloadsHeaderRendered = true;
+          // Only show section headers if groupByFrequency is enabled
+          if (groupByFrequency) {
+            if (isGroup) {
+              const group = item as DownloadGroup;
+              if (group.count > 1 && !multipleDownloadsHeaderRendered) {
+                multipleDownloadsHeaderRendered = true;
+                header = (
+                  <div className="px-3 py-2 mt-2">
+                    <div className="text-sm font-bold text-themed-primary uppercase tracking-wide">
+                      {labels.multipleDownloads}
+                    </div>
+                    <div className="text-xs text-themed-muted mt-0.5">Games downloaded multiple times</div>
+                  </div>
+                );
+              } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
+                singleDownloadsHeaderRendered = true;
+                header = (
+                  <div className="px-3 py-2 mt-2">
+                    <div className="text-sm font-bold text-themed-primary uppercase tracking-wide">
+                      {labels.singleDownloads}
+                    </div>
+                    <div className="text-xs text-themed-muted mt-0.5">Games downloaded once</div>
+                  </div>
+                );
+              }
+            } else if (!isGroup && !individualHeaderRendered) {
+              individualHeaderRendered = true;
               header = (
-                <div className="px-3 py-1 text-xs font-semibold text-themed-primary uppercase tracking-wide">
-                  {labels.multipleDownloads}
-                </div>
-              );
-            } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
-              singleDownloadsHeaderRendered = true;
-              header = (
-                <div className="px-3 py-1 text-xs font-semibold text-themed-primary uppercase tracking-wide">
-                  {labels.singleDownloads}
+                <div className="px-3 py-2 mt-2">
+                  <div className="text-sm font-bold text-themed-primary uppercase tracking-wide">
+                    {labels.individual}
+                  </div>
+                  <div className="text-xs text-themed-muted mt-0.5">Ungrouped downloads</div>
                 </div>
               );
             }
-          } else if (!isGroup && !individualHeaderRendered) {
-            individualHeaderRendered = true;
-            header = (
-              <div className="px-3 py-1 text-xs font-semibold text-themed-primary uppercase tracking-wide">
-                {labels.individual}
-              </div>
-            );
           }
 
           return (
