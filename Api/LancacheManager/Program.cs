@@ -133,7 +133,7 @@ builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Error);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.WindowsPathResolver", LogLevel.Warning);
-builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Services.LogProcessingService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.Information);

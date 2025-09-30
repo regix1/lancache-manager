@@ -30,11 +30,8 @@ public class PathResolverService : IPathResolver
             return NormalizePath(relativePath);
         }
 
-        // For relative paths, combine with appropriate base directory
-        var basePath = Environment.OSVersion.Platform == PlatformID.Win32NT
-            ? "H:\\_git\\lancache-manager"
-            : "/";
-
+        // For relative paths, combine with application base directory
+        var basePath = AppContext.BaseDirectory;
         var fullPath = Path.Combine(basePath, relativePath);
         return NormalizePath(fullPath);
     }
@@ -73,8 +70,8 @@ public class PathResolverService : IPathResolver
             return ResolvePath(configPath);
         }
 
-        // Fall back to default cache directory
-        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "C:\\cache" : "/cache";
+        // Fall back to default cache directory in data folder
+        return Path.Combine(GetDataDirectory(), "cache");
     }
 
     /// <summary>
@@ -88,8 +85,8 @@ public class PathResolverService : IPathResolver
             return ResolvePath(configPath);
         }
 
-        // Fall back to default log path
-        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "C:\\logs\\access.log" : "/logs/access.log";
+        // Fall back to default log path in data folder
+        return Path.Combine(GetDataDirectory(), "logs", "access.log");
     }
 
     /// <summary>
@@ -143,9 +140,7 @@ public class PathResolverService : IPathResolver
     /// </summary>
     public string GetBasePath()
     {
-        return Environment.OSVersion.Platform == PlatformID.Win32NT
-            ? "H:\\_git\\lancache-manager"
-            : "/";
+        return AppContext.BaseDirectory;
     }
 
     /// <summary>
@@ -159,8 +154,14 @@ public class PathResolverService : IPathResolver
             return ResolvePath(configPath);
         }
 
-        // Fall back to default data directory
-        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "H:\\data" : "/data";
+        // Fall back to default data directory relative to app base
+        var configuredPath = _configuration["DataDirectory"];
+        if (!string.IsNullOrEmpty(configuredPath))
+        {
+            return Path.IsPathRooted(configuredPath) ? configuredPath : Path.Combine(AppContext.BaseDirectory, configuredPath);
+        }
+
+        return Path.Combine(AppContext.BaseDirectory, "data");
     }
 
     /// <summary>
@@ -174,8 +175,8 @@ public class PathResolverService : IPathResolver
             return ResolvePath(configPath);
         }
 
-        // Fall back to default logs directory
-        return Environment.OSVersion.Platform == PlatformID.Win32NT ? "C:\\logs" : "/logs";
+        // Fall back to default logs directory in data folder
+        return Path.Combine(GetDataDirectory(), "logs");
     }
 
 

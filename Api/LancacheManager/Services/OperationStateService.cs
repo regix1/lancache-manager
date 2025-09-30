@@ -216,15 +216,15 @@ public class OperationStateService : IHostedService
                     {
                         result[property.Name] = property.Value.ValueKind switch
                         {
-                            JsonValueKind.String => property.Value.GetString() ?? string.Empty,
+                            JsonValueKind.String => (object)(property.Value.GetString() ?? string.Empty),
                             JsonValueKind.Number => property.Value.TryGetInt64(out var longValue)
-                                ? longValue
-                                : property.Value.GetDouble(),
-                            JsonValueKind.True => true,
-                            JsonValueKind.False => false,
-                            JsonValueKind.Null => null,
-                            JsonValueKind.Undefined => null,
-                            _ => property.Value.ToString() ?? string.Empty
+                                ? (object)longValue
+                                : (object)property.Value.GetDouble(),
+                            JsonValueKind.True => (object)true,
+                            JsonValueKind.False => (object)false,
+                            JsonValueKind.Null => (object?)null!,
+                            JsonValueKind.Undefined => (object?)null!,
+                            _ => (object)(property.Value.ToString() ?? string.Empty)
                         };
                     }
                     return result;

@@ -241,6 +241,14 @@ public class CacheManagementService
 
     public async Task RemoveServiceFromLogs(string service)
     {
+        // Known lancache services
+        var knownServices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "steam", "epic", "epicgames", "origin", "blizzard", "battle.net", "battlenet",
+            "wsus", "riot", "riotgames", "uplay", "ubisoft", "gog", "nintendo", "sony",
+            "microsoft", "xbox", "apple", "frontier", "nexusmods", "wargaming", "arenanet"
+        };
+
         try
         {
             if (!File.Exists(_logPath))
@@ -251,7 +259,7 @@ public class CacheManagementService
             var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
             var backupFile = $"{_logPath}.bak";
             var tempFile = Path.Combine(logDir, $"access.log.tmp.{Guid.NewGuid()}");
-            
+
             // Test write permissions by trying to create a temp file
             try
             {
@@ -266,27 +274,48 @@ public class CacheManagementService
                 _logger.LogError(ex, errorMsg);
                 throw new UnauthorizedAccessException(errorMsg, ex);
             }
-            
+
             _logger.LogInformation($"Removing {service} entries from log file");
-            
+
             await Task.Run(async () =>
             {
                 // Create backup
                 File.Copy(_logPath, backupFile, true);
                 _logger.LogInformation($"Backup created at {backupFile}");
-                
+
                 using (var reader = new StreamReader(_logPath))
                 using (var writer = new StreamWriter(tempFile))
                 {
                     string? line;
                     int removedCount = 0;
                     int totalLines = 0;
-                    
+
                     while ((line = await reader.ReadLineAsync()) != null)
                     {
                         totalLines++;
-                        
-                        if (!line.StartsWith($"[{service}]", StringComparison.OrdinalIgnoreCase))
+                        bool shouldRemove = false;
+
+                        if (line.StartsWith("[") && line.IndexOf(']') > 0)
+                        {
+                            var endIndex = line.IndexOf(']');
+                            var lineService = line.Substring(1, endIndex - 1).ToLower();
+
+                            // If removing "unknown", remove all non-known services (except localhost)
+                            if (service.Equals("unknown", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (lineService != "127" && lineService != "localhost" && !knownServices.Contains(lineService))
+                                {
+                                    shouldRemove = true;
+                                }
+                            }
+                            // Otherwise, exact match for known services
+                            else if (lineService.Equals(service, StringComparison.OrdinalIgnoreCase))
+                            {
+                                shouldRemove = true;
+                            }
+                        }
+
+                        if (!shouldRemove)
                         {
                             await writer.WriteLineAsync(line);
                         }
@@ -299,14 +328,14 @@ public class CacheManagementService
                             }
                         }
                     }
-                    
+
                     _logger.LogInformation($"Removed {removedCount} {service} entries from {totalLines} total lines");
                 }
-                
+
                 // Replace original with filtered version
                 File.Delete(_logPath);
                 File.Move(tempFile, _logPath);
-                
+
                 _logger.LogInformation($"Log file updated successfully");
             });
         }
@@ -325,7 +354,15 @@ public class CacheManagementService
     public async Task<Dictionary<string, long>> GetServiceLogCounts()
     {
         var counts = new Dictionary<string, long>();
-        
+
+        // Known lancache services
+        var knownServices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "steam", "epic", "epicgames", "origin", "blizzard", "battle.net", "battlenet",
+            "wsus", "riot", "riotgames", "uplay", "ubisoft", "gog", "nintendo", "sony",
+            "microsoft", "xbox", "apple", "frontier", "nexusmods", "wargaming", "arenanet"
+        };
+
         try
         {
             if (!File.Exists(_logPath))
@@ -340,7 +377,7 @@ public class CacheManagementService
                 {
                     string? line;
                     var serviceSet = new HashSet<string>();
-                    
+
                     while ((line = await reader.ReadLineAsync()) != null)
                     {
                         // Extract service name from line
@@ -348,32 +385,49 @@ public class CacheManagementService
                         {
                             var endIndex = line.IndexOf(']');
                             var service = line.Substring(1, endIndex - 1).ToLower();
-                            
-                            // Skip IP addresses (anything with dots) and localhost
-                            if (service.Contains(".") || service == "127")
+
+                            // Skip localhost entries (pure IP or localhost identifier)
+                            if (service == "127" || service == "localhost")
                                 continue;
-                            
-                            if (!counts.ContainsKey(service))
+
+                            // Determine if this is a known service or unknown
+                            string serviceKey;
+                            if (knownServices.Contains(service))
                             {
-                                counts[service] = 0;
-                                serviceSet.Add(service);
+                                serviceKey = service;
                             }
-                            
-                            counts[service]++;
+                            else if (service.Contains("."))
+                            {
+                                // IP addresses or domain names that aren't known services
+                                serviceKey = "unknown";
+                            }
+                            else
+                            {
+                                // Unknown service identifiers
+                                serviceKey = "unknown";
+                            }
+
+                            if (!counts.ContainsKey(serviceKey))
+                            {
+                                counts[serviceKey] = 0;
+                                serviceSet.Add(serviceKey);
+                            }
+
+                            counts[serviceKey]++;
                         }
                     }
-                    
+
                     _logger.LogInformation($"Found {serviceSet.Count} services in logs: {string.Join(", ", serviceSet)}");
                 }
             });
-            
+
             _logger.LogInformation($"Log counts: {string.Join(", ", counts.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error counting service logs");
         }
-        
+
         return counts;
     }
 

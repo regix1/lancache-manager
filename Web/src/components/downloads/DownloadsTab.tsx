@@ -228,35 +228,34 @@ const DownloadsTab: React.FC = () => {
     }
 
     if (settings.hideUnknownGames) {
-      console.log('hideUnknownGames is enabled, filtering...');
-      const beforeCount = filtered.length;
-
       filtered = filtered.filter((d) => {
+        // Non-Steam services (like wsus, epic, etc.) don't use game names, so don't filter them
+        const serviceLower = d.service.toLowerCase();
+        if (serviceLower !== 'steam') {
+          return true; // Keep all non-Steam services
+        }
+
+        // For Steam downloads, check the game name
         const rawName = typeof d.gameName === 'string' ? d.gameName : '';
         const trimmedName = rawName.trim();
         const gameNameLower = trimmedName.toLowerCase();
 
         if (!trimmedName) {
-          console.log(`Filtering out download with missing game name (service: ${d.service}, id: ${d.id})`);
-          return false;
+          return false; // Hide Steam downloads without a game name
         }
 
         // Hide "Unknown Steam Game" or any variation with "unknown" in the name
         if (gameNameLower.includes('unknown')) {
-          console.log(`Filtering out: "${rawName}" (id: ${d.id})`);
           return false;
         }
 
         // Hide unmapped Steam apps (e.g., "Steam App 12345")
         if (/^steam app \d+$/i.test(trimmedName)) {
-          console.log(`Filtering out Steam App placeholder: "${rawName}" (id: ${d.id})`);
           return false;
         }
 
         return true;
       });
-
-      console.log(`Filtered ${beforeCount - filtered.length} unknown games. Before: ${beforeCount}, After: ${filtered.length}`);
     }
 
     if (settings.selectedService !== 'all') {
@@ -304,7 +303,7 @@ const DownloadsTab: React.FC = () => {
         groupType = 'content';
       } else if (download.service.toLowerCase() !== 'steam') {
         groupKey = `service-${download.service.toLowerCase()}`;
-        groupName = `${download.service} Downloads`;
+        groupName = `${download.service} downloads`;
         groupType = download.totalBytes === 0 ? 'metadata' : 'content';
       } else {
         individuals.push(download);
@@ -352,27 +351,16 @@ const DownloadsTab: React.FC = () => {
 
     const { groups, individuals } = createGroups(filteredDownloads);
 
-    console.log('[Normal View] Total groups before filtering:', groups.length);
-    console.log('[Normal View] hideUnknownGames setting:', settings.hideUnknownGames);
-
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
     let filteredGroups = groups;
     if (settings.hideUnknownGames) {
-      console.log('[Normal View] Applying group filter for unknown games...');
-      console.log('[Normal View] All group names:', groups.map(g => g.name));
-
       filteredGroups = groups.filter(g => {
         const groupNameLower = g.name.toLowerCase().trim();
         const hasUnknown = groupNameLower.includes('unknown');
         const isUnmappedApps = g.name === 'Unmapped Steam Apps';
         const shouldKeep = !hasUnknown && !isUnmappedApps;
-
-        if (!shouldKeep) {
-          console.log(`[Normal View] Filtering out group: "${g.name}" (hasUnknown: ${hasUnknown}, isUnmappedApps: ${isUnmappedApps})`);
-        }
         return shouldKeep;
       });
-      console.log('[Normal View] Groups after filtering:', filteredGroups.length);
     }
 
     // Keep ALL groups as expandable groups, including single downloads
@@ -411,27 +399,16 @@ const DownloadsTab: React.FC = () => {
 
     const { groups, individuals } = createGroups(filteredDownloads);
 
-    console.log('[Compact View] Total groups before filtering:', groups.length);
-    console.log('[Compact View] hideUnknownGames setting:', settings.hideUnknownGames);
-
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
     let filteredGroups = groups;
     if (settings.hideUnknownGames) {
-      console.log('[Compact View] Applying group filter for unknown games...');
-      console.log('[Compact View] All group names:', groups.map(g => g.name));
-
       filteredGroups = groups.filter(g => {
         const groupNameLower = g.name.toLowerCase().trim();
         const hasUnknown = groupNameLower.includes('unknown');
         const isUnmappedApps = g.name === 'Unmapped Steam Apps';
         const shouldKeep = !hasUnknown && !isUnmappedApps;
-
-        if (!shouldKeep) {
-          console.log(`[Compact View] Filtering out group: "${g.name}" (hasUnknown: ${hasUnknown}, isUnmappedApps: ${isUnmappedApps})`);
-        }
         return shouldKeep;
       });
-      console.log('[Compact View] Groups after filtering:', filteredGroups.length);
     }
 
     // Keep ALL groups as expandable groups, including single downloads

@@ -102,6 +102,9 @@ public class SteamKit2Service : IHostedService, IDisposable
                 _logger.LogInformation("Loaded crawl interval from state: {Hours} hour(s)", savedInterval);
             }
 
+            // Load last crawl time from state to preserve schedule across restarts
+            LoadLastCrawlTime();
+
             // Check for interrupted depot processing and resume if needed
             var depotState = _stateService.GetDepotProcessingState();
             if (depotState.IsActive && depotState.RemainingApps.Any())

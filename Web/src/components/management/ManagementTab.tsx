@@ -324,10 +324,11 @@ const LogFileManager: React.FC<{
     setPendingServiceRemoval(serviceName);
   };
 
-  // Only show services that actually have log entries (non-zero counts)
-  const servicesWithData = config.services.filter(service =>
-    serviceCounts[service] !== undefined && serviceCounts[service] > 0
-  );
+  // Show all services that have log entries (get from serviceCounts, not config.services)
+  // This ensures we show ALL services found in logs, including "unknown" and any others
+  const servicesWithData = Object.keys(serviceCounts)
+    .filter(service => serviceCounts[service] > 0)
+    .sort();
 
   return (
     <>
