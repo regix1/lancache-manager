@@ -113,8 +113,11 @@ jobs:
             type=sha
 
       - name: Create and push multi-arch manifest
+        env:
+          TAGS: ${{ steps.meta.outputs.json }}
         run: |
-          for tag in ${{ steps.meta.outputs.tags }}; do
+          echo "$TAGS" | jq -r '.tags[]' | while IFS= read -r tag; do
+            echo "Creating manifest for: $tag"
             docker buildx imagetools create -t ${tag} \
               ${tag}-amd64 \
               ${tag}-arm64

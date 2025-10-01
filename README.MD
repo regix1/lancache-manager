@@ -2,7 +2,30 @@
 
 Modern monitoring and management interface for LanCache deployments. Keep tabs on downloads, bandwidth savings, and cache performance in real-time.
 
-![Dashboard Screenshot](docs/screenshots/dashboard-placeholder.png)
+
+## Screenshots
+
+<div align="center">
+
+### Dashboard
+<img width="1527" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/56b5a0bb-066a-437e-8773-115e6687ddcb" />
+
+### Downloads
+<img width="1521" alt="Downloads Tab - Overview" src="https://github.com/user-attachments/assets/8d3421e7-1aac-4172-8eaf-631b697ae7c0" />
+<img width="1520" alt="Downloads Tab - Detailed View" src="https://github.com/user-attachments/assets/c8d82fbb-61b2-4ee5-8cd7-33b62fcabfab" />
+
+### Clients
+<img width="1522" alt="Client Statistics" src="https://github.com/user-attachments/assets/b591f36f-dbdd-4373-ab5e-e717b0893ebc" />
+
+### Management
+<img width="1521" alt="Management Tab - Settings" src="https://github.com/user-attachments/assets/d86ed2d0-13db-4031-8bfd-2bc637179041" />
+<img width="1516" alt="Management Tab - Advanced" src="https://github.com/user-attachments/assets/38300c13-b9c6-46e6-b06d-efe2d857ed6c" />
+
+### Themes
+<img width="1512" alt="Custom Theme Editor" src="https://github.com/user-attachments/assets/c0628129-12ef-4ff6-a30e-979f40804a57" />
+
+</div>
+
 
 ## Features
 
