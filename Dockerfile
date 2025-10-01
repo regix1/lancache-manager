@@ -4,7 +4,7 @@
 ARG VERSION=1.2.0
 
 # Stage 1: Build Rust binaries
-FROM --platform=$BUILDPLATFORM rust:1.75-slim AS rust-builder
+FROM --platform=$BUILDPLATFORM rust:1.83-slim AS rust-builder
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
