@@ -55,7 +55,7 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(SkipRustBuild)' != 'true'">
     <!-- Production build for Windows x64 -->
     <None Include="..\..\rust-processor\bin\win-x64\lancache_processor.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -67,7 +67,7 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64' And '$(SkipRustBuild)' != 'true'">
     <!-- Production build for Linux x64 -->
     <None Include="..\..\rust-processor\bin\linux-x64\lancache_processor">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -79,7 +79,7 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And '$(SkipRustBuild)' != 'true'">
     <!-- Production build for Linux ARM64 -->
     <None Include="..\..\rust-processor\bin\linux-arm64\lancache_processor">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
