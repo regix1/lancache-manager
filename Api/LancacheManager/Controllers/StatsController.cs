@@ -11,11 +11,13 @@ namespace LancacheManager.Controllers;
 public class StatsController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly StatsService _statsService;
     private readonly ILogger<StatsController> _logger;
 
-    public StatsController(AppDbContext context, ILogger<StatsController> logger)
+    public StatsController(AppDbContext context, StatsService statsService, ILogger<StatsController> logger)
     {
         _context = context;
+        _statsService = statsService;
         _logger = logger;
     }
 
@@ -25,11 +27,18 @@ public class StatsController : ControllerBase
     {
         try
         {
-            var query = _context.ClientStats.AsNoTracking();
+            List<ClientStats> stats;
 
-            // Apply time filtering if provided (Unix timestamps)
-            if (startTime.HasValue || endTime.HasValue)
+            // If no filtering, use cached service method
+            if (!startTime.HasValue && !endTime.HasValue)
             {
+                stats = await _statsService.GetClientStatsAsync();
+                // Take top 100 after caching
+                stats = stats.Take(100).ToList();
+            }
+            else
+            {
+                // With filtering, query database directly
                 var startDate = startTime.HasValue
                     ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
                     : DateTime.MinValue;
@@ -37,14 +46,13 @@ public class StatsController : ControllerBase
                     ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
                     : DateTime.UtcNow;
 
-                // Filter based on LastSeen date
-                query = query.Where(c => c.LastSeen >= startDate && c.LastSeen <= endDate);
+                stats = await _context.ClientStats
+                    .AsNoTracking()
+                    .Where(c => c.LastSeen >= startDate && c.LastSeen <= endDate)
+                    .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
+                    .Take(100)
+                    .ToListAsync();
             }
-
-            var stats = await query
-                .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
-                .Take(100) // Limit results
-                .ToListAsync();
 
             return Ok(stats);
         }
@@ -61,34 +69,43 @@ public class StatsController : ControllerBase
     {
         try
         {
-            var query = _context.ServiceStats.AsNoTracking();
-            
-            // Apply time filtering if provided (Unix timestamps take priority)
-            if (startTime.HasValue || endTime.HasValue)
-            {
-                var startDate = startTime.HasValue
-                    ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
-                    : DateTime.MinValue;
-                var endDate = endTime.HasValue
-                    ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
-                    : DateTime.UtcNow;
+            List<ServiceStats> stats;
 
-                query = query.Where(s => s.LastActivity >= startDate && s.LastActivity <= endDate);
-            }
-            // Fall back to period-based filtering if no timestamps provided
-            else if (!string.IsNullOrEmpty(since) && since != "all")
+            // If no filtering, use cached service method
+            if (!startTime.HasValue && !endTime.HasValue && (string.IsNullOrEmpty(since) || since == "all"))
             {
-                var cutoffTime = ParseTimePeriod(since);
-                if (cutoffTime.HasValue)
-                {
-                    query = query.Where(s => s.LastActivity >= cutoffTime.Value);
-                }
+                stats = await _statsService.GetServiceStatsAsync();
             }
-            
-            var stats = await query
-                .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
-                .ToListAsync();
-                
+            else
+            {
+                // With filtering, query database directly
+                var query = _context.ServiceStats.AsNoTracking();
+
+                if (startTime.HasValue || endTime.HasValue)
+                {
+                    var startDate = startTime.HasValue
+                        ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                        : DateTime.MinValue;
+                    var endDate = endTime.HasValue
+                        ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                        : DateTime.UtcNow;
+
+                    query = query.Where(s => s.LastActivity >= startDate && s.LastActivity <= endDate);
+                }
+                else if (!string.IsNullOrEmpty(since) && since != "all")
+                {
+                    var cutoffTime = ParseTimePeriod(since);
+                    if (cutoffTime.HasValue)
+                    {
+                        query = query.Where(s => s.LastActivity >= cutoffTime.Value);
+                    }
+                }
+
+                stats = await query
+                    .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
+                    .ToListAsync();
+            }
+
             return Ok(stats);
         }
         catch (Exception ex)
@@ -490,39 +507,12 @@ public class StatsController : ControllerBase
     {
         try
         {
-            // Handle "all" period
-            DateTime? cutoffTime = null;
-            if (period != "all")
-            {
-                cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7);
-            }
-            
-            IQueryable<Download> query = _context.Downloads.AsNoTracking();
-            
-            if (cutoffTime.HasValue)
-            {
-                query = query.Where(d => d.StartTime >= cutoffTime.Value);
-            }
-            
-            var topGames = await query
-                .Where(d => d.Service == "steam" && 
-                           !string.IsNullOrEmpty(d.GameName) &&
-                           d.GameName != "Unknown Steam Game")
-                .GroupBy(d => new { d.GameAppId, d.GameName })
-                .Select(g => new
-                {
-                    appId = g.Key.GameAppId,
-                    gameName = g.Key.GameName,
-                    totalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    cacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    cacheMissBytes = g.Sum(d => d.CacheMissBytes),
-                    downloadCount = g.Count(),
-                    uniqueClients = g.Select(d => d.ClientIp).Distinct().Count()
-                })
-                .OrderByDescending(g => g.totalBytes)
-                .Take(limit)
-                .ToListAsync();
-                
+            var topGames = await _statsService.GetTopGamesAsync(limit, period, "bytes");
+
+            var cutoffTime = period != "all"
+                ? ParseTimePeriod(period) ?? DateTime.UtcNow.AddDays(-7)
+                : (DateTime?)null;
+
             return Ok(new
             {
                 period = new
@@ -531,7 +521,16 @@ public class StatsController : ControllerBase
                     since = cutoffTime,
                     until = DateTime.UtcNow
                 },
-                games = topGames,
+                games = topGames.Select(g => new
+                {
+                    appId = g.GameAppId,
+                    gameName = g.GameName,
+                    totalBytes = g.TotalBytes,
+                    cacheHitBytes = g.CacheHitBytes,
+                    cacheMissBytes = g.CacheMissBytes,
+                    downloadCount = g.TotalDownloads,
+                    uniqueClients = g.UniqueClients
+                }),
                 timestamp = DateTime.UtcNow
             });
         }

@@ -33,7 +33,7 @@ public class GameImagesController : ControllerBase
 
             if (download?.GameImageUrl == null)
             {
-                _logger.LogWarning($"No game image URL found for app {appId} in database");
+                _logger.LogDebug($"No game image URL found for app {appId} in database");
                 return NotFound(new { error = $"Game image URL not found for app {appId}" });
             }
 

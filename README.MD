@@ -1,40 +1,22 @@
 # LanCache Manager
 
-LanCache Manager is the control room for your existing LanCache deployment. It gives you a friendly, real-time look at who is downloading what, how well your cache is performing, and whether your hardware needs attention before the next wave of installs hits.
+Modern monitoring and management interface for LanCache deployments. Keep tabs on downloads, bandwidth savings, and cache performance in real-time.
 
-![Replace with a dashboard screenshot](docs/screenshots/dashboard-placeholder.png)
-> Swap the placeholder above with a real capture of your dashboard. A quick annotation callout helps readers orient themselves.
+![Dashboard Screenshot](docs/screenshots/dashboard-placeholder.png)
 
-## Why teams run it
-- Keep an eye on bandwidth, cache hit rate, and live downloads without guesswork
-- Spot which games and services (Steam, Epic, Origin, etc.) are driving traffic
-- Detect new titles automatically with cover art and depot mapping
-- Manage cache directories, logs, and authentication from one place
-- Stream metrics into Grafana or your own tooling via WebSocket and REST APIs
+## Features
 
-## What you can show off
-### Dashboard overview
-![Add your dashboard screenshot here](docs/screenshots/dashboard.png)
-_A 10-second glance should explain bandwidth, hit rate, and active downloads._
+- Real-time bandwidth and cache hit tracking
+- Automatic game detection with Steam depot mapping
+- Service breakdown (Steam, Epic, Origin, Blizzard, etc.)
+- Custom theme support with TOML-based themes
+- REST API and Prometheus metrics export
+- Authentication and multi-user support
 
-### Downloads & analytics
-![Add your downloads screenshot here](docs/screenshots/downloads.png)
-_Show the compact/normal/grouped views, filters, and data export options._
+## Quick Start
 
-### Themes & customization
-![Add your theme gallery screenshot here](docs/screenshots/themes.png)
-_Highlight the theme switcher or a favorite custom theme._
+### Docker (Recommended)
 
-## Getting started
-### Prerequisites
-- Docker and Docker Compose
-- An existing LanCache instance with access to logs and cache storage
-- Suggested resources
-  - Home setups (1-10 clients): 2 CPU cores, 2 GB RAM
-  - LAN parties (10-50 clients): 4 CPU cores, 4 GB RAM
-  - Large events (50+ clients): 8+ CPU cores, 8+ GB RAM
-
-### One-line Docker run
 ```bash
 docker run -d \
   --name lancache-manager \
@@ -47,9 +29,11 @@ docker run -d \
   -e LanCache__CachePath=/cache \
   ghcr.io/regix1/lancache-manager:latest
 ```
-Visit `http://localhost:8080` (or your server address) to see the dashboard.
 
-### Docker Compose (recommended)
+Visit `http://localhost:8080`
+
+### Docker Compose
+
 ```yaml
 services:
   lancache-manager:
@@ -61,7 +45,7 @@ services:
       TZ: America/Chicago
       LanCache__LogPath: /logs/access.log
       LanCache__CachePath: /cache
-      LanCache__ApiKey: change-me
+      LanCache__ApiKey: your-secret-key-here
     volumes:
       - ./data:/data
       - /path/to/lancache/logs:/logs:ro
@@ -69,46 +53,233 @@ services:
     restart: unless-stopped
 ```
 
-## Configuration cheat sheet
-- `LanCache__LogPath`: Path to your LanCache access log (nginx)
-- `LanCache__CachePath`: Root of the cached game data
-- `LanCache__ApiKey`: Enables API authentication for metrics and integrations
-- `LanCache__Theme`: Default theme slug (optional)
+## Configuration
 
-Metrics and API examples:
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LanCache__LogPath` | Path to nginx access.log | `/logs/access.log` |
+| `LanCache__CachePath` | Cache storage directory | `/cache` |
+| `LanCache__ApiKey` | API authentication key | None (public) |
+| `TZ` | Timezone | `UTC` |
+
+### Authentication
+
+Set `LanCache__ApiKey` to enable authentication for:
+- Cache clearing operations
+- Database reset
+- Theme management
+- API endpoints
+
+Without an API key, the dashboard is read-only with limited management features.
+
+## Building from Source
+
+### Prerequisites
+
+- .NET 8 SDK
+- Node.js 20+
+- Rust 1.75+ (for log processor)
+- Docker (optional)
+
+### Local Development
+
 ```bash
-# Prometheus metrics
-curl http://localhost:8080/api/metrics
-
-# JSON payload for dashboards or automation
-curl http://localhost:8080/api/metrics/json
-
-# Health check when using API keys
-curl -H "X-Api-Key: your-api-key" http://localhost:8080/api/metrics/status
-```
-
-## Dev setup
-```bash
-# Clone the project
-git clone https://github.com/regix1/lancache-manager.git
-cd lancache-manager
-
-# Frontend (React + Vite)
+# Frontend
 cd Web
 npm install
 npm run dev
 
-# Backend (.NET 8)
-cd ../Api/LancacheManager
+# Backend
+cd Api/LancacheManager
 dotnet run
 ```
-Build for production with `npm run build` (frontend) and `dotnet publish` or `docker build` (backend).
 
-## Need help or want to contribute?
-- Open an issue for bugs, feature ideas, or installation questions
-- Share themes and tips in discussions
-- Long-form documentation is being refreshed; keep an eye out for new guides
-- Send a pull request with fixes, docs, or new features; small contributions are welcome
+Frontend runs on `http://localhost:3000`, backend on `http://localhost:5000`.
+
+### Docker Build
+
+```bash
+# Single platform
+docker build -t lancache-manager .
+
+# Multi-platform (amd64 + arm64)
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/regix1/lancache-manager:latest \
+  --push \
+  .
+```
+
+The Dockerfile uses multi-stage builds to compile Rust binaries for both platforms, build the React frontend, and package everything into an ASP.NET runtime image.
+
+### Platform Support
+
+- **Linux**: x64 (amd64), ARM64
+- **Windows**: x64 (development only)
+
+### Building Rust Processor
+
+```bash
+cd rust-processor
+cargo build --release
+```
+
+For cross-compilation:
+
+```bash
+# Linux x64
+cargo build --release --target x86_64-unknown-linux-gnu
+
+# Linux ARM64 (requires aarch64 toolchain)
+cargo build --release --target aarch64-unknown-linux-gnu
+
+# Windows (from Linux, requires mingw-w64)
+cargo build --release --target x86_64-pc-windows-gnu
+```
+
+Built binaries are automatically copied to `rust-processor/bin/<platform>/` and included in Docker builds.
+
+### Production Build
+
+```bash
+# .NET publish (includes Rust binaries)
+cd Api/LancacheManager
+dotnet publish -c Release -r linux-x64 --self-contained false
+
+# Frontend production build
+cd Web
+npm run build
+```
+
+Output goes to `Api/LancacheManager/bin/Release/net8.0/linux-x64/publish/`
+
+## Custom Themes
+
+Themes use TOML format with full color customization. Upload via Settings > Themes.
+
+### Theme Structure
+
+```toml
+[meta]
+name = "My Theme"
+id = "my-theme"
+description = "Custom color scheme"
+author = "Your Name"
+version = "1.0.0"
+isDark = true
+
+[colors]
+primaryColor = "#3b82f6"
+bgPrimary = "#111827"
+textPrimary = "#ffffff"
+# ... (see built-in themes for full list)
+
+[css]
+content = """
+/* Optional custom CSS */
+.custom-class {
+  font-weight: bold;
+}
+"""
+```
+
+### Available Colors
+
+Themes support 100+ color variables including:
+- Core colors (primary, secondary, accent)
+- Backgrounds (primary, secondary, tertiary, hover)
+- Text colors (primary, secondary, muted, accent)
+- Status colors (success, warning, error, info)
+- Service colors (steam, epic, origin, blizzard, wsus, riot)
+- Component colors (buttons, inputs, cards, badges, etc.)
+- Chart colors (8 data series + grid/text colors)
+
+### Sharp Corners Mode
+
+Toggle between rounded and sharp corners globally in Settings > Appearance.
+
+### Exporting Themes
+
+Select any theme and click Export to download as `.toml` file. Modify and re-upload to customize.
+
+## API Endpoints
+
+### Metrics
+
+```bash
+# Prometheus format
+curl http://localhost:8080/api/metrics
+
+# JSON format
+curl http://localhost:8080/api/metrics/json
+```
+
+### Management (requires API key)
+
+```bash
+# Process logs
+curl -X POST -H "X-Api-Key: your-key" \
+  http://localhost:8080/api/management/process-all-logs
+
+# Reset database
+curl -X DELETE -H "X-Api-Key: your-key" \
+  http://localhost:8080/api/management/database
+
+# Clear cache
+curl -X POST -H "X-Api-Key: your-key" \
+  http://localhost:8080/api/management/cache/clear-all
+```
+
+### Stats
+
+```bash
+# Dashboard stats
+curl http://localhost:8080/api/stats/dashboard?period=24h
+
+# Top games
+curl http://localhost:8080/api/stats/top-games?limit=10
+
+# Client stats
+curl http://localhost:8080/api/stats/clients
+
+# Service stats
+curl http://localhost:8080/api/stats/services
+```
+
+## Performance
+
+### Recommended Resources
+
+| Environment | CPU | RAM | Notes |
+|-------------|-----|-----|-------|
+| Home (1-10 clients) | 2 cores | 2 GB | Light usage |
+| LAN party (10-50 clients) | 4 cores | 4 GB | Medium load |
+| Large events (50+ clients) | 8+ cores | 8+ GB | High throughput |
+
+### Log Processor Performance
+
+Processing 4M log entries:
+
+| Implementation | Time | Throughput |
+|----------------|------|------------|
+| C# (EF Core) | ~25 min | 2,666 lines/sec |
+| Rust (rusqlite) | 3-5 min | 13,333-22,222 lines/sec |
+
+**5-8x faster** with:
+- Bulk transactions (100k entries per commit)
+- Prepared statements and query caching
+- SQLite WAL mode with 1GB cache
+- Session-based download grouping (5min timeout)
+- Zero-copy regex parsing
+
+## Contributing
+
+- Open issues for bugs or feature requests
+- Share custom themes in discussions
+- Submit PRs for fixes or enhancements
 
 ## License
-MIT License. Use it freely for personal events, gaming lounges, and commercial deployments.
+
+MIT License - free for personal and commercial use.

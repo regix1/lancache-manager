@@ -8,73 +8,51 @@ namespace LancacheManager.Services;
 /// <summary>
 /// Shared service for common statistics database queries
 /// Used by both StatsController and MetricsController to avoid duplication
+/// Uses StatsCache for performance on frequently accessed data
 /// </summary>
 public class StatsService
 {
     private readonly AppDbContext _context;
+    private readonly StatsCache _cache;
     private readonly ILogger<StatsService> _logger;
 
-    public StatsService(AppDbContext context, ILogger<StatsService> logger)
+    public StatsService(AppDbContext context, StatsCache cache, ILogger<StatsService> logger)
     {
         _context = context;
+        _cache = cache;
         _logger = logger;
     }
 
     /// <summary>
-    /// Get service statistics
+    /// Get service statistics (cached for performance)
     /// </summary>
     public async Task<List<ServiceStats>> GetServiceStatsAsync(CancellationToken cancellationToken = default)
     {
-        // Order by database columns, then sort by computed property on client side
-        var stats = await _context.ServiceStats
-            .AsNoTracking()
-            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
-            .ToListAsync(cancellationToken);
-
-        return stats;
+        return await _cache.GetServiceStatsAsync(_context);
     }
 
     /// <summary>
-    /// Get client statistics
+    /// Get client statistics (cached for performance)
     /// </summary>
     public async Task<List<ClientStats>> GetClientStatsAsync(CancellationToken cancellationToken = default)
     {
-        // Order by database columns, then sort by computed property on client side
-        var stats = await _context.ClientStats
-            .AsNoTracking()
-            .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
-            .ToListAsync(cancellationToken);
-
-        return stats;
+        return await _cache.GetClientStatsAsync(_context);
     }
 
     /// <summary>
-    /// Get latest downloads with optional limit
+    /// Get latest downloads with optional limit (cached for performance)
     /// </summary>
     public async Task<List<Download>> GetLatestDownloadsAsync(int limit = 100, CancellationToken cancellationToken = default)
     {
-        var query = _context.Downloads
-            .AsNoTracking()
-            .OrderByDescending(d => d.StartTime);
-
-        if (limit > 0)
-        {
-            query = (IOrderedQueryable<Download>)query.Take(limit);
-        }
-
-        return await query.ToListAsync(cancellationToken);
+        return await _cache.GetRecentDownloadsAsync(_context, limit);
     }
 
     /// <summary>
-    /// Get active downloads
+    /// Get active downloads (cached with 2-second expiration)
     /// </summary>
     public async Task<List<Download>> GetActiveDownloadsAsync(CancellationToken cancellationToken = default)
     {
-        return await _context.Downloads
-            .AsNoTracking()
-            .Where(d => d.IsActive)
-            .OrderByDescending(d => d.StartTime)
-            .ToListAsync(cancellationToken);
+        return await _cache.GetActiveDownloadsAsync(_context);
     }
 
     /// <summary>
@@ -165,30 +143,35 @@ public class StatsService
     {
         var cutoff = GetCutoffTime(period, DateTime.UtcNow);
 
-        var query = _context.Downloads
+        // Load data first, then group in memory to avoid EF Core translation issues
+        var downloads = await _context.Downloads
             .AsNoTracking()
             .Where(d => d.StartTime >= cutoff && !string.IsNullOrEmpty(d.GameName))
+            .Select(d => new { d.GameName, d.GameAppId, d.TotalBytes, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
+            .ToListAsync(cancellationToken);
+
+        var groupedStats = downloads
             .GroupBy(d => new { d.GameName, d.GameAppId })
             .Select(g => new GameStat
             {
-                GameName = g.Key.GameName,
+                GameName = g.Key.GameName ?? "",
                 GameAppId = (int)(g.Key.GameAppId ?? 0),
                 TotalDownloads = g.Count(),
-                TotalBytes = g.Sum(d => (long?)d.TotalBytes ?? 0),
-                CacheHitBytes = g.Sum(d => (long?)d.CacheHitBytes ?? 0),
-                CacheMissBytes = g.Sum(d => (long?)d.CacheMissBytes ?? 0),
+                TotalBytes = g.Sum(d => d.TotalBytes),
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes),
                 UniqueClients = g.Select(d => d.ClientIp).Distinct().Count()
             });
 
         // Sort based on preference
-        query = sortBy.ToLower() switch
+        var sortedStats = sortBy.ToLower() switch
         {
-            "bytes" => query.OrderByDescending(g => g.TotalBytes),
-            "clients" => query.OrderByDescending(g => g.UniqueClients),
-            _ => query.OrderByDescending(g => g.TotalDownloads)
+            "bytes" => groupedStats.OrderByDescending(g => g.TotalBytes),
+            "clients" => groupedStats.OrderByDescending(g => g.UniqueClients),
+            _ => groupedStats.OrderByDescending(g => g.TotalDownloads)
         };
 
-        return await query.Take(limit).ToListAsync(cancellationToken);
+        return sortedStats.Take(limit).ToList();
     }
 
     /// <summary>

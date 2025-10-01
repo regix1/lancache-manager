@@ -6,6 +6,7 @@ interface MockData {
   latestDownloads: any[];
   clientStats: any[];
   serviceStats: any[];
+  dashboardStats: any;
 }
 
 interface GameInfo {
@@ -231,12 +232,45 @@ class MockDataService {
       };
     });
 
+    // Generate dashboard stats
+    const totalCacheHit = downloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
+    const totalCacheMiss = downloads.reduce((sum, d) => sum + d.cacheMissBytes, 0);
+    const totalBytes = totalCacheHit + totalCacheMiss;
+    const topServiceStat = serviceStats.reduce((max, stat) =>
+      stat.totalBytes > max.totalBytes ? stat : max, serviceStats[0]);
+
+    const dashboardStats = {
+      totalBandwidthSaved: totalCacheHit,
+      totalAddedToCache: totalCacheMiss,
+      totalServed: totalBytes,
+      cacheHitRatio: totalBytes > 0 ? (totalCacheHit / totalBytes) * 100 : 0,
+      activeDownloads: downloads.filter((d) => d.isActive).length,
+      uniqueClients: clientStats.length,
+      topService: topServiceStat?.service || 'steam',
+      period: {
+        duration: 'all',
+        since: null,
+        bandwidthSaved: totalCacheHit,
+        addedToCache: totalCacheMiss,
+        totalServed: totalBytes,
+        hitRatio: totalBytes > 0 ? (totalCacheHit / totalBytes) * 100 : 0,
+        downloads: downloads.length
+      },
+      serviceBreakdown: serviceStats.map(stat => ({
+        service: stat.service,
+        bytes: stat.totalBytes,
+        percentage: totalBytes > 0 ? (stat.totalBytes / totalBytes) * 100 : 0
+      })).sort((a, b) => b.bytes - a.bytes),
+      lastUpdated: now
+    };
+
     return {
       cacheInfo,
       activeDownloads: downloads.filter((d) => d.isActive),
       latestDownloads: downloads,
       clientStats,
-      serviceStats
+      serviceStats,
+      dashboardStats
     };
   }
 

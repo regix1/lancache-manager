@@ -54,13 +54,15 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
     if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
     {
         Directory.CreateDirectory(dbDir);
-        Console.WriteLine($"Created database directory: {dbDir}");
+        var logger = serviceProvider.GetService<ILogger<Program>>();
+        logger?.LogInformation("Created database directory: {DbDir}", dbDir);
     }
 
     // Only log the path once at startup
     if (!dbPathInitialized)
     {
-        Console.WriteLine($"Using database path: {dbPath}");
+        var logger = serviceProvider.GetService<ILogger<Program>>();
+        logger?.LogInformation("Using database path: {DbPath}", dbPath);
         dbPathInitialized = true;
     }
 

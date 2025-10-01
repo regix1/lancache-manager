@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Services;
 using LancacheManager.Data;
+using LancacheManager.Models;
 
 namespace LancacheManager.Controllers;
 
@@ -11,12 +12,14 @@ public class DownloadsController : ControllerBase
 {
     private readonly DatabaseService _dbService;
     private readonly AppDbContext _context;
+    private readonly StatsService _statsService;
     private readonly ILogger<DownloadsController> _logger;
 
-    public DownloadsController(DatabaseService dbService, AppDbContext context, ILogger<DownloadsController> logger)
+    public DownloadsController(DatabaseService dbService, AppDbContext context, StatsService statsService, ILogger<DownloadsController> logger)
     {
         _dbService = dbService;
         _context = context;
+        _statsService = statsService;
         _logger = logger;
     }
 
@@ -29,12 +32,16 @@ public class DownloadsController : ControllerBase
         {
             try
             {
-                // Use AsNoTracking for read-only query
-                var query = _context.Downloads.AsNoTracking();
+                List<Download> downloads;
 
-                // Apply time filtering if provided (Unix timestamps)
-                if (startTime.HasValue || endTime.HasValue)
+                // If no time filtering, use cached service method
+                if (!startTime.HasValue && !endTime.HasValue)
                 {
+                    downloads = await _statsService.GetLatestDownloadsAsync(count);
+                }
+                else
+                {
+                    // With filtering, query database directly
                     var startDate = startTime.HasValue
                         ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
                         : DateTime.MinValue;
@@ -42,13 +49,13 @@ public class DownloadsController : ControllerBase
                         ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
                         : DateTime.UtcNow;
 
-                    query = query.Where(d => d.StartTime >= startDate && d.StartTime <= endDate);
+                    downloads = await _context.Downloads
+                        .AsNoTracking()
+                        .Where(d => d.StartTime >= startDate && d.StartTime <= endDate)
+                        .OrderByDescending(d => d.StartTime)
+                        .Take(count)
+                        .ToListAsync();
                 }
-
-                var downloads = await query
-                    .OrderByDescending(d => d.StartTime)
-                    .Take(count)
-                    .ToListAsync();
 
                 return Ok(downloads);
             }
@@ -78,16 +85,8 @@ public class DownloadsController : ControllerBase
     {
         try
         {
-            var cutoff = DateTime.UtcNow.AddMinutes(-5);
-            
-            // Use AsNoTracking and optimize query
-            var downloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTime > cutoff)
-                .OrderByDescending(d => d.StartTime)
-                .Take(100) // Limit results
-                .ToListAsync();
-                
+            // Use cached service method (2-second cache)
+            var downloads = await _statsService.GetActiveDownloadsAsync();
             return Ok(downloads);
         }
         catch (Exception ex)

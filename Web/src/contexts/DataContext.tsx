@@ -7,7 +7,7 @@ import React, {
   type ReactNode
 } from 'react';
 import ApiService from '@services/api.service';
-import MockDataService from '@services/mockData.service';
+import MockDataService from '@/test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
 
 interface CacheInfo {
@@ -206,6 +206,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         setLatestDownloads(mockData.latestDownloads);
         setClientStats(mockData.clientStats);
         setServiceStats(mockData.serviceStats);
+        setDashboardStats(mockData.dashboardStats);
         setError(null);
         setConnectionStatus('connected');
         hasData.current = true;
@@ -472,6 +473,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       setLatestDownloads(mockData.latestDownloads);
       setClientStats(mockData.clientStats);
       setServiceStats(mockData.serviceStats);
+      setDashboardStats(mockData.dashboardStats);
       setError(null);
       setConnectionStatus('connected');
       hasData.current = true;
@@ -503,6 +505,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       setLatestDownloads([]);
       setClientStats([]);
       setServiceStats([]);
+      setDashboardStats(null);
       setError(null);
       hasData.current = false;
       isInitialLoad.current = true;
@@ -529,6 +532,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     setLatestDownloads([]);
     setClientStats([]);
     setServiceStats([]);
+    setDashboardStats(null);
     hasData.current = false;
   };
 

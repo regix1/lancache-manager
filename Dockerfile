@@ -98,7 +98,6 @@ LABEL org.opencontainers.image.description="Modern monitoring interface for LanC
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.vendor="LanCache Manager"
 LABEL org.opencontainers.image.source="https://github.com/regix1/lancache-manager"
-LABEL org.opencontainers.image.documentation="https://github.com/regix1/lancache-manager/wiki"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # Set version as environment variable for runtime access
