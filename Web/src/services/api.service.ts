@@ -321,9 +321,9 @@ class ApiService {
   }
 
   // Reset log position (requires auth)
-  static async resetLogPosition(): Promise<any> {
+  static async resetLogPosition(position: 'top' | 'bottom' = 'bottom'): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/reset-logs`, {
+      const res = await fetch(`${API_BASE}/management/reset-logs?position=${position}`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         signal: AbortSignal.timeout(60000)
@@ -356,11 +356,16 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/cancel-processing`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        signal: AbortSignal.timeout(25000) // Increased timeout to allow backend services to stop gracefully
+        signal: AbortSignal.timeout(3000) // Short timeout since endpoint returns immediately
       });
       return await this.handleResponse(res);
     } catch (error) {
       console.error('cancelProcessing error:', error);
+      // Treat timeout as success since cancellation was initiated
+      if (error instanceof DOMException && error.name === 'TimeoutError') {
+        console.log('Cancel request timed out - treating as success');
+        return { message: 'Log processing cancelled' };
+      }
       throw error;
     }
   }

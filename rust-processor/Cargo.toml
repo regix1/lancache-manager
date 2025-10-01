@@ -3,6 +3,14 @@ name = "lancache_processor"
 version = "1.0.0"
 edition = "2021"
 
+[[bin]]
+name = "lancache_processor"
+path = "src/main.rs"
+
+[[bin]]
+name = "database_reset"
+path = "src/database_reset.rs"
+
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 regex = "1.10"

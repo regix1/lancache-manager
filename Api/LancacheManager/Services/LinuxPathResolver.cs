@@ -26,6 +26,12 @@ public class LinuxPathResolver : IPathResolver
 
     public string GetThemesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "themes"));
 
+    public string GetRustLogProcessorPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "lancache_processor");
+
+    public string GetRustDatabaseResetPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "database_reset");
+
     /// <summary>
     /// Resolves a relative path to an absolute path based on the operating system
     /// </summary>

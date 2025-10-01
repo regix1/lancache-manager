@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Security;
 using LancacheManager.Services;
+using LancacheManager.Data;
 
 namespace LancacheManager.Controllers;
 
@@ -12,17 +13,23 @@ public class AuthController : ControllerBase
     private readonly DeviceAuthService _deviceAuthService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
+    private readonly AppDbContext _dbContext;
+    private readonly StateService _stateService;
 
     public AuthController(
         ApiKeyService apiKeyService,
         DeviceAuthService deviceAuthService,
         IConfiguration configuration,
-        ILogger<AuthController> logger)
+        ILogger<AuthController> logger,
+        AppDbContext dbContext,
+        StateService stateService)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
         _configuration = configuration;
         _logger = logger;
+        _dbContext = dbContext;
+        _stateService = stateService;
     }
 
     /// <summary>
@@ -34,19 +41,7 @@ public class AuthController : ControllerBase
         // Check if authentication is enabled
         var authEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
 
-        // If authentication is disabled, always return authenticated
-        if (!authEnabled)
-        {
-            return Ok(new
-            {
-                requiresAuth = false,
-                isAuthenticated = true,
-                authenticationType = "disabled",
-                deviceId = (string?)null
-            });
-        }
-
-        // Check if already authenticated
+        // Check if already authenticated (do this first, before slow DB checks)
         var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
         var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
 
@@ -64,12 +59,62 @@ public class AuthController : ControllerBase
             authenticationType = "device";
         }
 
+        // Check for guest mode eligibility (these might be slow, so do them last)
+        bool hasData = false;
+        bool hasEverBeenSetup = false;
+        bool hasBeenInitialized = false;
+
+        try
+        {
+            hasData = _dbContext.Downloads.Any();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check if database has data");
+        }
+
+        try
+        {
+            hasEverBeenSetup = _deviceAuthService.HasAnyDeviceEverBeenRegistered();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check if any device has been registered");
+        }
+
+        try
+        {
+            hasBeenInitialized = _stateService.GetSetupCompleted();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check if setup has been completed");
+        }
+
+        // If authentication is disabled, always return authenticated
+        if (!authEnabled)
+        {
+            return Ok(new
+            {
+                requiresAuth = false,
+                isAuthenticated = true,
+                authenticationType = "disabled",
+                deviceId = (string?)null,
+                hasData,
+                hasEverBeenSetup,
+                hasBeenInitialized
+            });
+        }
+
         return Ok(new
         {
             requiresAuth = true,
             isAuthenticated,
             authenticationType,
-            deviceId = isAuthenticated && authenticationType == "device" ? deviceId : null
+            deviceId = isAuthenticated && authenticationType == "device" ? deviceId : null,
+            hasData,
+            hasEverBeenSetup,
+            hasBeenInitialized
         });
     }
 

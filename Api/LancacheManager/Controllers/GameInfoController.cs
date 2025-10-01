@@ -5,6 +5,7 @@ using System.Text.Json;
 using LancacheManager.Services;
 using LancacheManager.Data;
 using LancacheManager.Models;
+using LancacheManager.Security;
 
 namespace LancacheManager.Controllers;
 
@@ -38,6 +39,7 @@ public class GameInfoController : ControllerBase
     /// </summary>
     /// <param name="incremental">If true, performs incremental update (only changed apps), otherwise full rebuild</param>
     [HttpPost("steamkit/rebuild")]
+    [RequireAuth]
     public IActionResult TriggerSteamKitRebuild(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
         try
@@ -89,6 +91,7 @@ public class GameInfoController : ControllerBase
     /// </summary>
     /// <param name="intervalHours">Interval in hours</param>
     [HttpPost("steamkit/interval")]
+    [RequireAuth]
     public IActionResult SetCrawlInterval([FromBody] double intervalHours)
     {
         try
@@ -166,6 +169,7 @@ public class GameInfoController : ControllerBase
     /// Download pre-created depot mappings from GitHub repo
     /// </summary>
     [HttpPost("download-precreated-data")]
+    [RequireAuth]
     public async Task<IActionResult> DownloadPrecreatedDepotData(CancellationToken cancellationToken)
     {
         try

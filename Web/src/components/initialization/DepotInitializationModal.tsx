@@ -87,11 +87,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const response = await fetch('/api/management/data-availability');
+      const response = await fetch('/api/auth/check');
       if (response.ok) {
         const data = await response.json();
-        setDataAvailable(data.hasDataLoaded);
-        return data.hasDataLoaded;
+        // Data is available if setup has been completed
+        const hasData = data.hasBeenInitialized || false;
+        setDataAvailable(hasData);
+        return hasData;
       }
     } catch (error) {
       console.error('Failed to check data availability:', error);
@@ -468,9 +470,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         // Setup is complete, just close and proceed
         onInitialized();
       } else {
-        // Setup not complete, but in guest mode we can skip depot initialization
-        // Mark setup as completed and proceed
-        await markSetupCompleted();
+        // Setup not complete, but in guest mode we can't mark it as completed (not authenticated)
+        // Just proceed anyway - guest mode is read-only
         onInitialized();
       }
     }

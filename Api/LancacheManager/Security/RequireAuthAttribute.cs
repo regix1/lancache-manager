@@ -63,7 +63,7 @@ public class AuthenticationMiddleware
         "/api/management/database",
         "/api/management/reset-logs",
         "/api/management/process-all-logs",
-        "/api/management/cancel-processing",
+        // NOTE: /api/management/cancel-processing is NOT protected - it must work even when database is locked
         "/api/management/logs/remove-service",
         "/api/auth/devices", // GET and DELETE require auth
         "/api/auth/revoke"

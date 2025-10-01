@@ -89,9 +89,82 @@ const DatabaseManager: React.FC<{
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-}> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh }) => {
+  onBackgroundOperation?: (operation: any) => void;
+}> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [resetProgress, setResetProgress] = useState<{
+    isProcessing: boolean;
+    percentComplete: number;
+    status: string;
+    message: string;
+  } | null>(null);
+  const pollingInterval = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (resetProgress) {
+      onBackgroundOperation?.({
+        message: resetProgress.message,
+        progress: resetProgress.percentComplete,
+        status: resetProgress.status
+      });
+    } else {
+      onBackgroundOperation?.(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetProgress]); // Only depend on resetProgress, not onBackgroundOperation
+
+  const pollResetStatus = async () => {
+    try {
+      const response = await fetch('/api/management/database/reset-status');
+      if (response.ok) {
+        const status = await response.json();
+
+        if (status.isProcessing) {
+          setResetProgress({
+            isProcessing: true,
+            percentComplete: status.percentComplete || 0,
+            status: status.status || 'processing',
+            message: status.message || 'Resetting database...'
+          });
+        } else if (status.status === 'complete') {
+          setResetProgress({
+            isProcessing: false,
+            percentComplete: 100,
+            status: 'complete',
+            message: 'Database reset completed successfully'
+          });
+
+          if (pollingInterval.current) {
+            clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
+          }
+
+          setTimeout(() => {
+            setResetProgress(null);
+            onDataRefresh?.();
+          }, 3000);
+        } else {
+          // Not processing
+          if (pollingInterval.current) {
+            clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
+          }
+          setResetProgress(null);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to poll reset status:', err);
+    }
+  };
 
   const confirmResetDatabase = async () => {
     if (authMode !== 'authenticated') {
@@ -100,17 +173,32 @@ const DatabaseManager: React.FC<{
     }
 
     setLoading(true);
+    setShowResetModal(false);
+
     try {
       const result = await ApiService.resetDatabase();
       if (result) {
-        onSuccess?.(result.message || 'Database reset successfully');
-        setTimeout(() => onDataRefresh?.(), 2000);
+        onSuccess?.(result.message || 'Database reset started');
+
+        // Start polling for progress
+        setResetProgress({
+          isProcessing: true,
+          percentComplete: 0,
+          status: 'starting',
+          message: 'Starting database reset...'
+        });
+
+        if (pollingInterval.current) {
+          clearInterval(pollingInterval.current);
+        }
+
+        pollingInterval.current = setInterval(pollResetStatus, 500);
       }
     } catch (err: any) {
       onError?.(err.message || 'Failed to reset database');
+      setResetProgress(null);
     } finally {
       setLoading(false);
-      setShowResetModal(false);
     }
   };
 
@@ -468,6 +556,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     cacheClearing?: any;
     logProcessing?: any;
     serviceRemoval?: string | null;
+    databaseReset?: any;
   }>({});
 
   const [depotMappingProgress, setDepotMappingProgress] = useState<DepotMappingProgress | null>(null);
@@ -563,6 +652,22 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
           addError(payload?.error
             ? `Depot mapping post-processing failed: ${payload.error}`
             : 'Depot mapping post-processing failed.');
+        });
+
+        // Listen for database reset progress
+        connection.on('DatabaseResetProgress', (payload: any) => {
+          console.log('SignalR DatabaseResetProgress received:', payload);
+          if (payload.status === 'complete') {
+            setSuccess('Database reset completed successfully - reloading page...');
+            // Wait longer to ensure database is fully reset before reload
+            setTimeout(() => {
+              // Force hard reload to ensure fresh data (bypasses cache)
+              window.location.reload();
+            }, 2500);
+          } else if (payload.status === 'error') {
+            addError(`Database reset failed: ${payload.message}`);
+          }
+          // You can add more UI updates here if needed (progress bar, etc.)
         });
 
         // Listen for log processing completion
@@ -694,7 +799,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                           />
                           {/* Progress percentage overlay */}
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-xs font-bold text-white drop-shadow">
+                            <span className="text-xs font-bold text-themed-button drop-shadow">
                               {backgroundOperations.logProcessing.progress.toFixed(1)}%
                             </span>
                           </div>
@@ -742,6 +847,49 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
           </Alert>
         )}
 
+        {/* Database Reset Background Operation */}
+        {backgroundOperations.databaseReset && (
+          <Alert
+            color={backgroundOperations.databaseReset.status === 'complete' ? 'green' : 'blue'}
+            icon={
+              backgroundOperations.databaseReset.status === 'complete' ? (
+                <CheckCircle className="w-6 h-6" />
+              ) : (
+                <Loader className="w-6 h-6 animate-spin" />
+              )
+            }
+          >
+            <div className="flex flex-col gap-3">
+              <div className="flex-1">
+                <p className="font-semibold text-lg break-words">{backgroundOperations.databaseReset.message}</p>
+                {backgroundOperations.databaseReset.progress > 0 &&
+                  backgroundOperations.databaseReset.status !== 'complete' && (
+                    <div className="mt-4">
+                      <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
+                        <div
+                          className="progress-bar-info h-4 rounded-full smooth-transition"
+                          style={{
+                            width: `${Math.min(backgroundOperations.databaseReset.progress, 100)}%`
+                          }}
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-xs font-bold text-themed-button drop-shadow">
+                            {backgroundOperations.databaseReset.progress.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center mt-2">
+                        <p className="text-sm font-medium">
+                          {backgroundOperations.databaseReset.progress.toFixed(1)}% complete
+                        </p>
+                      </div>
+                    </div>
+                  )}
+              </div>
+            </div>
+          </Alert>
+        )}
+
         {/* Depot Mapping Background Operation */}
         {depotMappingProgress && (
           <Alert
@@ -775,7 +923,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                         }}
                       />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs font-bold text-white drop-shadow">
+                        <span className="text-xs font-bold text-themed-button drop-shadow">
                           {depotMappingProgress.percentComplete.toFixed(1)}%
                         </span>
                       </div>
@@ -808,6 +956,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         onError={addError}
         onSuccess={setSuccess}
         onDataRefresh={fetchData}
+        onBackgroundOperation={(op) =>
+          setBackgroundOperations((prev) => ({ ...prev, databaseReset: op }))
+        }
       />
 
       {/* Cache Manager - Pass notification callback */}

@@ -3,11 +3,16 @@ use chrono::Utc;
 use rusqlite::{params, Connection, Transaction};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::fs::OpenOptionsExt;
 
 mod models;
 mod parser;
@@ -17,8 +22,9 @@ use models::*;
 use parser::LogParser;
 use session::SessionTracker;
 
-const BULK_BATCH_SIZE: usize = 100_000;
+const BULK_BATCH_SIZE: usize = 2_000; // Smaller batches for more responsive cancellation
 const SESSION_GAP_MINUTES: i64 = 5;
+const CANCEL_CHECK_INTERVAL: usize = 1_000; // Check for cancellation every 1k lines
 
 #[derive(Serialize)]
 struct Progress {
@@ -31,6 +37,28 @@ struct Progress {
     timestamp: String,
 }
 
+/// Opens a file for reading with proper sharing on Windows
+/// This allows other processes (like lancache) to continue writing while we read
+fn open_shared_read(path: &Path) -> Result<File> {
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, use share_mode to allow other processes to read and write
+        // FILE_SHARE_READ (0x01) | FILE_SHARE_WRITE (0x02) = 0x03
+        OpenOptions::new()
+            .read(true)
+            .share_mode(0x03)
+            .open(path)
+            .with_context(|| format!("Failed to open file: {}", path.display()))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On Unix, File::open already allows sharing
+        File::open(path)
+            .with_context(|| format!("Failed to open file: {}", path.display()))
+    }
+}
+
 struct Processor {
     db_path: PathBuf,
     log_path: PathBuf,
@@ -41,6 +69,7 @@ struct Processor {
     total_lines: AtomicU64,
     lines_parsed: AtomicU64,
     entries_saved: AtomicU64,
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl Processor {
@@ -48,8 +77,25 @@ impl Processor {
         db_path: PathBuf,
         log_path: PathBuf,
         progress_path: PathBuf,
+        cancel_path: PathBuf,
         start_position: u64,
     ) -> Self {
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+
+        // Spawn background thread to monitor cancel file
+        let cancel_flag_clone = Arc::clone(&cancel_flag);
+        let cancel_path_clone = cancel_path.clone();
+        thread::spawn(move || {
+            while !cancel_flag_clone.load(Ordering::Relaxed) {
+                if cancel_path_clone.exists() {
+                    println!("Cancellation detected by monitor thread!");
+                    cancel_flag_clone.store(true, Ordering::Relaxed);
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50)); // Check every 50ms
+            }
+        });
+
         Self {
             db_path,
             log_path,
@@ -60,11 +106,16 @@ impl Processor {
             total_lines: AtomicU64::new(0),
             lines_parsed: AtomicU64::new(0),
             entries_saved: AtomicU64::new(0),
+            cancel_flag,
         }
     }
 
+    fn should_cancel(&self) -> bool {
+        self.cancel_flag.load(Ordering::Relaxed)
+    }
+
     fn count_lines(&self) -> Result<u64> {
-        let file = File::open(&self.log_path)?;
+        let file = open_shared_read(&self.log_path)?;
         let reader = BufReader::with_capacity(8 * 1024 * 1024, file);
         Ok(reader.lines().count() as u64)
     }
@@ -117,8 +168,11 @@ impl Processor {
         conn.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
 
-        // Open log file
-        let file = File::open(&self.log_path)?;
+        // LogEntries table already exists from C# migrations, use it for duplicate detection
+        // Index IX_LogEntries_DuplicateCheck on (ClientIp, Service, Timestamp, Url, BytesServed) exists
+
+        // Open log file with shared access (allows lancache to continue writing)
+        let file = open_shared_read(&self.log_path)?;
         let mut reader = BufReader::with_capacity(8 * 1024 * 1024, file);
 
         // Skip to start position
@@ -140,6 +194,13 @@ impl Processor {
         self.write_progress("processing", "Reading log file...")?;
 
         loop {
+            // Check for cancellation (interrupt-driven, checked every iteration for fast response)
+            if self.should_cancel() {
+                println!("Cancellation requested - stopping processing");
+                self.write_progress("cancelled", "Processing cancelled by user")?;
+                return Err(anyhow::anyhow!("Processing cancelled by user"));
+            }
+
             line_buffer.clear();
             let bytes_read = reader.read_line(&mut line_buffer)?;
 
@@ -154,6 +215,15 @@ impl Processor {
 
             self.lines_parsed.fetch_add(1, Ordering::Relaxed);
 
+            // Check for cancellation every CANCEL_CHECK_INTERVAL lines for responsive cancellation
+            if self.lines_parsed.load(Ordering::Relaxed) % CANCEL_CHECK_INTERVAL as u64 == 0 {
+                if self.should_cancel() {
+                    println!("Cancellation requested - stopping processing");
+                    self.write_progress("cancelled", "Processing cancelled by user")?;
+                    return Err(anyhow::anyhow!("Processing cancelled by user"));
+                }
+            }
+
             // Parse the line (trim to remove newline)
             let trimmed_line = line_buffer.trim();
             if let Some(entry) = self.parser.parse_line(trimmed_line) {
@@ -161,6 +231,13 @@ impl Processor {
 
                 // Process batch when it reaches BULK_BATCH_SIZE
                 if batch.len() >= BULK_BATCH_SIZE {
+                    // Check for cancellation before processing batch
+                    if self.should_cancel() {
+                        println!("Cancellation requested - stopping processing");
+                        self.write_progress("cancelled", "Processing cancelled by user")?;
+                        return Err(anyhow::anyhow!("Processing cancelled by user"));
+                    }
+
                     self.process_batch(&mut conn, &batch)?;
                     batch.clear();
 
@@ -199,16 +276,23 @@ impl Processor {
             grouped.entry(key).or_insert_with(Vec::new).push(entry);
         }
 
-        // Process each group
+        // Process each group and count actually inserted entries
+        let mut total_inserted = 0u64;
         for (session_key, group_entries) in &grouped {
-            self.process_session_group(&tx, session_key, group_entries)?;
+            // Check for cancellation between processing groups for faster response
+            if self.should_cancel() {
+                println!("Cancellation requested during batch processing - rolling back transaction");
+                // Return error without committing, transaction will auto-rollback
+                return Err(anyhow::anyhow!("Processing cancelled by user"));
+            }
+            total_inserted += self.process_session_group(&tx, session_key, group_entries)?;
         }
 
         tx.commit()?;
 
-        let saved = grouped.values().map(|v| v.len()).sum::<usize>();
+        // Only count entries that were actually inserted (not duplicates)
         self.entries_saved
-            .fetch_add(saved as u64, Ordering::Relaxed);
+            .fetch_add(total_inserted, Ordering::Relaxed);
 
         Ok(())
     }
@@ -218,33 +302,72 @@ impl Processor {
         tx: &Transaction,
         session_key: &str,
         entries: &[&LogEntry],
-    ) -> Result<()> {
+    ) -> Result<u64> {
         if entries.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
 
-        let first_entry = entries[0];
+        // FIRST: Filter out duplicate entries before any processing
+        let mut check_stmt = tx.prepare_cached(
+            "SELECT 1 FROM LogEntries WHERE ClientIp = ? AND Service = ? AND Timestamp = ? AND Url = ? AND BytesServed = ? LIMIT 1"
+        )?;
+
+        let mut new_entries = Vec::new();
+        let mut skipped = 0;
+
+        for entry in entries {
+            let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+
+            // Check if this entry already exists
+            let exists = check_stmt.query_row(
+                params![
+                    &entry.client_ip,
+                    &entry.service,
+                    &timestamp_str,
+                    &entry.url,
+                    entry.bytes_served,
+                ],
+                |_| Ok(true)
+            ).unwrap_or(false);
+
+            if exists {
+                skipped += 1;
+            } else {
+                new_entries.push(*entry);
+            }
+        }
+
+        // If all entries were duplicates, skip all processing
+        if new_entries.is_empty() {
+            if skipped > 0 {
+                println!("Skipped {} duplicate entries (all duplicates)", skipped);
+            }
+            return Ok(0);
+        }
+
+        // Now process only the new (non-duplicate) entries
+        let first_entry = new_entries[0];
         let client_ip = &first_entry.client_ip;
         let service = &first_entry.service;
 
-        // Calculate timestamps and aggregations
-        let first_timestamp = entries.iter().map(|e| e.timestamp).min().unwrap();
-        let last_timestamp = entries.iter().map(|e| e.timestamp).max().unwrap();
+        // Calculate timestamps and aggregations ONLY for new entries
+        let first_timestamp = new_entries.iter().map(|e| e.timestamp).min().unwrap();
+        let last_timestamp = new_entries.iter().map(|e| e.timestamp).max().unwrap();
 
-        let total_hit_bytes: i64 = entries
+        let total_hit_bytes: i64 = new_entries
             .iter()
             .filter(|e| e.cache_status == "HIT")
             .map(|e| e.bytes_served)
             .sum();
 
-        let total_miss_bytes: i64 = entries
+        let total_miss_bytes: i64 = new_entries
             .iter()
             .filter(|e| e.cache_status == "MISS")
             .map(|e| e.bytes_served)
             .sum();
 
-        // Extract primary depot ID (most common)
-        let primary_depot_id = entries
+        // Extract primary depot ID (most common) - use new_entries, not all entries
+        let primary_depot_id = new_entries
             .iter()
             .filter_map(|e| e.depot_id)
             .fold(HashMap::new(), |mut map, depot| {
@@ -255,7 +378,7 @@ impl Processor {
             .max_by_key(|(_, count)| *count)
             .map(|(depot, _)| depot);
 
-        let last_url = entries.last().map(|e| e.url.as_str());
+        let last_url = new_entries.last().map(|e| e.url.as_str());
 
         // Check if we should create a new download session
         let should_create_new = self
@@ -371,42 +494,18 @@ impl Processor {
         self.session_tracker
             .update_session(session_key, last_timestamp);
 
-        // Insert log entries (skip duplicates)
-        // Check for duplicates before inserting using the duplicate check index
-        let mut check_stmt = tx.prepare_cached(
-            "SELECT 1 FROM LogEntries WHERE ClientIp = ? AND Service = ? AND Timestamp = ? AND Url = ? AND BytesServed = ? LIMIT 1"
-        )?;
-
+        // Insert ONLY the new (non-duplicate) entries
         let mut insert_stmt = tx.prepare_cached(
             "INSERT INTO LogEntries (Timestamp, ClientIp, Service, Method, Url, StatusCode, BytesServed, CacheStatus, DepotId, DownloadId, CreatedAt)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )?;
 
         let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        let mut inserted = 0;
-        let mut skipped = 0;
+        let inserted = new_entries.len();
 
-        for entry in entries {
+        for entry in new_entries {
             let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
 
-            // Check if this entry already exists
-            let exists = check_stmt.query_row(
-                params![
-                    &entry.client_ip,
-                    &entry.service,
-                    &timestamp_str,
-                    &entry.url,
-                    entry.bytes_served,
-                ],
-                |_| Ok(true)
-            ).unwrap_or(false);
-
-            if exists {
-                skipped += 1;
-                continue;
-            }
-
-            // Insert if not exists
             insert_stmt.execute(params![
                 timestamp_str,
                 entry.client_ip,
@@ -420,10 +519,9 @@ impl Processor {
                 download_id,
                 now,
             ])?;
-            inserted += 1;
         }
 
-        // If some entries were skipped, print info
+        // Log if duplicates were skipped
         if skipped > 0 {
             println!(
                 "Skipped {} duplicate entries (inserted {}/{})",
@@ -433,7 +531,7 @@ impl Processor {
             );
         }
 
-        Ok(())
+        Ok(inserted as u64)
     }
 }
 
@@ -453,7 +551,16 @@ fn main() -> Result<()> {
     let progress_path = PathBuf::from(&args[3]);
     let start_position: u64 = args[4].parse().context("Invalid start_position")?;
 
-    let mut processor = Processor::new(db_path, log_path, progress_path, start_position);
+    // Create cancel marker path in same directory as progress file
+    let mut cancel_path = progress_path.clone();
+    cancel_path.set_file_name("cancel_processing.marker");
+
+    // Delete cancel marker if it exists from previous run
+    if cancel_path.exists() {
+        let _ = std::fs::remove_file(&cancel_path);
+    }
+
+    let mut processor = Processor::new(db_path, log_path, progress_path, cancel_path, start_position);
     processor.process()?;
 
     Ok(())

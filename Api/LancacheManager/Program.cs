@@ -99,6 +99,9 @@ builder.Services.AddSingleton<PicsDataService>();
 // Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
 builder.Services.AddSingleton<RustLogProcessorService>();
 
+// Register Rust database reset service
+builder.Services.AddSingleton<RustDatabaseResetService>();
+
 // Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());
@@ -160,6 +163,27 @@ app.UseStaticFiles();
 
 app.UseRouting();
 app.UseAuthorization();
+
+// Minimal API endpoint for canceling log processing - NO database access required
+// This endpoint must work even when database is locked by Rust process
+app.MapPost("/api/management/cancel-processing", (IPathResolver pathResolver, ILogger<Program> logger) =>
+{
+    try
+    {
+        // Create cancel marker file IMMEDIATELY - no database access needed
+        var dataDirectory = pathResolver.GetDataDirectory();
+        var cancelMarkerPath = Path.Combine(dataDirectory, "cancel_processing.marker");
+        File.WriteAllText(cancelMarkerPath, DateTime.UtcNow.ToString());
+        logger.LogInformation("Cancel marker created at {Path}", cancelMarkerPath);
+
+        return Results.Ok(new { message = "Log processing cancelled" });
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error creating cancel marker");
+        return Results.Problem("Failed to cancel processing: " + ex.Message, statusCode: 500);
+    }
+}); // Authentication handled by middleware, no RequireAuthorization needed
 
 // Map endpoints
 app.MapControllers();

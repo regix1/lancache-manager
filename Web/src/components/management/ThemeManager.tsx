@@ -42,6 +42,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Modal } from '../ui/Modal';
 import { Checkbox } from '../ui/Checkbox';
+import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 import { API_BASE } from '../../utils/constants';
 import { Home, BarChart3, Users, Server, Settings } from 'lucide-react';
 
@@ -2291,21 +2292,16 @@ content = """
               <label className="block text-sm font-medium mb-2 text-themed-secondary">
                 Active Theme
               </label>
-              <select
+              <EnhancedDropdown
+                options={themes.map((theme) => ({
+                  value: theme.meta.id,
+                  label: `${theme.meta.name}${theme.meta.author && theme.meta.author !== 'System' ? ` by ${theme.meta.author}` : ''}${isSystemTheme(theme.meta.id) ? ' (System)' : ''}${previewTheme === theme.meta.id ? ' (Preview)' : ''}`
+                }))}
                 value={previewTheme || currentTheme}
-                onChange={(e) => handleThemeChange(e.target.value)}
-                className="w-full px-3 py-2 focus:outline-none themed-input"
-                disabled={loading}
-              >
-                {themes.map((theme) => (
-                  <option key={theme.meta.id} value={theme.meta.id}>
-                    {theme.meta.name}{' '}
-                    {theme.meta.author && theme.meta.author !== 'System' && `by ${theme.meta.author}`}
-                    {isSystemTheme(theme.meta.id) && ' (System)'}
-                    {previewTheme === theme.meta.id && ' (Preview)'}
-                  </option>
-                ))}
-              </select>
+                onChange={handleThemeChange}
+                placeholder="Select a theme"
+                className="w-full"
+              />
               {previewTheme && (
                 <p className="text-xs mt-2 text-themed-warning">
                   Preview mode active. Select a theme to apply it permanently.
@@ -2455,7 +2451,17 @@ content = """
                                       handleDelete(theme.meta.id, theme.meta.name);
                                       setThemeActionMenu(null);
                                     }}
-                                    className="w-full px-3 py-2 text-left text-sm hover:bg-red-500/10 text-red-500 flex items-center gap-2"
+                                    className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors"
+                                    style={{
+                                      color: 'var(--theme-error-text)',
+                                      backgroundColor: 'transparent'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                      e.currentTarget.style.backgroundColor = 'var(--theme-error-bg)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.currentTarget.style.backgroundColor = 'transparent';
+                                    }}
                                   >
                                     <Trash2 className="w-3 h-3" />
                                     Delete

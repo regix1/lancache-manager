@@ -452,11 +452,56 @@ public class DatabaseService
         {
             _logger.LogInformation("Starting database reset using row-by-row deletion");
 
+            // Send initial progress update
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 0.0,
+                status = "starting",
+                message = "Starting database reset...",
+                timestamp = DateTime.UtcNow
+            });
+
             // Use efficient bulk deletion to clear all tables
             // Clear LogEntries first due to foreign key relationship with Downloads
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 10.0,
+                status = "deleting",
+                message = "Clearing log entries...",
+                timestamp = DateTime.UtcNow
+            });
             await _context.LogEntries.ExecuteDeleteAsync();
+
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 30.0,
+                status = "deleting",
+                message = "Clearing downloads...",
+                timestamp = DateTime.UtcNow
+            });
             await _context.Downloads.ExecuteDeleteAsync();
+
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 50.0,
+                status = "deleting",
+                message = "Clearing client stats...",
+                timestamp = DateTime.UtcNow
+            });
             await _context.ClientStats.ExecuteDeleteAsync();
+
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 70.0,
+                status = "deleting",
+                message = "Clearing service stats...",
+                timestamp = DateTime.UtcNow
+            });
             await _context.ServiceStats.ExecuteDeleteAsync();
             await _context.SaveChangesAsync();
 
@@ -471,6 +516,15 @@ public class DatabaseService
                 Directory.CreateDirectory(dataDirectory);
                 _logger.LogInformation($"Created data directory: {dataDirectory}");
             }
+
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 85.0,
+                status = "cleanup",
+                message = "Cleaning up files...",
+                timestamp = DateTime.UtcNow
+            });
 
             // Clear position file
             var positionFile = Path.Combine(dataDirectory, "position.txt");
@@ -503,10 +557,31 @@ public class DatabaseService
             }
 
             _logger.LogInformation($"Database reset completed successfully. Data directory: {dataDirectory}");
+
+            // Send completion update
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "complete",
+                message = "Database reset completed successfully",
+                timestamp = DateTime.UtcNow
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error resetting database");
+
+            // Send error update
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = "error",
+                message = $"Database reset failed: {ex.Message}",
+                timestamp = DateTime.UtcNow
+            });
+
             throw;
         }
     }

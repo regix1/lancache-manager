@@ -40,4 +40,14 @@ public interface IPathResolver
     /// Gets the themes directory path
     /// </summary>
     string GetThemesDirectory();
+
+    /// <summary>
+    /// Gets the path to the Rust log processor executable
+    /// </summary>
+    string GetRustLogProcessorPath();
+
+    /// <summary>
+    /// Gets the path to the Rust database reset executable
+    /// </summary>
+    string GetRustDatabaseResetPath();
 }

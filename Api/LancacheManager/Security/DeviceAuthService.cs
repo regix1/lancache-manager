@@ -385,14 +385,14 @@ public class DeviceAuthService
         try
         {
             int revokedCount = 0;
-            
+
             // Clear the cache
             lock (_cacheLock)
             {
                 revokedCount = _deviceCache.Count;
                 _deviceCache.Clear();
             }
-            
+
             // Delete all device files
             if (Directory.Exists(_devicesDirectory))
             {
@@ -408,16 +408,49 @@ public class DeviceAuthService
                         _logger.LogWarning(ex, $"Failed to delete device file: {file}");
                     }
                 }
-                
+
                 _logger.LogWarning($"Revoked all {revokedCount} device registrations");
             }
-            
+
             return revokedCount;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error revoking all devices");
             return 0;
+        }
+    }
+
+    /// <summary>
+    /// Check if any device has ever been registered (on any device)
+    /// This indicates the system has been set up at least once
+    /// </summary>
+    public bool HasAnyDeviceEverBeenRegistered()
+    {
+        try
+        {
+            // First check the cache
+            lock (_cacheLock)
+            {
+                if (_deviceCache.Count > 0)
+                {
+                    return true;
+                }
+            }
+
+            // Check if any device files exist on disk
+            if (Directory.Exists(_devicesDirectory))
+            {
+                var files = Directory.GetFiles(_devicesDirectory, "*.json");
+                return files.Length > 0;
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking for device registrations");
+            return false;
         }
     }
 }

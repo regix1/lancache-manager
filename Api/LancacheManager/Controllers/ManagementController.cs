@@ -18,6 +18,7 @@ public class ManagementController : ControllerBase
     private readonly IPathResolver _pathResolver;
     private readonly StateService _stateService;
     private readonly RustLogProcessorService _rustLogProcessorService;
+    private readonly RustDatabaseResetService _rustDatabaseResetService;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -27,7 +28,8 @@ public class ManagementController : ControllerBase
         ILogger<ManagementController> logger,
         IPathResolver pathResolver,
         StateService stateService,
-        RustLogProcessorService rustLogProcessorService)
+        RustLogProcessorService rustLogProcessorService,
+        RustDatabaseResetService rustDatabaseResetService)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -37,6 +39,7 @@ public class ManagementController : ControllerBase
         _pathResolver = pathResolver;
         _stateService = stateService;
         _rustLogProcessorService = rustLogProcessorService;
+        _rustDatabaseResetService = rustDatabaseResetService;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -137,18 +140,40 @@ public class ManagementController : ControllerBase
 
     [HttpDelete("database")]
     [RequireAuth]
-    public async Task<IActionResult> ResetDatabase()
+    public async Task<IActionResult> ResetDatabase([FromQuery] bool useRust = true)
     {
         try
         {
-            await _dbService.ResetDatabase();
-            _logger.LogInformation("Database reset completed");
+            if (useRust)
+            {
+                if (_rustDatabaseResetService.IsProcessing)
+                {
+                    return BadRequest(new { error = "Database reset is already running" });
+                }
 
-            return Ok(new {
-                message = "Database reset successfully",
-                status = "completed",
-                timestamp = DateTime.UtcNow
-            });
+                _logger.LogInformation("Starting rust database reset");
+
+                // Start rust reset in background
+                _ = Task.Run(async () => await _rustDatabaseResetService.StartResetAsync());
+
+                return Ok(new {
+                    message = "Database reset started with rust service",
+                    status = "started",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            else
+            {
+                // Use C# implementation with SignalR updates
+                await _dbService.ResetDatabase();
+                _logger.LogInformation("Database reset completed");
+
+                return Ok(new {
+                    message = "Database reset successfully",
+                    status = "completed",
+                    timestamp = DateTime.UtcNow
+                });
+            }
         }
         catch (Exception ex)
         {
@@ -157,24 +182,85 @@ public class ManagementController : ControllerBase
         }
     }
 
-
-    [HttpPost("reset-logs")]
-    [RequireAuth]
-    public async Task<IActionResult> ResetLogPosition([FromQuery] bool clearDatabase = false)
+    [HttpGet("database/reset-status")]
+    public IActionResult GetResetStatus()
     {
         try
         {
-            _stateService.SetLogPosition(0);
+            var dataDirectory = _pathResolver.GetDataDirectory();
+            var progressPath = Path.Combine(dataDirectory, "reset_progress.json");
+
+            if (!System.IO.File.Exists(progressPath))
+            {
+                return Ok(new {
+                    isProcessing = _rustDatabaseResetService.IsProcessing,
+                    percentComplete = 0.0,
+                    status = "idle",
+                    message = "Not processing"
+                });
+            }
+
+            var json = System.IO.File.ReadAllText(progressPath);
+            var progress = System.Text.Json.JsonSerializer.Deserialize<RustDatabaseResetService.ProgressData>(json);
+
+            return Ok(progress);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting reset status");
+            return Ok(new {
+                isProcessing = _rustDatabaseResetService.IsProcessing,
+                error = ex.Message
+            });
+        }
+    }
+
+
+    [HttpPost("reset-logs")]
+    [RequireAuth]
+    public async Task<IActionResult> ResetLogPosition([FromQuery] string position = "bottom", [FromQuery] bool clearDatabase = false)
+    {
+        try
+        {
+            var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+            long newPosition = 0;
+
+            if (position.Equals("top", StringComparison.OrdinalIgnoreCase))
+            {
+                // Start from beginning (position 0)
+                newPosition = 0;
+                _logger.LogInformation("Log position reset to beginning of file");
+            }
+            else // "bottom" or default
+            {
+                // Start from end of file
+                if (System.IO.File.Exists(logPath))
+                {
+                    var fileInfo = new FileInfo(logPath);
+                    // Count total lines to set position at end
+                    newPosition = System.IO.File.ReadLines(logPath).LongCount();
+                    _logger.LogInformation("Log position reset to end of file (line {Position})", newPosition);
+                }
+                else
+                {
+                    _logger.LogWarning("Log file not found, setting position to 0");
+                }
+            }
+
+            _stateService.SetLogPosition(newPosition);
 
             if (clearDatabase)
             {
                 await _dbService.ResetDatabase();
             }
 
-            _logger.LogInformation("Log position reset");
+            var message = position.Equals("top", StringComparison.OrdinalIgnoreCase)
+                ? "Log position reset to beginning. The rust service will process from the start with duplicate detection."
+                : "Log position reset to end. Will monitor only new downloads going forward.";
 
             return Ok(new {
-                message = "Log position reset successfully. Will start monitoring from the current end of the log file.",
+                message,
+                position = newPosition,
                 requiresRestart = false,
                 databaseCleared = clearDatabase
             });
@@ -207,18 +293,35 @@ public class ManagementController : ControllerBase
             var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
             var startPosition = _stateService.GetLogPosition();
 
-            _logger.LogInformation("Starting Rust log processing from position {Position}", startPosition);
-
-            // Start Rust processor in background
-            _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, startPosition));
-
-            return Ok(new
+            // If starting from position 0, always use 0 (beginning)
+            // If starting from any other position, use that position but rust will start from 0 with duplicate detection
+            if (startPosition == 0)
             {
-                message = "Log processing started with Rust processor",
-                logSizeMB = sizeMB,
-                startPosition = startPosition,
-                status = "started"
-            });
+                _logger.LogInformation("Starting rust log processing from beginning of file");
+                _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, 0));
+
+                return Ok(new
+                {
+                    message = "Log processing started with rust service from beginning of file",
+                    logSizeMB = sizeMB,
+                    startPosition = 0,
+                    status = "started"
+                });
+            }
+            else
+            {
+                // User set position to end - start rust from 0 but it will only process new entries via duplicate detection
+                _logger.LogInformation("Starting rust log processing (stored position: {Position}, rust will process from beginning with duplicate detection)", startPosition);
+                _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, 0));
+
+                return Ok(new
+                {
+                    message = "Log processing started with rust service (will skip existing entries)",
+                    logSizeMB = sizeMB,
+                    startPosition = 0,
+                    status = "started"
+                });
+            }
         }
         catch (Exception ex)
         {
@@ -227,21 +330,8 @@ public class ManagementController : ControllerBase
         }
     }
 
-    [HttpPost("cancel-processing")]
-    [RequireAuth]
-    public async Task<IActionResult> CancelProcessing()
-    {
-        try
-        {
-            await _rustLogProcessorService.StopProcessingAsync();
-            return Ok(new { message = "Log processing cancelled" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cancelling processing");
-            return StatusCode(500, new { error = "Failed to cancel processing", details = ex.Message });
-        }
-    }
+    // REMOVED: cancel-processing endpoint moved to Program.cs as Minimal API
+    // to avoid database locking issues when Rust process holds database lock
 
 
     [HttpPost("post-process-depot-mappings")]
@@ -432,7 +522,51 @@ public class ManagementController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Mark setup as completed - called after successful data processing
+    /// This flag persists and indicates the system has been fully initialized
+    /// </summary>
+    [HttpPost("mark-setup-completed")]
+    [RequireAuth]
+    public IActionResult MarkSetupCompleted()
+    {
+        try
+        {
+            _stateService.SetSetupCompleted(true);
+            _logger.LogInformation("Setup marked as completed");
 
+            return Ok(new {
+                message = "Setup marked as completed",
+                isCompleted = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error marking setup as completed");
+            return StatusCode(500, new { error = "Failed to mark setup as completed", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Check if setup has been completed
+    /// </summary>
+    [HttpGet("setup-status")]
+    public IActionResult GetSetupStatus()
+    {
+        try
+        {
+            var isCompleted = _stateService.GetSetupCompleted();
+
+            return Ok(new {
+                isCompleted
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking setup status");
+            return StatusCode(500, new { error = "Failed to check setup status", details = ex.Message });
+        }
+    }
 }
 
 // Request model for removing service

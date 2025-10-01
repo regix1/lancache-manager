@@ -12,6 +12,7 @@ interface EnhancedDropdownProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
 }
 
 export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
@@ -19,7 +20,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   value,
   onChange,
   placeholder = 'Select option',
-  className = ''
+  className = '',
+  disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -65,17 +67,18 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left focus:outline-none transition-colors flex items-center justify-between text-sm"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`w-full px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left focus:outline-none transition-colors flex items-center justify-between text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
           borderColor: 'var(--theme-border-primary)'
         }}
         onMouseEnter={(e) =>
-          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
+          !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
         }
         onMouseLeave={(e) =>
-          (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
+          !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
         }
       >
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>

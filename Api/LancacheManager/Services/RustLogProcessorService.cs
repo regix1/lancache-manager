@@ -72,7 +72,7 @@ public class RustLogProcessorService
             var dataDirectory = _pathResolver.GetDataDirectory();
             var dbPath = Path.Combine(dataDirectory, "LancacheManager.db");
             var progressPath = Path.Combine(dataDirectory, "rust_progress.json");
-            var rustExecutablePath = Path.Combine(AppContext.BaseDirectory, "rust-processor", "lancache_processor.exe");
+            var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
 
             // Delete old progress file
             if (File.Exists(progressPath))
@@ -154,10 +154,23 @@ public class RustLogProcessorService
                 }
             }
 
+            // Check if this was a cancellation by looking at exit code and progress
+            // Exit code 1 typically indicates cancellation or error
+            var finalProgress = await ReadProgressFileAsync(progressPath);
+            var wasCancelled = finalProgress?.Status == "cancelled" ||
+                              (exitCode != 0 && finalProgress?.PercentComplete < 100);
+
+            if (wasCancelled)
+            {
+                // Process was cancelled - don't send success/completion messages
+                _logger.LogInformation("Processing was cancelled (exit code: {ExitCode}, progress: {Progress}%)",
+                    exitCode, finalProgress?.PercentComplete ?? 0);
+                return false;
+            }
+
             if (exitCode == 0)
             {
-                // Read final progress and send completion with actual data
-                var finalProgress = await ReadProgressFileAsync(progressPath);
+                // Normal completion - send completion with actual data
                 if (finalProgress != null)
                 {
                     _stateService.SetLogPosition(finalProgress.LinesParsed);
@@ -199,6 +212,7 @@ public class RustLogProcessorService
             }
             else
             {
+                // Non-zero exit code but not cancelled - this is an actual error
                 await _hubContext.Clients.All.SendAsync("ProcessingComplete", new
                 {
                     success = false,
@@ -308,23 +322,85 @@ public class RustLogProcessorService
 
         try
         {
-            _logger.LogInformation("Stopping Rust log processor");
-            _cancellationTokenSource?.Cancel();
+            _logger.LogInformation("Stopping rust log processor");
 
-            if (_rustProcess != null && !_rustProcess.HasExited)
+            // Create cancel marker file to signal the rust process to stop gracefully
+            var dataDirectory = _pathResolver.GetDataDirectory();
+            var cancelMarkerPath = Path.Combine(dataDirectory, "cancel_processing.marker");
+
+            try
             {
-                _rustProcess.Kill(true); // Kill process tree
+                await File.WriteAllTextAsync(cancelMarkerPath, DateTime.UtcNow.ToString());
+                _logger.LogInformation("Created cancel marker at {Path}", cancelMarkerPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create cancel marker, will kill process instead");
+            }
+
+            // Wait up to 30 seconds for graceful shutdown (Rust checks every 10k lines which could take ~15 seconds)
+            var waitTask = Task.Run(async () =>
+            {
+                if (_rustProcess != null && !_rustProcess.HasExited)
+                {
+                    await _rustProcess.WaitForExitAsync();
+                }
+            });
+
+            var completedTask = await Task.WhenAny(waitTask, Task.Delay(30000));
+
+            if (completedTask != waitTask && _rustProcess != null && !_rustProcess.HasExited)
+            {
+                _logger.LogWarning("Rust process did not exit gracefully after 30 seconds, forcing termination");
+                _rustProcess.Kill(true); // Kill process tree as fallback
                 await _rustProcess.WaitForExitAsync();
             }
+            else
+            {
+                _logger.LogInformation("Rust process exited gracefully");
+            }
+
+            _cancellationTokenSource?.Cancel();
 
             if (_progressMonitorTask != null)
             {
-                await _progressMonitorTask;
+                try
+                {
+                    await _progressMonitorTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected
+                }
+            }
+
+            // Send cancellation signal via SignalR
+            await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+            {
+                percentComplete = 0.0,
+                status = "cancelled",
+                message = "Processing cancelled by user",
+                isProcessing = false,
+                timestamp = DateTime.UtcNow
+            });
+
+            // Clean up cancel marker
+            if (File.Exists(cancelMarkerPath))
+            {
+                try
+                {
+                    File.Delete(cancelMarkerPath);
+                    _logger.LogInformation("Deleted cancel marker");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete cancel marker");
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error stopping Rust log processor");
+            _logger.LogError(ex, "Error stopping rust log processor");
         }
         finally
         {

@@ -7,6 +7,12 @@
     <!-- Enable server GC for better performance -->
     <ServerGarbageCollection>true</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+
+    <!-- Detect Rust target based on runtime identifier -->
+    <RustTarget Condition="'$(RuntimeIdentifier)' == ''">current</RustTarget>
+    <RustTarget Condition="'$(RuntimeIdentifier)' == 'win-x64'">windows</RustTarget>
+    <RustTarget Condition="'$(RuntimeIdentifier)' == 'linux-x64'">linux-x64</RustTarget>
+    <RustTarget Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">linux-arm64</RustTarget>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,6 +23,84 @@
     <PackageReference Include="SteamKit2" Version="3.3.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
     <PackageReference Include="Tomlyn" Version="0.19.0" />
+  </ItemGroup>
+
+  <!-- Build Rust binaries before .NET build -->
+  <Target Name="BuildRustBinaries" BeforeTargets="BeforeBuild">
+    <Message Text="Building Rust binaries for target: $(RustTarget)" Importance="high" />
+
+    <!-- Windows build -->
+    <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="powershell -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\rust-processor\build.ps1&quot; -Target $(RustTarget)"
+          WorkingDirectory="$(MSBuildProjectDirectory)\..\..\rust-processor"
+          IgnoreExitCode="false" />
+
+    <!-- Linux/Mac build -->
+    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))"
+          Command="bash build.sh $(RustTarget)"
+          WorkingDirectory="$(MSBuildProjectDirectory)/../../rust-processor"
+          IgnoreExitCode="false" />
+  </Target>
+
+  <!-- Copy Rust executables to output directory -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
+    <!-- Development build on Windows - copy from target/release -->
+    <None Include="..\..\rust-processor\target\release\lancache_processor.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\lancache_processor.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\target\release\database_reset.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\database_reset.exe</Link>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <!-- Production build for Windows x64 -->
+    <None Include="..\..\rust-processor\bin\win-x64\lancache_processor.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\lancache_processor.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\database_reset.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\database_reset.exe</Link>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <!-- Production build for Linux x64 -->
+    <None Include="..\..\rust-processor\bin\linux-x64\lancache_processor">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\lancache_processor</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\database_reset">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\database_reset</Link>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64'">
+    <!-- Production build for Linux ARM64 -->
+    <None Include="..\..\rust-processor\bin\linux-arm64\lancache_processor">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\lancache_processor</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\database_reset">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\database_reset</Link>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
+    <!-- Development build on Linux/Mac - copy from target/release -->
+    <None Include="../../rust-processor/target/release/lancache_processor">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/lancache_processor</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/database_reset">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/database_reset</Link>
+    </None>
   </ItemGroup>
 
 </Project>

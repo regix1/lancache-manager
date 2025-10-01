@@ -62,6 +62,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [depotProcessing, setDepotProcessing] = useState<PicsProgress | null>(null);
   const [showPostDepotPopup, setShowPostDepotPopup] = useState(false);
   const [postDepotTimer, setPostDepotTimer] = useState(60);
+  const [showPostLogProcessingPopup, setShowPostLogProcessingPopup] = useState(false);
+  const [postLogProcessingTimer, setPostLogProcessingTimer] = useState(60);
   const [confirmModal, setConfirmModal] = useState<
     | {
         title: string;
@@ -78,6 +80,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
   const depotPollingInterval = useRef<NodeJS.Timeout | null>(null);
   const postDepotPopupInterval = useRef<NodeJS.Timeout | null>(null);
+  const postLogProcessingPopupInterval = useRef<NodeJS.Timeout | null>(null);
   const onBackgroundOperationRef = useRef(onBackgroundOperation);
 
   // Keep the ref up to date
@@ -153,6 +156,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
       if (postDepotPopupInterval.current) {
         clearInterval(postDepotPopupInterval.current);
+      }
+      if (postLogProcessingPopupInterval.current) {
+        clearInterval(postLogProcessingPopupInterval.current);
       }
       if (signalRConnection.current) {
         signalRConnection.current.stop();
@@ -307,6 +313,21 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           onSuccess?.(`Depot mappings applied to ${depotMappingsProcessed.toLocaleString()} downloads.`);
         }
 
+        // Mark setup as completed (persistent flag for guest mode eligibility)
+        try {
+          await fetch('/api/management/mark-setup-completed', {
+            method: 'POST',
+            headers: ApiService.getHeaders()
+          });
+        } catch (error) {
+          console.warn('Failed to mark setup as completed:', error);
+        }
+
+        // Show prompt to apply depot mappings
+        setShowPostLogProcessingPopup(true);
+        setPostLogProcessingTimer(60);
+        startPostLogProcessingTimer();
+
         // Show completion for 3 seconds instead of 10, then stop completely
         setTimeout(async () => {
           setProcessingStatus(null);
@@ -446,7 +467,16 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     pollingInterval.current = setInterval(checkStatus, 3000);
   };
 
-  const handleResetLogs = async () => {
+  const handleResetLogs = () => {
+    setConfirmModal({
+      title: 'Reset Log Position',
+      message: 'Choose where to start processing logs from:',
+      confirmLabel: 'Confirm',
+      onConfirm: () => {} // Will be handled by custom modal
+    });
+  };
+
+  const executeResetFromTop = async () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
@@ -454,15 +484,37 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     setActionLoading(true);
     try {
-      const result = await ApiService.resetLogPosition();
+      const result = await ApiService.resetLogPosition('top');
       if (result) {
-        onSuccess?.(result.message || 'Log position reset successfully');
+        onSuccess?.('Log position reset to beginning of file');
         setTimeout(() => onDataRefresh?.(), 2000);
       }
     } catch (err: any) {
       onError?.(err.message || 'Failed to reset log position');
     } finally {
       setActionLoading(false);
+      setConfirmModal(null);
+    }
+  };
+
+  const executeResetFromBottom = async () => {
+    if (!isAuthenticated) {
+      onError?.('Authentication required');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const result = await ApiService.resetLogPosition('bottom');
+      if (result) {
+        onSuccess?.('Log position reset to end of file');
+        setTimeout(() => onDataRefresh?.(), 2000);
+      }
+    } catch (err: any) {
+      onError?.(err.message || 'Failed to reset log position');
+    } finally {
+      setActionLoading(false);
+      setConfirmModal(null);
     }
   };
 
@@ -549,22 +601,25 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
 
     setActionLoading(true);
+
     try {
       await ApiService.cancelProcessing();
       setIsProcessingLogs(false);
       await logProcessingOp.clear();
       if (pollingInterval.current) {
         clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
       }
-      onSuccess?.('Processing cancelled');
+      setProcessingStatus(null);
+      onSuccess?.('Processing cancelled successfully');
       setTimeout(() => {
-        setProcessingStatus(null);
         onDataRefresh?.();
-      }, 5000);
-    } catch (err) {
-      onError?.('Failed to cancel processing');
+      }, 1000);
+    } catch (err: any) {
+      onError?.(err.message || 'Failed to cancel processing');
     } finally {
       setActionLoading(false);
+      setConfirmModal(null);
     }
   };
 
@@ -631,6 +686,37 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const handleProcessLogsFromPopup = () => {
     handleClosePostDepotPopup();
     handleProcessAllLogs();
+  };
+
+  const startPostLogProcessingTimer = () => {
+    if (postLogProcessingPopupInterval.current) {
+      clearInterval(postLogProcessingPopupInterval.current);
+    }
+
+    postLogProcessingPopupInterval.current = setInterval(() => {
+      setPostLogProcessingTimer((prev) => {
+        if (prev <= 1) {
+          setShowPostLogProcessingPopup(false);
+          if (postLogProcessingPopupInterval.current) {
+            clearInterval(postLogProcessingPopupInterval.current);
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleClosePostLogProcessingPopup = () => {
+    setShowPostLogProcessingPopup(false);
+    if (postLogProcessingPopupInterval.current) {
+      clearInterval(postLogProcessingPopupInterval.current);
+    }
+  };
+
+  const handleApplyDepotMappingsFromPopup = () => {
+    handleClosePostLogProcessingPopup();
+    handlePostProcessDepotMappings('incremental');
   };
 
   const executePostProcessDepotMappings = async (mode: 'incremental' | 'full') => {
@@ -853,9 +939,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
         <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
           <p className="text-xs text-themed-muted leading-relaxed">
-            <strong>Reset:</strong> Start monitoring from current end of log file
+            <strong>Reset Log Position:</strong> Choose to start from beginning or end of log file
             <br />
-            <strong>Process All:</strong> Import entire log history into database
+            <strong>Process All Logs:</strong> Process logs based on reset position (rust service always starts from top with duplicate detection)
           </p>
         </div>
 
@@ -922,7 +1008,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
                   try {
                     await fetch('/api/gameinfo/steamkit/interval', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: {
+                        ...ApiService.getHeaders(),
+                        'Content-Type': 'application/json'
+                      },
                       body: JSON.stringify(newInterval)
                     });
 
@@ -936,6 +1025,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
                     console.error('Failed to update crawl interval:', error);
                   }
                 }}
+                disabled={!isAuthenticated || mockMode}
                 className="w-full"
               />
             </div>
@@ -1064,6 +1154,56 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         </div>
       </Modal>
 
+      {/* Post-Log Processing Modal */}
+      <Modal
+        opened={showPostLogProcessingPopup}
+        onClose={handleClosePostLogProcessingPopup}
+        title={
+          <div className="flex items-center space-x-3">
+            <CheckCircle className="w-6 h-6 text-themed-success" />
+            <span>Log Processing Complete</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Log processing has finished! Would you like to apply depot mappings now to identify Steam games from depot IDs?
+          </p>
+
+          <Alert color="green">
+            <p className="text-sm">
+              Applying depot mappings will help identify which Steam games were downloaded.
+            </p>
+          </Alert>
+
+          <div className="flex flex-col gap-3">
+            <Button
+              variant="filled"
+              color="green"
+              leftSection={<Database className="w-4 h-4" />}
+              onClick={handleApplyDepotMappingsFromPopup}
+              disabled={!isAuthenticated || mockMode || depotProcessing?.isRunning}
+              fullWidth
+            >
+              Apply Depot Mappings
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleClosePostLogProcessingPopup}
+              fullWidth
+            >
+              Maybe Later
+            </Button>
+          </div>
+
+          <div className="text-center">
+            <span className="text-xs text-themed-muted">
+              This dialog will close in {postLogProcessingTimer} seconds
+            </span>
+          </div>
+        </div>
+      </Modal>
+
       <Modal
         opened={confirmModal !== null}
         onClose={() => {
@@ -1081,29 +1221,73 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         <div className="space-y-4">
           <p className="text-themed-secondary">{confirmModal?.message}</p>
 
-          <Alert color="yellow">
-            <p className="text-sm">
-              <strong>Important:</strong> Ensure no other maintenance tasks are running before continuing.
-            </p>
-          </Alert>
+          {confirmModal?.title === 'Reset Log Position' ? (
+            <>
+              <div className="space-y-3">
+                <div className="p-3 bg-themed-tertiary rounded-lg">
+                  <p className="text-xs text-themed-muted leading-relaxed">
+                    <strong>Start from Beginning:</strong> Process entire log history (rust processor has duplicate detection)
+                    <br />
+                    <strong>Start from End:</strong> Monitor only new downloads going forward
+                  </p>
+                </div>
+              </div>
 
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setConfirmModal(null)}
-              disabled={actionLoading}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={handleConfirmAction}
-              loading={actionLoading}
-            >
-              {confirmModal?.confirmLabel || 'Confirm'}
-            </Button>
-          </div>
+              <div className="flex flex-col gap-3 pt-2">
+                <Button
+                  variant="filled"
+                  color="blue"
+                  onClick={executeResetFromTop}
+                  loading={actionLoading}
+                  fullWidth
+                >
+                  Start from Beginning
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={executeResetFromBottom}
+                  loading={actionLoading}
+                  fullWidth
+                >
+                  Start from End
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmModal(null)}
+                  disabled={actionLoading}
+                  fullWidth
+                >
+                  Cancel
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <Alert color="yellow">
+                <p className="text-sm">
+                  <strong>Important:</strong> Ensure no other maintenance tasks are running before continuing.
+                </p>
+              </Alert>
+
+              <div className="flex justify-end space-x-3 pt-2">
+                <Button
+                  variant="default"
+                  onClick={() => setConfirmModal(null)}
+                  disabled={actionLoading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="filled"
+                  color="red"
+                  onClick={handleConfirmAction}
+                  loading={actionLoading}
+                >
+                  {confirmModal?.confirmLabel || 'Confirm'}
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
     </>

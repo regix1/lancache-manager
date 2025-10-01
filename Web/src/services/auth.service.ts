@@ -5,6 +5,9 @@ interface AuthCheckResponse {
   isAuthenticated: boolean;
   authMode: AuthMode;
   guestTimeRemaining?: number; // minutes
+  hasData?: boolean; // Whether database has any data (for guest mode eligibility)
+  hasEverBeenSetup?: boolean; // Whether anyone has ever authenticated (system is set up)
+  hasBeenInitialized?: boolean; // Whether setup has been completed (persistent flag)
   error?: string;
 }
 
@@ -135,18 +138,39 @@ class AuthService {
 
   async checkAuth(): Promise<AuthCheckResponse> {
     try {
-      // First check guest mode status
+      // Check if guest mode is active first (before making any network calls)
       if (this.isGuestModeActive()) {
         this.authMode = 'guest';
-        this.isAuthenticated = false; // Guest is not fully authenticated
+        this.isAuthenticated = false;
         this.authChecked = true;
 
-        return {
-          requiresAuth: true,
-          isAuthenticated: false,
-          authMode: 'guest',
-          guestTimeRemaining: this.getGuestTimeRemaining()
-        };
+        // Still need to fetch hasData and hasEverBeenSetup for guest mode eligibility
+        try {
+          const response = await fetch(`${API_URL}/api/auth/check`, {
+            headers: { 'X-Device-Id': this.deviceId }
+          });
+          const result = response.ok ? await response.json() : {};
+
+          return {
+            requiresAuth: true,
+            isAuthenticated: false,
+            authMode: 'guest',
+            guestTimeRemaining: this.getGuestTimeRemaining(),
+            hasData: result.hasData || false,
+            hasEverBeenSetup: result.hasEverBeenSetup || false,
+            hasBeenInitialized: result.hasBeenInitialized || false
+          };
+        } catch {
+          return {
+            requiresAuth: true,
+            isAuthenticated: false,
+            authMode: 'guest',
+            guestTimeRemaining: this.getGuestTimeRemaining(),
+            hasData: false,
+            hasEverBeenSetup: false,
+            hasBeenInitialized: false
+          };
+        }
       }
 
       // Check for expired guest mode
@@ -156,11 +180,31 @@ class AuthService {
         this.isAuthenticated = false;
         this.authChecked = true;
 
-        return {
-          requiresAuth: true,
-          isAuthenticated: false,
-          authMode: 'expired'
-        };
+        // Fetch hasData and hasEverBeenSetup
+        try {
+          const response = await fetch(`${API_URL}/api/auth/check`, {
+            headers: { 'X-Device-Id': this.deviceId }
+          });
+          const result = response.ok ? await response.json() : {};
+
+          return {
+            requiresAuth: true,
+            isAuthenticated: false,
+            authMode: 'expired',
+            hasData: result.hasData || false,
+            hasEverBeenSetup: result.hasEverBeenSetup || false,
+            hasBeenInitialized: result.hasBeenInitialized || false
+          };
+        } catch {
+          return {
+            requiresAuth: true,
+            isAuthenticated: false,
+            authMode: 'expired',
+            hasData: false,
+            hasEverBeenSetup: false,
+            hasBeenInitialized: false
+          };
+        }
       }
 
       // Standard authentication check
@@ -192,7 +236,10 @@ class AuthService {
           requiresAuth: result.requiresAuth,
           isAuthenticated: result.isAuthenticated,
           authMode: currentAuthMode,
-          guestTimeRemaining: currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined
+          guestTimeRemaining: currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined,
+          hasData: result.hasData || false,
+          hasEverBeenSetup: result.hasEverBeenSetup || false,
+          hasBeenInitialized: result.hasBeenInitialized || false
         };
       }
 
@@ -202,7 +249,10 @@ class AuthService {
       return {
         requiresAuth: true,
         isAuthenticated: false,
-        authMode: 'unauthenticated'
+        authMode: 'unauthenticated',
+        hasData: false,
+        hasEverBeenSetup: false,
+        hasBeenInitialized: false
       };
     } catch (error: any) {
       console.error('Auth check failed:', error);
@@ -214,6 +264,9 @@ class AuthService {
         requiresAuth: true,
         isAuthenticated: false,
         authMode: this.authMode,
+        hasData: false,
+        hasEverBeenSetup: false,
+        hasBeenInitialized: false,
         error: error.message
       };
     }

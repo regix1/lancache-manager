@@ -29,6 +29,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   const [apiKey, setApiKey] = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
+  const [hasData, setHasData] = useState(false);
+  const [hasBeenInitialized, setHasBeenInitialized] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -73,6 +75,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       setIsAuthenticated(result.isAuthenticated);
       setAuthMode(result.authMode);
       setGuestTimeRemaining(result.guestTimeRemaining || 0);
+      setHasData(result.hasData || false);
+      setHasBeenInitialized(result.hasBeenInitialized || false);
 
       onAuthChange?.(result.isAuthenticated);
       onAuthModeChange?.(result.authMode);
@@ -84,6 +88,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       console.error('Auth check failed:', error);
       setIsAuthenticated(false);
       setAuthMode('unauthenticated');
+      setHasData(false);
+      setHasBeenInitialized(false);
       onAuthChange?.(false);
       onAuthModeChange?.('unauthenticated');
     } finally {
@@ -228,9 +234,19 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       case 'authenticated': return 'Management features enabled';
       case 'guest': return 'View-only access active';
       case 'expired': return 'Authentication required to continue';
-      default: return 'Management features require API key or guest access';
+      default: {
+        // Show hint about guest mode if eligible
+        if (hasData && hasBeenInitialized) {
+          return 'Management features require API key or guest access';
+        }
+        return 'Management features require API key';
+      }
     }
   };
+
+  // Check if guest mode should be available
+  // Requires: 1) Database has data, 2) Setup has been completed (persistent initialization flag)
+  const isGuestModeAvailable = hasData && hasBeenInitialized;
 
   return (
     <>
@@ -270,16 +286,18 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
             {(authMode === 'unauthenticated' || authMode === 'expired') && (
               <>
-                <Button
-                  variant="filled"
-                  color="blue"
-                  leftSection={<Eye className="w-4 h-4" />}
-                  onClick={handleStartGuestMode}
-                  disabled={authLoading}
-                  size="sm"
-                >
-                  Guest Mode
-                </Button>
+                {isGuestModeAvailable && (
+                  <Button
+                    variant="filled"
+                    color="blue"
+                    leftSection={<Eye className="w-4 h-4" />}
+                    onClick={handleStartGuestMode}
+                    disabled={authLoading}
+                    size="sm"
+                  >
+                    Guest Mode
+                  </Button>
+                )}
                 <Button
                   variant="filled"
                   color="yellow"
@@ -373,8 +391,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               >
                 Cancel
               </Button>
-              {/* Show guest mode option only when not already in guest mode and guest mode can be activated */}
-              {(authMode === 'unauthenticated' || authMode === 'expired') && (
+              {/* Show guest mode option only when not already in guest mode and guest mode is available */}
+              {(authMode === 'unauthenticated' || authMode === 'expired') && isGuestModeAvailable && (
                 <Button
                   variant="filled"
                   color="blue"
