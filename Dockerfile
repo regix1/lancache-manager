@@ -4,17 +4,14 @@
 ARG VERSION=1.2.0
 
 # Stage 1: Build Rust binaries
-FROM --platform=$BUILDPLATFORM rust:1.83-slim AS rust-builder
+FROM rust:1.83-slim AS rust-builder
 
 ARG TARGETPLATFORM
-ARG BUILDPLATFORM
 
-# Install cross-compilation tools
+# Install build essentials
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    gcc-aarch64-linux-gnu \
-    g++-aarch64-linux-gnu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build/rust-processor
@@ -23,31 +20,11 @@ WORKDIR /build/rust-processor
 COPY rust-processor/Cargo.toml rust-processor/Cargo.lock* ./
 COPY rust-processor/src ./src
 
-# Configure cross-compilation for ARM64 if needed
-RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-        mkdir -p ~/.cargo && \
-        echo "[target.aarch64-unknown-linux-gnu]" > ~/.cargo/config.toml && \
-        echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml; \
-    fi
-
-# Build for the target platform
-RUN case "$TARGETPLATFORM" in \
-        "linux/amd64") \
-            TARGET="x86_64-unknown-linux-gnu" \
-            ;; \
-        "linux/arm64") \
-            TARGET="aarch64-unknown-linux-gnu" \
-            ;; \
-        *) \
-            echo "Unsupported platform: $TARGETPLATFORM" && exit 1 \
-            ;; \
-    esac && \
-    echo "Building for target: $TARGET" && \
-    rustup target add $TARGET && \
-    cargo build --release --target $TARGET && \
+# Build for native platform
+RUN cargo build --release && \
     mkdir -p /build/output && \
-    cp target/$TARGET/release/lancache_processor /build/output/ && \
-    cp target/$TARGET/release/database_reset /build/output/ && \
+    cp target/release/lancache_processor /build/output/ && \
+    cp target/release/database_reset /build/output/ && \
     chmod +x /build/output/*
 
 # Stage 2: Build Frontend
