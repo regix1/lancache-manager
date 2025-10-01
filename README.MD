@@ -68,7 +68,6 @@ services:
       TZ: America/Chicago
       LanCache__LogPath: /logs/access.log
       LanCache__CachePath: /cache
-      LanCache__ApiKey: your-secret-key-here
     volumes:
       - ./data:/data
       - /path/to/lancache/logs:/logs:ro
@@ -84,18 +83,21 @@ services:
 |----------|-------------|---------|
 | `LanCache__LogPath` | Path to nginx access.log | `/logs/access.log` |
 | `LanCache__CachePath` | Cache storage directory | `/cache` |
-| `LanCache__ApiKey` | API authentication key | None (public) |
 | `TZ` | Timezone | `UTC` |
 
 ### Authentication
 
-Set `LanCache__ApiKey` to enable authentication for:
+An API key is **automatically generated** on first startup and saved to `/data/api_key.txt`. The key is displayed in the application logs and can be found in:
+- Docker logs: `docker logs lancache-manager`
+- Settings page in the web UI
+
+The API key is required for:
 - Cache clearing operations
 - Database reset
 - Theme management
-- API endpoints
+- Protected API endpoints
 
-Without an API key, the dashboard is read-only with limited management features.
+The key persists across container restarts via the `/data` volume mount.
 
 ## Building from Source
 

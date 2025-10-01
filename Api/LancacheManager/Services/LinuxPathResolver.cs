@@ -11,7 +11,18 @@ public class LinuxPathResolver : IPathResolver
     public LinuxPathResolver(ILogger<LinuxPathResolver> logger)
     {
         _logger = logger;
-        _basePath = FindProjectRoot();
+
+        // In Docker/production, use root directory
+        // In development, find the project root
+        if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
+        {
+            _basePath = "/";
+            _logger.LogDebug("Running in container, using root as base path");
+        }
+        else
+        {
+            _basePath = FindProjectRoot();
+        }
 
         _logger.LogDebug("Linux base path resolved to: {BasePath}", _basePath);
     }
