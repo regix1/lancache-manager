@@ -25,6 +25,7 @@ COPY rust-processor/src ./src
 
 # Configure cross-compilation for ARM64 if needed
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        mkdir -p ~/.cargo && \
         echo "[target.aarch64-unknown-linux-gnu]" > ~/.cargo/config.toml && \
         echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml; \
     fi
