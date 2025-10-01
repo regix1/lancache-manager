@@ -1,7 +1,7 @@
 import React from 'react';
-import { Monitor } from 'lucide-react';
 import TimeFilter from '../common/TimeFilter';
 import Tooltip from '../ui/Tooltip';
+import LancacheIcon from '../ui/LancacheIcon';
 
 interface HeaderProps {
   title?: string;
@@ -16,19 +16,42 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
 
   return (
-    <header
-      className="border-b"
-      style={{
-        backgroundColor: 'var(--theme-nav-bg)',
-        borderColor: 'var(--theme-nav-border)'
-      }}
-    >
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16 min-w-0">
-          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
-            <div className="p-1.5 sm:p-2 rounded-lg flex-shrink-0" style={{ backgroundColor: 'var(--theme-icon-blue)' }}>
-              <Monitor className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-            </div>
+    <>
+      <style>{`
+        @keyframes float-bounce {
+          0%, 100% {
+            transform: translateY(0px);
+          }
+          50% {
+            transform: translateY(-4px);
+          }
+        }
+      `}</style>
+      <header
+        className="border-b"
+        style={{
+          backgroundColor: 'var(--theme-nav-bg)',
+          borderColor: 'var(--theme-nav-border)'
+        }}
+      >
+        <div className="container mx-auto px-4">
+          <div className="flex items-center justify-between h-16 min-w-0">
+            <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+              <div
+                className="p-1.5 sm:p-2 rounded-lg flex-shrink-0"
+                style={{
+                  backgroundColor: 'var(--theme-bg-tertiary)'
+                }}
+              >
+                <LancacheIcon
+                  className="flex-shrink-0"
+                  size={36}
+                  style={{
+                    filter: 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.2))',
+                    animation: 'float-bounce 2.5s ease-in-out infinite'
+                  }}
+                />
+              </div>
             <div className="min-w-0 flex-1">
               <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">{title}</h1>
               <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted hidden sm:flex">
@@ -75,6 +98,7 @@ const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
     </header>
+    </>
   );
 };
 
