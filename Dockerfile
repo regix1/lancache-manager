@@ -79,7 +79,7 @@ RUN case "$TARGETPLATFORM" in \
     esac && \
     echo "Building for RID: $RID" && \
     dotnet restore LancacheManager.csproj && \
-    dotnet publish LancacheManager.csproj -c Release -o /app/publish -r $RID --self-contained false
+    dotnet publish LancacheManager.csproj -c Release -o /app/publish -r $RID --self-contained false -p:SkipRustBuild=true
 
 # Copy frontend build to wwwroot
 COPY --from=frontend-builder /app/dist /app/publish/wwwroot

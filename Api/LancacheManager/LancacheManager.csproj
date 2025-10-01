@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <!-- Build Rust binaries before .NET build -->
-  <Target Name="BuildRustBinaries" BeforeTargets="BeforeBuild">
+  <Target Name="BuildRustBinaries" BeforeTargets="BeforeBuild" Condition="'$(SkipRustBuild)' != 'true'">
     <Message Text="Building Rust binaries for target: $(RustTarget)" Importance="high" />
 
     <!-- Windows build -->
