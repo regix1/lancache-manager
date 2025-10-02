@@ -1,4 +1,5 @@
 import React, { memo, useMemo, useState, useEffect } from 'react';
+import { ArrowRight } from 'lucide-react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
@@ -23,10 +24,11 @@ interface DownloadGroup {
 interface RecentDownloadsPanelProps {
   downloads?: any[]; // Keep for backward compatibility but won't be used
   timeRange?: string;
+  onNavigateToDownloads?: () => void;
 }
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
-  ({ timeRange = 'live' }) => {
+  ({ timeRange = 'live', onNavigateToDownloads }) => {
     const [allDownloads, setAllDownloads] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedService, setSelectedService] = useState<string>('all');
@@ -162,7 +164,25 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     const displayCount = 10;
     const groupedItems = useMemo(() => {
       const { groups, individuals } = createGroups(filteredDownloads);
-      const allItems: (DownloadGroup | any)[] = [...groups, ...individuals];
+
+      // Filter out unmapped/unknown individual downloads - only show grouped items
+      // Individual downloads without proper game names will be hidden until they're mapped
+      const filteredIndividuals = individuals.filter(download => {
+        // Show if it has a valid game name (not Unknown or Steam App pattern)
+        if (download.gameName &&
+            download.gameName !== 'Unknown Steam Game' &&
+            !download.gameName.match(/^Steam App \d+$/)) {
+          return true;
+        }
+        // Show non-Steam services
+        if (download.service.toLowerCase() !== 'steam') {
+          return true;
+        }
+        // Hide unmapped Steam downloads
+        return false;
+      });
+
+      const allItems: (DownloadGroup | any)[] = [...groups, ...filteredIndividuals];
 
       allItems.sort((a, b) => {
         const aTime = 'downloads' in a
@@ -193,7 +213,19 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
       <Card>
         <div className="mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold text-themed-primary">Recent Downloads</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-themed-primary">Recent Downloads</h3>
+              {onNavigateToDownloads && (
+                <button
+                  onClick={onNavigateToDownloads}
+                  className="p-1.5 rounded-lg transition-all hover:bg-themed-hover"
+                  title="View Active Downloads"
+                  style={{ color: 'var(--theme-text-secondary)' }}
+                >
+                  <ArrowRight className="w-5 h-5" />
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               {!loading && allDownloads.length > 0 && (
                 <>
