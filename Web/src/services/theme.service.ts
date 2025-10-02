@@ -66,6 +66,7 @@ interface ThemeColors {
   // Component colors
   cardBg?: string;
   cardBorder?: string;
+  cardOutline?: string;
   buttonBg?: string;
   buttonHover?: string;
   buttonText?: string;
@@ -317,6 +318,7 @@ class ThemeService {
           // Components
           cardBg: '#1f2937',
           cardBorder: '#374151',
+          cardOutline: '#3b82f6',
           buttonBg: '#3b82f6',
           buttonHover: '#2563eb',
           buttonText: '#ffffff',
@@ -471,6 +473,7 @@ class ThemeService {
           // Components
           cardBg: '#ffffff',
           cardBorder: '#e5e7eb',
+          cardOutline: '#3b82f6',
           buttonBg: '#3b82f6',
           buttonHover: '#2563eb',
           buttonText: '#ffffff',
@@ -690,6 +693,7 @@ class ThemeService {
         --theme-riot: #f59e0b;
         --theme-card-bg: #1f2937;
         --theme-card-border: #374151;
+        --theme-card-outline: #3b82f6;
         --theme-button-bg: #3b82f6;
         --theme-button-hover: #2563eb;
         --theme-button-text: #ffffff;
@@ -870,6 +874,7 @@ class ThemeService {
       /* Component Colors */
       --theme-card-bg: ${colors.cardBg};
       --theme-card-border: ${colors.cardBorder};
+      --theme-card-outline: ${colors.cardOutline};
       --theme-button-bg: ${colors.buttonBg};
       --theme-button-hover: ${colors.buttonHover};
       --theme-button-text: ${colors.buttonText};

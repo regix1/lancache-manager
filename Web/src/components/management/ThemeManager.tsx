@@ -363,6 +363,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           affects: ['Card outlines', 'Panel borders'],
           supportsAlpha: true,
           pages: ['dashboard', 'downloads', 'clients', 'services']
+        },
+        {
+          key: 'cardOutline',
+          label: 'Card Focus Outline',
+          description: 'Outline color when cards are clicked/focused',
+          affects: ['Download cards focus outline', 'Interactive card selection'],
+          supportsAlpha: true,
+          pages: ['downloads']
         }
       ]
     },
@@ -1207,6 +1215,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
         cardBg: getCurrentColor('--theme-card-bg'),
         cardBorder: getCurrentColor('--theme-card-border'),
+        cardOutline: getCurrentColor('--theme-card-outline'),
         buttonBg: getCurrentColor('--theme-button-bg'),
         buttonHover: getCurrentColor('--theme-button-hover'),
         buttonText: getCurrentColor('--theme-button-text'),
@@ -1861,6 +1870,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
         cardBg: '#1f2937',
         cardBorder: '#374151',
+        cardOutline: '#3b82f6',
         buttonBg: '#3b82f6',
         buttonHover: '#2563eb',
         buttonText: '#ffffff',
@@ -1948,6 +1958,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         navMobileItemHover: '#374151',
         cardBg: '#1f2937',
         cardBorder: '#374151',
+        cardOutline: '#3b82f6',
         inputBg: '#374151',
         inputBorder: '#4b5563',
         progressBg: '#374151',
@@ -1991,6 +2002,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         navMobileItemHover: '#e5e7eb',
         cardBg: '#ffffff',
         cardBorder: '#e5e7eb',
+        cardOutline: '#3b82f6',
         buttonBg: '#3b82f6',
         buttonHover: '#2563eb',
         buttonText: '#ffffff',  // White text on blue button for 8.6:1 contrast
@@ -2129,6 +2141,7 @@ riotColor = "#dc2626"
 # Components
 cardBg = "#1f2937"
 cardBorder = "#374151"
+cardOutline = "#3b82f6"
 buttonBg = "#3b82f6"
 buttonHover = "#2563eb"
 buttonText = "#ffffff"
@@ -2998,6 +3011,7 @@ content = """
                                   sliderTrack: '--theme-slider-track',
                                   cardBg: '--theme-card-bg',
                                   cardBorder: '--theme-card-border',
+                                  cardOutline: '--theme-card-outline',
                                   badgeBg: '--theme-badge-bg',
                                   progressBar: '--theme-progress-bar',
                                   iconBgBlue: '--theme-icon-bg-blue',

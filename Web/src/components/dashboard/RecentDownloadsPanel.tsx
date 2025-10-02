@@ -1,5 +1,5 @@
 import React, { memo, useMemo, useState } from 'react';
-import { Activity, Clock } from 'lucide-react';
+import { Activity, Clock, Loader2 } from 'lucide-react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
@@ -324,10 +324,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                           {download.service}
                         </span>
                       </div>
-                      <div className="text-sm font-medium text-themed-primary mt-1">
-                        {download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)
-                          ? download.gameName
-                          : 'Downloading...'}
+                      <div className="text-sm font-medium text-themed-primary mt-1 flex items-center gap-2">
+                        <span>
+                          {download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)
+                            ? download.gameName
+                            : 'Unknown Game'}
+                        </span>
+                        <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
                       </div>
                       <div className="text-xs text-themed-secondary mt-1">{download.clientIp}</div>
                     </div>

@@ -121,7 +121,11 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
         <button
           type="button"
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary)]"
+          className="w-full text-left focus:outline-none"
+          style={{
+            outline: expandedItem === group.id ? `2px solid var(--theme-card-outline)` : 'none',
+            outlineOffset: '2px'
+          }}
         >
           <div className="flex items-stretch">
             {showGameImage && primaryDownload?.gameAppId && (
