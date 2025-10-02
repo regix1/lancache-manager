@@ -26,7 +26,9 @@ public class DownloadCleanupService : BackgroundService
                 using var scope = _serviceProvider.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                var cutoff = DateTime.UtcNow.AddMinutes(-2);
+                // Use 10-minute timeout to avoid marking active downloads as complete too quickly
+                // This should be longer than the session gap (5 minutes) to account for slow downloads
+                var cutoff = DateTime.UtcNow.AddMinutes(-10);
                 var staleDownloads = await context.Downloads
                     .Where(d => d.IsActive && d.EndTime < cutoff)
                     .ToListAsync(stoppingToken);
@@ -39,7 +41,7 @@ public class DownloadCleanupService : BackgroundService
                     }
 
                     await context.SaveChangesAsync(stoppingToken);
-                    _logger.LogInformation($"Marked {staleDownloads.Count} downloads as complete");
+                    _logger.LogInformation($"Marked {staleDownloads.Count} downloads as complete (EndTime > 10 minutes old)");
                 }
             }
             catch (Exception ex)

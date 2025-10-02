@@ -50,14 +50,14 @@ public class StatsCache
             _logger.LogInformation($"Cached {recentDownloads.Count} recent downloads");
 
             // Pre-load active downloads into cache
-            var cutoff = DateTime.UtcNow.AddMinutes(-5);
+            // Only check IsActive flag - cleanup service handles marking old downloads as complete
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTime > cutoff)
+                .Where(d => d.IsActive)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
-            
+
             _cache.Set("active_downloads", activeDownloads, _cacheExpiration);
             _logger.LogInformation($"Cached {activeDownloads.Count} active downloads");
         }
@@ -115,11 +115,11 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("active_downloads", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(2); // Shorter cache for active downloads
-            
-            var cutoff = DateTime.UtcNow.AddMinutes(-5);
+
+            // Only check IsActive flag - cleanup service handles marking old downloads as complete
             return await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTime > cutoff)
+                .Where(d => d.IsActive)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();

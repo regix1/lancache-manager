@@ -56,9 +56,9 @@ public class DatabaseService
     {
         try
         {
-            var cutoff = DateTime.UtcNow.AddMinutes(-5);
+            // Only check IsActive flag - cleanup service handles marking old downloads as complete
             return await _context.Downloads
-                .Where(d => d.IsActive && d.EndTime > cutoff)
+                .Where(d => d.IsActive)
                 .OrderByDescending(d => d.StartTime)
                 .ToListAsync();
         }
