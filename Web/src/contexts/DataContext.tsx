@@ -184,9 +184,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const fetchData = async () => {
     const { startTime, endTime } = getTimeRangeParams();
 
-    // Debounce: prevent fetching more than once per second to avoid graph reload spam
+    // Debounce: prevent fetching more than once per 5 seconds to avoid graph reload spam
     const now = Date.now();
-    if (!isInitialLoad.current && (now - lastFetchTime.current) < 1000) {
+    if (!isInitialLoad.current && (now - lastFetchTime.current) < 5000) {
       return;
     }
 
@@ -407,8 +407,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   };
 
   const getCurrentRefreshInterval = () => {
-    if (isProcessingLogs) return 2000; // 2 seconds when processing
-    return 5000; // 5 seconds for real-time updates
+    if (isProcessingLogs) return 5000; // 5 seconds when processing
+    return 25000; // 25 seconds for graph stability
   };
 
   // SignalR connection for real-time updates

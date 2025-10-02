@@ -29,37 +29,10 @@ interface RecentDownloadsPanelProps {
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
   ({ timeRange = 'live' }) => {
-    const [allDownloads, setAllDownloads] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
     const [selectedService, setSelectedService] = useState<string>('all');
     const [selectedClient, setSelectedClient] = useState<string>('all');
     const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
-    const { getTimeRangeParams } = useTimeFilter();
-    const { activeDownloads } = useData();
-
-    // Fetch ALL downloads for the recent downloads panel
-    useEffect(() => {
-      const fetchAllDownloads = async () => {
-        try {
-          setLoading(true);
-          const { startTime, endTime } = getTimeRangeParams();
-          const downloads = await ApiService.getLatestDownloads(
-            undefined, // signal
-            'unlimited', // Get ALL downloads
-            startTime,
-            endTime
-          );
-          setAllDownloads(downloads);
-        } catch (error) {
-          console.error('Failed to fetch all downloads for Recent Downloads Panel:', error);
-          setAllDownloads([]);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      fetchAllDownloads();
-    }, [timeRange, getTimeRangeParams]);
+    const { activeDownloads, latestDownloads, loading } = useData();
 
     const getTimeRangeLabel = useMemo(() => {
       const labels: Record<string, string> = {
@@ -142,17 +115,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     };
 
     const availableServices = useMemo(() => {
-      const services = new Set(allDownloads.map(d => d.service));
+      const services = new Set(latestDownloads.map(d => d.service));
       return ['all', ...Array.from(services).sort()];
-    }, [allDownloads]);
+    }, [latestDownloads]);
 
     const availableClients = useMemo(() => {
-      const clients = new Set(allDownloads.map(d => d.clientIp));
+      const clients = new Set(latestDownloads.map(d => d.clientIp));
       return ['all', ...Array.from(clients).sort()];
-    }, [allDownloads]);
+    }, [latestDownloads]);
 
     const filteredDownloads = useMemo(() => {
-      return allDownloads.filter(download => {
+      return latestDownloads.filter(download => {
         if (selectedService !== 'all' && download.service !== selectedService) {
           return false;
         }
@@ -161,7 +134,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         }
         return true;
       });
-    }, [allDownloads, selectedService, selectedClient]);
+    }, [latestDownloads, selectedService, selectedClient]);
 
     const displayCount = 10;
     const groupedItems = useMemo(() => {
@@ -266,7 +239,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 </>
               ) : (
                 <>
-                  {!loading && allDownloads.length > 0 && (
+                  {!loading && latestDownloads.length > 0 && (
                     <>
                       <span className="text-xs text-themed-muted">{stats.totalDownloads} shown</span>
                       <span
@@ -284,7 +257,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             </div>
           </div>
 
-          {!loading && allDownloads.length > 0 && viewMode === 'recent' && (
+          {!loading && latestDownloads.length > 0 && viewMode === 'recent' && (
             <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
               <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1 w-full sm:w-auto">
                 <EnhancedDropdown

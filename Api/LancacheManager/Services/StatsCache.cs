@@ -9,7 +9,7 @@ public class StatsCache
 {
     private readonly IMemoryCache _cache;
     private readonly ILogger<StatsCache> _logger;
-    private readonly TimeSpan _cacheExpiration = TimeSpan.FromSeconds(2); // Short cache for real-time updates
+    private readonly TimeSpan _cacheExpiration = TimeSpan.FromSeconds(10); // Longer cache for graph stability
 
     public StatsCache(IMemoryCache cache, ILogger<StatsCache> logger)
     {
@@ -114,7 +114,7 @@ public class StatsCache
     {
         return await _cache.GetOrCreateAsync("active_downloads", async entry =>
         {
-            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(5); // Longer cache to prevent flickering
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10); // Match general cache for consistency
 
             // Only check IsActive flag - cleanup service handles marking old downloads as complete
             return await context.Downloads
