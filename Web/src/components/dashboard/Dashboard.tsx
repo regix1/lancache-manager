@@ -85,17 +85,9 @@ const Dashboard: React.FC = () => {
   }, [latestDownloads]);
 
   const filteredActiveDownloads = useMemo(() => {
-    return activeDownloads.filter(download => {
-      // Filter out 0-byte files
-      if (download.totalBytes === 0) {
-        return false;
-      }
-      // Filter out small files (< 1MB)
-      if (download.totalBytes < 1024 * 1024) {
-        return false;
-      }
-      return true;
-    });
+    // For active downloads, don't filter by size - show them all
+    // They're currently downloading and will grow in size
+    return activeDownloads;
   }, [activeDownloads]);
 
   const filteredServiceStats = useMemo(() => {

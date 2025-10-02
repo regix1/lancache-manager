@@ -14,6 +14,7 @@ public class RustLogProcessorService
     private readonly IPathResolver _pathResolver;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly StateService _stateService;
+    private readonly IServiceProvider _serviceProvider;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _progressMonitorTask;
@@ -24,12 +25,14 @@ public class RustLogProcessorService
         ILogger<RustLogProcessorService> logger,
         IPathResolver pathResolver,
         IHubContext<DownloadHub> hubContext,
-        StateService stateService)
+        StateService stateService,
+        IServiceProvider serviceProvider)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _hubContext = hubContext;
         _stateService = stateService;
+        _serviceProvider = serviceProvider;
     }
 
     public class ProgressData
@@ -178,6 +181,13 @@ public class RustLogProcessorService
                 {
                     _stateService.SetLogPosition(finalProgress.LinesParsed);
 
+                    // Invalidate cache immediately so fresh download data is available
+                    using (var scope = _serviceProvider.CreateScope())
+                    {
+                        var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
+                        statsCache.InvalidateDownloads();
+                    }
+
                     // Only send SignalR notifications if not in silent mode
                     if (!silentMode)
                     {
@@ -202,6 +212,14 @@ public class RustLogProcessorService
                             timestamp = DateTime.UtcNow
                         });
                     }
+                }
+
+                // Automatically trigger depot mapping for new entries (both silent and non-silent mode)
+                // This ensures games are identified immediately after processing
+                if (finalProgress?.EntriesSaved > 0)
+                {
+                    _logger.LogInformation("Triggering automatic depot mapping for {EntriesCount} new entries", finalProgress.EntriesSaved);
+                    _ = Task.Run(async () => await TriggerAutomaticDepotMappingAsync(silentMode));
                 }
 
                 if (!silentMode)
@@ -338,6 +356,52 @@ public class RustLogProcessorService
         {
             _logger.LogTrace(ex, "Failed to read progress file (may not exist yet)");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Automatically triggers depot mapping for unmapped downloads
+    /// This runs in the background after log processing completes
+    /// </summary>
+    private async Task TriggerAutomaticDepotMappingAsync(bool silentMode)
+    {
+        try
+        {
+            // Wait a moment to ensure all database writes are complete
+            await Task.Delay(500);
+
+            using var scope = _serviceProvider.CreateScope();
+            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+            var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
+
+            _logger.LogDebug("Starting automatic depot mapping...");
+            var mappingsProcessed = await dbService.PostProcessDepotMappings();
+
+            if (mappingsProcessed > 0)
+            {
+                _logger.LogInformation("Automatic depot mapping complete: {MappingsCount} downloads mapped", mappingsProcessed);
+
+                // Invalidate cache so fresh data is fetched on next request
+                statsCache.InvalidateDownloads();
+
+                // In silent mode, send a refresh notification so the UI updates with the new game names
+                if (silentMode)
+                {
+                    await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                    {
+                        depotMappingsProcessed = mappingsProcessed,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+            }
+            else
+            {
+                _logger.LogDebug("No depot mappings needed");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during automatic depot mapping");
         }
     }
 

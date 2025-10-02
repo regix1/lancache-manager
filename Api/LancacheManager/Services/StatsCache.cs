@@ -139,11 +139,14 @@ public class StatsCache
     {
         _cache.Remove("recent_downloads");
         _cache.Remove("active_downloads");
-        
-        // Remove all count-specific recent download caches
-        for (int i = 10; i <= 100; i += 10)
+
+        // Remove all count-specific recent download caches (including common values)
+        var commonCounts = new[] { 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100, 200, 500, 1000, 9999 };
+        foreach (var count in commonCounts)
         {
-            _cache.Remove($"recent_downloads_{i}");
+            _cache.Remove($"recent_downloads_{count}");
         }
+
+        _logger.LogDebug("Downloads cache invalidated");
     }
 }
