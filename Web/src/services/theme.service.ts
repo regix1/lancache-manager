@@ -280,7 +280,7 @@ class ThemeService {
           // Borders
           borderPrimary: '#374151',
           borderSecondary: '#4b5563',
-          borderFocus: '#3b82f6',
+          borderFocus: '#3b82f6', // Uses primaryColor
 
           // Navigation
           navBg: '#1f2937',
@@ -658,7 +658,7 @@ class ThemeService {
         --theme-drag-handle-hover: #60a5fa;
         --theme-border-primary: #374151;
         --theme-border-secondary: #4b5563;
-        --theme-border-focus: #3b82f6;
+        --theme-border-focus: var(--theme-primary);
         --theme-border-radius: ${borderRadius};
         --theme-border-radius-lg: ${borderRadiusLg};
         --theme-border-radius-xl: ${borderRadiusXl};
@@ -695,7 +695,7 @@ class ThemeService {
         --theme-button-text: #ffffff;
         --theme-input-bg: #374151;
         --theme-input-border: #4b5563;
-        --theme-input-focus: #3b82f6;
+        --theme-input-focus: var(--theme-primary);
         --theme-checkbox-accent: #3b82f6;
         --theme-checkbox-border: #4b5563;
         --theme-checkbox-bg: #1f2937;
@@ -703,7 +703,7 @@ class ThemeService {
         --theme-checkbox-shadow: none;
         --theme-checkbox-hover-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         --theme-checkbox-hover-bg: #374151;
-        --theme-checkbox-focus: #3b82f6;
+        --theme-checkbox-focus: var(--theme-primary);
         --theme-slider-accent: #3b82f6;
         --theme-slider-thumb: #3b82f6;
         --theme-slider-track: #374151;
@@ -799,6 +799,11 @@ class ThemeService {
     }
 
     const colors = theme.colors;
+
+    // Normalize theme: if focus colors aren't defined, use primaryColor
+    if (!colors.borderFocus) colors.borderFocus = colors.primaryColor;
+    if (!colors.inputFocus) colors.inputFocus = colors.primaryColor;
+    if (!colors.checkboxFocus) colors.checkboxFocus = colors.primaryColor;
 
     // Get border radius settings
     const sharpCorners = localStorage.getItem('lancache_sharp_corners') === 'true';

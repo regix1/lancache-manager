@@ -114,6 +114,7 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Operat
 
 // Register background services
 builder.Services.AddHostedService<DownloadCleanupService>();
+builder.Services.AddHostedService<LiveLogMonitorService>();
 
 // Add memory cache for storing stats
 builder.Services.AddMemoryCache();
