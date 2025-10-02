@@ -5,6 +5,7 @@ description = "Earthy sage green with warm wood browns on charcoal"
 author = "Nature"
 version = "1.2.0"
 isDark = true
+sharpCorners = false
 
 [colors]
 primaryColor = "#87a96b"
@@ -18,6 +19,7 @@ textPrimary = "#e8e3db"
 textSecondary = "#c4beb4"
 textMuted = "#9a9590"
 textAccent = "#a5b896"
+textPlaceholder = "#858078"
 borderPrimary = "#454545"
 borderSecondary = "#505050"
 borderFocus = "#87a96b"
@@ -63,6 +65,9 @@ checkboxShadow = "none"
 checkboxHoverShadow = "0 0 0 3px rgba(135, 169, 107, 0.15)"
 checkboxHoverBg = "#4a4a4a"
 checkboxFocus = "#87a96b"
+sliderAccent = "#87a96b"
+sliderThumb = "#87a96b"
+sliderTrack = "#404040"
 badgeBg = "#87a96b"
 badgeText = "#ffffff"
 progressBar = "#87a96b"
@@ -103,6 +108,15 @@ chartGridColor = "#454545"
 chartTextColor = "#9a9590"
 chartCacheHitColor = "#6b8e4e"
 chartCacheMissColor = "#d4a574"
+scrollbarTrack = "#353535"
+scrollbarThumb = "#6b8e4e"
+scrollbarHover = "#87a96b"
+publicAccessBg = "rgba(107, 142, 78, 0.2)"
+publicAccessText = "#a5b896"
+publicAccessBorder = "rgba(107, 142, 78, 0.3)"
+securedAccessBg = "rgba(212, 165, 116, 0.2)"
+securedAccessText = "#e8d4b8"
+securedAccessBorder = "rgba(212, 165, 116, 0.3)"
 dragHandleColor = "#808080"
 dragHandleHover = "#a5b896"
 
@@ -147,16 +161,16 @@ button:hover {
 
 /* Natural scrollbar styling */
 *::-webkit-scrollbar-track {
-  background: #353535;
+  background: var(--theme-scrollbar-track);
 }
 
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #87a96b, #6b8e4e);
+  background: linear-gradient(180deg, var(--theme-primary), var(--theme-scrollbar-thumb));
   border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #9caf88, #87a96b);
+  background: linear-gradient(180deg, var(--theme-accent), var(--theme-scrollbar-hover));
 }
 
 

@@ -154,6 +154,8 @@ interface ThemeMeta {
   author?: string;
   version?: string;
   isDark?: boolean;
+  sharpCorners?: boolean;
+  disableFocusOutlines?: boolean;
 }
 
 interface Theme {
@@ -253,7 +255,9 @@ class ThemeService {
           description: 'Default dark theme with blue accents',
           author: 'System',
           version: '1.0.0',
-          isDark: true
+          isDark: true,
+          sharpCorners: false,
+          disableFocusOutlines: true
         },
         colors: {
           // Core colors
@@ -408,7 +412,9 @@ class ThemeService {
           description: 'Default light theme with blue accents',
           author: 'System',
           version: '1.0.0',
-          isDark: false
+          isDark: false,
+          sharpCorners: false,
+          disableFocusOutlines: true
         },
         colors: {
           // Core colors
@@ -694,6 +700,7 @@ class ThemeService {
         --theme-card-bg: #1f2937;
         --theme-card-border: #374151;
         --theme-card-outline: #3b82f6;
+        --theme-card-ring: rgba(59, 130, 246, 0.2);
         --theme-button-bg: #3b82f6;
         --theme-button-hover: #2563eb;
         --theme-button-text: #ffffff;
@@ -802,15 +809,27 @@ class ThemeService {
       defaultPreload.remove();
     }
 
+    // Apply theme-specific settings
+    const sharpCorners = theme.meta.sharpCorners ?? false;
+    const disableFocusOutlines = theme.meta.disableFocusOutlines ?? false;
+
+    // Update localStorage to match theme settings
+    localStorage.setItem('lancache_sharp_corners', sharpCorners.toString());
+    localStorage.setItem('lancache_disable_focus_outlines', disableFocusOutlines.toString());
+
+    // Apply focus outlines setting
+    document.documentElement.setAttribute('data-disable-focus-outlines', disableFocusOutlines.toString());
+
     const colors = theme.colors;
 
     // Normalize theme: if focus colors aren't defined, use primaryColor
     if (!colors.borderFocus) colors.borderFocus = colors.primaryColor;
     if (!colors.inputFocus) colors.inputFocus = colors.primaryColor;
     if (!colors.checkboxFocus) colors.checkboxFocus = colors.primaryColor;
+    if (!colors.cardOutline) colors.cardOutline = colors.primaryColor;
+    if (!colors.cardRing) colors.cardRing = colors.primaryColor + '33'; // 20% opacity
 
-    // Get border radius settings
-    const sharpCorners = localStorage.getItem('lancache_sharp_corners') === 'true';
+    // Get border radius settings from theme (already set above)
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
     const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
     const borderRadiusXl = sharpCorners ? '0px' : '1rem';
@@ -875,6 +894,7 @@ class ThemeService {
       --theme-card-bg: ${colors.cardBg};
       --theme-card-border: ${colors.cardBorder};
       --theme-card-outline: ${colors.cardOutline};
+      --theme-card-ring: ${colors.cardRing};
       --theme-button-bg: ${colors.buttonBg};
       --theme-button-hover: ${colors.buttonHover};
       --theme-button-text: ${colors.buttonText};
@@ -995,6 +1015,10 @@ class ThemeService {
     // Check for feature migrations
     this.migrateLocalStorageFeatures();
 
+    // Initialize focus outlines setting
+    const disableFocusOutlines = this.getDisableFocusOutlines();
+    document.documentElement.setAttribute('data-disable-focus-outlines', disableFocusOutlines.toString());
+
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
     const savedThemeId = localStorage.getItem('lancache_selected_theme');
@@ -1043,6 +1067,11 @@ class ThemeService {
         localStorage.setItem('lancache_sharp_corners', 'false'); // Default to rounded
       }
 
+      // Migration for disable focus outlines feature
+      if (!localStorage.getItem('lancache_disable_focus_outlines')) {
+        localStorage.setItem('lancache_disable_focus_outlines', 'true'); // Default to disabled (no blue borders)
+      }
+
       // Set migration version to prevent future runs
       localStorage.setItem('lancache_migration_version', currentVersion);
     }
@@ -1070,6 +1099,8 @@ class ThemeService {
     if (theme.meta.author) toml += `author = "${theme.meta.author}"\n`;
     if (theme.meta.version) toml += `version = "${theme.meta.version}"\n`;
     if (theme.meta.isDark !== undefined) toml += `isDark = ${theme.meta.isDark}\n`;
+    if (theme.meta.sharpCorners !== undefined) toml += `sharpCorners = ${theme.meta.sharpCorners}\n`;
+    if (theme.meta.disableFocusOutlines !== undefined) toml += `disableFocusOutlines = ${theme.meta.disableFocusOutlines}\n`;
     toml += '\n';
 
     toml += '[colors]\n';
@@ -1109,6 +1140,27 @@ class ThemeService {
 
   getSharpCorners(): boolean {
     return localStorage.getItem('lancache_sharp_corners') === 'true';
+  }
+
+  setDisableFocusOutlines(enabled: boolean): void {
+    localStorage.setItem('lancache_disable_focus_outlines', enabled.toString());
+
+    // Trigger CSS update
+    document.documentElement.setAttribute('data-disable-focus-outlines', enabled.toString());
+
+    // Dispatch event for any components that need to react
+    window.dispatchEvent(new Event('focusoutlineschange'));
+  }
+
+  getDisableFocusOutlines(): boolean {
+    return localStorage.getItem('lancache_disable_focus_outlines') === 'true';
+  }
+
+  async setTheme(themeId: string): Promise<void> {
+    const theme = await this.getTheme(themeId);
+    if (theme) {
+      this.applyTheme(theme);
+    }
   }
 }
 

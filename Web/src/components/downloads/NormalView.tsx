@@ -115,17 +115,16 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
     return (
       <div
         key={group.id}
-        className={`rounded-xl border bg-[var(--theme-bg-secondary)] shadow-sm transition-all duration-300 overflow-hidden ${isExpanded ? 'border-[var(--theme-primary)] shadow-2xl ring-2 ring-[var(--theme-primary)]/20' : 'hover:shadow-lg hover:border-[var(--theme-primary)]/40'}`}
-        style={{ borderColor: isExpanded ? 'var(--theme-primary)' : 'var(--theme-border-primary)' }}
+        className={`rounded-xl border bg-[var(--theme-bg-secondary)] shadow-sm transition-all duration-300 overflow-hidden ${isExpanded ? '' : 'hover:shadow-lg hover:border-[var(--theme-primary)]/40'}`}
+        style={{
+          borderColor: isExpanded ? 'var(--theme-card-outline)' : 'var(--theme-border-primary)',
+          boxShadow: isExpanded ? '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 2px var(--theme-card-ring)' : undefined
+        }}
       >
         <button
           type="button"
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left focus:outline-none"
-          style={{
-            outline: expandedItem === group.id ? `2px solid var(--theme-card-outline)` : 'none',
-            outlineOffset: '2px'
-          }}
+          className="w-full text-left no-click-outline"
         >
           <div className="flex items-stretch">
             {showGameImage && primaryDownload?.gameAppId && (

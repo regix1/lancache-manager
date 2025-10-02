@@ -8,6 +8,7 @@ interface AlertProps {
   withCloseButton?: boolean;
   onClose?: () => void;
   title?: string;
+  className?: string;
 }
 
 export const Alert: React.FC<AlertProps> = ({
@@ -16,7 +17,8 @@ export const Alert: React.FC<AlertProps> = ({
   icon,
   withCloseButton,
   onClose,
-  title
+  title,
+  className
 }) => {
   const getColorClasses = () => {
     const colors = {
@@ -38,7 +40,7 @@ export const Alert: React.FC<AlertProps> = ({
   };
 
   return (
-    <div className={`rounded-lg p-4 border ${getColorClasses()}`}>
+    <div className={`rounded-lg p-4 border ${getColorClasses()} ${className || ''}`}>
       <div className="flex items-start">
         {(icon || defaultIcons[color]) && (
           <div className="flex-shrink-0 mr-3">{icon || defaultIcons[color]}</div>

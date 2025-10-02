@@ -69,10 +69,13 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`w-full px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left focus:outline-none transition-colors flex items-center justify-between text-sm ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`w-full px-3 py-2 rounded-lg border text-[var(--theme-text-primary)] text-left transition-all flex items-center justify-between text-sm focus:outline-none focus:ring-0 focus:shadow-none active:outline-none active:ring-0 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: 'var(--theme-border-primary)'
+          borderColor: isOpen ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
+          outline: 'none !important',
+          boxShadow: 'none !important',
+          WebkitTapHighlightColor: 'transparent'
         }}
         onMouseEnter={(e) =>
           !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
@@ -80,6 +83,16 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         onMouseLeave={(e) =>
           !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
         }
+        onFocus={(e) => {
+          if (!disabled) {
+            e.currentTarget.style.borderColor = 'var(--theme-border-focus)';
+          }
+        }}
+        onBlur={(e) => {
+          if (!disabled && !isOpen) {
+            e.currentTarget.style.borderColor = 'var(--theme-border-primary)';
+          }
+        }}
       >
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
         <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />

@@ -26,6 +26,16 @@ const Header: React.FC<HeaderProps> = ({
             transform: translateY(-4px);
           }
         }
+        @keyframes shadow-pulse {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 0.3;
+          }
+          50% {
+            transform: scale(0.85);
+            opacity: 0.15;
+          }
+        }
       `}</style>
       <header
         className="border-b"
@@ -40,17 +50,36 @@ const Header: React.FC<HeaderProps> = ({
               <div
                 className="p-1.5 sm:p-2 rounded-lg flex-shrink-0"
                 style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)'
+                  backgroundColor: 'var(--theme-bg-tertiary)',
+                  position: 'relative'
                 }}
               >
-                <LancacheIcon
-                  className="flex-shrink-0"
-                  size={36}
-                  style={{
-                    filter: 'drop-shadow(0 4px 6px rgba(0, 0, 0, 0.2))',
-                    animation: 'float-bounce 2.5s ease-in-out infinite'
-                  }}
-                />
+                <div style={{ position: 'relative', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <LancacheIcon
+                    className="flex-shrink-0"
+                    size={36}
+                    style={{
+                      animation: 'float-bounce 2.5s ease-in-out infinite',
+                      position: 'relative',
+                      zIndex: 1
+                    }}
+                  />
+                  {/* Static shadow below the floating icon */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '0px',
+                      left: '4px',
+                      width: '28px',
+                      height: '6px',
+                      background: 'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
+                      borderRadius: '50%',
+                      animation: 'shadow-pulse 2.5s ease-in-out infinite',
+                      pointerEvents: 'none',
+                      zIndex: 0
+                    }}
+                  />
+                </div>
               </div>
             <div className="min-w-0 flex-1">
               <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">{title}</h1>

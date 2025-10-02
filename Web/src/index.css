@@ -7,6 +7,74 @@
     @apply bg-gray-900 text-gray-100;
   }
 
+  /* Remove Tailwind's default ring on all elements */
+  * {
+    @apply ring-0 shadow-none;
+  }
+
+  *:focus,
+  *:active {
+    @apply ring-0 shadow-none;
+  }
+
+  /* Remove all default browser outlines and box-shadows on click/focus */
+  *:focus {
+    outline: none !important;
+    box-shadow: none;
+    --tw-ring-shadow: 0 0 #0000 !important;
+  }
+
+  /* Remove focus ring completely */
+  *:focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none;
+  }
+
+  /* Only show outline for keyboard navigation */
+  *:focus-visible {
+    outline: 2px solid var(--theme-border-focus) !important;
+    outline-offset: 2px !important;
+    box-shadow: none;
+  }
+
+  /* Remove tap highlight on mobile */
+  * {
+    -webkit-tap-highlight-color: transparent !important;
+  }
+
+  /* Remove any blue highlight/border from buttons */
+  button,
+  button:active,
+  button:focus,
+  button:focus:not(:focus-visible) {
+    outline: 0 !important;
+    outline: none !important;
+    outline-width: 0 !important;
+    box-shadow: none;
+    -webkit-appearance: none !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+  }
+
+  /* Remove Tailwind ring from all interactive elements */
+  input,
+  button,
+  select,
+  textarea,
+  a {
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+  }
+
+  input:focus,
+  button:focus,
+  select:focus,
+  textarea:focus,
+  a:focus {
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+  }
+
   /* FORCE CUSTOM SCROLLBARS ON ALL ELEMENTS - Theme aware */
   * {
     /* Firefox */
@@ -575,6 +643,62 @@
   .themed-outline:focus,
   .themed-outline:focus-visible {
     outline-color: var(--theme-border-focus);
+  }
+
+  /* Remove blue outline on click, keep for keyboard navigation */
+  /* Only apply when user has disabled focus outlines */
+  [data-disable-focus-outlines="true"] .no-click-outline {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  [data-disable-focus-outlines="true"] .no-click-outline:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  [data-disable-focus-outlines="true"] .no-click-outline:focus-visible {
+    outline: 2px solid var(--theme-card-outline) !important;
+    outline-offset: 2px !important;
+    box-shadow: none !important;
+  }
+
+  /* Also apply to buttons and interactive elements when disabled */
+  [data-disable-focus-outlines="true"] button:focus,
+  [data-disable-focus-outlines="true"] a:focus,
+  [data-disable-focus-outlines="true"] input:focus:not([type="checkbox"]):not([type="range"]),
+  [data-disable-focus-outlines="true"] select:focus,
+  [data-disable-focus-outlines="true"] textarea:focus {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Keep focus-visible for accessibility */
+  [data-disable-focus-outlines="true"] button:focus-visible,
+  [data-disable-focus-outlines="true"] a:focus-visible {
+    outline: 2px solid var(--theme-primary) !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Remove default browser focus styles globally and use theme colors */
+  button:focus,
+  button:focus:not(:focus-visible),
+  select:focus,
+  select:focus:not(:focus-visible),
+  a:focus,
+  a:focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none;
+    border-color: inherit;
+  }
+
+  /* Apply theme-based focus border only for keyboard navigation */
+  button:focus-visible,
+  select:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--theme-border-focus) !important;
+    outline-offset: 2px !important;
+    box-shadow: none;
   }
 
   /* Checkbox styling - Modern and Pretty */
