@@ -316,7 +316,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex-1">
                       <div className="font-medium text-themed-primary flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                        <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--theme-success)' }}></span>
                         <span className="text-xs font-semibold px-2 py-0.5 rounded uppercase tracking-wide service-badge" style={{
                           backgroundColor: 'var(--theme-service-' + download.service.toLowerCase() + ')',
                           color: 'white'

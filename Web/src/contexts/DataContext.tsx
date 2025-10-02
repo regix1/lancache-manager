@@ -407,8 +407,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   };
 
   const getCurrentRefreshInterval = () => {
-    if (isProcessingLogs) return 5000; // 5 seconds when processing
-    return 25000; // 25 seconds for graph stability
+    if (isProcessingLogs) return 3000; // 3 seconds when processing
+    return 10000; // 10 seconds for data updates (graphs controlled separately via key prop)
   };
 
   // SignalR connection for real-time updates

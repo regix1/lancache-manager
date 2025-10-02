@@ -269,10 +269,11 @@ impl Processor {
 
         let tx = conn.transaction()?;
 
-        // Group entries by client_ip + service
+        // Group entries by client_ip + service + depot_id to prevent different games from being merged
         let mut grouped: HashMap<String, Vec<&LogEntry>> = HashMap::new();
         for entry in entries {
-            let key = format!("{}_{}", entry.client_ip, entry.service);
+            let depot_suffix = entry.depot_id.map_or("_nodepot".to_string(), |id| format!("_{}", id));
+            let key = format!("{}_{}{}",  entry.client_ip, entry.service, depot_suffix);
             grouped.entry(key).or_insert_with(Vec::new).push(entry);
         }
 
