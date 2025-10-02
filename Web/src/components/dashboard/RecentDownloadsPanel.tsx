@@ -1,10 +1,8 @@
-import React, { memo, useMemo, useState, useEffect } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import { Activity, Clock } from 'lucide-react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
-import ApiService from '../../services/api.service';
-import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { useData } from '../../contexts/DataContext';
 
 interface DownloadGroup {
@@ -483,7 +481,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
               {groupedItems.totalGroups > displayCount && (
                 <>Showing {Math.min(displayCount, groupedItems.displayedItems.length)} of {groupedItems.totalGroups} groups • </>
               )}
-              {filteredDownloads.length} of {allDownloads.length} downloads
+              {filteredDownloads.length} of {latestDownloads.length} downloads
             </span>
           </div>
         )}
