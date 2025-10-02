@@ -19,8 +19,10 @@ public class LiveLogMonitorService : BackgroundService
     private bool _isProcessing = false;
 
     // Configuration - optimized for low CPU usage with good responsiveness
-    private readonly int _pollIntervalSeconds = 3; // Check every 3 seconds
-    private readonly long _minFileSizeIncrease = 50_000; // 50 KB minimum increase to trigger processing
+    private readonly int _pollIntervalSeconds = 5; // Check every 5 seconds
+    private readonly long _minFileSizeIncrease = 100_000; // 100 KB minimum increase to trigger processing
+    private DateTime _lastProcessTime = DateTime.MinValue;
+    private readonly int _minSecondsBetweenProcessing = 10; // Minimum 10 seconds between processing runs
 
     public LiveLogMonitorService(
         ILogger<LiveLogMonitorService> logger,
@@ -38,9 +40,9 @@ public class LiveLogMonitorService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Wait for app to start up and for initial setup to complete
-        await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+        await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken);
 
-        _logger.LogInformation("LiveLogMonitorService started - monitoring {LogFile} for new entries", _logFilePath);
+        _logger.LogInformation("LiveLogMonitorService started - monitoring {LogFile} for new entries (silent mode enabled)", _logFilePath);
 
         // Get initial file size if file exists
         if (File.Exists(_logFilePath))
@@ -106,8 +108,20 @@ public class LiveLogMonitorService : BackgroundService
             // Only process if file has grown by at least the threshold
             if (sizeIncrease >= _minFileSizeIncrease)
             {
-                _logger.LogInformation(
-                    "Detected {SizeIncrease:N0} bytes of new log data ({CurrentSize:N0} bytes total), triggering Rust processor",
+                // Rate limiting: Don't process if we just processed recently
+                var timeSinceLastProcess = (DateTime.UtcNow - _lastProcessTime).TotalSeconds;
+                if (timeSinceLastProcess < _minSecondsBetweenProcessing)
+                {
+                    _logger.LogDebug(
+                        "Skipping processing - only {TimeSince:F1}s since last run (minimum {MinTime}s)",
+                        timeSinceLastProcess,
+                        _minSecondsBetweenProcessing
+                    );
+                    return;
+                }
+
+                _logger.LogDebug(
+                    "Detected {SizeIncrease:N0} bytes of new log data ({CurrentSize:N0} bytes total), triggering silent Rust processor",
                     sizeIncrease,
                     currentFileSize
                 );
@@ -121,24 +135,26 @@ public class LiveLogMonitorService : BackgroundService
 
                 // Start processing
                 _isProcessing = true;
+                _lastProcessTime = DateTime.UtcNow;
 
                 try
                 {
                     // Get the last processed line position
                     var lastPosition = _stateService.GetLogPosition();
 
-                    // Start Rust processor from last processed position
+                    // Start Rust processor from last processed position in SILENT MODE
                     // The Rust processor will:
                     // 1. Skip to the last position
                     // 2. Process all new lines to the end of file
                     // 3. Use duplicate detection to avoid re-processing entries
-                    var success = await _rustLogProcessorService.StartProcessingAsync(_logFilePath, lastPosition);
+                    // 4. NOT send any SignalR notifications (silentMode = true)
+                    var success = await _rustLogProcessorService.StartProcessingAsync(_logFilePath, lastPosition, silentMode: true);
 
                     if (success)
                     {
                         // Update file size tracker after successful processing
                         _lastFileSize = currentFileSize;
-                        _logger.LogInformation("Successfully processed new entries in live mode");
+                        _logger.LogDebug("Successfully processed new entries in live mode (silent)");
                     }
                     else
                     {

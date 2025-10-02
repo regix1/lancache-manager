@@ -56,7 +56,7 @@ public class RustLogProcessorService
         public DateTime Timestamp { get; set; }
     }
 
-    public async Task<bool> StartProcessingAsync(string logFilePath, long startPosition = 0)
+    public async Task<bool> StartProcessingAsync(string logFilePath, long startPosition = 0, bool silentMode = false)
     {
         if (IsProcessing)
         {
@@ -131,8 +131,11 @@ public class RustLogProcessorService
                 }
             });
 
-            // Start progress monitoring task
-            _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
+            // Start progress monitoring task (skip if silent mode)
+            if (!silentMode)
+            {
+                _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
+            }
 
             // Wait for process to complete
             await _rustProcess.WaitForExitAsync(_cancellationTokenSource.Token);
@@ -175,50 +178,70 @@ public class RustLogProcessorService
                 {
                     _stateService.SetLogPosition(finalProgress.LinesParsed);
 
-                    // Get log file size for MB calculation
-                    var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
-                    var logFileInfo = new FileInfo(logPath);
-                    var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
-
-                    // Send final progress update with 100% and complete status
-                    await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+                    // Only send SignalR notifications if not in silent mode
+                    if (!silentMode)
                     {
-                        totalLines = finalProgress.TotalLines,
-                        linesParsed = finalProgress.LinesParsed,
-                        entriesSaved = finalProgress.EntriesSaved,
-                        percentComplete = 100.0,
-                        status = "complete",
-                        message = "Processing complete",
-                        mbProcessed = Math.Round(mbTotal, 1),
-                        mbTotal = Math.Round(mbTotal, 1),
-                        entriesProcessed = finalProgress.EntriesSaved,
-                        linesProcessed = finalProgress.LinesParsed,
+                        // Get log file size for MB calculation
+                        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+                        var logFileInfo = new FileInfo(logPath);
+                        var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
+
+                        // Send final progress update with 100% and complete status
+                        await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+                        {
+                            totalLines = finalProgress.TotalLines,
+                            linesParsed = finalProgress.LinesParsed,
+                            entriesSaved = finalProgress.EntriesSaved,
+                            percentComplete = 100.0,
+                            status = "complete",
+                            message = "Processing complete",
+                            mbProcessed = Math.Round(mbTotal, 1),
+                            mbTotal = Math.Round(mbTotal, 1),
+                            entriesProcessed = finalProgress.EntriesSaved,
+                            linesProcessed = finalProgress.LinesParsed,
+                            timestamp = DateTime.UtcNow
+                        });
+                    }
+                }
+
+                if (!silentMode)
+                {
+                    await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new
+                    {
+                        success = true,
+                        message = "Log processing completed successfully",
+                        entriesProcessed = finalProgress?.EntriesSaved ?? 0,
+                        linesProcessed = finalProgress?.LinesParsed ?? 0,
+                        elapsed = 0.0,
+                        depotMappingsProcessed = 0,
                         timestamp = DateTime.UtcNow
                     });
                 }
-
-                await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new
+                else
                 {
-                    success = true,
-                    message = "Log processing completed successfully",
-                    entriesProcessed = finalProgress?.EntriesSaved ?? 0,
-                    linesProcessed = finalProgress?.LinesParsed ?? 0,
-                    elapsed = 0.0,
-                    depotMappingsProcessed = 0,
-                    timestamp = DateTime.UtcNow
-                });
+                    // In silent mode, send a lightweight notification that downloads have been updated
+                    // This allows the frontend to refresh active downloads without progress bars
+                    await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                    {
+                        entriesProcessed = finalProgress?.EntriesSaved ?? 0,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
 
                 return true;
             }
             else
             {
                 // Non-zero exit code but not cancelled - this is an actual error
-                await _hubContext.Clients.All.SendAsync("ProcessingComplete", new
+                if (!silentMode)
                 {
-                    success = false,
-                    message = $"Log processing failed with exit code {exitCode}",
-                    timestamp = DateTime.UtcNow
-                });
+                    await _hubContext.Clients.All.SendAsync("ProcessingComplete", new
+                    {
+                        success = false,
+                        message = $"Log processing failed with exit code {exitCode}",
+                        timestamp = DateTime.UtcNow
+                    });
+                }
 
                 return false;
             }
@@ -226,12 +249,17 @@ public class RustLogProcessorService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting Rust log processor");
-            await _hubContext.Clients.All.SendAsync("ProcessingComplete", new
+
+            if (!silentMode)
             {
-                success = false,
-                message = $"Log processing failed: {ex.Message}",
-                timestamp = DateTime.UtcNow
-            });
+                await _hubContext.Clients.All.SendAsync("ProcessingComplete", new
+                {
+                    success = false,
+                    message = $"Log processing failed: {ex.Message}",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+
             return false;
         }
         finally

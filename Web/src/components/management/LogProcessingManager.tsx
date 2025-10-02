@@ -336,7 +336,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         }, 3000);
       });
 
-
+      // Listen for silent background processing updates (live mode)
+      connection.on('DownloadsRefresh', async (data: any) => {
+        console.log('SignalR DownloadsRefresh received (silent mode):', data);
+        // Silently refresh data without showing progress bars or notifications
+        // This is triggered by the LiveLogMonitorService background processing
+        onDataRefresh?.();
+      });
 
       connection.onreconnecting(() => {
         console.log('SignalR reconnecting...');
