@@ -181,13 +181,6 @@ public class RustLogProcessorService
                 {
                     _stateService.SetLogPosition(finalProgress.LinesParsed);
 
-                    // Invalidate cache immediately so fresh download data is available
-                    using (var scope = _serviceProvider.CreateScope())
-                    {
-                        var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-                        statsCache.InvalidateDownloads();
-                    }
-
                     // Only send SignalR notifications if not in silent mode
                     if (!silentMode)
                     {
@@ -380,23 +373,24 @@ public class RustLogProcessorService
             if (mappingsProcessed > 0)
             {
                 _logger.LogInformation("Automatic depot mapping complete: {MappingsCount} downloads mapped", mappingsProcessed);
-
-                // Invalidate cache so fresh data is fetched on next request
-                statsCache.InvalidateDownloads();
-
-                // In silent mode, send a refresh notification so the UI updates with the new game names
-                if (silentMode)
-                {
-                    await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
-                    {
-                        depotMappingsProcessed = mappingsProcessed,
-                        timestamp = DateTime.UtcNow
-                    });
-                }
             }
             else
             {
                 _logger.LogDebug("No depot mappings needed");
+            }
+
+            // Always invalidate cache and send refresh, even if no mappings were processed
+            // This ensures new downloads show up in the UI immediately
+            statsCache.InvalidateDownloads();
+
+            // In silent mode, send a refresh notification so the UI updates
+            if (silentMode)
+            {
+                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                {
+                    depotMappingsProcessed = mappingsProcessed,
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
         catch (Exception ex)

@@ -154,6 +154,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
+  const lastFetchTime = useRef<number>(0);
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -182,10 +183,18 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const fetchData = async () => {
     const { startTime, endTime } = getTimeRangeParams();
+
+    // Debounce: prevent fetching more than once per second to avoid graph reload spam
+    const now = Date.now();
+    if (!isInitialLoad.current && (now - lastFetchTime.current) < 1000) {
+      return;
+    }
+
     if (fetchInProgress.current && !isInitialLoad.current) {
       return;
     }
 
+    lastFetchTime.current = now;
     fetchInProgress.current = true;
 
     // Cancel any previous request

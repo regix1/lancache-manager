@@ -114,7 +114,7 @@ public class StatsCache
     {
         return await _cache.GetOrCreateAsync("active_downloads", async entry =>
         {
-            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(2); // Shorter cache for active downloads
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(5); // Longer cache to prevent flickering
 
             // Only check IsActive flag - cleanup service handles marking old downloads as complete
             return await context.Downloads

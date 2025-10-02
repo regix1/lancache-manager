@@ -371,11 +371,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                     </div>
                     <div>
                       <span className="text-themed-muted">↓ </span>
-                      <span className="font-medium text-green-600">{formatBytes(download.cacheHitBytes)}</span>
+                      <span className="font-medium" style={{ color: 'var(--theme-success)' }}>{formatBytes(download.cacheHitBytes)}</span>
                     </div>
                     <div>
                       <span className="text-themed-muted">↑ </span>
-                      <span className="font-medium text-orange-600">{formatBytes(download.cacheMissBytes)}</span>
+                      <span className="font-medium" style={{ color: 'var(--theme-warning)' }}>{formatBytes(download.cacheMissBytes)}</span>
                     </div>
                   </div>
                   <div className="mt-2">
