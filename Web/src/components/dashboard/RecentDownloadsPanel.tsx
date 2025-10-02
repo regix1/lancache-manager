@@ -1,10 +1,11 @@
 import React, { memo, useMemo, useState, useEffect } from 'react';
-import { ArrowRight } from 'lucide-react';
+import { Activity, Clock } from 'lucide-react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 import ApiService from '../../services/api.service';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
+import { useData } from '../../contexts/DataContext';
 
 interface DownloadGroup {
   id: string;
@@ -24,16 +25,17 @@ interface DownloadGroup {
 interface RecentDownloadsPanelProps {
   downloads?: any[]; // Keep for backward compatibility but won't be used
   timeRange?: string;
-  onNavigateToDownloads?: () => void;
 }
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
-  ({ timeRange = 'live', onNavigateToDownloads }) => {
+  ({ timeRange = 'live' }) => {
     const [allDownloads, setAllDownloads] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedService, setSelectedService] = useState<string>('all');
     const [selectedClient, setSelectedClient] = useState<string>('all');
+    const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
     const { getTimeRangeParams } = useTimeFilter();
+    const { activeDownloads } = useData();
 
     // Fetch ALL downloads for the recent downloads panel
     useEffect(() => {
@@ -213,37 +215,76 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
       <Card>
         <div className="mb-4">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold text-themed-primary">Recent Downloads</h3>
-              {onNavigateToDownloads && (
+            <div className="flex items-center gap-3">
+              <h3 className="text-lg font-semibold text-themed-primary">Downloads</h3>
+
+              {/* View Mode Toggle */}
+              <div className="flex items-center gap-1 p-1 rounded-lg" style={{ backgroundColor: 'var(--theme-card-hover)' }}>
                 <button
-                  onClick={onNavigateToDownloads}
-                  className="p-1.5 rounded-lg transition-all hover:bg-themed-hover"
-                  title="View Active Downloads"
-                  style={{ color: 'var(--theme-text-secondary)' }}
+                  onClick={() => setViewMode('recent')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                    viewMode === 'recent' ? 'shadow-sm' : ''
+                  }`}
+                  style={{
+                    backgroundColor: viewMode === 'recent' ? 'var(--theme-button-primary)' : 'transparent',
+                    color: viewMode === 'recent' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
+                  }}
                 >
-                  <ArrowRight className="w-5 h-5" />
+                  <Clock className="w-4 h-4" />
+                  Recent
                 </button>
-              )}
+                <button
+                  onClick={() => setViewMode('active')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                    viewMode === 'active' ? 'shadow-sm' : ''
+                  }`}
+                  style={{
+                    backgroundColor: viewMode === 'active' ? 'var(--theme-button-primary)' : 'transparent',
+                    color: viewMode === 'active' ? 'var(--theme-button-text)' : 'var(--theme-text-secondary)'
+                  }}
+                >
+                  <Activity className="w-4 h-4" />
+                  Active
+                  {activeDownloads.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold" style={{
+                      backgroundColor: 'var(--theme-accent-red)',
+                      color: 'white'
+                    }}>
+                      {activeDownloads.length}
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
             <div className="flex items-center gap-3">
-              {!loading && allDownloads.length > 0 && (
+              {viewMode === 'active' ? (
                 <>
-                  <span className="text-xs text-themed-muted">{stats.totalDownloads} shown</span>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded ${
-                      stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
-                    }`}
-                  >
-                    {formatPercent(stats.overallHitRate)} hit
-                  </span>
+                  {activeDownloads.length > 0 && (
+                    <span className="text-xs text-themed-muted">{activeDownloads.length} active</span>
+                  )}
+                  <span className="text-xs text-themed-muted">Live</span>
+                </>
+              ) : (
+                <>
+                  {!loading && allDownloads.length > 0 && (
+                    <>
+                      <span className="text-xs text-themed-muted">{stats.totalDownloads} shown</span>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
+                        }`}
+                      >
+                        {formatPercent(stats.overallHitRate)} hit
+                      </span>
+                    </>
+                  )}
+                  <span className="text-xs text-themed-muted">{getTimeRangeLabel}</span>
                 </>
               )}
-              <span className="text-xs text-themed-muted">{getTimeRangeLabel}</span>
             </div>
           </div>
 
-          {!loading && allDownloads.length > 0 && (
+          {!loading && allDownloads.length > 0 && viewMode === 'recent' && (
             <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
               <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1 w-full sm:w-auto">
                 <EnhancedDropdown
@@ -283,7 +324,76 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         </div>
 
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
-          {loading ? (
+          {viewMode === 'active' ? (
+            // Active Downloads View
+            activeDownloads.length > 0 ? (
+              activeDownloads.slice(0, 10).map((download, idx) => (
+                <div
+                  key={download.id || idx}
+                  className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-primary)',
+                    borderColor: 'var(--theme-border-primary)'
+                  }}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
+                  }
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex-1">
+                      <div className="font-medium text-themed-primary flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded uppercase tracking-wide service-badge" style={{
+                          backgroundColor: 'var(--theme-service-' + download.service.toLowerCase() + ')',
+                          color: 'white'
+                        }}>
+                          {download.service}
+                        </span>
+                      </div>
+                      <div className="text-sm font-medium text-themed-primary mt-1">
+                        {download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)
+                          ? download.gameName
+                          : 'Downloading...'}
+                      </div>
+                      <div className="text-xs text-themed-secondary mt-1">{download.clientIp}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-themed-muted">{formatDateTime(download.startTime)}</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+                    <div>
+                      <span className="text-themed-muted">Size: </span>
+                      <span className="font-medium text-themed-primary">{formatBytes(download.totalBytes)}</span>
+                    </div>
+                    <div>
+                      <span className="text-themed-muted">↓ </span>
+                      <span className="font-medium text-green-600">{formatBytes(download.cacheHitBytes)}</span>
+                    </div>
+                    <div>
+                      <span className="text-themed-muted">↑ </span>
+                      <span className="font-medium text-orange-600">{formatBytes(download.cacheMissBytes)}</span>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      download.cacheHitPercent > 50 ? 'hit-rate-high' : 'hit-rate-warning'
+                    }`}>
+                      {formatPercent(download.cacheHitPercent)} Hit
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center justify-center h-32 text-themed-muted">
+                <Activity className="w-12 h-12 mb-2 opacity-30" />
+                <span>No active downloads</span>
+              </div>
+            )
+          ) : loading ? (
             <div className="flex items-center justify-center h-32 text-themed-muted">
               <div className="flex items-center gap-2">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-themed-accent"></div>

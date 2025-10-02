@@ -65,11 +65,7 @@ const StatTooltips: Record<string, string> = {
     'Percentage of requests served from cache vs downloaded from internet. Higher is better!'
 };
 
-interface DashboardProps {
-  onNavigateToDownloads?: () => void;
-}
-
-const Dashboard: React.FC<DashboardProps> = ({ onNavigateToDownloads }) => {
+const Dashboard: React.FC = () => {
   const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats, dashboardStats } = useData();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
 
@@ -811,7 +807,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigateToDownloads }) => {
         <RecentDownloadsPanel
           downloads={filteredLatestDownloads || []}
           timeRange={timeRange}
-          onNavigateToDownloads={onNavigateToDownloads}
         />
       </div>
 

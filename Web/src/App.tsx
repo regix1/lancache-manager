@@ -265,8 +265,6 @@ const AppContent: React.FC = () => {
       <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading..." />}>
         {activeTab === 'management' ? (
           <ManagementTab onApiKeyRegenerated={handleApiKeyRegenerated} />
-        ) : activeTab === 'dashboard' ? (
-          <Dashboard onNavigateToDownloads={() => setActiveTab('downloads')} />
         ) : (
           <TabComponent />
         )}

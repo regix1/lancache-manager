@@ -9,7 +9,7 @@ public class StatsCache
 {
     private readonly IMemoryCache _cache;
     private readonly ILogger<StatsCache> _logger;
-    private readonly TimeSpan _cacheExpiration = TimeSpan.FromSeconds(10);
+    private readonly TimeSpan _cacheExpiration = TimeSpan.FromSeconds(2); // Short cache for real-time updates
 
     public StatsCache(IMemoryCache cache, ILogger<StatsCache> logger)
     {

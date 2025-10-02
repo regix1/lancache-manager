@@ -19,10 +19,10 @@ public class LiveLogMonitorService : BackgroundService
     private bool _isProcessing = false;
 
     // Configuration - optimized for real-time updates with minimal latency
-    private readonly int _pollIntervalSeconds = 2; // Check every 2 seconds for faster detection
-    private readonly long _minFileSizeIncrease = 50_000; // 50 KB minimum increase to trigger processing (lowered for faster updates)
+    private readonly int _pollIntervalSeconds = 1; // Check every 1 second for near-instant detection
+    private readonly long _minFileSizeIncrease = 10_000; // 10 KB minimum increase to trigger processing (very responsive)
     private DateTime _lastProcessTime = DateTime.MinValue;
-    private readonly int _minSecondsBetweenProcessing = 3; // Minimum 3 seconds between processing runs (faster for active downloads)
+    private readonly int _minSecondsBetweenProcessing = 1; // Minimum 1 second between processing runs (near-instant updates)
 
     public LiveLogMonitorService(
         ILogger<LiveLogMonitorService> logger,

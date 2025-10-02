@@ -6,9 +6,11 @@ import React, {
   useRef,
   type ReactNode
 } from 'react';
+import * as signalR from '@microsoft/signalr';
 import ApiService from '@services/api.service';
 import MockDataService from '@/test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
+import { SIGNALR_BASE } from '@utils/constants';
 
 interface CacheInfo {
   totalCacheSize: number;
@@ -151,6 +153,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const signalRConnection = useRef<signalR.HubConnection | null>(null);
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -395,9 +398,45 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   };
 
   const getCurrentRefreshInterval = () => {
-    if (isProcessingLogs) return 15000; // 15 seconds when processing
-    return 30000; // 30 seconds for unlimited datasets
+    if (isProcessingLogs) return 2000; // 2 seconds when processing
+    return 5000; // 5 seconds for real-time updates
   };
+
+  // SignalR connection for real-time updates
+  useEffect(() => {
+    if (mockMode) return;
+
+    const setupSignalR = async () => {
+      try {
+        const connection = new signalR.HubConnectionBuilder()
+          .withUrl(`${SIGNALR_BASE}/downloads`)
+          .withAutomaticReconnect([0, 1000, 2000, 5000, 10000])
+          .configureLogging(signalR.LogLevel.Warning)
+          .build();
+
+        connection.on('DownloadsRefresh', (data: any) => {
+          console.log('[DataContext] DownloadsRefresh event received:', data);
+          // Immediately fetch fresh data when downloads are updated
+          fetchData();
+        });
+
+        await connection.start();
+        console.log('[DataContext] SignalR connected for real-time updates');
+        signalRConnection.current = connection;
+      } catch (error) {
+        console.error('[DataContext] SignalR connection failed:', error);
+      }
+    };
+
+    setupSignalR();
+
+    return () => {
+      if (signalRConnection.current) {
+        signalRConnection.current.stop();
+        signalRConnection.current = null;
+      }
+    };
+  }, [mockMode]);
 
   // Initial load and refresh interval
   useEffect(() => {
