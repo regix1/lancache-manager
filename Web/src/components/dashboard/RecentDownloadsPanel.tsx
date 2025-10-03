@@ -32,37 +32,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
     const { activeDownloads, latestDownloads, loading } = useData();
 
-    // Smoothed active downloads to prevent flickering
-    // Keep downloads visible for at least 15 seconds even if they temporarily disappear
-    const [stableActiveDownloads, setStableActiveDownloads] = useState<Map<number, { download: any, lastSeen: number }>>(new Map());
-
-    // Update stable downloads with smoothing
-    React.useEffect(() => {
-      const now = Date.now();
-      const STABLE_DURATION = 15000; // Keep downloads for 15 seconds after last seen
-
-      setStableActiveDownloads(prev => {
-        const updated = new Map(prev);
-
-        // Add/update downloads from current active list
-        activeDownloads.forEach(download => {
-          updated.set(download.id, {
-            download,
-            lastSeen: now
-          });
-        });
-
-        // Remove downloads that haven't been seen for STABLE_DURATION
-        for (const [id, entry] of updated.entries()) {
-          if (now - entry.lastSeen > STABLE_DURATION) {
-            updated.delete(id);
-          }
-        }
-
-        return updated;
-      });
-    }, [activeDownloads]);
-
     // Grouping logic adapted from DownloadsTab
     const createGroups = useCallback((downloads: any[]): { groups: DownloadGroup[], individuals: any[] } => {
       const groups: Record<string, DownloadGroup> = {};
@@ -127,31 +96,20 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
       return { groups: Object.values(groups), individuals };
     }, []);
 
-    // Extract downloads from stable map
-    const smoothedActiveDownloads = useMemo(() => {
-      return Array.from(stableActiveDownloads.values())
-        .map(entry => entry.download)
-        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-    }, [stableActiveDownloads]);
-
-    // Group active downloads just like recent downloads
+    // Backend now groups chunks by game, so we just need to display them
+    // No frontend grouping needed - backend handles grouping via GameAppId + ClientIp
     const groupedActiveDownloads = useMemo(() => {
-      const { groups, individuals } = createGroups(smoothedActiveDownloads);
+      // Backend already grouped by game, just sort and limit
+      const sorted = [...activeDownloads].sort((a, b) =>
+        new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+      );
+      return sorted.slice(0, 10);
+    }, [activeDownloads]);
 
-      const allItems: (DownloadGroup | any)[] = [...groups, ...individuals];
-
-      allItems.sort((a, b) => {
-        const aTime = 'downloads' in a
-          ? Math.max(...a.downloads.map((d: any) => new Date(d.startTime).getTime()))
-          : new Date(a.startTime).getTime();
-        const bTime = 'downloads' in b
-          ? Math.max(...b.downloads.map((d: any) => new Date(d.startTime).getTime()))
-          : new Date(b.startTime).getTime();
-        return bTime - aTime;
-      });
-
-      return allItems.slice(0, 10);
-    }, [smoothedActiveDownloads, createGroups]);
+    // Count total active downloads (backend already grouped by game)
+    const activeDownloadCount = useMemo(() => {
+      return activeDownloads.length;
+    }, [activeDownloads]);
 
     const getTimeRangeLabel = useMemo(() => {
       const labels: Record<string, string> = {
@@ -273,12 +231,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 >
                   <Activity className="w-4 h-4" />
                   Active
-                  {smoothedActiveDownloads.length > 0 && (
+                  {activeDownloadCount > 0 && (
                     <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold" style={{
                       backgroundColor: 'var(--theme-accent-red)',
                       color: 'white'
                     }}>
-                      {smoothedActiveDownloads.length}
+                      {activeDownloadCount}
                     </span>
                   )}
                 </button>
@@ -287,8 +245,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             <div className="flex items-center gap-3">
               {viewMode === 'active' ? (
                 <>
-                  {smoothedActiveDownloads.length > 0 && (
-                    <span className="text-xs text-themed-muted">{smoothedActiveDownloads.length} active</span>
+                  {activeDownloadCount > 0 && (
+                    <span className="text-xs text-themed-muted">{activeDownloadCount} active</span>
                   )}
                   <span className="text-xs text-themed-muted">Live</span>
                 </>
@@ -353,41 +311,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
 
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
           {viewMode === 'active' ? (
-            // Active Downloads View
+            // Active Downloads View - backend already grouped chunks by game
             groupedActiveDownloads.length > 0 ? (
-              groupedActiveDownloads.map((item, idx) => {
-                const isGroup = 'downloads' in item;
-                const display = isGroup ? {
-                  service: item.service,
-                  name: item.name,
-                  totalBytes: item.totalBytes,
-                  cacheHitBytes: item.cacheHitBytes,
-                  cacheMissBytes: item.cacheMissBytes,
-                  cacheHitPercent: item.totalBytes > 0 ? (item.cacheHitBytes / item.totalBytes) * 100 : 0,
-                  startTime: item.lastSeen,
-                  clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
-                  count: item.count,
-                  type: item.type,
-                  isActive: true
-                } : {
-                  service: item.service,
-                  name: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
-                    ? item.gameName
-                    : 'Unknown Game',
-                  totalBytes: item.totalBytes,
-                  cacheHitBytes: item.cacheHitBytes,
-                  cacheMissBytes: item.cacheMissBytes,
-                  cacheHitPercent: item.cacheHitPercent,
-                  startTime: item.startTime,
-                  clientIp: item.clientIp,
-                  count: 1,
-                  type: 'individual',
-                  isActive: true
-                };
-
-                return (
+              groupedActiveDownloads.map((download, idx) => (
                   <div
-                    key={isGroup ? item.id : (item.id || idx)}
+                    key={download.id || idx}
                     className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
                     style={{
                       backgroundColor: 'var(--theme-bg-primary)',
@@ -405,53 +333,47 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                         <div className="flex items-center gap-2 mb-1">
                           <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--theme-success)' }}></span>
                           <div className="text-sm font-medium text-themed-primary truncate flex items-center gap-2">
-                            <span>{display.name}</span>
+                            <span>{download.gameName || 'Unknown Game'}</span>
                             <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
                           </div>
-                          {isGroup && (
-                            <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
-                              {display.count}×
-                            </span>
-                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
-                            {display.service}
+                            {download.service}
                           </span>
-                          <span className="text-xs text-themed-muted">{display.clientIp}</span>
+                          <span className="text-xs text-themed-muted">{download.clientIp}</span>
                         </div>
                       </div>
                       <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
-                        {formatDateTime(display.startTime)}
+                        {formatDateTime(download.startTime)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center mt-2">
                       <div className="flex items-center gap-3">
                         <span className="text-themed-primary text-sm">
-                          {formatBytes(display.totalBytes)}
+                          {formatBytes(download.totalBytes)}
                         </span>
                         <div className="flex gap-2 text-xs">
-                          <span className="cache-hit">↓ {formatBytes(display.cacheHitBytes)}</span>
-                          <span className="cache-miss">↑ {formatBytes(display.cacheMissBytes)}</span>
+                          <span className="cache-hit">↓ {formatBytes(download.cacheHitBytes)}</span>
+                          <span className="cache-miss">↑ {formatBytes(download.cacheMissBytes)}</span>
                         </div>
                       </div>
                       <span
                         className={`text-xs px-2 py-1 rounded hit-rate-badge ${
-                          display.cacheHitPercent > 75
+                          download.cacheHitPercent > 75
                             ? 'high'
-                            : display.cacheHitPercent > 50
+                            : download.cacheHitPercent > 50
                               ? 'medium'
-                              : display.cacheHitPercent > 25
+                              : download.cacheHitPercent > 25
                                 ? 'low'
                                 : 'warning'
                         }`}
                       >
-                        {formatPercent(display.cacheHitPercent)} Hit
+                        {formatPercent(download.cacheHitPercent)} Hit
                       </span>
                     </div>
                   </div>
-                );
-              })
+                ))
             ) : (
               <div className="flex flex-col items-center justify-center h-32 text-themed-muted">
                 <Activity className="w-12 h-12 mb-2 opacity-30" />

@@ -59,7 +59,7 @@ public class StatsCache
                 .ToListAsync();
 
             // Filter out unmapped downloads - only show downloads after depot mapping completes
-            var activeDownloads = activeDownloadsRaw.Where(d =>
+            var mappedDownloads = activeDownloadsRaw.Where(d =>
             {
                 // Filter out 0-byte downloads (metadata/incomplete)
                 if (d.TotalBytes == 0) return false;
@@ -81,8 +81,44 @@ public class StatsCache
                 return true;
             }).ToList();
 
+            // Group by game to combine chunks into single downloads
+            // Use GameAppId for Steam, GameName+Service for others
+            var activeDownloads = mappedDownloads
+                .GroupBy(d => new
+                {
+                    GameAppId = d.GameAppId ?? 0,
+                    GameName = d.GameName ?? "",
+                    Service = d.Service,
+                    ClientIp = d.ClientIp
+                })
+                .Select(group =>
+                {
+                    // Create a combined download representing all chunks
+                    var first = group.First();
+                    return new Download
+                    {
+                        Id = first.Id, // Use first chunk's ID as representative
+                        Service = first.Service,
+                        ClientIp = first.ClientIp,
+                        StartTime = group.Min(d => d.StartTime), // Earliest chunk
+                        EndTime = null, // Still active
+                        CacheHitBytes = group.Sum(d => d.CacheHitBytes),
+                        CacheMissBytes = group.Sum(d => d.CacheMissBytes),
+                        TotalBytes = group.Sum(d => d.TotalBytes),
+                        CacheHitPercent = group.Sum(d => d.TotalBytes) > 0
+                            ? (double)group.Sum(d => d.CacheHitBytes) / group.Sum(d => d.TotalBytes) * 100
+                            : 0,
+                        IsActive = true,
+                        GameName = first.GameName,
+                        GameAppId = first.GameAppId,
+                        DepotId = first.DepotId
+                    };
+                })
+                .OrderByDescending(d => d.StartTime)
+                .ToList();
+
             _cache.Set("active_downloads", activeDownloads, _cacheExpiration);
-            _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (filtered from {activeDownloadsRaw.Count} raw)");
+            _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (grouped from {mappedDownloads.Count} mapped, {activeDownloadsRaw.Count} raw)");
         }
         catch (Exception ex)
         {
@@ -170,7 +206,43 @@ public class StatsCache
                 return true;
             }).ToList();
 
-            return mappedDownloads;
+            // Group by game to combine chunks into single downloads
+            // Use GameAppId for Steam, GameName+Service for others
+            var groupedDownloads = mappedDownloads
+                .GroupBy(d => new
+                {
+                    GameAppId = d.GameAppId ?? 0,
+                    GameName = d.GameName ?? "",
+                    Service = d.Service,
+                    ClientIp = d.ClientIp
+                })
+                .Select(group =>
+                {
+                    // Create a combined download representing all chunks
+                    var first = group.First();
+                    return new Download
+                    {
+                        Id = first.Id, // Use first chunk's ID as representative
+                        Service = first.Service,
+                        ClientIp = first.ClientIp,
+                        StartTime = group.Min(d => d.StartTime), // Earliest chunk
+                        EndTime = null, // Still active
+                        CacheHitBytes = group.Sum(d => d.CacheHitBytes),
+                        CacheMissBytes = group.Sum(d => d.CacheMissBytes),
+                        TotalBytes = group.Sum(d => d.TotalBytes),
+                        CacheHitPercent = group.Sum(d => d.TotalBytes) > 0
+                            ? (double)group.Sum(d => d.CacheHitBytes) / group.Sum(d => d.TotalBytes) * 100
+                            : 0,
+                        IsActive = true,
+                        GameName = first.GameName,
+                        GameAppId = first.GameAppId,
+                        DepotId = first.DepotId
+                    };
+                })
+                .OrderByDescending(d => d.StartTime)
+                .ToList();
+
+            return groupedDownloads;
         }) ?? new List<Download>();
     }
 
