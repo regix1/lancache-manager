@@ -59,6 +59,7 @@ public class StatsCache
                 .ToListAsync();
 
             // Filter out unmapped downloads - only show downloads after depot mapping completes
+            // BUT: Show downloads with significant bytes even if mapping is in progress
             var mappedDownloads = activeDownloadsRaw.Where(d =>
             {
                 // Filter out 0-byte downloads (metadata/incomplete)
@@ -67,7 +68,14 @@ public class StatsCache
                 // Check if download has a depot ID (requires mapping)
                 if (d.DepotId.HasValue)
                 {
-                    // Has depot ID - must be properly mapped before showing
+                    // If download has significant bytes (> 1MB), show it even if mapping isn't complete
+                    // This prevents flickering during active depot mapping
+                    if (d.TotalBytes > 1_048_576) // 1 MB
+                    {
+                        return true; // Show active large downloads immediately
+                    }
+
+                    // For smaller downloads, wait for proper mapping
                     // Must have GameAppId
                     if (!d.GameAppId.HasValue) return false;
 
@@ -181,6 +189,7 @@ public class StatsCache
                 .ToListAsync();
 
             // Filter out unmapped downloads - only show downloads after depot mapping completes
+            // BUT: Show downloads with significant bytes even if mapping is in progress
             var mappedDownloads = activeDownloads.Where(d =>
             {
                 // Filter out 0-byte downloads (metadata/incomplete)
@@ -189,7 +198,14 @@ public class StatsCache
                 // Check if download has a depot ID (requires mapping)
                 if (d.DepotId.HasValue)
                 {
-                    // Has depot ID - must be properly mapped before showing
+                    // If download has significant bytes (> 1MB), show it even if mapping isn't complete
+                    // This prevents flickering during active depot mapping
+                    if (d.TotalBytes > 1_048_576) // 1 MB
+                    {
+                        return true; // Show active large downloads immediately
+                    }
+
+                    // For smaller downloads, wait for proper mapping
                     // Must have GameAppId
                     if (!d.GameAppId.HasValue) return false;
 
