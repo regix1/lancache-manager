@@ -101,13 +101,10 @@ public class StatsCache
                         Service = first.Service,
                         ClientIp = first.ClientIp,
                         StartTime = group.Min(d => d.StartTime), // Earliest chunk
-                        EndTime = null, // Still active
+                        EndTime = default(DateTime), // Still active
                         CacheHitBytes = group.Sum(d => d.CacheHitBytes),
                         CacheMissBytes = group.Sum(d => d.CacheMissBytes),
-                        TotalBytes = group.Sum(d => d.TotalBytes),
-                        CacheHitPercent = group.Sum(d => d.TotalBytes) > 0
-                            ? (double)group.Sum(d => d.CacheHitBytes) / group.Sum(d => d.TotalBytes) * 100
-                            : 0,
+                        // TotalBytes and CacheHitPercent are computed properties
                         IsActive = true,
                         GameName = first.GameName,
                         GameAppId = first.GameAppId,
@@ -226,13 +223,10 @@ public class StatsCache
                         Service = first.Service,
                         ClientIp = first.ClientIp,
                         StartTime = group.Min(d => d.StartTime), // Earliest chunk
-                        EndTime = null, // Still active
+                        EndTime = default(DateTime), // Still active
                         CacheHitBytes = group.Sum(d => d.CacheHitBytes),
                         CacheMissBytes = group.Sum(d => d.CacheMissBytes),
-                        TotalBytes = group.Sum(d => d.TotalBytes),
-                        CacheHitPercent = group.Sum(d => d.TotalBytes) > 0
-                            ? (double)group.Sum(d => d.CacheHitBytes) / group.Sum(d => d.TotalBytes) * 100
-                            : 0,
+                        // TotalBytes and CacheHitPercent are computed properties
                         IsActive = true,
                         GameName = first.GameName,
                         GameAppId = first.GameAppId,
