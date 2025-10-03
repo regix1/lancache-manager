@@ -90,8 +90,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       const response = await fetch('/api/auth/check');
       if (response.ok) {
         const data = await response.json();
-        // Data is available if setup has been completed
-        const hasData = data.hasBeenInitialized || false;
+        // Data is available if setup has been completed OR data has been loaded
+        // This allows guest mode when the system is live and has data, even on first login
+        const hasData = data.hasBeenInitialized || data.hasDataLoaded || false;
         setDataAvailable(hasData);
         return hasData;
       }

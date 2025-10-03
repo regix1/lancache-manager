@@ -8,6 +8,7 @@ interface AuthCheckResponse {
   hasData?: boolean; // Whether database has any data (for guest mode eligibility)
   hasEverBeenSetup?: boolean; // Whether anyone has ever authenticated (system is set up)
   hasBeenInitialized?: boolean; // Whether setup has been completed (persistent flag)
+  hasDataLoaded?: boolean; // Whether depot data has been loaded from state.json
   error?: string;
 }
 
@@ -158,7 +159,8 @@ class AuthService {
             guestTimeRemaining: this.getGuestTimeRemaining(),
             hasData: result.hasData || false,
             hasEverBeenSetup: result.hasEverBeenSetup || false,
-            hasBeenInitialized: result.hasBeenInitialized || false
+            hasBeenInitialized: result.hasBeenInitialized || false,
+            hasDataLoaded: result.hasDataLoaded || false
           };
         } catch {
           return {
@@ -168,7 +170,8 @@ class AuthService {
             guestTimeRemaining: this.getGuestTimeRemaining(),
             hasData: false,
             hasEverBeenSetup: false,
-            hasBeenInitialized: false
+            hasBeenInitialized: false,
+            hasDataLoaded: false
           };
         }
       }
@@ -193,7 +196,8 @@ class AuthService {
             authMode: 'expired',
             hasData: result.hasData || false,
             hasEverBeenSetup: result.hasEverBeenSetup || false,
-            hasBeenInitialized: result.hasBeenInitialized || false
+            hasBeenInitialized: result.hasBeenInitialized || false,
+            hasDataLoaded: result.hasDataLoaded || false
           };
         } catch {
           return {
@@ -202,7 +206,8 @@ class AuthService {
             authMode: 'expired',
             hasData: false,
             hasEverBeenSetup: false,
-            hasBeenInitialized: false
+            hasBeenInitialized: false,
+            hasDataLoaded: false
           };
         }
       }
@@ -239,7 +244,8 @@ class AuthService {
           guestTimeRemaining: currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined,
           hasData: result.hasData || false,
           hasEverBeenSetup: result.hasEverBeenSetup || false,
-          hasBeenInitialized: result.hasBeenInitialized || false
+          hasBeenInitialized: result.hasBeenInitialized || false,
+          hasDataLoaded: result.hasDataLoaded || false
         };
       }
 
@@ -252,7 +258,8 @@ class AuthService {
         authMode: 'unauthenticated',
         hasData: false,
         hasEverBeenSetup: false,
-        hasBeenInitialized: false
+        hasBeenInitialized: false,
+        hasDataLoaded: false
       };
     } catch (error: any) {
       console.error('Auth check failed:', error);
@@ -267,6 +274,7 @@ class AuthService {
         hasData: false,
         hasEverBeenSetup: false,
         hasBeenInitialized: false,
+        hasDataLoaded: false,
         error: error.message
       };
     }

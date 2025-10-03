@@ -63,6 +63,7 @@ public class AuthController : ControllerBase
         bool hasData = false;
         bool hasEverBeenSetup = false;
         bool hasBeenInitialized = false;
+        bool hasDataLoaded = false;
 
         try
         {
@@ -91,6 +92,15 @@ public class AuthController : ControllerBase
             _logger.LogWarning(ex, "Failed to check if setup has been completed");
         }
 
+        try
+        {
+            hasDataLoaded = _stateService.HasDataLoaded();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check if data has been loaded");
+        }
+
         // If authentication is disabled, always return authenticated
         if (!authEnabled)
         {
@@ -102,7 +112,8 @@ public class AuthController : ControllerBase
                 deviceId = (string?)null,
                 hasData,
                 hasEverBeenSetup,
-                hasBeenInitialized
+                hasBeenInitialized,
+                hasDataLoaded
             });
         }
 
@@ -114,7 +125,8 @@ public class AuthController : ControllerBase
             deviceId = isAuthenticated && authenticationType == "device" ? deviceId : null,
             hasData,
             hasEverBeenSetup,
-            hasBeenInitialized
+            hasBeenInitialized,
+            hasDataLoaded
         });
     }
 
