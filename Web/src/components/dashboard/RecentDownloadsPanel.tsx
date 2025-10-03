@@ -32,6 +32,44 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
     const { activeDownloads, latestDownloads, loading } = useData();
 
+    // Smoothed active downloads to prevent flickering
+    // Keep downloads visible for at least 15 seconds even if they temporarily disappear
+    const [stableActiveDownloads, setStableActiveDownloads] = useState<Map<number, { download: any, lastSeen: number }>>(new Map());
+
+    // Update stable downloads with smoothing
+    React.useEffect(() => {
+      const now = Date.now();
+      const STABLE_DURATION = 15000; // Keep downloads for 15 seconds after last seen
+
+      setStableActiveDownloads(prev => {
+        const updated = new Map(prev);
+
+        // Add/update downloads from current active list
+        activeDownloads.forEach(download => {
+          updated.set(download.id, {
+            download,
+            lastSeen: now
+          });
+        });
+
+        // Remove downloads that haven't been seen for STABLE_DURATION
+        for (const [id, entry] of updated.entries()) {
+          if (now - entry.lastSeen > STABLE_DURATION) {
+            updated.delete(id);
+          }
+        }
+
+        return updated;
+      });
+    }, [activeDownloads]);
+
+    // Extract downloads from stable map
+    const smoothedActiveDownloads = useMemo(() => {
+      return Array.from(stableActiveDownloads.values())
+        .map(entry => entry.download)
+        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    }, [stableActiveDownloads]);
+
     const getTimeRangeLabel = useMemo(() => {
       const labels: Record<string, string> = {
         '15m': 'Last 15 Minutes',
@@ -216,12 +254,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 >
                   <Activity className="w-4 h-4" />
                   Active
-                  {activeDownloads.length > 0 && (
+                  {smoothedActiveDownloads.length > 0 && (
                     <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold" style={{
                       backgroundColor: 'var(--theme-accent-red)',
                       color: 'white'
                     }}>
-                      {activeDownloads.length}
+                      {smoothedActiveDownloads.length}
                     </span>
                   )}
                 </button>
@@ -230,8 +268,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             <div className="flex items-center gap-3">
               {viewMode === 'active' ? (
                 <>
-                  {activeDownloads.length > 0 && (
-                    <span className="text-xs text-themed-muted">{activeDownloads.length} active</span>
+                  {smoothedActiveDownloads.length > 0 && (
+                    <span className="text-xs text-themed-muted">{smoothedActiveDownloads.length} active</span>
                   )}
                   <span className="text-xs text-themed-muted">Live</span>
                 </>
@@ -297,8 +335,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
           {viewMode === 'active' ? (
             // Active Downloads View
-            activeDownloads.length > 0 ? (
-              activeDownloads.slice(0, 10).map((download, idx) => (
+            smoothedActiveDownloads.length > 0 ? (
+              smoothedActiveDownloads.slice(0, 10).map((download, idx) => (
                 <div
                   key={download.id || idx}
                   className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
