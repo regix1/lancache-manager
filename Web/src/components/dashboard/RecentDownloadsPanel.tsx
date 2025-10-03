@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useMemo, useState, useCallback } from 'react';
 import { Activity, Clock, Loader2 } from 'lucide-react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
@@ -63,50 +63,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
       });
     }, [activeDownloads]);
 
-    // Extract downloads from stable map
-    const smoothedActiveDownloads = useMemo(() => {
-      return Array.from(stableActiveDownloads.values())
-        .map(entry => entry.download)
-        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-    }, [stableActiveDownloads]);
-
-    // Group active downloads just like recent downloads
-    const groupedActiveDownloads = useMemo(() => {
-      const { groups, individuals } = createGroups(smoothedActiveDownloads);
-
-      const allItems: (DownloadGroup | any)[] = [...groups, ...individuals];
-
-      allItems.sort((a, b) => {
-        const aTime = 'downloads' in a
-          ? Math.max(...a.downloads.map((d: any) => new Date(d.startTime).getTime()))
-          : new Date(a.startTime).getTime();
-        const bTime = 'downloads' in b
-          ? Math.max(...b.downloads.map((d: any) => new Date(d.startTime).getTime()))
-          : new Date(b.startTime).getTime();
-        return bTime - aTime;
-      });
-
-      return allItems.slice(0, 10);
-    }, [smoothedActiveDownloads]);
-
-    const getTimeRangeLabel = useMemo(() => {
-      const labels: Record<string, string> = {
-        '15m': 'Last 15 Minutes',
-        '30m': 'Last 30 Minutes',
-        '1h': 'Last Hour',
-        '6h': 'Last 6 Hours',
-        '12h': 'Last 12 Hours',
-        '24h': 'Last 24 Hours',
-        '7d': 'Last 7 Days',
-        '30d': 'Last 30 Days',
-        '90d': 'Last 90 Days',
-        live: 'Live Data'
-      };
-      return labels[timeRange] || 'Recent';
-    }, [timeRange]);
-
     // Grouping logic adapted from DownloadsTab
-    const createGroups = (downloads: any[]): { groups: DownloadGroup[], individuals: any[] } => {
+    const createGroups = useCallback((downloads: any[]): { groups: DownloadGroup[], individuals: any[] } => {
       const groups: Record<string, DownloadGroup> = {};
       const individuals: any[] = [];
 
@@ -167,7 +125,49 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
       });
 
       return { groups: Object.values(groups), individuals };
-    };
+    }, []);
+
+    // Extract downloads from stable map
+    const smoothedActiveDownloads = useMemo(() => {
+      return Array.from(stableActiveDownloads.values())
+        .map(entry => entry.download)
+        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    }, [stableActiveDownloads]);
+
+    // Group active downloads just like recent downloads
+    const groupedActiveDownloads = useMemo(() => {
+      const { groups, individuals } = createGroups(smoothedActiveDownloads);
+
+      const allItems: (DownloadGroup | any)[] = [...groups, ...individuals];
+
+      allItems.sort((a, b) => {
+        const aTime = 'downloads' in a
+          ? Math.max(...a.downloads.map((d: any) => new Date(d.startTime).getTime()))
+          : new Date(a.startTime).getTime();
+        const bTime = 'downloads' in b
+          ? Math.max(...b.downloads.map((d: any) => new Date(d.startTime).getTime()))
+          : new Date(b.startTime).getTime();
+        return bTime - aTime;
+      });
+
+      return allItems.slice(0, 10);
+    }, [smoothedActiveDownloads, createGroups]);
+
+    const getTimeRangeLabel = useMemo(() => {
+      const labels: Record<string, string> = {
+        '15m': 'Last 15 Minutes',
+        '30m': 'Last 30 Minutes',
+        '1h': 'Last Hour',
+        '6h': 'Last 6 Hours',
+        '12h': 'Last 12 Hours',
+        '24h': 'Last 24 Hours',
+        '7d': 'Last 7 Days',
+        '30d': 'Last 30 Days',
+        '90d': 'Last 90 Days',
+        live: 'Live Data'
+      };
+      return labels[timeRange] || 'Recent';
+    }, [timeRange]);
 
     const availableServices = useMemo(() => {
       const services = new Set(latestDownloads.map(d => d.service));
@@ -228,7 +228,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         displayedItems: allItems.slice(0, displayCount),
         totalGroups: allItems.length
       };
-    }, [filteredDownloads]);
+    }, [filteredDownloads, createGroups]);
 
     const stats = useMemo(() => {
       const totalDownloads = filteredDownloads.length;
