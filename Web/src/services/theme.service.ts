@@ -67,6 +67,7 @@ interface ThemeColors {
   cardBg?: string;
   cardBorder?: string;
   cardOutline?: string;
+  cardRing?: string;
   buttonBg?: string;
   buttonHover?: string;
   buttonText?: string;
