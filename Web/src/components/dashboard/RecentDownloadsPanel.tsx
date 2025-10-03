@@ -70,6 +70,25 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
     }, [stableActiveDownloads]);
 
+    // Group active downloads just like recent downloads
+    const groupedActiveDownloads = useMemo(() => {
+      const { groups, individuals } = createGroups(smoothedActiveDownloads);
+
+      const allItems: (DownloadGroup | any)[] = [...groups, ...individuals];
+
+      allItems.sort((a, b) => {
+        const aTime = 'downloads' in a
+          ? Math.max(...a.downloads.map((d: any) => new Date(d.startTime).getTime()))
+          : new Date(a.startTime).getTime();
+        const bTime = 'downloads' in b
+          ? Math.max(...b.downloads.map((d: any) => new Date(d.startTime).getTime()))
+          : new Date(b.startTime).getTime();
+        return bTime - aTime;
+      });
+
+      return allItems.slice(0, 10);
+    }, [smoothedActiveDownloads]);
+
     const getTimeRangeLabel = useMemo(() => {
       const labels: Record<string, string> = {
         '15m': 'Last 15 Minutes',
@@ -335,70 +354,104 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
           {viewMode === 'active' ? (
             // Active Downloads View
-            smoothedActiveDownloads.length > 0 ? (
-              smoothedActiveDownloads.slice(0, 10).map((download, idx) => (
-                <div
-                  key={download.id || idx}
-                  className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
-                  style={{
-                    backgroundColor: 'var(--theme-bg-primary)',
-                    borderColor: 'var(--theme-border-primary)'
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
-                  }
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <div className="flex-1">
-                      <div className="font-medium text-themed-primary flex items-center gap-2">
-                        <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--theme-success)' }}></span>
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded uppercase tracking-wide service-badge" style={{
-                          backgroundColor: 'var(--theme-service-' + download.service.toLowerCase() + ')',
-                          color: 'white'
-                        }}>
-                          {download.service}
-                        </span>
+            groupedActiveDownloads.length > 0 ? (
+              groupedActiveDownloads.map((item, idx) => {
+                const isGroup = 'downloads' in item;
+                const display = isGroup ? {
+                  service: item.service,
+                  name: item.name,
+                  totalBytes: item.totalBytes,
+                  cacheHitBytes: item.cacheHitBytes,
+                  cacheMissBytes: item.cacheMissBytes,
+                  cacheHitPercent: item.totalBytes > 0 ? (item.cacheHitBytes / item.totalBytes) * 100 : 0,
+                  startTime: item.lastSeen,
+                  clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
+                  count: item.count,
+                  type: item.type,
+                  isActive: true
+                } : {
+                  service: item.service,
+                  name: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
+                    ? item.gameName
+                    : 'Unknown Game',
+                  totalBytes: item.totalBytes,
+                  cacheHitBytes: item.cacheHitBytes,
+                  cacheMissBytes: item.cacheMissBytes,
+                  cacheHitPercent: item.cacheHitPercent,
+                  startTime: item.startTime,
+                  clientIp: item.clientIp,
+                  count: 1,
+                  type: 'individual',
+                  isActive: true
+                };
+
+                return (
+                  <div
+                    key={isGroup ? item.id : (item.id || idx)}
+                    className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
+                    style={{
+                      backgroundColor: 'var(--theme-bg-primary)',
+                      borderColor: 'var(--theme-border-primary)'
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
+                    }
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--theme-success)' }}></span>
+                          <div className="text-sm font-medium text-themed-primary truncate flex items-center gap-2">
+                            <span>{display.name}</span>
+                            <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+                          </div>
+                          {isGroup && (
+                            <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
+                              {display.count}×
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
+                            {display.service}
+                          </span>
+                          <span className="text-xs text-themed-muted">{display.clientIp}</span>
+                        </div>
                       </div>
-                      <div className="text-sm font-medium text-themed-primary mt-1 flex items-center gap-2">
-                        <span>
-                          {download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)
-                            ? download.gameName
-                            : 'Unknown Game'}
+                      <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
+                        {formatDateTime(display.startTime)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-themed-primary text-sm">
+                          {formatBytes(display.totalBytes)}
                         </span>
-                        <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-primary)' }} />
+                        <div className="flex gap-2 text-xs">
+                          <span className="cache-hit">↓ {formatBytes(display.cacheHitBytes)}</span>
+                          <span className="cache-miss">↑ {formatBytes(display.cacheMissBytes)}</span>
+                        </div>
                       </div>
-                      <div className="text-xs text-themed-secondary mt-1">{download.clientIp}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-themed-muted">{formatDateTime(download.startTime)}</div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 text-xs mt-2">
-                    <div>
-                      <span className="text-themed-muted">Size: </span>
-                      <span className="font-medium text-themed-primary">{formatBytes(download.totalBytes)}</span>
-                    </div>
-                    <div>
-                      <span className="text-themed-muted">↓ </span>
-                      <span className="font-medium" style={{ color: 'var(--theme-success)' }}>{formatBytes(download.cacheHitBytes)}</span>
-                    </div>
-                    <div>
-                      <span className="text-themed-muted">↑ </span>
-                      <span className="font-medium" style={{ color: 'var(--theme-warning)' }}>{formatBytes(download.cacheMissBytes)}</span>
+                      <span
+                        className={`text-xs px-2 py-1 rounded hit-rate-badge ${
+                          display.cacheHitPercent > 75
+                            ? 'high'
+                            : display.cacheHitPercent > 50
+                              ? 'medium'
+                              : display.cacheHitPercent > 25
+                                ? 'low'
+                                : 'warning'
+                        }`}
+                      >
+                        {formatPercent(display.cacheHitPercent)} Hit
+                      </span>
                     </div>
                   </div>
-                  <div className="mt-2">
-                    <span className={`text-xs px-2 py-0.5 rounded ${
-                      download.cacheHitPercent > 50 ? 'hit-rate-high' : 'hit-rate-warning'
-                    }`}>
-                      {formatPercent(download.cacheHitPercent)} Hit
-                    </span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="flex flex-col items-center justify-center h-32 text-themed-muted">
                 <Activity className="w-12 h-12 mb-2 opacity-30" />
