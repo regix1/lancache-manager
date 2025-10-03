@@ -51,15 +51,38 @@ public class StatsCache
 
             // Pre-load active downloads into cache
             // Only check IsActive flag - cleanup service handles marking old downloads as complete
-            var activeDownloads = await context.Downloads
+            var activeDownloadsRaw = await context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
 
+            // Filter out unmapped downloads - only show downloads after depot mapping completes
+            var activeDownloads = activeDownloadsRaw.Where(d =>
+            {
+                // Filter out 0-byte downloads (metadata/incomplete)
+                if (d.TotalBytes == 0) return false;
+
+                // Check if download has a depot ID (requires mapping)
+                if (d.DepotId.HasValue)
+                {
+                    // Has depot ID - must be properly mapped before showing
+                    // Must have GameAppId
+                    if (!d.GameAppId.HasValue) return false;
+
+                    // Must have a valid game name (not Unknown or Steam App pattern)
+                    if (string.IsNullOrEmpty(d.GameName)) return false;
+                    if (d.GameName == "Unknown Steam Game") return false;
+                    if (System.Text.RegularExpressions.Regex.IsMatch(d.GameName, @"^Steam App \d+$")) return false;
+                }
+                // No depot ID - show immediately (WSUS, Epic, etc. don't need depot mapping)
+
+                return true;
+            }).ToList();
+
             _cache.Set("active_downloads", activeDownloads, _cacheExpiration);
-            _logger.LogInformation($"Cached {activeDownloads.Count} active downloads");
+            _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (filtered from {activeDownloadsRaw.Count} raw)");
         }
         catch (Exception ex)
         {
@@ -117,12 +140,37 @@ public class StatsCache
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10); // Match general cache for consistency
 
             // Only check IsActive flag - cleanup service handles marking old downloads as complete
-            return await context.Downloads
+            var activeDownloads = await context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
+
+            // Filter out unmapped downloads - only show downloads after depot mapping completes
+            var mappedDownloads = activeDownloads.Where(d =>
+            {
+                // Filter out 0-byte downloads (metadata/incomplete)
+                if (d.TotalBytes == 0) return false;
+
+                // Check if download has a depot ID (requires mapping)
+                if (d.DepotId.HasValue)
+                {
+                    // Has depot ID - must be properly mapped before showing
+                    // Must have GameAppId
+                    if (!d.GameAppId.HasValue) return false;
+
+                    // Must have a valid game name (not Unknown or Steam App pattern)
+                    if (string.IsNullOrEmpty(d.GameName)) return false;
+                    if (d.GameName == "Unknown Steam Game") return false;
+                    if (System.Text.RegularExpressions.Regex.IsMatch(d.GameName, @"^Steam App \d+$")) return false;
+                }
+                // No depot ID - show immediately (WSUS, Epic, etc. don't need depot mapping)
+
+                return true;
+            }).ToList();
+
+            return mappedDownloads;
         }) ?? new List<Download>();
     }
 

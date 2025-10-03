@@ -17,6 +17,7 @@ public class DatabaseService
     private readonly SteamKit2Service _steamKit2Service;
     private readonly PicsDataService _picsDataService;
     private readonly IPathResolver _pathResolver;
+    private readonly StatsCache _statsCache;
 
     public DatabaseService(
         AppDbContext context,
@@ -25,7 +26,8 @@ public class DatabaseService
         SteamService steamService,
         SteamKit2Service steamKit2Service,
         PicsDataService picsDataService,
-        IPathResolver pathResolver)
+        IPathResolver pathResolver,
+        StatsCache statsCache)
     {
         _context = context;
         _hubContext = hubContext;
@@ -34,6 +36,7 @@ public class DatabaseService
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
         _pathResolver = pathResolver;
+        _statsCache = statsCache;
     }
 
     public async Task<List<Download>> GetLatestDownloads(int count)
@@ -354,6 +357,17 @@ public class DatabaseService
 
             // Save all changes
             await _context.SaveChangesAsync();
+
+            // Invalidate cache so newly mapped downloads appear immediately
+            _statsCache.InvalidateDownloads();
+            _logger.LogDebug("Invalidated downloads cache after depot mapping");
+
+            // Trigger UI refresh to show newly mapped downloads
+            await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+            {
+                message = "Depot mappings updated",
+                timestamp = DateTime.UtcNow
+            });
 
             // Send completion update
             await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new

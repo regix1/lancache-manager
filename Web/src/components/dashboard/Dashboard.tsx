@@ -68,15 +68,6 @@ const StatTooltips: Record<string, string> = {
 const Dashboard: React.FC = () => {
   const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats, dashboardStats } = useData();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
-  const [graphKey, setGraphKey] = React.useState(Date.now());
-
-  // Update graph key every 25 seconds to control re-render frequency
-  React.useEffect(() => {
-    const interval = setInterval(() => {
-      setGraphKey(Date.now());
-    }, 25000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -812,7 +803,7 @@ const Dashboard: React.FC = () => {
 
       {/* Charts Row - Pass the actual data arrays */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EnhancedServiceChart key={graphKey} serviceStats={filteredServiceStats || []} timeRange={timeRange} />
+        <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} />
         <RecentDownloadsPanel
           downloads={filteredLatestDownloads || []}
           timeRange={timeRange}

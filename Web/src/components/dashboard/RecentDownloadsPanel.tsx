@@ -490,6 +490,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         )}
       </Card>
     );
+  },
+  (prevProps, nextProps) => {
+    // Only re-render if timeRange changed
+    return prevProps.timeRange === nextProps.timeRange;
   }
 );
 

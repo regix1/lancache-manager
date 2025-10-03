@@ -9,7 +9,7 @@ interface EnhancedServiceChartProps {
   timeRange?: string;
 }
 
-const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStats }) => {
+const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ serviceStats }) => {
   const [activeTab, setActiveTab] = useState(0);
   const [chartSize, setChartSize] = useState(100);
   const [chartKey, setChartKey] = useState(0); // Force re-render key
@@ -552,6 +552,11 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = ({ serviceStat
       </div>
     </Card>
   );
-};
+}, (prevProps, nextProps) => {
+  // Only re-render if serviceStats actually changed
+  return JSON.stringify(prevProps.serviceStats) === JSON.stringify(nextProps.serviceStats);
+});
+
+EnhancedServiceChart.displayName = 'EnhancedServiceChart';
 
 export default EnhancedServiceChart;

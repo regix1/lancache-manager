@@ -131,6 +131,15 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
         )}
       </Card>
     );
+  },
+  (prevProps, nextProps) => {
+    // Only re-render if clientStats or timeRange changed
+    return (
+      JSON.stringify(prevProps.clientStats) === JSON.stringify(nextProps.clientStats) &&
+      prevProps.timeRange === nextProps.timeRange &&
+      prevProps.customStartDate?.getTime() === nextProps.customStartDate?.getTime() &&
+      prevProps.customEndDate?.getTime() === nextProps.customEndDate?.getTime()
+    );
   }
 );
 

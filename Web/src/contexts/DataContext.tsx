@@ -152,9 +152,13 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const hasData = useRef(false);
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const fastIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const mediumIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const slowIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
-  const lastFetchTime = useRef<number>(0);
+  const lastFastFetchTime = useRef<number>(0);
+  const lastMediumFetchTime = useRef<number>(0);
+  const lastSlowFetchTime = useRef<number>(0);
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -181,20 +185,124 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     }
   };
 
-  const fetchData = async () => {
-    const { startTime, endTime } = getTimeRangeParams();
+  // Fast refresh data: cards, active downloads, recent downloads (5 seconds)
+  const fetchFastData = async () => {
+    if (mockMode) return;
 
-    // Debounce: prevent fetching more than once per 5 seconds to avoid graph reload spam
+    const { startTime, endTime } = getTimeRangeParams();
     const now = Date.now();
-    if (!isInitialLoad.current && (now - lastFetchTime.current) < 5000) {
+
+    // Debounce fast data
+    if (!isInitialLoad.current && (now - lastFastFetchTime.current) < 3000) {
       return;
     }
+
+    lastFastFetchTime.current = now;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const isConnected = await checkConnectionStatus();
+      if (!isConnected) return;
+
+      const timeout = isProcessingLogs ? 30000 : 10000;
+      const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
+
+      const periodMap: Record<string, string> = {
+        '1h': '1h', '6h': '6h', '12h': '12h', '24h': '24h',
+        '7d': '7d', '30d': '30d', 'live': 'all', 'custom': 'custom'
+      };
+      const period = periodMap[timeRange] || '24h';
+
+      const [cache, active, latest, dashboard] = await Promise.allSettled([
+        ApiService.getCacheInfo(abortControllerRef.current.signal),
+        ApiService.getActiveDownloads(abortControllerRef.current.signal),
+        ApiService.getLatestDownloads(abortControllerRef.current.signal, 'unlimited', startTime, endTime),
+        ApiService.getDashboardStats(period, abortControllerRef.current.signal)
+      ]);
+
+      if (cache.status === 'fulfilled' && cache.value !== undefined) {
+        setCacheInfo(cache.value);
+      }
+      if (active.status === 'fulfilled' && active.value !== undefined) {
+        setActiveDownloads(active.value);
+      }
+      if (latest.status === 'fulfilled' && latest.value !== undefined) {
+        setLatestDownloads(latest.value);
+        hasData.current = true;
+      }
+      if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+        setDashboardStats(dashboard.value);
+      }
+
+      clearTimeout(timeoutId);
+      setError(null);
+    } catch (err: any) {
+      if (!hasData.current && err.name !== 'AbortError') {
+        setError('Failed to fetch fast data');
+      }
+    }
+  };
+
+  // Medium refresh data: client stats (15 seconds)
+  const fetchMediumData = async () => {
+    if (mockMode) return;
+
+    const { startTime, endTime } = getTimeRangeParams();
+    const now = Date.now();
+
+    // Debounce medium data
+    if (!isInitialLoad.current && (now - lastMediumFetchTime.current) < 10000) {
+      return;
+    }
+
+    lastMediumFetchTime.current = now;
+
+    try {
+      const clients = await ApiService.getClientStats(abortControllerRef.current?.signal || new AbortController().signal, startTime, endTime);
+      if (clients) {
+        setClientStats(clients);
+      }
+    } catch (err) {
+      console.error('Failed to fetch client stats:', err);
+    }
+  };
+
+  // Slow refresh data: service stats for chart (30 seconds)
+  const fetchSlowData = async () => {
+    if (mockMode) return;
+
+    const { startTime, endTime } = getTimeRangeParams();
+    const now = Date.now();
+
+    // Debounce slow data
+    if (!isInitialLoad.current && (now - lastSlowFetchTime.current) < 20000) {
+      return;
+    }
+
+    lastSlowFetchTime.current = now;
+
+    try {
+      const services = await ApiService.getServiceStats(abortControllerRef.current?.signal || new AbortController().signal, null, startTime, endTime);
+      if (services) {
+        setServiceStats(services);
+      }
+    } catch (err) {
+      console.error('Failed to fetch service stats:', err);
+    }
+  };
+
+  // Combined fetch for initial load or manual refresh
+  const fetchData = async () => {
+    const { startTime, endTime } = getTimeRangeParams();
 
     if (fetchInProgress.current && !isInitialLoad.current) {
       return;
     }
 
-    lastFetchTime.current = now;
     fetchInProgress.current = true;
 
     // Cancel any previous request
@@ -230,139 +338,40 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
             const timeout = isProcessingLogs ? 30000 : 10000;
             const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
-            if (isInitialLoad.current) {
-              // Phase 1: Critical data for initial display
-              const [cache, active] = await Promise.all([
-                ApiService.getCacheInfo(abortControllerRef.current.signal),
-                ApiService.getActiveDownloads(abortControllerRef.current.signal)
-              ]);
+            const periodMap: Record<string, string> = {
+              '1h': '1h', '6h': '6h', '12h': '12h', '24h': '24h',
+              '7d': '7d', '30d': '30d', 'live': 'all', 'custom': 'custom'
+            };
+            const period = periodMap[timeRange] || '24h';
 
-              if (cache) setCacheInfo(cache);
-              if (active) setActiveDownloads(active);
+            // Fetch all data on initial load or manual refresh
+            const [cache, active, latest, clients, services, dashboard] = await Promise.allSettled([
+              ApiService.getCacheInfo(abortControllerRef.current.signal),
+              ApiService.getActiveDownloads(abortControllerRef.current.signal),
+              ApiService.getLatestDownloads(abortControllerRef.current.signal, 'unlimited', startTime, endTime),
+              ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
+              ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime),
+              ApiService.getDashboardStats(period, abortControllerRef.current.signal)
+            ]);
 
-              // Phase 2: Get all downloads for initial display
-              const latest = await ApiService.getLatestDownloads(
-                abortControllerRef.current.signal,
-                'unlimited',
-                startTime,
-                endTime
-              );
-              if (latest) {
-                setLatestDownloads(latest);
-                hasData.current = true;
-              }
-
-              // Phase 3: Defer stats loading after initial render
-              setTimeout(async () => {
-                if (abortControllerRef.current?.signal.aborted) return;
-
-                try {
-                  // Get the appropriate period string for the dashboard stats
-                  const periodMap: Record<string, string> = {
-                    '1h': '1h',
-                    '6h': '6h',
-                    '12h': '12h',
-                    '24h': '24h',
-                    '7d': '7d',
-                    '30d': '30d',
-                    'live': 'all',
-                    'custom': 'custom'
-                  };
-                  const period = periodMap[timeRange] || '24h';
-
-                  const [clients, services, dashboard] = await Promise.all([
-                    ApiService.getClientStats(abortControllerRef.current!.signal, startTime, endTime),
-                    ApiService.getServiceStats(abortControllerRef.current!.signal, null, startTime, endTime),
-                    ApiService.getDashboardStats(period, abortControllerRef.current!.signal)
-                  ]);
-                  if (clients) setClientStats(clients);
-                  if (services) setServiceStats(services);
-                  if (dashboard) setDashboardStats(dashboard);
-                } catch (err) {
-                }
-              }, 100);
-            } else {
-              // Regular updates - use unlimited for all downloads
-              const cappedCount = 'unlimited';
-
-              // Get the appropriate period string for the dashboard stats
-              const periodMap: Record<string, string> = {
-                '1h': '1h',
-                '6h': '6h',
-                '12h': '12h',
-                '24h': '24h',
-                '7d': '7d',
-                '30d': '30d',
-                'live': 'all',
-                'custom': 'custom'
-              };
-              const period = periodMap[timeRange] || '24h';
-
-              const [cache, active, latest, clients, services, dashboard] = await Promise.allSettled([
-                ApiService.getCacheInfo(abortControllerRef.current.signal),
-                ApiService.getActiveDownloads(abortControllerRef.current.signal),
-                ApiService.getLatestDownloads(abortControllerRef.current.signal, cappedCount, startTime, endTime),
-                ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime),
-                ApiService.getServiceStats(abortControllerRef.current.signal, null, startTime, endTime),
-                ApiService.getDashboardStats(period, abortControllerRef.current.signal)
-              ]);
-
-              if (cache.status === 'fulfilled' && cache.value !== undefined) {
-                setCacheInfo(cache.value);
-              }
-
-              if (active.status === 'fulfilled' && active.value !== undefined) {
-                setActiveDownloads(active.value);
-              }
-
-              if (latest.status === 'fulfilled' && latest.value !== undefined) {
-                setLatestDownloads(latest.value);
-                hasData.current = true;
-
-                // Debug logging for downloads filtering
-                console.log('📊 Downloads API Response:', {
-                  totalDownloads: latest.value.length,
-                  timeRange: timeRange,
-                  downloadsWithTimes: latest.value.slice(0, 3).map((d: any) => ({
-                    id: d.id,
-                    startTime: d.startTime,
-                    startTimeFormatted: new Date(d.startTime).toLocaleString(),
-                    gameName: d.gameName
-                  }))
-                });
-
-                if (isProcessingLogs && latest.value.length > 0) {
-                  setProcessingStatus((prev) => ({
-                    ...prev!,
-                    message: `Processing logs... Found ${latest.value.length} downloads`,
-                    downloadCount: latest.value.length
-                  }));
-                }
-              }
-
-              if (clients.status === 'fulfilled' && clients.value !== undefined) {
-                setClientStats(clients.value);
-
-                // Debug logging for client stats filtering
-                console.log('👥 Client Stats API Response:', {
-                  totalClients: clients.value.length,
-                  timeRange: timeRange,
-                  clientsWithTimes: clients.value.slice(0, 3).map((c: any) => ({
-                    clientIp: c.clientIp,
-                    lastSeen: c.lastSeen,
-                    lastSeenFormatted: new Date(c.lastSeen).toLocaleString(),
-                    totalBytes: c.totalBytes
-                  }))
-                });
-              }
-
-              if (services.status === 'fulfilled' && services.value !== undefined) {
-                setServiceStats(services.value);
-              }
-
-              if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-                setDashboardStats(dashboard.value);
-              }
+            if (cache.status === 'fulfilled' && cache.value !== undefined) {
+              setCacheInfo(cache.value);
+            }
+            if (active.status === 'fulfilled' && active.value !== undefined) {
+              setActiveDownloads(active.value);
+            }
+            if (latest.status === 'fulfilled' && latest.value !== undefined) {
+              setLatestDownloads(latest.value);
+              hasData.current = true;
+            }
+            if (clients.status === 'fulfilled' && clients.value !== undefined) {
+              setClientStats(clients.value);
+            }
+            if (services.status === 'fulfilled' && services.value !== undefined) {
+              setServiceStats(services.value);
+            }
+            if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+              setDashboardStats(dashboard.value);
             }
 
             clearTimeout(timeoutId);
@@ -408,7 +417,15 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const getCurrentRefreshInterval = () => {
     if (isProcessingLogs) return 3000; // 3 seconds when processing
-    return 10000; // 10 seconds for data updates (graphs controlled separately via key prop)
+    return 5000; // 5 seconds for fast data (cards + downloads)
+  };
+
+  const getMediumRefreshInterval = () => {
+    return 15000; // 15 seconds for client stats
+  };
+
+  const getSlowRefreshInterval = () => {
+    return 30000; // 30 seconds for service chart
   };
 
   // SignalR connection for real-time updates
@@ -425,8 +442,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
         connection.on('DownloadsRefresh', (data: any) => {
           console.log('[DataContext] DownloadsRefresh event received:', data);
-          // Immediately fetch fresh data when downloads are updated
-          fetchData();
+          // Immediately fetch fresh fast data when downloads are updated
+          fetchFastData();
         });
 
         await connection.start();
@@ -447,18 +464,33 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     };
   }, [mockMode]);
 
-  // Initial load and refresh interval
+  // Initial load and separate refresh intervals for different data types
   useEffect(() => {
     if (!mockMode) {
+      // Initial load - fetch all data once
       fetchData();
 
-      const refreshInterval = getCurrentRefreshInterval();
-      intervalRef.current = setInterval(fetchData, refreshInterval);
+      // Set up separate intervals for different data refresh rates
+      const fastInterval = getCurrentRefreshInterval();
+      const mediumInterval = getMediumRefreshInterval();
+      const slowInterval = getSlowRefreshInterval();
+
+      fastIntervalRef.current = setInterval(fetchFastData, fastInterval);
+      mediumIntervalRef.current = setInterval(fetchMediumData, mediumInterval);
+      slowIntervalRef.current = setInterval(fetchSlowData, slowInterval);
 
       return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
+        if (fastIntervalRef.current) {
+          clearInterval(fastIntervalRef.current);
+          fastIntervalRef.current = null;
+        }
+        if (mediumIntervalRef.current) {
+          clearInterval(mediumIntervalRef.current);
+          mediumIntervalRef.current = null;
+        }
+        if (slowIntervalRef.current) {
+          clearInterval(slowIntervalRef.current);
+          slowIntervalRef.current = null;
         }
         if (abortControllerRef.current) {
           abortControllerRef.current.abort();
@@ -499,10 +531,18 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // Mock mode changes
   useEffect(() => {
     if (mockMode) {
-      // Clear any existing interval
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
+      // Clear any existing intervals
+      if (fastIntervalRef.current) {
+        clearInterval(fastIntervalRef.current);
+        fastIntervalRef.current = null;
+      }
+      if (mediumIntervalRef.current) {
+        clearInterval(mediumIntervalRef.current);
+        mediumIntervalRef.current = null;
+      }
+      if (slowIntervalRef.current) {
+        clearInterval(slowIntervalRef.current);
+        slowIntervalRef.current = null;
       }
 
       // Clear real data
@@ -528,7 +568,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
       // Set up mock update interval
       const updateInterval = 30000;
-      intervalRef.current = setInterval(() => {
+      fastIntervalRef.current = setInterval(() => {
         const newDownload = MockDataService.generateRealtimeUpdate();
         setLatestDownloads((prev) => {
           return [newDownload, ...prev];
@@ -541,9 +581,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       }, updateInterval);
 
       return () => {
-        if (intervalRef.current) {
-          clearInterval(intervalRef.current);
-          intervalRef.current = null;
+        if (fastIntervalRef.current) {
+          clearInterval(fastIntervalRef.current);
+          fastIntervalRef.current = null;
         }
       };
     } else {
@@ -565,8 +605,14 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+      if (fastIntervalRef.current) {
+        clearInterval(fastIntervalRef.current);
+      }
+      if (mediumIntervalRef.current) {
+        clearInterval(mediumIntervalRef.current);
+      }
+      if (slowIntervalRef.current) {
+        clearInterval(slowIntervalRef.current);
       }
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
