@@ -109,7 +109,7 @@ impl Processor {
             log_path,
             progress_path,
             start_position,
-            parser: LogParser::new(),
+            parser: LogParser::new(local_tz),
             session_tracker: SessionTracker::new(Duration::from_secs(SESSION_GAP_MINUTES as u64 * 60)),
             total_lines: AtomicU64::new(0),
             lines_parsed: AtomicU64::new(0),

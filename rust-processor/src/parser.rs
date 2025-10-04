@@ -1,14 +1,16 @@
 use crate::models::LogEntry;
 use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use regex::Regex;
 
 pub struct LogParser {
     main_regex: Regex,
     depot_regex: Regex,
+    local_tz: Tz,
 }
 
 impl LogParser {
-    pub fn new() -> Self {
+    pub fn new(local_tz: Tz) -> Self {
         // Updated regex to match the actual format:
         // [service] ip / - - - [timestamp] "METHOD URL HTTP/version" status bytes "referer" "user-agent" "cache-status" "upstream" "other"
         let main_regex = Regex::new(
@@ -20,6 +22,7 @@ impl LogParser {
         Self {
             main_regex,
             depot_regex,
+            local_tz,
         }
     }
 
@@ -116,7 +119,12 @@ impl LogParser {
                 }
             }
         }
-        // If no timezone info, assume it's already UTC
+        // If no timezone info, it's in local time - convert to UTC
+        // The nginx log timestamp is in the server's local timezone
+        if let Some(local_dt) = self.local_tz.from_local_datetime(&naive_dt).earliest() {
+            return local_dt.with_timezone(&Utc).naive_utc();
+        }
+        // Fallback: assume UTC if conversion fails
         naive_dt
     }
 
@@ -161,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_parse_actual_log_format() {
-        let parser = LogParser::new();
+        let parser = LogParser::new(chrono_tz::UTC);
 
         // Test heartbeat line - from actual file
         let line1 = r#"[127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:16:28:34 -0600] "GET /lancache-heartbeat HTTP/1.1" 204 0 "-" "Wget/1.19.4 (linux-gnu)" "-" "127.0.0.1" "-""#;
