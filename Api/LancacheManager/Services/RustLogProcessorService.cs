@@ -207,11 +207,10 @@ public class RustLogProcessorService
                     }
                 }
 
-                // Automatically trigger depot mapping for new entries (both silent and non-silent mode)
-                // This ensures games are identified immediately after processing
+                // Invalidate cache for new entries (depot mapping now happens in Rust)
                 if (finalProgress?.EntriesSaved > 0)
                 {
-                    _logger.LogInformation("Triggering automatic depot mapping for {EntriesCount} new entries", finalProgress.EntriesSaved);
+                    _logger.LogDebug("Invalidating cache for {EntriesCount} new entries (depot mapping handled in Rust)", finalProgress.EntriesSaved);
                     _ = Task.Run(async () => await TriggerAutomaticDepotMappingAsync(silentMode));
                 }
 
@@ -353,8 +352,8 @@ public class RustLogProcessorService
     }
 
     /// <summary>
-    /// Automatically triggers depot mapping for unmapped downloads
-    /// This runs in the background after log processing completes
+    /// Invalidate cache and refresh UI after log processing
+    /// Depot mapping is now handled in Rust processor
     /// </summary>
     private async Task TriggerAutomaticDepotMappingAsync(bool silentMode)
     {
@@ -364,22 +363,12 @@ public class RustLogProcessorService
             await Task.Delay(500);
 
             using var scope = _serviceProvider.CreateScope();
-            var dbService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
             var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
 
-            _logger.LogDebug("Starting automatic depot mapping...");
-            var mappingsProcessed = await dbService.PostProcessDepotMappings();
+            // Depot mapping now happens in Rust, just invalidate cache and refresh UI
+            _logger.LogDebug("Invalidating cache after log processing (depot mapping handled in Rust)");
 
-            if (mappingsProcessed > 0)
-            {
-                _logger.LogInformation("Automatic depot mapping complete: {MappingsCount} downloads mapped", mappingsProcessed);
-            }
-            else
-            {
-                _logger.LogDebug("No depot mappings needed");
-            }
-
-            // Always invalidate cache and send refresh, even if no mappings were processed
+            // Always invalidate cache and send refresh
             // This ensures new downloads show up in the UI immediately
             statsCache.InvalidateDownloads();
 
@@ -388,14 +377,13 @@ public class RustLogProcessorService
             {
                 await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
                 {
-                    depotMappingsProcessed = mappingsProcessed,
                     timestamp = DateTime.UtcNow
                 });
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during automatic depot mapping");
+            _logger.LogError(ex, "Error invalidating cache after log processing");
         }
     }
 

@@ -298,6 +298,25 @@ impl Processor {
         Ok(())
     }
 
+    fn lookup_depot_mapping(&self, tx: &Transaction, depot_id: u32) -> Result<Option<(u32, Option<String>)>> {
+        // Query SteamDepotMappings table for AppId and AppName
+        let result = tx.query_row(
+            "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? LIMIT 1",
+            params![depot_id],
+            |row| {
+                let app_id: u32 = row.get(0)?;
+                let app_name: Option<String> = row.get(1)?;
+                Ok((app_id, app_name))
+            }
+        );
+
+        match result {
+            Ok(mapping) => Ok(Some(mapping)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into())
+        }
+    }
+
     fn process_session_group(
         &mut self,
         tx: &Transaction,
@@ -381,6 +400,24 @@ impl Processor {
 
         let last_url = new_entries.last().map(|e| e.url.as_str());
 
+        // Lookup depot mapping for Steam downloads
+        let (game_app_id, game_name) = if service.to_lowercase() == "steam" {
+            if let Some(depot_id) = primary_depot_id {
+                match self.lookup_depot_mapping(tx, depot_id) {
+                    Ok(Some((app_id, app_name))) => (Some(app_id), app_name),
+                    Ok(None) => (None, None),
+                    Err(e) => {
+                        println!("Warning: Failed to lookup depot mapping for {}: {}", depot_id, e);
+                        (None, None)
+                    }
+                }
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
         // Check if we should create a new download session
         let should_create_new = self
             .session_tracker
@@ -394,10 +431,10 @@ impl Processor {
                 params![client_ip, service],
             )?;
 
-            // Create new download session
+            // Create new download session with depot mapping
             tx.execute(
-                "INSERT INTO Downloads (Service, ClientIp, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId)
-                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                "INSERT INTO Downloads (Service, ClientIp, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName)
+                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
                 params![
                     service,
                     client_ip,
@@ -407,6 +444,8 @@ impl Processor {
                     total_miss_bytes,
                     last_url,
                     primary_depot_id,
+                    game_app_id,
+                    game_name,
                 ],
             )?;
 
@@ -463,15 +502,17 @@ impl Processor {
                 |row| row.get(0),
             )?;
 
-            // Update existing download session
+            // Update existing download session with depot mapping
             tx.execute(
-                "UPDATE Downloads SET EndTime = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId) WHERE Id = ?",
+                "UPDATE Downloads SET EndTime = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName) WHERE Id = ?",
                 params![
                     last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
                     total_hit_bytes,
                     total_miss_bytes,
                     last_url,
                     primary_depot_id,
+                    game_app_id,
+                    game_name,
                     download_id,
                 ],
             )?;
