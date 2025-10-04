@@ -447,7 +447,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           .configureLogging(signalR.LogLevel.Warning)
           .build();
 
-        connection.on('DownloadsRefresh', (data: any) => {
+        connection.on('DownloadsRefresh', () => {
           // Immediately fetch fresh fast data when downloads are updated
           fetchFastData();
         });

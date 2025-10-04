@@ -337,7 +337,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       });
 
       // Listen for silent background processing updates (live mode)
-      connection.on('DownloadsRefresh', async (data: any) => {
+      connection.on('DownloadsRefresh', async () => {
         // Silently refresh data without showing progress bars or notifications
         // This is triggered by the LiveLogMonitorService background processing
         onDataRefresh?.();
