@@ -7,6 +7,7 @@ public class DownloadCleanupService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DownloadCleanupService> _logger;
+    private bool _initialCleanupDone = false;
 
     public DownloadCleanupService(IServiceProvider serviceProvider, ILogger<DownloadCleanupService> logger)
     {
@@ -25,6 +26,13 @@ public class DownloadCleanupService : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                // Run one-time cleanup on first iteration
+                if (!_initialCleanupDone)
+                {
+                    await PerformInitialCleanup(context, stoppingToken);
+                    _initialCleanupDone = true;
+                }
 
                 // Use 1-minute timeout - if no new data in 1 minute, download is complete
                 var cutoff = DateTime.UtcNow.AddMinutes(-1);
@@ -68,6 +76,101 @@ public class DownloadCleanupService : BackgroundService
 
             // Run every 30 seconds
             await Task.Delay(30000, stoppingToken);
+        }
+    }
+
+    private async Task PerformInitialCleanup(AppDbContext context, CancellationToken stoppingToken)
+    {
+        _logger.LogInformation("Running initial database cleanup...");
+
+        var needsCacheInvalidation = false;
+
+        try
+        {
+            // Fix App 0 entries - mark them as inactive so they don't show up
+            var app0Downloads = await context.Downloads
+                .Where(d => d.GameAppId == 0)
+                .ToListAsync(stoppingToken);
+
+            if (app0Downloads.Any())
+            {
+                foreach (var download in app0Downloads)
+                {
+                    download.IsActive = false;
+                }
+                await context.SaveChangesAsync(stoppingToken);
+                _logger.LogInformation($"Marked {app0Downloads.Count} 'App 0' downloads as inactive");
+                needsCacheInvalidation = true;
+            }
+
+            // Fix bad image URLs (cdn.akamai.steamstatic.com) - try fallback URLs
+            var badImageUrls = await context.Downloads
+                .Where(d => d.GameImageUrl != null && d.GameImageUrl.Contains("cdn.akamai.steamstatic.com"))
+                .ToListAsync(stoppingToken);
+
+            if (badImageUrls.Any())
+            {
+                var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
+                httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+                var updated = 0;
+                foreach (var download in badImageUrls)
+                {
+                    if (!download.GameAppId.HasValue) continue;
+
+                    var appId = download.GameAppId.Value;
+                    var fallbackUrls = new[]
+                    {
+                        $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg",
+                        $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg",
+                        $"https://steamcdn-a.akamaihd.net/steam/apps/{appId}/header.jpg"
+                    };
+
+                    foreach (var fallbackUrl in fallbackUrls)
+                    {
+                        try
+                        {
+                            var response = await httpClient.GetAsync(fallbackUrl, HttpCompletionOption.ResponseHeadersRead, stoppingToken);
+                            if (response.IsSuccessStatusCode)
+                            {
+                                download.GameImageUrl = fallbackUrl;
+                                updated++;
+                                _logger.LogDebug($"Updated image URL for app {appId} to {fallbackUrl}");
+                                break;
+                            }
+                        }
+                        catch
+                        {
+                            // Try next URL
+                        }
+                    }
+                }
+
+                if (updated > 0)
+                {
+                    await context.SaveChangesAsync(stoppingToken);
+                    _logger.LogInformation($"Updated {updated} image URLs to working fallback CDNs");
+                    needsCacheInvalidation = true;
+                }
+
+                httpClient.Dispose();
+            }
+
+            // Invalidate cache if we made any changes
+            if (needsCacheInvalidation)
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
+                statsCache.InvalidateDownloads();
+                _logger.LogInformation("Invalidated downloads cache after cleanup");
+            }
+
+            _logger.LogInformation("Initial database cleanup complete");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during initial cleanup");
         }
     }
 }
