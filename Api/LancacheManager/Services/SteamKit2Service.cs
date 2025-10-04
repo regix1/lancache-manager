@@ -733,6 +733,11 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             _currentStatus = "Saving PICS data to JSON";
             _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
+
+            // Add fallback mappings for apps that use their own app ID as depot ID
+            // This is done LAST and only for apps with no existing depot mappings
+            AddFallbackAppIdDepotMappings();
+
             // Final save - use merge if resuming to preserve all data
             await SaveAllMappingsToJsonAsync(incrementalOnly || _isResumingGeneration);
 
@@ -1898,6 +1903,54 @@ public class SteamKit2Service : IHostedService, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to save last PICS crawl time to state");
+        }
+    }
+
+    /// <summary>
+    /// Add fallback depot mappings for apps that use their own app ID as depot ID.
+    /// This is done LAST after all PICS processing and only adds mappings for apps
+    /// that have NO existing depot mappings (to never override correct PICS data).
+    /// </summary>
+    private void AddFallbackAppIdDepotMappings()
+    {
+        try
+        {
+            int added = 0;
+
+            // For each app we've seen, check if it has any depot mappings
+            foreach (var appKvp in _appNames)
+            {
+                var appId = appKvp.Key;
+                var appName = appKvp.Value;
+
+                // Check if this app appears in ANY depot mapping
+                bool hasDepotMapping = _depotToAppMappings.Values.Any(appSet => appSet.Contains(appId));
+
+                // If no depot mappings found, add fallback mapping: appId -> appId
+                if (!hasDepotMapping)
+                {
+                    var set = _depotToAppMappings.GetOrAdd(appId, _ => new HashSet<uint>());
+                    if (set.Add(appId))
+                    {
+                        added++;
+                        _logger.LogDebug("Added fallback depot mapping: depot {DepotId} -> app {AppId} ({AppName})",
+                            appId, appId, appName);
+                    }
+                }
+            }
+
+            if (added > 0)
+            {
+                _logger.LogInformation("Added {Count} fallback depot mappings for apps using their own app ID as depot ID", added);
+            }
+            else
+            {
+                _logger.LogDebug("No fallback depot mappings needed - all apps have PICS depot data");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding fallback app ID depot mappings");
         }
     }
 
