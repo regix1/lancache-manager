@@ -50,6 +50,16 @@ public class LiveLogMonitorService : BackgroundService
             var fileInfo = new FileInfo(_logFilePath);
             _lastFileSize = fileInfo.Length;
             _logger.LogInformation("Initial log file size: {Size:N0} bytes", _lastFileSize);
+
+            // If log position is 0 (default), initialize it to the end of the file
+            // This ensures we only process NEW entries going forward, not the entire history
+            var currentPosition = _stateService.GetLogPosition();
+            if (currentPosition == 0)
+            {
+                var lineCount = File.ReadLines(_logFilePath).LongCount();
+                _stateService.SetLogPosition(lineCount);
+                _logger.LogInformation("Initialized log position to end of file (line {LineCount}) - will only process new entries", lineCount);
+            }
         }
 
         while (!stoppingToken.IsCancellationRequested)
@@ -139,16 +149,25 @@ public class LiveLogMonitorService : BackgroundService
 
                 try
                 {
-                    // Get the last processed line position
+                    // ALWAYS use the current end of file position for live monitoring
+                    // This ensures we only process NEW entries, not the entire log history
+                    // The stored position is only used by the "Process All Logs" button
                     var lastPosition = _stateService.GetLogPosition();
+
+                    // Count total lines in the file to get the current end position
+                    var currentLineCount = File.ReadLines(_logFilePath).LongCount();
+
+                    // If stored position is less than current file size, use stored position
+                    // Otherwise use current line count (file might have been truncated/rotated)
+                    var startPosition = Math.Min(lastPosition, currentLineCount);
 
                     // Start Rust processor from last processed position in SILENT MODE
                     // The Rust processor will:
-                    // 1. Skip to the last position
+                    // 1. Skip to the start position
                     // 2. Process all new lines to the end of file
                     // 3. Use duplicate detection to avoid re-processing entries
                     // 4. NOT send any SignalR notifications (silentMode = true)
-                    var success = await _rustLogProcessorService.StartProcessingAsync(_logFilePath, lastPosition, silentMode: true);
+                    var success = await _rustLogProcessorService.StartProcessingAsync(_logFilePath, startPosition, silentMode: true);
 
                     if (success)
                     {
