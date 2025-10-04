@@ -152,6 +152,12 @@ public class DownloadCleanupService : BackgroundService
                 var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
                 statsCache.InvalidateDownloads();
                 _logger.LogInformation("Invalidated downloads cache after cleanup");
+
+                // Trigger depot mapping post-processing to backfill image URLs from Steam API
+                var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
+                _logger.LogInformation("Starting depot mapping post-processing to backfill image URLs...");
+                var processed = await databaseService.PostProcessDepotMappings();
+                _logger.LogInformation($"Depot mapping post-processing complete - processed {processed} downloads");
             }
 
             _logger.LogInformation("Initial database cleanup complete");
