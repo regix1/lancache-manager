@@ -52,7 +52,7 @@ public class StatsCache
             // Pre-load active downloads into cache - simple approach
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && d.TotalBytes > 0)
+                .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
@@ -118,7 +118,7 @@ public class StatsCache
             // Simple: Just get active downloads, filter only 0-byte metadata
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && d.TotalBytes > 0)
+                .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
