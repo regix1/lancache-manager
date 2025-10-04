@@ -448,7 +448,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           .build();
 
         connection.on('DownloadsRefresh', (data: any) => {
-          console.log('[DataContext] DownloadsRefresh event received:', data);
           // Immediately fetch fresh fast data when downloads are updated
           fetchFastData();
         });

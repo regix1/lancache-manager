@@ -137,25 +137,10 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
 
     const now = Date.now();
     const hoursMs = getTimeRangeInHours() * 60 * 60 * 1000;
-    const result = {
+    return {
       startTime: Math.floor((now - hoursMs) / 1000),
       endTime: Math.floor(now / 1000)
     };
-
-    // Debug logging
-    const startDate = new Date(result.startTime * 1000);
-    const endDate = new Date(result.endTime * 1000);
-    console.log(`🕐 Time Filter Debug [${timeRange}]:`, {
-      range: timeRange,
-      hoursBack: getTimeRangeInHours(),
-      startTime: result.startTime,
-      endTime: result.endTime,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-      hoursDiff: (result.endTime - result.startTime) / 3600
-    });
-
-    return result;
   };
 
   // Wrapped setters with optional logging
