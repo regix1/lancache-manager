@@ -148,6 +148,10 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                     alt={primaryDownload.gameName || group.name}
                     className="w-[280px] h-[130px] object-cover transition-transform duration-300 hover:scale-105"
                     loading="lazy"
+                    onError={(e) => {
+                      const img = e.target as HTMLImageElement;
+                      img.src = 'https://steamdb.info/static/img/applogo.svg';
+                    }}
                   />
                 )}
               </div>
@@ -342,26 +346,52 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                       {group.downloads.length} session{group.downloads.length !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  <div className="space-y-2">
-                    {group.downloads.map((download) => {
+                  {/* Group sessions by client IP */}
+                  {Object.entries(
+                    group.downloads.reduce((acc, d) => {
+                      if (!acc[d.clientIp]) acc[d.clientIp] = [];
+                      acc[d.clientIp].push(d);
+                      return acc;
+                    }, {} as Record<string, typeof group.downloads>)
+                  ).map(([clientIp, clientDownloads]) => {
+                    const clientTotal = clientDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
+                    const clientCacheHit = clientDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
+
+                    return (
+                      <div key={clientIp} className="space-y-2">
+                        {/* Client IP Header with totals */}
+                        <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--theme-bg-tertiary)]/50">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-bold text-[var(--theme-text-primary)]">
+                              {clientIp}
+                            </span>
+                            <span className="text-xs text-themed-muted">
+                              ({clientDownloads.length} session{clientDownloads.length !== 1 ? 's' : ''})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-bold text-[var(--theme-text-primary)]">
+                              {formatBytes(clientTotal)}
+                            </span>
+                            {clientCacheHit > 0 && (
+                              <span className="text-xs px-2 py-1 rounded-full bg-[var(--theme-success-bg)] text-[var(--theme-success-text)] font-semibold">
+                                {formatPercent(clientTotal > 0 ? (clientCacheHit / clientTotal) * 100 : 0)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {/* Individual sessions for this client */}
+                        {clientDownloads.map((download) => {
                       const totalBytes = download.totalBytes || 0;
                       const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
 
                       return (
                         <div
                           key={download.id}
-                          className="rounded-lg border p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200"
+                          className="rounded-lg border p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200 ml-4"
                           style={{ borderColor: 'var(--theme-border-secondary)' }}
                         >
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-center">
-                            {/* Client Info */}
-                            <div>
-                              <div className="text-xs text-themed-muted mb-1 font-medium">Client</div>
-                              <span className="font-mono text-sm font-semibold text-[var(--theme-text-primary)] bg-[var(--theme-bg-tertiary)] px-2.5 py-1 rounded inline-block">
-                                {download.clientIp}
-                              </span>
-                            </div>
-
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-center">
                             {/* Time Info */}
                             <div>
                               <div className="text-xs text-themed-muted mb-1 font-medium">Timeline</div>
@@ -412,7 +442,9 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                         </div>
                       );
                     })}
-                  </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

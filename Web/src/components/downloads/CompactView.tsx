@@ -194,6 +194,10 @@ const CompactView: React.FC<CompactViewProps> = ({
                       alt={primaryDownload.gameName || group.name}
                       className="w-full sm:w-[240px] h-[110px] sm:h-[120px] rounded-lg object-cover"
                       loading="lazy"
+                      onError={(e) => {
+                        const img = e.target as HTMLImageElement;
+                        img.src = 'https://steamdb.info/static/img/applogo.svg';
+                      }}
                     />
                   )}
                 </div>
