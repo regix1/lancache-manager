@@ -9,6 +9,7 @@ import PicsProgressBar from '@components/common/PicsProgressBar';
 import DepotInitializationModal from '@components/initialization/DepotInitializationModal';
 import ApiService from '@services/api.service';
 import authService, { AuthMode } from '@services/auth.service';
+import { setServerTimezone } from '@utils/timezone';
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
@@ -28,6 +29,22 @@ const AppContent: React.FC = () => {
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
   const [, setWasGuestMode] = useState(false);
   const [isUpgradingAuth, setIsUpgradingAuth] = useState(false);
+
+  // Fetch server timezone on mount
+  useEffect(() => {
+    const fetchTimezone = async () => {
+      try {
+        const config = await ApiService.getConfig();
+        if (config.timezone) {
+          setServerTimezone(config.timezone);
+        }
+      } catch (error) {
+        console.error('Failed to fetch server timezone:', error);
+      }
+    };
+
+    fetchTimezone();
+  }, []);
 
   // Check authentication status first
   useEffect(() => {

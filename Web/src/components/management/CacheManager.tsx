@@ -33,7 +33,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [config, setConfig] = useState<Config>({
     cachePath: 'Loading...',
     logPath: 'Loading...',
-    services: []
+    services: [],
+    timezone: 'UTC'
   });
 
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);

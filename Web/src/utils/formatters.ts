@@ -1,4 +1,5 @@
 import { FILE_SIZE_UNITS } from './constants';
+import { getServerTimezone } from './timezone';
 
 /**
  * Format bytes to human-readable string
@@ -25,8 +26,8 @@ export function formatPercent(value: number, decimals = 1): string {
 }
 
 /**
- * Format date/time to locale string
- * Uses 12-hour format by default, unless user is in UTC or a locale that prefers 24-hour format
+ * Format date/time to locale string using server timezone
+ * Database stores UTC, displays in server's configured timezone (from docker-compose TZ)
  */
 export function formatDateTime(dateString: string | Date | null | undefined): string {
   if (!dateString) return 'N/A';
@@ -36,11 +37,15 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 
     if (isNaN(date.getTime())) return 'Invalid Date';
 
-    // Check if user's timezone is UTC
-    const isUTC = Intl.DateTimeFormat().resolvedOptions().timeZone === 'UTC';
+    // Get server timezone from config (set on app startup)
+    const serverTimezone = getServerTimezone();
 
-    // Use 24-hour format only for UTC or let the browser decide based on locale
+    // Use 24-hour format for UTC, otherwise let locale decide
+    const isUTC = serverTimezone === 'UTC';
+
+    // Display in server's timezone
     return date.toLocaleString(undefined, {
+      timeZone: serverTimezone,
       month: 'short',
       day: 'numeric',
       hour: '2-digit',

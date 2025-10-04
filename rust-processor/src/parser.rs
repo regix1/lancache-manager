@@ -1,5 +1,5 @@
 use crate::models::LogEntry;
-use chrono::NaiveDateTime;
+use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
 use regex::Regex;
 
 pub struct LogParser {
@@ -71,29 +71,53 @@ impl LogParser {
     }
 
     fn parse_timestamp(&self, time_str: &str) -> Option<NaiveDateTime> {
-        // Remove timezone if present (e.g., " -0600" or " +0000")
-        let time_without_tz = if let Some(pos) = time_str.rfind(|c| c == '+' || c == '-') {
-            &time_str[..pos].trim()
+        // Extract timezone offset if present (e.g., " -0600" or " +0000")
+        let (time_without_tz, tz_offset) = if let Some(pos) = time_str.rfind(|c| c == '+' || c == '-') {
+            let tz_str = time_str[pos..].trim();
+            // Parse timezone like "+0000" or "-0600"
+            let offset = if tz_str.len() >= 5 {
+                let sign = if tz_str.starts_with('-') { -1 } else { 1 };
+                let hours: i32 = tz_str[1..3].parse().ok()?;
+                let minutes: i32 = tz_str[3..5].parse().ok()?;
+                Some(sign * (hours * 3600 + minutes * 60))
+            } else {
+                None
+            };
+            (time_str[..pos].trim(), offset)
         } else {
-            time_str
+            (time_str, None)
         };
 
         // Try format: dd/MMM/yyyy:HH:mm:ss (most common for nginx/lancache logs)
-        if let Ok(dt) = NaiveDateTime::parse_from_str(time_without_tz, "%d/%b/%Y:%H:%M:%S") {
-            return Some(dt);
+        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%d/%b/%Y:%H:%M:%S") {
+            return Some(self.convert_to_utc(naive_dt, tz_offset));
         }
 
         // Try format: yyyy-MM-dd HH:mm:ss
-        if let Ok(dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%d %H:%M:%S") {
-            return Some(dt);
+        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%d %H:%M:%S") {
+            return Some(self.convert_to_utc(naive_dt, tz_offset));
         }
 
         // Try format: yyyy-MM-ddTHH:mm:ss
-        if let Ok(dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%dT%H:%M:%S") {
-            return Some(dt);
+        if let Ok(naive_dt) = NaiveDateTime::parse_from_str(time_without_tz, "%Y-%m-%dT%H:%M:%S") {
+            return Some(self.convert_to_utc(naive_dt, tz_offset));
         }
 
         None
+    }
+
+    fn convert_to_utc(&self, naive_dt: NaiveDateTime, tz_offset_secs: Option<i32>) -> NaiveDateTime {
+        if let Some(offset_secs) = tz_offset_secs {
+            // Create a DateTime with the timezone offset
+            if let Some(offset) = FixedOffset::east_opt(offset_secs) {
+                if let Some(dt_with_tz) = offset.from_local_datetime(&naive_dt).earliest() {
+                    // Convert to UTC and return as NaiveDateTime
+                    return dt_with_tz.with_timezone(&Utc).naive_utc();
+                }
+            }
+        }
+        // If no timezone info, assume it's already UTC
+        naive_dt
     }
 
     fn extract_cache_status(&self, rest: &str) -> String {

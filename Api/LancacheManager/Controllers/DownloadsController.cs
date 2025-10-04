@@ -42,6 +42,7 @@ public class DownloadsController : ControllerBase
                 else
                 {
                     // With filtering, query database directly
+                    // Database stores dates in UTC, so filter with UTC
                     var startDate = startTime.HasValue
                         ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
                         : DateTime.MinValue;

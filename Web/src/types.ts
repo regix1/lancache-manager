@@ -164,6 +164,7 @@ export interface Config {
   cachePath: string;
   logPath: string;
   services: string[];
+  timezone: string;
 }
 
 export type CardKey =

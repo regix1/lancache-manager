@@ -39,6 +39,7 @@ public class StatsController : ControllerBase
             else
             {
                 // With filtering, query database directly
+                // Database stores dates in UTC, so filter with UTC
                 var startDate = startTime.HasValue
                     ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
                     : DateTime.MinValue;
@@ -83,6 +84,7 @@ public class StatsController : ControllerBase
 
                 if (startTime.HasValue || endTime.HasValue)
                 {
+                    // Database stores dates in UTC, so filter with UTC
                     var startDate = startTime.HasValue
                         ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
                         : DateTime.MinValue;

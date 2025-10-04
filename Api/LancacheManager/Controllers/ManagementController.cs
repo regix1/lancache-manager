@@ -505,19 +505,26 @@ public class ManagementController : ControllerBase
             var services = await _cacheService.GetServicesFromLogs();
             var cachePath = _cacheService.GetCachePath();
 
+            // Get timezone from environment variable (docker-compose TZ) or use system timezone
+            var timezone = Environment.GetEnvironmentVariable("TZ") ?? TimeZoneInfo.Local.Id;
+
             return Ok(new {
                 cachePath,
                 logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log"),
-                services
+                services,
+                timezone
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting configuration");
+            var timezone = Environment.GetEnvironmentVariable("TZ") ?? TimeZoneInfo.Local.Id;
+
             return Ok(new {
                 cachePath = _pathResolver.GetCacheDirectory(),
                 logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log"),
-                services = new[] { "steam", "epic", "origin", "blizzard", "wsus", "riot" }
+                services = new[] { "steam", "epic", "origin", "blizzard", "wsus", "riot" },
+                timezone
             });
         }
     }
