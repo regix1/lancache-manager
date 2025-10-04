@@ -96,9 +96,12 @@ public class DownloadCleanupService : BackgroundService
         try
         {
             // Fix App 0 entries - mark them as inactive so they don't show up
+            _logger.LogInformation("Checking for App 0 downloads...");
             var app0Downloads = await context.Downloads
                 .Where(d => d.GameAppId == 0)
                 .ToListAsync(stoppingToken);
+
+            _logger.LogInformation($"Found {app0Downloads.Count} App 0 downloads");
 
             if (app0Downloads.Any())
             {
@@ -110,11 +113,18 @@ public class DownloadCleanupService : BackgroundService
                 _logger.LogInformation($"Marked {app0Downloads.Count} 'App 0' downloads as inactive");
                 needsCacheInvalidation = true;
             }
+            else
+            {
+                _logger.LogInformation("No App 0 downloads found to fix");
+            }
 
             // Fix bad image URLs (cdn.akamai.steamstatic.com) - try fallback URLs
+            _logger.LogInformation("Checking for bad image URLs...");
             var badImageUrls = await context.Downloads
                 .Where(d => d.GameImageUrl != null && d.GameImageUrl.Contains("cdn.akamai.steamstatic.com"))
                 .ToListAsync(stoppingToken);
+
+            _logger.LogInformation($"Found {badImageUrls.Count} downloads with bad image URLs");
 
             if (badImageUrls.Any())
             {
@@ -161,8 +171,16 @@ public class DownloadCleanupService : BackgroundService
                     _logger.LogInformation($"Updated {updated} image URLs to working fallback CDNs");
                     needsCacheInvalidation = true;
                 }
+                else
+                {
+                    _logger.LogInformation("No image URLs were updated (all fallbacks failed or URLs already correct)");
+                }
 
                 httpClient.Dispose();
+            }
+            else
+            {
+                _logger.LogInformation("No bad image URLs found to fix");
             }
 
             // Invalidate cache if we made any changes
