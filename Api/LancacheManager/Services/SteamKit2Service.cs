@@ -639,6 +639,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                     var productCallbacks = await WaitForAllProductInfoAsync(productJob, ct);
 
                     int appsInThisBatch = 0, unknownInThisBatch = 0;
+                    var dlcAppsToScan = new List<uint>();
+
                     foreach (var cb in productCallbacks)
                     {
                         appsInThisBatch += cb.Apps.Count;
@@ -646,8 +648,55 @@ public class SteamKit2Service : IHostedService, IDisposable
 
                         foreach (var app in cb.Apps.Values)
                         {
-                            ProcessAppDepots(app);
+                            var dlcList = ProcessAppDepots(app);
+                            dlcAppsToScan.AddRange(dlcList);
                             _processedApps++;
+                        }
+                    }
+
+                    // Process DLC apps found in this batch
+                    if (dlcAppsToScan.Count > 0)
+                    {
+                        _logger.LogInformation("Found {Count} DLC apps to scan in this batch", dlcAppsToScan.Count);
+
+                        // Process DLC apps in smaller sub-batches
+                        var dlcBatches = dlcAppsToScan.Distinct().Chunk(50).ToList();
+                        foreach (var dlcBatch in dlcBatches)
+                        {
+                            try
+                            {
+                                var dlcTokensJob = _steamApps.PICSGetAccessTokens(dlcBatch, Enumerable.Empty<uint>());
+                                var dlcTokens = await WaitForCallbackAsync(dlcTokensJob, ct);
+
+                                var dlcAppRequests = new List<SteamApps.PICSRequest>();
+                                foreach (var dlcAppId in dlcBatch)
+                                {
+                                    var request = new SteamApps.PICSRequest(dlcAppId);
+                                    if (dlcTokens.AppTokens.TryGetValue(dlcAppId, out var token))
+                                    {
+                                        request.AccessToken = token;
+                                    }
+                                    dlcAppRequests.Add(request);
+                                }
+
+                                var dlcProductJob = _steamApps.PICSGetProductInfo(dlcAppRequests, Enumerable.Empty<SteamApps.PICSRequest>());
+                                var dlcProductCallbacks = await WaitForAllProductInfoAsync(dlcProductJob, ct);
+
+                                foreach (var dlcCb in dlcProductCallbacks)
+                                {
+                                    foreach (var dlcApp in dlcCb.Apps.Values)
+                                    {
+                                        ProcessAppDepots(dlcApp);  // Don't need to scan DLC's DLCs recursively
+                                        _processedApps++;
+                                    }
+                                }
+
+                                await Task.Delay(100, ct);  // Small delay between DLC batches
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to process DLC batch. Continuing...");
+                            }
                         }
                     }
 
@@ -723,8 +772,10 @@ public class SteamKit2Service : IHostedService, IDisposable
         return null;
     }
 
-    private void ProcessAppDepots(SteamApps.PICSProductInfoCallback.PICSProductInfo app)
+    private List<uint> ProcessAppDepots(SteamApps.PICSProductInfoCallback.PICSProductInfo app)
     {
+        var dlcAppIdsToScan = new List<uint>();
+
         try
         {
             var appId = app.ID;
@@ -736,13 +787,37 @@ public class SteamKit2Service : IHostedService, IDisposable
             var depots  = appinfo != KeyValue.Invalid ? appinfo["depots"]  : kv["depots"];
 
             var appName = common?["name"]?.AsString() ?? $"App {appId}";
+            var appType = common?["type"]?.AsString()?.ToLower() ?? "unknown";
             _appNames[appId] = appName;
+
+            // Extract DLC list for DLC depot discovery
+            var listofdlc = common?["listofdlc"];
+            if (listofdlc != KeyValue.Invalid && listofdlc?.Children != null)
+            {
+                foreach (var dlcChild in listofdlc.Children)
+                {
+                    if (uint.TryParse(dlcChild.AsString(), out var dlcAppId))
+                    {
+                        // Add DLC to scan list if not already scanned
+                        if (!_scannedApps.Contains(dlcAppId))
+                        {
+                            dlcAppIdsToScan.Add(dlcAppId);
+                        }
+                    }
+                }
+                if (dlcAppIdsToScan.Count > 0)
+                {
+                    _logger.LogDebug("App {AppId} ({Name}) has {Count} DLCs to scan", appId, appName, dlcAppIdsToScan.Count);
+                }
+            }
 
             if (depots == KeyValue.Invalid)
             {
                 _logger.LogDebug("App {AppId} ({Name}): no depots", appId, appName);
                 _scannedApps.Add(appId);
-                return;
+
+                // Even if no depots, return the DLC list for future scanning
+                return dlcAppIdsToScan;
             }
 
             int mapped = 0;
@@ -759,11 +834,18 @@ public class SteamKit2Service : IHostedService, IDisposable
                 var ownerFromPics = AsUInt(child["depotfromapp"]);
                 var ownerAppId = ownerFromPics ?? appId;
 
-                // (Optional) sanity: depots almost never equal their owner appid.
-                if (depotId == ownerAppId)
+                // FIXED: DLC depots use their App ID as Depot ID - this is normal Steam behavior
+                // Only skip if it's a base game/app (not DLC) with self-referencing depot
+                if (depotId == ownerAppId && appType != "dlc" && !ownerFromPics.HasValue)
                 {
-                    _logger.LogTrace("Skipping suspicious self-mapping depot {DepotId} -> app {Owner}", depotId, ownerAppId);
+                    _logger.LogTrace("Skipping base app self-mapping depot {DepotId} -> app {Owner}", depotId, ownerAppId);
                     continue;
+                }
+
+                // For DLCs, depot ID == app ID is expected and valid
+                if (depotId == ownerAppId && appType == "dlc")
+                {
+                    _logger.LogDebug("Found DLC depot {DepotId} for DLC app {AppId} ({Name})", depotId, appId, appName);
                 }
 
                 var set = _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>());
@@ -799,6 +881,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         {
             _logger.LogError(ex, "Error processing app {AppId}: {Message}", app.ID, ex.Message);
         }
+
+        return dlcAppIdsToScan;
     }
 
     /// <summary>
