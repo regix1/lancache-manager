@@ -49,7 +49,7 @@ public class StatsController : ControllerBase
 
                 stats = await _context.ClientStats
                     .AsNoTracking()
-                    .Where(c => c.LastSeen >= startDate && c.LastSeen <= endDate)
+                    .Where(c => c.LastActivityUtc >= startDate && c.LastActivityUtc <= endDate)
                     .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                     .Take(100)
                     .ToListAsync();
@@ -92,14 +92,14 @@ public class StatsController : ControllerBase
                         ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
                         : DateTime.UtcNow;
 
-                    query = query.Where(s => s.LastActivity >= startDate && s.LastActivity <= endDate);
+                    query = query.Where(s => s.LastActivityUtc >= startDate && s.LastActivityUtc <= endDate);
                 }
                 else if (!string.IsNullOrEmpty(since) && since != "all")
                 {
                     var cutoffTime = ParseTimePeriod(since);
                     if (cutoffTime.HasValue)
                     {
-                        query = query.Where(s => s.LastActivity >= cutoffTime.Value);
+                        query = query.Where(s => s.LastActivityUtc >= cutoffTime.Value);
                     }
                 }
 
@@ -144,14 +144,14 @@ public class StatsController : ControllerBase
             IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
-                downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
+                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
             }
             var recentDownloads = await downloadsQuery.ToListAsync();
 
             // Active downloads count
             var activeDownloads = await _context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTime > DateTime.UtcNow.AddMinutes(-5))
+                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
                 .CountAsync();
             
             // Calculate all-time metrics from ServiceStats (these are cumulative totals)
@@ -172,7 +172,7 @@ public class StatsController : ControllerBase
             
             // Count unique clients for the period
             var uniqueClientsCount = cutoffTime.HasValue
-                ? clientStats.Where(c => c.LastSeen >= cutoffTime.Value).Count()
+                ? clientStats.Where(c => c.LastActivityUtc >= cutoffTime.Value).Count()
                 : clientStats.Count();
             
             // Get top service
@@ -254,7 +254,7 @@ public class StatsController : ControllerBase
             IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
-                downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
+                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
             }
             var downloads = await downloadsQuery.ToListAsync();
                 
@@ -352,10 +352,10 @@ public class StatsController : ControllerBase
             IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
-                downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
+                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
             }
             var downloads = await downloadsQuery
-                .OrderBy(d => d.StartTime)
+                .OrderBy(d => d.StartTimeUtc)
                 .ToListAsync();
                 
             if (downloads.Count == 0)
@@ -382,7 +382,7 @@ public class StatsController : ControllerBase
             
             // Group downloads by time interval
             var dataPoints = new List<object>();
-            var startTime = cutoffTime ?? downloads.Min(d => d.StartTime);
+            var startTime = cutoffTime ?? downloads.Min(d => d.StartTimeUtc);
             var currentTime = startTime;
             var endTime = DateTime.UtcNow;
             
@@ -391,7 +391,7 @@ public class StatsController : ControllerBase
                 var intervalEnd = currentTime.AddMinutes(intervalMinutes);
                 
                 var intervalDownloads = downloads
-                    .Where(d => d.StartTime >= currentTime && d.StartTime < intervalEnd)
+                    .Where(d => d.StartTimeUtc >= currentTime && d.StartTimeUtc < intervalEnd)
                     .ToList();
                     
                 var hitBytes = intervalDownloads.Sum(d => d.CacheHitBytes);
@@ -460,7 +460,7 @@ public class StatsController : ControllerBase
                 var cutoffTime = ParseTimePeriod(period);
                 if (cutoffTime.HasValue)
                 {
-                    query = query.Where(d => d.StartTime >= cutoffTime.Value);
+                    query = query.Where(d => d.StartTimeUtc >= cutoffTime.Value);
                 }
             }
 

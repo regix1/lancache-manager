@@ -505,8 +505,10 @@ public class ManagementController : ControllerBase
             var services = await _cacheService.GetServicesFromLogs();
             var cachePath = _cacheService.GetCachePath();
 
-            // Get timezone from environment variable (docker-compose TZ) or use system timezone
-            var timezone = Environment.GetEnvironmentVariable("TZ") ?? TimeZoneInfo.Local.Id;
+            // Get timezone from environment variable (docker-compose TZ) or default to UTC
+            // Note: Don't use TimeZoneInfo.Local.Id as it returns Windows names like "Central Standard Time"
+            // which JavaScript doesn't understand. Use IANA format like "America/Chicago" or "UTC"
+            var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
 
             return Ok(new {
                 cachePath,
@@ -518,7 +520,7 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting configuration");
-            var timezone = Environment.GetEnvironmentVariable("TZ") ?? TimeZoneInfo.Local.Id;
+            var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
 
             return Ok(new {
                 cachePath = _pathResolver.GetCacheDirectory(),

@@ -52,7 +52,7 @@ const ServicesTab: React.FC = () => {
                       </span>
                     </div>
                   </td>
-                  <td className="py-3 text-themed-muted text-xs hidden lg:table-cell">{formatDateTime(service.lastActivity)}</td>
+                  <td className="py-3 text-themed-muted text-xs hidden lg:table-cell">{formatDateTime(service.lastActivityLocal)}</td>
                 </tr>
               ))
             ) : (

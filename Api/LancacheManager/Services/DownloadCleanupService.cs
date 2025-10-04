@@ -52,7 +52,7 @@ public class DownloadCleanupService : BackgroundService
                 while (true)
                 {
                     var staleDownloads = await context.Downloads
-                        .Where(d => d.IsActive && d.EndTime < cutoff)
+                        .Where(d => d.IsActive && d.EndTimeUtc < cutoff)
                         .Take(batchSize)
                         .ToListAsync(stoppingToken);
 

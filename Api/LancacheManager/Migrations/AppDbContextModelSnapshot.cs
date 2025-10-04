@@ -22,7 +22,10 @@ namespace LancacheManager.Migrations
                     b.Property<string>("ClientIp")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("LastSeen")
+                    b.Property<DateTime>("LastActivityLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastActivityUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<long>("TotalCacheHitBytes")
@@ -36,8 +39,8 @@ namespace LancacheManager.Migrations
 
                     b.HasKey("ClientIp");
 
-                    b.HasIndex("LastSeen")
-                        .HasDatabaseName("IX_ClientStats_LastSeen");
+                    b.HasIndex("LastActivityUtc")
+                        .HasDatabaseName("IX_ClientStats_LastActivityUtc");
 
                     b.ToTable("ClientStats");
                 });
@@ -61,7 +64,10 @@ namespace LancacheManager.Migrations
                     b.Property<uint?>("DepotId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime>("EndTime")
+                    b.Property<DateTime>("EndTimeLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("EndTimeUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<uint?>("GameAppId")
@@ -83,18 +89,21 @@ namespace LancacheManager.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("StartTime")
+                    b.Property<DateTime>("StartTimeLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartTimeUtc")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EndTime")
+                    b.HasIndex("EndTimeUtc")
                         .HasDatabaseName("IX_Downloads_EndTime");
 
                     b.HasIndex("IsActive")
                         .HasDatabaseName("IX_Downloads_IsActive");
 
-                    b.HasIndex("StartTime")
+                    b.HasIndex("StartTimeUtc")
                         .IsDescending()
                         .HasDatabaseName("IX_Downloads_StartTime");
 
@@ -175,7 +184,10 @@ namespace LancacheManager.Migrations
                     b.Property<string>("Service")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("LastActivity")
+                    b.Property<DateTime>("LastActivityLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastActivityUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<long>("TotalCacheHitBytes")
@@ -189,8 +201,8 @@ namespace LancacheManager.Migrations
 
                     b.HasKey("Service");
 
-                    b.HasIndex("LastActivity")
-                        .HasDatabaseName("IX_ServiceStats_LastActivity");
+                    b.HasIndex("LastActivityUtc")
+                        .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
 
                     b.ToTable("ServiceStats");
                 });

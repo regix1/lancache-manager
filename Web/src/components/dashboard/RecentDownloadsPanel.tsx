@@ -74,8 +74,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             cacheHitBytes: 0,
             cacheMissBytes: 0,
             clientsSet: new Set<string>(),
-            firstSeen: download.startTime,
-            lastSeen: download.startTime,
+            firstSeen: download.startTimeLocal,
+            lastSeen: download.startTimeLocal,
             count: 0
           };
         }
@@ -89,11 +89,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         groups[groupKey].clientsSet.add(download.clientIp);
         groups[groupKey].count++;
 
-        if (download.startTime < groups[groupKey].firstSeen) {
-          groups[groupKey].firstSeen = download.startTime;
+        if (download.startTimeLocal < groups[groupKey].firstSeen) {
+          groups[groupKey].firstSeen = download.startTimeLocal;
         }
-        if (download.startTime > groups[groupKey].lastSeen) {
-          groups[groupKey].lastSeen = download.startTime;
+        if (download.startTimeLocal > groups[groupKey].lastSeen) {
+          groups[groupKey].lastSeen = download.startTimeLocal;
         }
       });
 
@@ -105,7 +105,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     const groupedActiveDownloads = useMemo(() => {
       // Backend already grouped by game, just sort and limit
       const sorted = [...activeDownloads].sort((a, b) =>
-        new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+        new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime()
       );
       return sorted.slice(0, 10);
     }, [activeDownloads]);
@@ -178,11 +178,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
 
       allItems.sort((a, b) => {
         const aTime = 'downloads' in a
-          ? Math.max(...a.downloads.map((d: any) => new Date(d.startTime).getTime()))
-          : new Date(a.startTime).getTime();
+          ? Math.max(...a.downloads.map((d: any) => new Date(d.startTimeLocal).getTime()))
+          : new Date(a.startTimeLocal).getTime();
         const bTime = 'downloads' in b
-          ? Math.max(...b.downloads.map((d: any) => new Date(d.startTime).getTime()))
-          : new Date(b.startTime).getTime();
+          ? Math.max(...b.downloads.map((d: any) => new Date(d.startTimeLocal).getTime()))
+          : new Date(b.startTimeLocal).getTime();
         return bTime - aTime;
       });
 
@@ -349,7 +349,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                         </div>
                       </div>
                       <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
-                        {formatDateTime(download.startTime)}
+                        {formatDateTime(download.startTimeLocal)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center mt-2">
@@ -416,7 +416,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 cacheHitBytes: item.cacheHitBytes,
                 cacheMissBytes: item.cacheMissBytes,
                 cacheHitPercent: item.cacheHitPercent,
-                startTime: item.startTime,
+                startTime: item.startTimeLocal,
                 clientIp: item.clientIp,
                 count: 1,
                 type: 'individual'

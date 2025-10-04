@@ -52,8 +52,8 @@ public class DownloadsController : ControllerBase
 
                     downloads = await _context.Downloads
                         .AsNoTracking()
-                        .Where(d => d.StartTime >= startDate && d.StartTime <= endDate)
-                        .OrderByDescending(d => d.StartTime)
+                        .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                        .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
                         .ToListAsync();
                 }

@@ -25,8 +25,10 @@ interface Download {
   id: number;
   service: string;
   clientIp: string;
-  startTime: string;
-  endTime: string | null;
+  startTimeUtc: string;
+  endTimeUtc: string | null;
+  startTimeLocal: string;
+  endTimeLocal: string | null;
   cacheHitBytes: number;
   cacheMissBytes: number;
   totalBytes: number;
@@ -34,6 +36,9 @@ interface Download {
   isActive: boolean;
   gameName?: string;
   gameAppId?: number;
+  gameImageUrl?: string;
+  depotId?: number;
+  lastUrl?: string;
 }
 
 interface ClientStat {
@@ -43,7 +48,8 @@ interface ClientStat {
   totalBytes: number;
   cacheHitPercent: number;
   totalDownloads: number;
-  lastSeen: string | null;
+  lastActivityUtc: string;
+  lastActivityLocal: string;
 }
 
 interface ServiceStat {
@@ -53,7 +59,8 @@ interface ServiceStat {
   totalBytes: number;
   cacheHitPercent: number;
   totalDownloads: number;
-  lastActivity: string;
+  lastActivityUtc: string;
+  lastActivityLocal: string;
 }
 
 interface ProcessingStatus {

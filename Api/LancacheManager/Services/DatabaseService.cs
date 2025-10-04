@@ -44,7 +44,7 @@ public class DatabaseService
         try
         {
             return await _context.Downloads
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .Take(count)
                 .ToListAsync();
         }
@@ -62,7 +62,7 @@ public class DatabaseService
             // Only check IsActive flag - cleanup service handles marking old downloads as complete
             return await _context.Downloads
                 .Where(d => d.IsActive)
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync();
         }
         catch (Exception ex)

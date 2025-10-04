@@ -12,8 +12,10 @@ export interface Download {
   id: number;
   service: string;
   clientIp: string;
-  startTime: string;
-  endTime: string | null;
+  startTimeUtc: string;
+  endTimeUtc: string | null;
+  startTimeLocal: string;
+  endTimeLocal: string | null;
   cacheHitBytes: number;
   cacheMissBytes: number;
   totalBytes: number;
@@ -35,8 +37,10 @@ export interface GameInfo {
   cacheHitBytes?: number;
   cacheMissBytes?: number;
   cacheHitPercent?: number;
-  startTime?: string;
-  endTime?: string | null;
+  startTimeUtc?: string;
+  endTimeUtc?: string | null;
+  startTimeLocal?: string;
+  endTimeLocal?: string | null;
   clientIp?: string;
   isActive?: boolean;
   error?: string;
@@ -93,7 +97,8 @@ export interface ClientStat {
   cacheHitPercent: number;
   totalDownloads: number;
   downloadCount?: number;
-  lastSeen: string | null;
+  lastActivityUtc: string;
+  lastActivityLocal: string;
 }
 
 export interface ServiceStat {
@@ -103,7 +108,8 @@ export interface ServiceStat {
   totalBytes: number;
   cacheHitPercent: number;
   totalDownloads: number;
-  lastActivity: string;
+  lastActivityUtc: string;
+  lastActivityLocal: string;
 }
 
 export interface DashboardStats {

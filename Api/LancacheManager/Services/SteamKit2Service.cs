@@ -1052,7 +1052,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             var recentAppIds = await context.Downloads
-                .Where(d => d.GameAppId.HasValue && d.StartTime > DateTime.UtcNow.AddDays(-30))
+                .Where(d => d.GameAppId.HasValue && d.StartTimeUtc > DateTime.UtcNow.AddDays(-30))
                 .Select(d => d.GameAppId!.Value)
                 .Distinct()
                 .Take(500)

@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -70,6 +72,7 @@ struct Processor {
     lines_parsed: AtomicU64,
     entries_saved: AtomicU64,
     cancel_flag: Arc<AtomicBool>,
+    local_tz: Tz,
 }
 
 impl Processor {
@@ -81,6 +84,11 @@ impl Processor {
         start_position: u64,
     ) -> Self {
         let cancel_flag = Arc::new(AtomicBool::new(false));
+
+        // Get timezone from environment variable (same as C# uses)
+        let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
+        let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
+        println!("Using timezone: {} (from TZ env var)", local_tz);
 
         // Spawn background thread to monitor cancel file
         let cancel_flag_clone = Arc::clone(&cancel_flag);
@@ -107,7 +115,15 @@ impl Processor {
             lines_parsed: AtomicU64::new(0),
             entries_saved: AtomicU64::new(0),
             cancel_flag,
+            local_tz,
         }
+    }
+
+    /// Convert UTC NaiveDateTime to local timezone NaiveDateTime
+    fn utc_to_local(&self, utc_dt: NaiveDateTime) -> NaiveDateTime {
+        let utc_datetime = Utc.from_utc_datetime(&utc_dt);
+        let local_datetime = utc_datetime.with_timezone(&self.local_tz);
+        local_datetime.naive_local()
     }
 
     fn should_cancel(&self) -> bool {
@@ -475,14 +491,22 @@ impl Processor {
             // This ensures we get the correct URL including hash-based URLs for newer games
             let game_image_url: Option<String> = None;
 
+            // Convert timestamps to both UTC and local timezone
+            let first_utc = first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+            let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+            let first_local = self.utc_to_local(first_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+            let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+
             tx.execute(
-                "INSERT INTO Downloads (Service, ClientIp, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName, GameImageUrl)
-                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+                "INSERT INTO Downloads (Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName, GameImageUrl)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
                 params![
                     service,
                     client_ip,
-                    first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-                    last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    first_utc,
+                    last_utc,
+                    first_local,
+                    last_local,
                     total_hit_bytes,
                     total_miss_bytes,
                     last_url,
@@ -505,14 +529,18 @@ impl Processor {
                 .map(|count: i64| count > 0)?;
 
             if client_exists {
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
-                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastSeen = ?, TotalDownloads = TotalDownloads + 1 WHERE ClientIp = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), client_ip],
+                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ?, TotalDownloads = TotalDownloads + 1 WHERE ClientIp = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, client_ip],
                 )?;
             } else {
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
-                    "INSERT INTO ClientStats (ClientIp, TotalCacheHitBytes, TotalCacheMissBytes, LastSeen, TotalDownloads) VALUES (?, ?, ?, ?, 1)",
-                    params![client_ip, total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string()],
+                    "INSERT INTO ClientStats (ClientIp, TotalCacheHitBytes, TotalCacheMissBytes, LastActivityUtc, LastActivityLocal, TotalDownloads) VALUES (?, ?, ?, ?, ?, 1)",
+                    params![client_ip, total_hit_bytes, total_miss_bytes, last_utc, last_local],
                 )?;
             }
 
@@ -526,14 +554,18 @@ impl Processor {
                 .map(|count: i64| count > 0)?;
 
             if service_exists {
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
-                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivity = ?, TotalDownloads = TotalDownloads + 1 WHERE Service = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), service],
+                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ?, TotalDownloads = TotalDownloads + 1 WHERE Service = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, service],
                 )?;
             } else {
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
-                    "INSERT INTO ServiceStats (Service, TotalCacheHitBytes, TotalCacheMissBytes, LastActivity, TotalDownloads) VALUES (?, ?, ?, ?, 1)",
-                    params![service, total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string()],
+                    "INSERT INTO ServiceStats (Service, TotalCacheHitBytes, TotalCacheMissBytes, LastActivityUtc, LastActivityLocal, TotalDownloads) VALUES (?, ?, ?, ?, ?, 1)",
+                    params![service, total_hit_bytes, total_miss_bytes, last_utc, last_local],
                 )?;
             }
 
@@ -542,14 +574,14 @@ impl Processor {
             // Try to find existing active download for this specific depot
             let download_id_opt: Option<i64> = if let Some(depot_id) = primary_depot_id {
                 tx.query_row(
-                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId = ? AND IsActive = 1 ORDER BY StartTime DESC LIMIT 1",
+                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId = ? AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",
                     params![client_ip, service, depot_id],
                     |row| row.get(0),
                 )
                 .optional()?
             } else {
                 tx.query_row(
-                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 ORDER BY StartTime DESC LIMIT 1",
+                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",
                     params![client_ip, service],
                     |row| row.get(0),
                 )
@@ -564,13 +596,21 @@ impl Processor {
             let (download_id, is_new) = if let Some(id) = download_id_opt {
                 (id, false)
             } else {
+                // Convert timestamps to both UTC and local timezone
+                let first_utc = first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let first_local = self.utc_to_local(first_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+
                 tx.execute(
-                    "INSERT INTO Downloads (ClientIp, Service, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, GameImageUrl, LastUrl, DepotId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO Downloads (ClientIp, Service, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, GameImageUrl, LastUrl, DepotId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     params![
                         client_ip,
                         service,
-                        first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-                        last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        first_utc,
+                        last_utc,
+                        first_local,
+                        last_local,
                         total_hit_bytes,
                         total_miss_bytes,
                         1, // IsActive
@@ -586,10 +626,15 @@ impl Processor {
 
             // Only update if we found existing download (not if we just created it)
             if !is_new {
+                // Convert timestamps to both UTC and local timezone
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+
                 tx.execute(
-                    "UPDATE Downloads SET EndTime = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName), GameImageUrl = COALESCE(?, GameImageUrl) WHERE Id = ?",
+                    "UPDATE Downloads SET EndTimeUtc = ?, EndTimeLocal = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName), GameImageUrl = COALESCE(?, GameImageUrl) WHERE Id = ?",
                     params![
-                        last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        last_utc,
+                        last_local,
                         total_hit_bytes,
                         total_miss_bytes,
                         last_url,
@@ -602,25 +647,29 @@ impl Processor {
                 )?;
 
                 // Update client stats (without incrementing TotalDownloads)
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
-                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastSeen = ? WHERE ClientIp = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), client_ip],
+                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE ClientIp = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, client_ip],
                 )?;
 
                 // Update service stats (without incrementing TotalDownloads)
                 tx.execute(
-                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivity = ? WHERE Service = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), service],
+                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE Service = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, service],
                 )?;
             } else {
                 // For new downloads, stats were already updated in the first branch, so update them here too
+                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
-                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastSeen = ? WHERE ClientIp = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), client_ip],
+                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE ClientIp = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, client_ip],
                 )?;
                 tx.execute(
-                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivity = ? WHERE Service = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), service],
+                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE Service = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, service],
                 )?;
             }
 

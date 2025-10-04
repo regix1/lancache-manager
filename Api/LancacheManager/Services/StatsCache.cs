@@ -43,7 +43,7 @@ public class StatsCache
             var recentDownloads = await context.Downloads
                 .AsNoTracking()
                 .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .Take(100)
                 .ToListAsync();
 
@@ -54,7 +54,7 @@ public class StatsCache
             var activeDownloadsRaw = await context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .Take(100)
                 .ToListAsync();
 
@@ -74,8 +74,10 @@ public class StatsCache
                         Id = first.Id,
                         Service = first.Service,
                         ClientIp = first.ClientIp,
-                        StartTime = group.Min(d => d.StartTime),
-                        EndTime = default(DateTime),
+                        StartTimeUtc = group.Min(d => d.StartTimeUtc),
+                        EndTimeUtc = default(DateTime),
+                        StartTimeLocal = group.Min(d => d.StartTimeLocal),
+                        EndTimeLocal = default(DateTime),
                         CacheHitBytes = group.Sum(d => d.CacheHitBytes),
                         CacheMissBytes = group.Sum(d => d.CacheMissBytes),
                         IsActive = true,
@@ -85,7 +87,7 @@ public class StatsCache
                         DepotId = first.DepotId
                     };
                 })
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .ToList();
 
             _cache.Set("active_downloads", activeDownloads, TimeSpan.FromSeconds(2));
@@ -135,7 +137,7 @@ public class StatsCache
             return await context.Downloads
                 .AsNoTracking()
                 .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .Take(count)
                 .ToListAsync();
         }) ?? new List<Download>();
@@ -151,7 +153,7 @@ public class StatsCache
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .Take(100)
                 .ToListAsync();
 
@@ -176,8 +178,10 @@ public class StatsCache
                         Id = first.Id,
                         Service = first.Service,
                         ClientIp = first.ClientIp,
-                        StartTime = group.Min(d => d.StartTime),
-                        EndTime = default(DateTime),
+                        StartTimeUtc = group.Min(d => d.StartTimeUtc),
+                        EndTimeUtc = default(DateTime),
+                        StartTimeLocal = group.Min(d => d.StartTimeLocal),
+                        EndTimeLocal = default(DateTime),
                         CacheHitBytes = group.Sum(d => d.CacheHitBytes),
                         CacheMissBytes = group.Sum(d => d.CacheMissBytes),
                         IsActive = true,
@@ -187,7 +191,7 @@ public class StatsCache
                         DepotId = first.DepotId
                     };
                 })
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .ToList();
 
             return grouped;

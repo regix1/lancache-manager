@@ -43,7 +43,7 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_Downloads_Client_Service_Active");
             
         modelBuilder.Entity<Download>()
-            .HasIndex(d => d.StartTime)
+            .HasIndex(d => d.StartTimeUtc)
             .HasDatabaseName("IX_Downloads_StartTime")
             .IsDescending(); // For ORDER BY DESC queries
             
@@ -52,18 +52,18 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_Downloads_IsActive");
             
         modelBuilder.Entity<Download>()
-            .HasIndex(d => d.EndTime)
+            .HasIndex(d => d.EndTimeUtc)
             .HasDatabaseName("IX_Downloads_EndTime");
             
         // ClientStats indexes
         modelBuilder.Entity<ClientStats>()
-            .HasIndex(c => c.LastSeen)
-            .HasDatabaseName("IX_ClientStats_LastSeen");
-            
-        // ServiceStats indexes  
+            .HasIndex(c => c.LastActivityUtc)
+            .HasDatabaseName("IX_ClientStats_LastActivityUtc");
+
+        // ServiceStats indexes
         modelBuilder.Entity<ServiceStats>()
-            .HasIndex(s => s.LastActivity)
-            .HasDatabaseName("IX_ServiceStats_LastActivity");
+            .HasIndex(s => s.LastActivityUtc)
+            .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
             
         // SteamDepotMapping indexes
         modelBuilder.Entity<SteamDepotMapping>()

@@ -13,5 +13,10 @@ public class ClientStats
     [JsonInclude]
     public double CacheHitPercent => TotalBytes > 0 ? (TotalCacheHitBytes * 100.0) / TotalBytes : 0;
     public int TotalDownloads { get; set; }
-    public DateTime LastSeen { get; set; }
+
+    // UTC timestamps - always stored in UTC for consistent querying
+    public DateTime LastActivityUtc { get; set; }
+
+    // Local timestamps - stored in the user's configured timezone for display
+    public DateTime LastActivityLocal { get; set; }
 }

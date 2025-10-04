@@ -113,19 +113,19 @@ const Dashboard: React.FC = () => {
     // Get the time range parameters
     const { startTime, endTime } = getTimeRangeParams();
 
-    // Filter clients based on lastSeen date
+    // Filter clients based on lastActivityLocal date
     return clientStats.filter(client => {
-      if (!client.lastSeen) {
+      if (!client.lastActivityLocal) {
         return false;
       }
 
-      // Parse the lastSeen date
-      const lastSeenDate = new Date(client.lastSeen);
-      const lastSeenTimestamp = Math.floor(lastSeenDate.getTime() / 1000);
+      // Parse the lastActivityLocal date
+      const lastActivityDate = new Date(client.lastActivityLocal);
+      const lastActivityTimestamp = Math.floor(lastActivityDate.getTime() / 1000);
 
-      // Check if lastSeen is within the selected range
+      // Check if lastActivity is within the selected range
       if (startTime && endTime) {
-        return lastSeenTimestamp >= startTime && lastSeenTimestamp <= endTime;
+        return lastActivityTimestamp >= startTime && lastActivityTimestamp <= endTime;
       }
 
       return true;

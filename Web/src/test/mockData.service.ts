@@ -162,7 +162,7 @@ class MockDataService {
           totalCacheHitBytes: 0,
           totalCacheMissBytes: 0,
           totalDownloads: 0,
-          lastSeen: startTime
+          lastActivityLocal: startTime
         };
       }
 
@@ -179,7 +179,7 @@ class MockDataService {
     }
 
     // Sort by start time (most recent first)
-    downloads.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    downloads.sort((a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime());
 
     // Generate client stats based on actual download activity
     const clientStats = clients
@@ -196,7 +196,7 @@ class MockDataService {
             totalBytes: totalBytes,
             cacheHitPercent: totalBytes > 0 ? (activity.totalCacheHitBytes / totalBytes) * 100 : 0,
             totalDownloads: activity.totalDownloads,
-            lastSeen: activity.lastSeen.toISOString()
+            lastActivityLocal: activity.lastSeen.toISOString()
           };
         } else {
           // Client had no downloads - return zeros
@@ -207,7 +207,7 @@ class MockDataService {
             totalBytes: 0,
             cacheHitPercent: 0,
             totalDownloads: 0,
-            lastSeen: null
+            lastActivityLocal: null
           };
         }
       })
@@ -226,8 +226,8 @@ class MockDataService {
         totalBytes: hitBytes + missBytes || cacheInfo.serviceSizes[service],
         cacheHitPercent: hitBytes + missBytes > 0 ? (hitBytes / (hitBytes + missBytes)) * 100 : 80,
         totalDownloads: serviceDownloads.length,
-        lastActivity:
-          serviceDownloads[0]?.startTime ||
+        lastActivityLocal:
+          serviceDownloads[0]?.startTimeLocal ||
           new Date(now.getTime() - Math.random() * 7200000).toISOString()
       };
     });

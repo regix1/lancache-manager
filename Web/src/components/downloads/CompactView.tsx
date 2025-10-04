@@ -249,7 +249,7 @@ const CompactView: React.FC<CompactViewProps> = ({
                     : group.downloads.length})
                 </div>
                 {group.downloads
-                  .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+                  .sort((a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime())
                   .slice(0, 100)
                   .map((download) => {
                     const totalBytes = download.totalBytes || 0;
@@ -265,7 +265,7 @@ const CompactView: React.FC<CompactViewProps> = ({
                             {download.clientIp}
                           </span>
                           <span className="text-themed-muted">
-                            {formatRelativeTime(download.startTime)}
+                            {formatRelativeTime(download.startTimeLocal)}
                           </span>
                         </div>
                         <div className="flex items-center gap-4">
@@ -306,8 +306,8 @@ const CompactView: React.FC<CompactViewProps> = ({
       cacheHitBytes: download.cacheHitBytes || 0,
       cacheMissBytes: download.cacheMissBytes || 0,
       clientsSet: new Set([download.clientIp]),
-      firstSeen: download.startTime,
-      lastSeen: download.startTime,
+      firstSeen: download.startTimeLocal,
+      lastSeen: download.startTimeLocal,
       count: 1
     };
 

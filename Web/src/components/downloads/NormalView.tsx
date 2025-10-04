@@ -106,8 +106,8 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
       cacheHitBytes: download.cacheHitBytes || 0,
       cacheMissBytes: download.cacheMissBytes || 0,
       clientsSet: new Set([download.clientIp]),
-      firstSeen: download.startTime,
-      lastSeen: download.startTime,
+      firstSeen: download.startTimeLocal,
+      lastSeen: download.startTimeLocal,
       count: 1
     };
 
@@ -423,12 +423,12 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                               <div className="flex flex-col gap-1 text-xs">
                                 <span className="flex items-center gap-1.5 text-[var(--theme-text-secondary)]">
                                   <Clock size={12} />
-                                  Started {formatRelativeTime(download.startTime)}
+                                  Started {formatRelativeTime(download.startTimeLocal)}
                                 </span>
-                                {download.endTime ? (
+                                {download.endTimeLocal ? (
                                   <span className="flex items-center gap-1.5 text-[var(--theme-success-text)]">
                                     <CheckCircle size={12} />
-                                    Completed {formatRelativeTime(download.endTime)}
+                                    Completed {formatRelativeTime(download.endTimeLocal)}
                                   </span>
                                 ) : (
                                   <span className="flex items-center gap-1.5 text-[var(--theme-info-text)]">

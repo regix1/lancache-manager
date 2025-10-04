@@ -48,7 +48,7 @@ public class GameImagesController : ControllerBase
             // Look up the game in the database to get the actual image URL
             var download = await _context.Downloads
                 .Where(d => d.GameAppId == appId && !string.IsNullOrEmpty(d.GameImageUrl))
-                .OrderByDescending(d => d.StartTime)
+                .OrderByDescending(d => d.StartTimeUtc)
                 .FirstOrDefaultAsync();
 
             if (download?.GameImageUrl == null)

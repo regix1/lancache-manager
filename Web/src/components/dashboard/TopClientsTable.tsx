@@ -118,7 +118,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                         {formatPercent(client.cacheHitPercent)}
                       </span>
                     </td>
-                    <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">{formatDateTime(client.lastSeen)}</td>
+                    <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">{formatDateTime(client.lastActivityLocal)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -8,12 +8,20 @@ public class Download
     public int Id { get; set; }
     public string Service { get; set; } = string.Empty;
     public string ClientIp { get; set; } = string.Empty;
-    public DateTime StartTime { get; set; }
-    public DateTime EndTime { get; set; }
+
+    // UTC timestamps - always stored in UTC for consistent querying
+    public DateTime StartTimeUtc { get; set; }
+
+    // Local timestamps - stored in the user's configured timezone for display
+    public DateTime StartTimeLocal { get; set; }
+
+    public DateTime EndTimeUtc { get; set; }
+    public DateTime EndTimeLocal { get; set; }
+
     public long CacheHitBytes { get; set; }
     public long CacheMissBytes { get; set; }
     public bool IsActive { get; set; }
-    
+
     // New fields for game information
     public uint? GameAppId { get; set; }
     public string? GameName { get; set; }

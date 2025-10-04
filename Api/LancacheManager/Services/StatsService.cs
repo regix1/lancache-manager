@@ -97,7 +97,7 @@ public class StatsService
         // Get downloads within the time period
         var downloadsQuery = _context.Downloads
             .AsNoTracking()
-            .Where(d => d.StartTime >= cutoff);
+            .Where(d => d.StartTimeUtc >= cutoff);
 
         var totalDownloads = await downloadsQuery.CountAsync(cancellationToken);
         var activeDownloads = await downloadsQuery.Where(d => d.IsActive).CountAsync(cancellationToken);
@@ -146,7 +146,7 @@ public class StatsService
         // Load data first, then group in memory to avoid EF Core translation issues
         var downloads = await _context.Downloads
             .AsNoTracking()
-            .Where(d => d.StartTime >= cutoff && !string.IsNullOrEmpty(d.GameName))
+            .Where(d => d.StartTimeUtc >= cutoff && !string.IsNullOrEmpty(d.GameName))
             .Select(d => new { d.GameName, d.GameAppId, d.TotalBytes, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
             .ToListAsync(cancellationToken);
 
@@ -183,7 +183,7 @@ public class StatsService
 
         return await _context.Downloads
             .AsNoTracking()
-            .Where(d => d.StartTime >= cutoff)
+            .Where(d => d.StartTimeUtc >= cutoff)
             .GroupBy(d => d.Service)
             .Select(g => new ServicePeriodStat
             {

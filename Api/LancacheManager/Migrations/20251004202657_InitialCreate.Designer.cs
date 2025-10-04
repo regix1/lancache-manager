@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LancacheManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250922224345_FixDepotMappingConstraints")]
-    partial class FixDepotMappingConstraints
+    [Migration("20251004202657_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -25,7 +25,10 @@ namespace LancacheManager.Migrations
                     b.Property<string>("ClientIp")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("LastSeen")
+                    b.Property<DateTime>("LastActivityLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastActivityUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<long>("TotalCacheHitBytes")
@@ -39,8 +42,8 @@ namespace LancacheManager.Migrations
 
                     b.HasKey("ClientIp");
 
-                    b.HasIndex("LastSeen")
-                        .HasDatabaseName("IX_ClientStats_LastSeen");
+                    b.HasIndex("LastActivityUtc")
+                        .HasDatabaseName("IX_ClientStats_LastActivityUtc");
 
                     b.ToTable("ClientStats");
                 });
@@ -64,7 +67,10 @@ namespace LancacheManager.Migrations
                     b.Property<uint?>("DepotId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime>("EndTime")
+                    b.Property<DateTime>("EndTimeLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("EndTimeUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<uint?>("GameAppId")
@@ -86,18 +92,21 @@ namespace LancacheManager.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("StartTime")
+                    b.Property<DateTime>("StartTimeLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartTimeUtc")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("EndTime")
+                    b.HasIndex("EndTimeUtc")
                         .HasDatabaseName("IX_Downloads_EndTime");
 
                     b.HasIndex("IsActive")
                         .HasDatabaseName("IX_Downloads_IsActive");
 
-                    b.HasIndex("StartTime")
+                    b.HasIndex("StartTimeUtc")
                         .IsDescending()
                         .HasDatabaseName("IX_Downloads_StartTime");
 
@@ -107,12 +116,81 @@ namespace LancacheManager.Migrations
                     b.ToTable("Downloads");
                 });
 
+            modelBuilder.Entity("LancacheManager.Models.LogEntryRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("BytesServed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CacheStatus")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ClientIp")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<uint?>("DepotId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("DownloadId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Service")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("StatusCode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("Timestamp")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DownloadId")
+                        .HasDatabaseName("IX_LogEntries_DownloadId");
+
+                    b.HasIndex("Timestamp")
+                        .HasDatabaseName("IX_LogEntries_Timestamp");
+
+                    b.HasIndex("ClientIp", "Service")
+                        .HasDatabaseName("IX_LogEntries_Client_Service");
+
+                    b.HasIndex("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
+                        .HasDatabaseName("IX_LogEntries_DuplicateCheck");
+
+                    b.ToTable("LogEntries");
+                });
+
             modelBuilder.Entity("LancacheManager.Models.ServiceStats", b =>
                 {
                     b.Property<string>("Service")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("LastActivity")
+                    b.Property<DateTime>("LastActivityLocal")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastActivityUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<long>("TotalCacheHitBytes")
@@ -126,8 +204,8 @@ namespace LancacheManager.Migrations
 
                     b.HasKey("Service");
 
-                    b.HasIndex("LastActivity")
-                        .HasDatabaseName("IX_ServiceStats_LastActivity");
+                    b.HasIndex("LastActivityUtc")
+                        .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
 
                     b.ToTable("ServiceStats");
                 });
@@ -143,9 +221,6 @@ namespace LancacheManager.Migrations
 
                     b.Property<string>("AppName")
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("Confidence")
-                        .HasColumnType("INTEGER");
 
                     b.Property<uint>("DepotId")
                         .HasColumnType("INTEGER");
@@ -170,6 +245,15 @@ namespace LancacheManager.Migrations
                         .HasDatabaseName("IX_SteamDepotMappings_DepotId_AppId");
 
                     b.ToTable("SteamDepotMappings");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.LogEntryRecord", b =>
+                {
+                    b.HasOne("LancacheManager.Models.Download", "Download")
+                        .WithMany()
+                        .HasForeignKey("DownloadId");
+
+                    b.Navigation("Download");
                 });
 #pragma warning restore 612, 618
         }

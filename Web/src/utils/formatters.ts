@@ -27,7 +27,7 @@ export function formatPercent(value: number, decimals = 1): string {
 
 /**
  * Format date/time to locale string using server timezone
- * Database stores UTC, displays in server's configured timezone (from docker-compose TZ)
+ * Handles both UTC timestamps (converted to server TZ) and Local timestamps (displayed as-is)
  */
 export function formatDateTime(dateString: string | Date | null | undefined): string {
   if (!dateString) return 'N/A';
@@ -37,21 +37,62 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 
     if (isNaN(date.getTime())) return 'Invalid Date';
 
-    // Get server timezone from config (set on app startup)
-    const serverTimezone = getServerTimezone();
+    // Get server timezone from config (set on app startup from docker-compose TZ)
+    let serverTimezone = getServerTimezone();
 
     // Use 24-hour format for UTC, otherwise let locale decide
     const isUTC = serverTimezone === 'UTC';
 
-    // Display in server's timezone
+    // Convert to server's timezone for display
+    try {
+      return date.toLocaleString(undefined, {
+        timeZone: serverTimezone,
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: isUTC ? false : undefined // undefined = use locale default
+      });
+    } catch (tzError) {
+      // Timezone invalid (e.g., Windows timezone name), fall back to UTC
+      console.warn(`Invalid timezone "${serverTimezone}", falling back to UTC`);
+      return date.toLocaleString(undefined, {
+        timeZone: 'UTC',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    }
+  } catch (error) {
+    return 'Invalid Date';
+  }
+}
+
+/**
+ * Format Local timestamp (already in server timezone) for display
+ * Local timestamps are stored as naive datetime strings in the server's timezone
+ * We display them directly without timezone conversion
+ */
+export function formatLocalDateTime(dateString: string | null | undefined): string {
+  if (!dateString) return 'N/A';
+
+  try {
+    // Parse the date string and display it as-is (no timezone conversion)
+    // The timestamp is already in the server's configured timezone
+    const date = new Date(dateString);
+
+    if (isNaN(date.getTime())) return 'Invalid Date';
+
     return date.toLocaleString(undefined, {
-      timeZone: serverTimezone,
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: isUTC ? false : undefined // undefined = use locale default
     });
   } catch (error) {
     return 'Invalid Date';
