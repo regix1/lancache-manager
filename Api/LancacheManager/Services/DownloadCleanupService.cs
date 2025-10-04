@@ -16,17 +16,40 @@ public class DownloadCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Disabled time-based cleanup - Rust processor handles session management
-        // The Rust processor marks sessions inactive when a new session starts (session gap > 5 minutes)
-        // This prevents downloads from disappearing when they're still active but waiting for next chunk
+        // Wait for app to start
+        await Task.Delay(5000, stoppingToken);
 
-        _logger.LogInformation("DownloadCleanupService is disabled - session management handled by Rust processor");
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        await Task.Delay(Timeout.Infinite, stoppingToken);
+                // Use 1-minute timeout - if no new data in 1 minute, download is complete
+                var cutoff = DateTime.UtcNow.AddMinutes(-1);
+                var staleDownloads = await context.Downloads
+                    .Where(d => d.IsActive && d.EndTime < cutoff)
+                    .ToListAsync(stoppingToken);
 
-        // Old logic (disabled):
-        // - Used 10-minute timeout to mark downloads as complete
-        // - This caused downloads to disappear even when still active
-        // - Conflicted with 5-minute session gap in Rust processor
+                if (staleDownloads.Any())
+                {
+                    foreach (var download in staleDownloads)
+                    {
+                        download.IsActive = false;
+                    }
+
+                    await context.SaveChangesAsync(stoppingToken);
+                    _logger.LogInformation($"Marked {staleDownloads.Count} downloads as complete (EndTime > 1 minute old)");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in cleanup service");
+            }
+
+            // Run every 30 seconds
+            await Task.Delay(30000, stoppingToken);
+        }
     }
 }
