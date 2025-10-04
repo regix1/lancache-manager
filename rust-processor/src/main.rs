@@ -120,10 +120,17 @@ impl Processor {
     }
 
     /// Convert UTC NaiveDateTime to local timezone NaiveDateTime
+    /// Returns a naive datetime representing the same instant in the target timezone
     fn utc_to_local(&self, utc_dt: NaiveDateTime) -> NaiveDateTime {
+        // Create a UTC datetime from the naive UTC time
         let utc_datetime = Utc.from_utc_datetime(&utc_dt);
+
+        // Convert to the target timezone
         let local_datetime = utc_datetime.with_timezone(&self.local_tz);
-        local_datetime.naive_local()
+
+        // Return the local time components (this discards the timezone info but keeps the adjusted time)
+        // e.g., if UTC is 22:28:34 and TZ is America/Chicago (UTC-6), this returns 16:28:34
+        NaiveDateTime::new(local_datetime.date_naive(), local_datetime.time())
     }
 
     fn should_cancel(&self) -> bool {
