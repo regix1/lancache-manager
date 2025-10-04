@@ -28,19 +28,37 @@ public class DownloadCleanupService : BackgroundService
 
                 // Use 1-minute timeout - if no new data in 1 minute, download is complete
                 var cutoff = DateTime.UtcNow.AddMinutes(-1);
-                var staleDownloads = await context.Downloads
-                    .Where(d => d.IsActive && d.EndTime < cutoff)
-                    .ToListAsync(stoppingToken);
 
-                if (staleDownloads.Any())
+                // Process in smaller batches to avoid long locks (important when Rust processor is running)
+                const int batchSize = 10;
+                var totalUpdated = 0;
+
+                while (true)
                 {
+                    var staleDownloads = await context.Downloads
+                        .Where(d => d.IsActive && d.EndTime < cutoff)
+                        .Take(batchSize)
+                        .ToListAsync(stoppingToken);
+
+                    if (!staleDownloads.Any())
+                        break;
+
                     foreach (var download in staleDownloads)
                     {
                         download.IsActive = false;
                     }
 
                     await context.SaveChangesAsync(stoppingToken);
-                    _logger.LogInformation($"Marked {staleDownloads.Count} downloads as complete (EndTime > 1 minute old)");
+                    totalUpdated += staleDownloads.Count;
+
+                    // Small delay between batches to allow other operations
+                    if (staleDownloads.Count == batchSize)
+                        await Task.Delay(50, stoppingToken);
+                }
+
+                if (totalUpdated > 0)
+                {
+                    _logger.LogInformation($"Marked {totalUpdated} downloads as complete (EndTime > 1 minute old)");
                 }
             }
             catch (Exception ex)

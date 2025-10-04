@@ -21,10 +21,9 @@ public class StatsCache
     {
         try
         {
-            // Pre-load client stats into cache (exclude localhost test traffic)
+            // Pre-load client stats into cache
             var clientStats = await context.ClientStats
                 .AsNoTracking()
-                .Where(c => c.ClientIp != "127.0.0.1")
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .ToListAsync();
 
@@ -40,10 +39,9 @@ public class StatsCache
             _cache.Set("service_stats", serviceStats, _cacheExpiration);
             _logger.LogInformation($"Cached {serviceStats.Count} service stats");
 
-            // Pre-load recent downloads into cache (exclude localhost test traffic)
+            // Pre-load recent downloads into cache
             var recentDownloads = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.ClientIp != "127.0.0.1")
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
@@ -104,10 +102,8 @@ public class StatsCache
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
 
-            // Exclude localhost (127.0.0.1) test traffic from client stats
             return await context.ClientStats
                 .AsNoTracking()
-                .Where(c => c.ClientIp != "127.0.0.1")
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .Take(100)
                 .ToListAsync();
@@ -135,10 +131,8 @@ public class StatsCache
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
 
-            // Exclude localhost (127.0.0.1) test traffic from downloads list
             return await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.ClientIp != "127.0.0.1")
                 .OrderByDescending(d => d.StartTime)
                 .Take(count)
                 .ToListAsync();
@@ -151,7 +145,7 @@ public class StatsCache
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(2); // Fast refresh for live data
 
-            // Get all active downloads with bytes
+            // Get all active downloads
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0)

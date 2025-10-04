@@ -318,6 +318,7 @@ const DownloadsTab: React.FC = () => {
           service: download.service,
           downloads: [],
           totalBytes: 0,
+          totalDownloaded: 0,
           cacheHitBytes: 0,
           cacheMissBytes: 0,
           clientsSet: new Set<string>(),
@@ -328,7 +329,9 @@ const DownloadsTab: React.FC = () => {
       }
 
       groups[groupKey].downloads.push(download);
+      // Track total downloaded across all sessions
       groups[groupKey].totalBytes += download.totalBytes || 0;
+      groups[groupKey].totalDownloaded += download.totalBytes || 0;
       groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
       groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
       groups[groupKey].clientsSet.add(download.clientIp);

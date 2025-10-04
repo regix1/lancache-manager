@@ -746,6 +746,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             }
 
             int mapped = 0;
+            var manifestIds = new List<(uint depotId, ulong manifestId)>();
 
             foreach (var child in depots.Children)
             {
@@ -769,9 +770,26 @@ public class SteamKit2Service : IHostedService, IDisposable
                 set.Add(ownerAppId);
                 mapped++;
 
+                // Extract manifest ID for the public branch (for size calculation later)
+                var manifestsNode = child["manifests"];
+                if (manifestsNode != KeyValue.Invalid)
+                {
+                    var publicManifest = manifestsNode["public"];
+                    if (publicManifest != KeyValue.Invalid && ulong.TryParse(publicManifest.AsString(), out var manifestId))
+                    {
+                        manifestIds.Add((depotId, manifestId));
+                    }
+                }
+
                 var ownerName = _appNames.TryGetValue(ownerAppId, out var n) ? n : $"App {ownerAppId}";
                 _logger.LogInformation("Mapped depot {DepotId} -> app {OwnerAppId} ({OwnerName}) [via {Via}]",
                     depotId, ownerAppId, ownerName, ownerFromPics.HasValue ? "depotfromapp" : "current-app");
+            }
+
+            // Queue this app for size calculation if we found manifests
+            if (manifestIds.Count > 0)
+            {
+                _ = Task.Run(async () => await FetchAndStoreGameSize(appId, appName, manifestIds));
             }
 
             _logger.LogDebug("App {AppId} ({Name}): mapped {Count} depots", appId, appName, mapped);
@@ -780,6 +798,36 @@ public class SteamKit2Service : IHostedService, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing app {AppId}: {Message}", app.ID, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Store manifest IDs for future size calculation
+    /// For now, we store the depot info but don't fetch manifests during PICS crawl
+    /// TODO: Implement background job to fetch manifests from CDN using CDNClient
+    /// </summary>
+    private async Task FetchAndStoreGameSize(uint appId, string appName, List<(uint depotId, ulong manifestId)> manifestIds)
+    {
+        try
+        {
+            // For now, just log that we found manifest info
+            // In the future, this will use CDNClient.DownloadManifestAsync to get actual sizes
+            _logger.LogDebug("Found {Count} depot manifests for {AppName} (App {AppId})",
+                manifestIds.Count, appName, appId);
+
+            // TODO: Implement manifest download using CDNClient
+            // This requires:
+            // 1. Creating CDNClient instance
+            // 2. Getting manifest request code via GetDepotManifestRequestCodeAsync
+            // 3. Downloading manifest via CDNClient.DownloadManifestAsync
+            // 4. Summing TotalUncompressedSize from all manifests
+            // 5. Storing in GameSizes table
+
+            await Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing game size for app {AppId}", appId);
         }
     }
 
@@ -1626,9 +1674,9 @@ public class SteamKit2Service : IHostedService, IDisposable
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            // Get downloads that have depot IDs but no game info
+            // Get downloads that have depot IDs but no game info (or missing image)
             var downloadsNeedingGameInfo = await context.Downloads
-                .Where(d => d.DepotId.HasValue && d.GameAppId == null)
+                .Where(d => d.DepotId.HasValue && (d.GameAppId == null || string.IsNullOrEmpty(d.GameImageUrl)))
                 .ToListAsync();
 
             _logger.LogInformation($"Found {downloadsNeedingGameInfo.Count} downloads needing game info after PICS completion");
@@ -1640,13 +1688,16 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 try
                 {
-                    uint? appId = null;
+                    uint? appId = download.GameAppId; // Use existing appId if available
 
-                    // Use PICS mappings to find app ID
-                    var appIds = GetAppIdsForDepot(download.DepotId.Value);
-                    if (appIds.Any())
+                    // If no AppId yet, use PICS mappings to find it
+                    if (!appId.HasValue)
                     {
-                        appId = appIds.First(); // Take the first app ID if multiple exist
+                        var appIds = GetAppIdsForDepot(download.DepotId.Value);
+                        if (appIds.Any())
+                        {
+                            appId = appIds.First(); // Take the first app ID if multiple exist
+                        }
                     }
 
                     if (appId.HasValue)

@@ -11,7 +11,8 @@ interface DownloadGroup {
   type: 'game' | 'metadata' | 'content';
   service: string;
   downloads: any[];
-  totalBytes: number;
+  totalBytes: number; // Size of the game/content (largest single download)
+  totalDownloaded: number; // Total bytes downloaded across all sessions
   cacheHitBytes: number;
   cacheMissBytes: number;
   clientsSet: Set<string>;
@@ -69,6 +70,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             service: download.service,
             downloads: [],
             totalBytes: 0,
+            totalDownloaded: 0,
             cacheHitBytes: 0,
             cacheMissBytes: 0,
             clientsSet: new Set<string>(),
@@ -79,7 +81,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
         }
 
         groups[groupKey].downloads.push(download);
+        // Track total downloaded across all sessions
         groups[groupKey].totalBytes += download.totalBytes || 0;
+        groups[groupKey].totalDownloaded += download.totalBytes || 0;
         groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
         groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
         groups[groupKey].clientsSet.add(download.clientIp);
@@ -394,9 +398,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 service: item.service,
                 name: item.name,
                 totalBytes: item.totalBytes,
+                totalDownloaded: item.totalDownloaded,
                 cacheHitBytes: item.cacheHitBytes,
                 cacheMissBytes: item.cacheMissBytes,
-                cacheHitPercent: item.totalBytes > 0 ? (item.cacheHitBytes / item.totalBytes) * 100 : 0,
+                cacheHitPercent: item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
                 startTime: item.lastSeen,
                 clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
                 count: item.count,
@@ -407,6 +412,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                   ? item.gameName
                   : 'Individual Download',
                 totalBytes: item.totalBytes,
+                totalDownloaded: item.totalBytes,
                 cacheHitBytes: item.cacheHitBytes,
                 cacheMissBytes: item.cacheMissBytes,
                 cacheHitPercent: item.cacheHitPercent,

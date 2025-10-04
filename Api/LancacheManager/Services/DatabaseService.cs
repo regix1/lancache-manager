@@ -43,9 +43,7 @@ public class DatabaseService
     {
         try
         {
-            // Exclude localhost (127.0.0.1) test traffic
             return await _context.Downloads
-                .Where(d => d.ClientIp != "127.0.0.1")
                 .OrderByDescending(d => d.StartTime)
                 .Take(count)
                 .ToListAsync();
@@ -247,11 +245,11 @@ public class DatabaseService
 
         try
         {
-            // Find all Steam downloads that have depot IDs but no game app ID
+            // Find all Steam downloads that have depot IDs but no game app ID or missing image
             var unmappedDownloads = await _context.Downloads
                 .Where(d => d.Service.ToLower() == "steam"
                        && d.DepotId.HasValue
-                       && !d.GameAppId.HasValue)
+                       && (!d.GameAppId.HasValue || string.IsNullOrEmpty(d.GameImageUrl)))
                 .ToListAsync();
 
             _logger.LogInformation($"Found {unmappedDownloads.Count} downloads needing depot mapping");
@@ -273,31 +271,35 @@ public class DatabaseService
                 var download = unmappedDownloads[i];
                 try
                 {
-                    uint? appId = null;
+                    uint? appId = download.GameAppId; // Use existing appId if available
 
-                    // First try PICS depot mapping from SteamKit2Service
-                    var appIds = _steamKit2Service.GetAppIdsForDepot(download.DepotId.Value);
-                    if (appIds.Any())
+                    // If no AppId yet, try to find it
+                    if (!appId.HasValue)
                     {
-                        appId = appIds.First(); // Take the first app ID if multiple exist
-                        _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from database");
-                    }
-                    else
-                    {
-                        // Second, try JSON file fallback
-                        var jsonAppIds = await _picsDataService.GetAppIdsForDepotFromJsonAsync(download.DepotId.Value);
-                        if (jsonAppIds.Any())
+                        // First try PICS depot mapping from SteamKit2Service
+                        var appIds = _steamKit2Service.GetAppIdsForDepot(download.DepotId.Value);
+                        if (appIds.Any())
                         {
-                            appId = jsonAppIds.First();
-                            _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from JSON file");
+                            appId = appIds.First(); // Take the first app ID if multiple exist
+                            _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from database");
                         }
                         else
                         {
-                            _logger.LogTrace($"No PICS mapping found for depot {download.DepotId} in database or JSON file");
+                            // Second, try JSON file fallback
+                            var jsonAppIds = await _picsDataService.GetAppIdsForDepotFromJsonAsync(download.DepotId.Value);
+                            if (jsonAppIds.Any())
+                            {
+                                appId = jsonAppIds.First();
+                                _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from JSON file");
+                            }
+                            else
+                            {
+                                _logger.LogTrace($"No PICS mapping found for depot {download.DepotId} in database or JSON file");
+                            }
                         }
                     }
 
-                    // If we found an app ID, populate the game info
+                    // If we have an app ID, populate the game info
                     if (appId.HasValue)
                     {
                         download.GameAppId = appId.Value;

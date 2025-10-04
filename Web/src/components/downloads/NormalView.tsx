@@ -86,6 +86,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
       service: download.service,
       downloads: [download],
       totalBytes: totalBytes,
+      totalDownloaded: totalBytes,
       cacheHitBytes: download.cacheHitBytes || 0,
       cacheMissBytes: download.cacheMissBytes || 0,
       clientsSet: new Set([download.clientIp]),
@@ -180,7 +181,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                   {/* Stats Grid - Better aligned */}
                   <div className="grid grid-cols-2 gap-x-8 gap-y-2">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Total Size</span>
+                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Total Downloaded</span>
                       <span className="text-base font-bold text-[var(--theme-text-primary)]">
                         {formatBytes(group.totalBytes)}
                       </span>
@@ -192,20 +193,23 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2">
+                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Cache Saved</span>
+                      <span className="text-base font-bold text-[var(--theme-success-text)]">
+                        {formatBytes(group.cacheHitBytes)}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2">
                       <span className="text-sm text-themed-muted font-medium min-w-[80px]">Last Active</span>
                       <span className="text-sm font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5">
                         <Clock size={14} />
                         {formatRelativeTime(group.lastSeen)}
                       </span>
                     </div>
-                    {group.cacheHitBytes > 0 && (
+                    {hitPercent > 0 && (
                       <div className="flex items-baseline gap-2">
-                        <span className="text-sm text-themed-muted font-medium min-w-[80px]">Cache Hit</span>
+                        <span className="text-sm text-themed-muted font-medium min-w-[80px]">Efficiency</span>
                         <span className="text-sm font-bold cache-hit inline-flex items-center gap-1.5">
                           {formatPercent(hitPercent)}
-                          <span className="text-xs font-normal text-[var(--theme-success-text)]">
-                            ({formatBytes(group.cacheHitBytes)})
-                          </span>
                         </span>
                       </div>
                     )}

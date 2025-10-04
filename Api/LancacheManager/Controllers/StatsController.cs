@@ -48,7 +48,7 @@ public class StatsController : ControllerBase
 
                 stats = await _context.ClientStats
                     .AsNoTracking()
-                    .Where(c => c.LastSeen >= startDate && c.LastSeen <= endDate && c.ClientIp != "127.0.0.1")
+                    .Where(c => c.LastSeen >= startDate && c.LastSeen <= endDate)
                     .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                     .Take(100)
                     .ToListAsync();
@@ -138,18 +138,18 @@ public class StatsController : ControllerBase
                 .AsNoTracking()
                 .ToListAsync();
             
-            // Get downloads based on period (exclude localhost test traffic)
-            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking().Where(d => d.ClientIp != "127.0.0.1");
+            // Get downloads based on period
+            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
                 downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
             }
             var recentDownloads = await downloadsQuery.ToListAsync();
-            
-            // Active downloads count (exclude localhost test traffic)
+
+            // Active downloads count
             var activeDownloads = await _context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTime > DateTime.UtcNow.AddMinutes(-5) && d.ClientIp != "127.0.0.1")
+                .Where(d => d.IsActive && d.EndTime > DateTime.UtcNow.AddMinutes(-5))
                 .CountAsync();
             
             // Calculate all-time metrics from ServiceStats (these are cumulative totals)
@@ -248,8 +248,8 @@ public class StatsController : ControllerBase
                 cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
             }
             
-            // Get downloads based on period (exclude localhost test traffic)
-            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking().Where(d => d.ClientIp != "127.0.0.1");
+            // Get downloads based on period
+            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
                 downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
@@ -347,7 +347,7 @@ public class StatsController : ControllerBase
             var intervalMinutes = ParseInterval(interval);
             
             // Get downloads based on period
-            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking().Where(d => d.ClientIp != "127.0.0.1");
+            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
                 downloadsQuery = downloadsQuery.Where(d => d.StartTime >= cutoffTime.Value);
@@ -451,8 +451,7 @@ public class StatsController : ControllerBase
     {
         try
         {
-            // Exclude localhost test traffic from bandwidth calculations
-            var query = _context.Downloads.AsNoTracking().Where(d => d.ClientIp != "127.0.0.1");
+            var query = _context.Downloads.AsNoTracking();
 
             if (period != "all")
             {

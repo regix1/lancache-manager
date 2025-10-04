@@ -280,6 +280,7 @@ const CompactView: React.FC<CompactViewProps> = ({
       service: download.service,
       downloads: [download],
       totalBytes: totalBytes,
+      totalDownloaded: totalBytes,
       cacheHitBytes: download.cacheHitBytes || 0,
       cacheMissBytes: download.cacheMissBytes || 0,
       clientsSet: new Set([download.clientIp]),

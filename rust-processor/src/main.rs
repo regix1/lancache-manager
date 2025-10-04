@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -142,9 +142,31 @@ impl Processor {
         };
 
         let json = serde_json::to_string_pretty(&progress)?;
-        let mut file = File::create(&self.progress_path)?;
-        file.write_all(json.as_bytes())?;
-        file.flush()?;
+
+        // Retry file write with exponential backoff (up to 5 attempts)
+        let mut retries = 0;
+        let max_retries = 5;
+        loop {
+            match File::create(&self.progress_path) {
+                Ok(mut file) => {
+                    match file.write_all(json.as_bytes()).and_then(|_| file.flush()) {
+                        Ok(_) => break,
+                        Err(_) if retries < max_retries => {
+                            retries += 1;
+                            thread::sleep(Duration::from_millis(10 * retries));
+                            continue;
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                Err(_) if retries < max_retries => {
+                    retries += 1;
+                    thread::sleep(Duration::from_millis(10 * retries));
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
 
         Ok(())
     }
@@ -165,8 +187,9 @@ impl Processor {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "cache_size", 1000000)?;
-        conn.pragma_update(None, "locking_mode", "EXCLUSIVE")?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
+        // Set busy timeout to 60 seconds to handle concurrent access from C# services
+        conn.busy_timeout(Duration::from_secs(60))?;
 
         // LogEntries table already exists from C# migrations, use it for duplicate detection
         // Index IX_LogEntries_DuplicateCheck on (ClientIp, Service, Timestamp, Url, BytesServed) exists
@@ -267,7 +290,8 @@ impl Processor {
             return Ok(());
         }
 
-        let tx = conn.transaction()?;
+        // Use IMMEDIATE transaction to get write lock immediately, avoiding "database is locked" errors
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         // Group entries by client_ip + service + depot_id to prevent different games from being merged
         let mut grouped: HashMap<String, Vec<&LogEntry>> = HashMap::new();
@@ -425,11 +449,19 @@ impl Processor {
 
         // Find or create download session
         let download_id = if should_create_new {
-            // Mark old session as inactive if exists
-            tx.execute(
-                "UPDATE Downloads SET IsActive = 0 WHERE ClientIp = ? AND Service = ? AND IsActive = 1",
-                params![client_ip, service],
-            )?;
+            // Mark old session as inactive if exists for this specific depot
+            // Only mark inactive if depot matches or if there's no depot tracking
+            if let Some(depot_id) = primary_depot_id {
+                tx.execute(
+                    "UPDATE Downloads SET IsActive = 0 WHERE ClientIp = ? AND Service = ? AND DepotId = ? AND IsActive = 1",
+                    params![client_ip, service, depot_id],
+                )?;
+            } else {
+                tx.execute(
+                    "UPDATE Downloads SET IsActive = 0 WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1",
+                    params![client_ip, service],
+                )?;
+            }
 
             // Create new download session with depot mapping
             tx.execute(
@@ -495,39 +527,84 @@ impl Processor {
 
             download_id
         } else {
-            // Find existing active download
-            let download_id: i64 = tx.query_row(
-                "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND IsActive = 1 ORDER BY StartTime DESC LIMIT 1",
-                params![client_ip, service],
-                |row| row.get(0),
-            )?;
+            // Try to find existing active download for this specific depot
+            let download_id_opt: Option<i64> = if let Some(depot_id) = primary_depot_id {
+                tx.query_row(
+                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId = ? AND IsActive = 1 ORDER BY StartTime DESC LIMIT 1",
+                    params![client_ip, service, depot_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+            } else {
+                tx.query_row(
+                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 ORDER BY StartTime DESC LIMIT 1",
+                    params![client_ip, service],
+                    |row| row.get(0),
+                )
+                .optional()?
+            };
 
-            // Update existing download session with depot mapping
-            tx.execute(
-                "UPDATE Downloads SET EndTime = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName) WHERE Id = ?",
-                params![
-                    last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
-                    total_hit_bytes,
-                    total_miss_bytes,
-                    last_url,
-                    primary_depot_id,
-                    game_app_id,
-                    game_name,
-                    download_id,
-                ],
-            )?;
+            // If no active download found (e.g., cleanup service marked it complete), create a new one
+            let (download_id, is_new) = if let Some(id) = download_id_opt {
+                (id, false)
+            } else {
+                tx.execute(
+                    "INSERT INTO Downloads (ClientIp, Service, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, LastUrl, DepotId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    params![
+                        client_ip,
+                        service,
+                        first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        total_hit_bytes,
+                        total_miss_bytes,
+                        1, // IsActive
+                        game_app_id,
+                        game_name,
+                        last_url,
+                        primary_depot_id,
+                    ],
+                )?;
+                (tx.last_insert_rowid(), true)
+            };
 
-            // Update client stats (without incrementing TotalDownloads)
-            tx.execute(
-                "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastSeen = ? WHERE ClientIp = ?",
-                params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), client_ip],
-            )?;
+            // Only update if we found existing download (not if we just created it)
+            if !is_new {
+                tx.execute(
+                    "UPDATE Downloads SET EndTime = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName) WHERE Id = ?",
+                    params![
+                        last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        total_hit_bytes,
+                        total_miss_bytes,
+                        last_url,
+                        primary_depot_id,
+                        game_app_id,
+                        game_name,
+                        download_id,
+                    ],
+                )?;
 
-            // Update service stats (without incrementing TotalDownloads)
-            tx.execute(
-                "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivity = ? WHERE Service = ?",
-                params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), service],
-            )?;
+                // Update client stats (without incrementing TotalDownloads)
+                tx.execute(
+                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastSeen = ? WHERE ClientIp = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), client_ip],
+                )?;
+
+                // Update service stats (without incrementing TotalDownloads)
+                tx.execute(
+                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivity = ? WHERE Service = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), service],
+                )?;
+            } else {
+                // For new downloads, stats were already updated in the first branch, so update them here too
+                tx.execute(
+                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastSeen = ? WHERE ClientIp = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), client_ip],
+                )?;
+                tx.execute(
+                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivity = ? WHERE Service = ?",
+                    params![total_hit_bytes, total_miss_bytes, last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(), service],
+                )?;
+            }
 
             download_id
         };

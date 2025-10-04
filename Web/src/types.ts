@@ -59,7 +59,8 @@ export interface DownloadGroup {
   type: 'game' | 'metadata' | 'content';
   service: string;
   downloads: Download[];
-  totalBytes: number;
+  totalBytes: number; // Total bytes downloaded across all sessions
+  totalDownloaded: number; // Total bytes downloaded across all sessions (same as totalBytes)
   cacheHitBytes: number;
   cacheMissBytes: number;
   clientsSet: Set<string>;
