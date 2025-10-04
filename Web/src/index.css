@@ -1126,7 +1126,7 @@
 
 @keyframes slideUp {
   from {
-    transform: translateY(10px);
+    transform: translateY(8px);
     opacity: 0;
   }
   to {
@@ -1139,10 +1139,12 @@
   from {
     max-height: 0;
     opacity: 0;
+    transform: translateY(-4px);
   }
   to {
     max-height: 2000px;
     opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -1150,10 +1152,12 @@
   from {
     max-height: 2000px;
     opacity: 1;
+    transform: translateY(0);
   }
   to {
     max-height: 0;
     opacity: 0;
+    transform: translateY(-4px);
   }
 }
 

@@ -132,16 +132,25 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
     return (
       <div
         key={group.id}
-        className={`rounded-xl border bg-[var(--theme-bg-secondary)] shadow-sm transition-all duration-300 overflow-hidden ${isExpanded ? '' : 'hover:shadow-lg hover:border-[var(--theme-primary)]/40'}`}
+        className="rounded-xl border bg-[var(--theme-bg-secondary)] overflow-hidden"
         style={{
           borderColor: isExpanded ? 'var(--theme-card-outline)' : 'var(--theme-border-primary)',
-          boxShadow: isExpanded ? '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 2px var(--theme-card-ring)' : undefined
+          boxShadow: isExpanded
+            ? '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 2px var(--theme-card-ring)'
+            : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+          transition: 'border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+          WebkitTapHighlightColor: 'transparent',
         }}
       >
         <button
           type="button"
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left no-click-outline"
+          className="w-full text-left no-click-outline focus:outline-none focus:ring-0 focus:border-transparent focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0"
+          style={{
+            WebkitTapHighlightColor: 'transparent',
+            outline: 'none !important',
+            boxShadow: 'none !important'
+          }}
         >
           <div className="flex flex-col sm:flex-row sm:items-stretch">
             {showGameImage && primaryDownload?.gameAppId && (
@@ -245,7 +254,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
             className="border-t bg-gradient-to-b from-[var(--theme-bg-secondary)] to-[var(--theme-bg-primary)] px-6 pb-6 pt-5"
             style={{
               borderColor: 'var(--theme-primary)',
-              animation: 'expandDown 0.3s ease-out'
+              animation: 'expandDown 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
             }}
             onClick={(event) => event.stopPropagation()}
           >

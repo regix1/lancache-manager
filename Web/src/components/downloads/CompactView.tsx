@@ -121,19 +121,25 @@ const CompactView: React.FC<CompactViewProps> = ({
     return (
       <div
         key={group.id}
-        className={`transition-all duration-300 ease-in-out ${
+        className={`${
           isExpanded
             ? 'bg-[var(--theme-bg-tertiary)]/10 shadow-sm'
             : 'hover:bg-[var(--theme-bg-tertiary)]/5'
         }`}
         style={{
           animation: 'gentleFadeIn 0.3s ease-out',
+          transition: 'background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         <button
           type="button"
           onClick={() => onItemClick(group.id)}
-          className="w-full text-left px-3 py-2 flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--theme-primary)] transition-all duration-200"
+          className="w-full text-left px-3 py-2 flex items-center gap-3 no-click-outline transition-all duration-200 focus:outline-none focus:ring-0 focus:border-transparent focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0"
+          style={{
+            WebkitTapHighlightColor: 'transparent',
+            outline: 'none !important',
+            boxShadow: 'none !important'
+          }}
         >
           <ChevronRight
             size={14}
@@ -179,12 +185,12 @@ const CompactView: React.FC<CompactViewProps> = ({
             className="px-4 pb-3 pt-2 border-t overflow-hidden"
             style={{
               borderColor: 'var(--theme-border-secondary)',
-              animation: 'expandDown 0.3s ease-out',
+              animation: 'expandDown 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
               transformOrigin: 'top'
             }}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.3s ease-out 0.1s both' }}>
+            <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.08s both' }}>
               {showGameImage && primaryDownload?.gameAppId && (
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-themed-muted">
