@@ -428,8 +428,15 @@ impl Processor {
         let (game_app_id, game_name) = if service.to_lowercase() == "steam" {
             if let Some(depot_id) = primary_depot_id {
                 match self.lookup_depot_mapping(tx, depot_id) {
-                    Ok(Some((app_id, app_name))) => (Some(app_id), app_name),
-                    Ok(None) => (None, None),
+                    Ok(Some((app_id, app_name))) => {
+                        let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
+                        println!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
+                        (Some(app_id), app_name)
+                    },
+                    Ok(None) => {
+                        println!("No mapping found for depot {}", depot_id);
+                        (None, None)
+                    },
                     Err(e) => {
                         println!("Warning: Failed to lookup depot mapping for {}: {}", depot_id, e);
                         (None, None)
@@ -464,9 +471,14 @@ impl Processor {
             }
 
             // Create new download session with depot mapping
+            // Generate image URL from AppId if available
+            let game_image_url = game_app_id.map(|app_id|
+                format!("https://cdn.akamai.steamstatic.com/steam/apps/{}/header.jpg", app_id)
+            );
+
             tx.execute(
-                "INSERT INTO Downloads (Service, ClientIp, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName)
-                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+                "INSERT INTO Downloads (Service, ClientIp, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName, GameImageUrl)
+                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
                 params![
                     service,
                     client_ip,
@@ -478,6 +490,7 @@ impl Processor {
                     primary_depot_id,
                     game_app_id,
                     game_name,
+                    game_image_url,
                 ],
             )?;
 
@@ -545,11 +558,16 @@ impl Processor {
             };
 
             // If no active download found (e.g., cleanup service marked it complete), create a new one
+            // Generate image URL from AppId if available (for fallback insert)
+            let game_image_url = game_app_id.map(|app_id|
+                format!("https://cdn.akamai.steamstatic.com/steam/apps/{}/header.jpg", app_id)
+            );
+
             let (download_id, is_new) = if let Some(id) = download_id_opt {
                 (id, false)
             } else {
                 tx.execute(
-                    "INSERT INTO Downloads (ClientIp, Service, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, LastUrl, DepotId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO Downloads (ClientIp, Service, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, GameImageUrl, LastUrl, DepotId) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     params![
                         client_ip,
                         service,
@@ -560,6 +578,7 @@ impl Processor {
                         1, // IsActive
                         game_app_id,
                         game_name,
+                        game_image_url,
                         last_url,
                         primary_depot_id,
                     ],
@@ -570,7 +589,7 @@ impl Processor {
             // Only update if we found existing download (not if we just created it)
             if !is_new {
                 tx.execute(
-                    "UPDATE Downloads SET EndTime = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName) WHERE Id = ?",
+                    "UPDATE Downloads SET EndTime = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName), GameImageUrl = COALESCE(?, GameImageUrl) WHERE Id = ?",
                     params![
                         last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string(),
                         total_hit_bytes,
@@ -579,6 +598,7 @@ impl Processor {
                         primary_depot_id,
                         game_app_id,
                         game_name,
+                        game_image_url,
                         download_id,
                     ],
                 )?;
