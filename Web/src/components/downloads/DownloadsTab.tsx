@@ -675,14 +675,99 @@ const DownloadsTab: React.FC = () => {
 
           {/* Dropdowns and View Controls */}
           <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
-            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center flex-1 w-full sm:w-auto">
+            {/* Mobile: First row with service and client filters */}
+            <div className="flex sm:hidden gap-2 w-full">
               <EnhancedDropdown
                 options={serviceOptions}
                 value={settings.selectedService}
                 onChange={(value) =>
                   setSettings({ ...settings, selectedService: value })
                 }
-                className="w-full sm:w-40"
+                className="flex-1 min-w-0"
+              />
+              <EnhancedDropdown
+                options={clientOptions}
+                value={settings.selectedClient}
+                onChange={(value) =>
+                  setSettings({ ...settings, selectedClient: value })
+                }
+                className="flex-1 min-w-0"
+              />
+            </div>
+
+            {/* Mobile: Second row with items per page, sort, and view mode */}
+            <div className="flex sm:hidden gap-2 w-full items-center">
+              <EnhancedDropdown
+                options={itemsPerPageOptions}
+                value={
+                  settings.itemsPerPage === 'unlimited'
+                    ? 'unlimited'
+                    : settings.itemsPerPage.toString()
+                }
+                onChange={(value) =>
+                  setSettings({
+                    ...settings,
+                    itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
+                  })
+                }
+                className="flex-1 min-w-0"
+              />
+              <EnhancedDropdown
+                options={[
+                  { value: 'latest', label: 'Newest' },
+                  { value: 'oldest', label: 'Oldest' },
+                  { value: 'largest', label: 'Largest' },
+                  { value: 'smallest', label: 'Smallest' },
+                  { value: 'service', label: 'Service' }
+                ]}
+                value={settings.sortOrder}
+                onChange={(value) =>
+                  setSettings({ ...settings, sortOrder: value as any })
+                }
+                className="flex-1 min-w-0"
+              />
+              {/* View mode toggle inline with dropdowns */}
+              <div className="flex rounded-lg bg-themed-tertiary p-0.5 flex-shrink-0">
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
+                  className={`px-2 py-1 rounded-md transition-colors ${
+                    settings.viewMode === 'compact'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Compact"
+                >
+                  <List size={14} />
+                </button>
+                <button
+                  onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
+                  className={`px-2 py-1 rounded-md transition-colors ${
+                    settings.viewMode === 'normal'
+                      ? 'bg-primary'
+                      : 'text-themed-secondary'
+                  }`}
+                  style={{
+                    color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
+                  }}
+                  title="Normal"
+                >
+                  <Grid3x3 size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Desktop: All controls in one row */}
+            <div className="hidden sm:flex gap-2 items-center flex-1 w-full">
+              <EnhancedDropdown
+                options={serviceOptions}
+                value={settings.selectedService}
+                onChange={(value) =>
+                  setSettings({ ...settings, selectedService: value })
+                }
+                className="w-40"
               />
 
               <EnhancedDropdown
@@ -691,7 +776,7 @@ const DownloadsTab: React.FC = () => {
                 onChange={(value) =>
                   setSettings({ ...settings, selectedClient: value })
                 }
-                className="w-full sm:w-48"
+                className="w-48"
               />
 
               <EnhancedDropdown
@@ -707,7 +792,7 @@ const DownloadsTab: React.FC = () => {
                     itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
                   })
                 }
-                className="w-full sm:w-32"
+                className="w-32"
               />
 
               <EnhancedDropdown
@@ -722,7 +807,7 @@ const DownloadsTab: React.FC = () => {
                 onChange={(value) =>
                   setSettings({ ...settings, sortOrder: value as any })
                 }
-                className="w-full sm:w-40"
+                className="w-40"
               />
             </div>
 
@@ -815,36 +900,6 @@ const DownloadsTab: React.FC = () => {
                 <Settings size={18} />
               </button>
             </div>
-          </div>
-
-          {/* Mobile view mode selector */}
-          <div className="flex sm:hidden rounded-lg bg-themed-tertiary p-1">
-            <button
-              onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
-              className={`flex-1 px-2 py-1.5 rounded-md transition-colors ${
-                settings.viewMode === 'compact'
-                  ? 'bg-primary'
-                  : 'text-themed-secondary'
-              }`}
-              style={{
-                color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
-              }}
-            >
-              <List size={16} className="mx-auto" />
-            </button>
-            <button
-              onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
-              className={`flex-1 px-2 py-1.5 rounded-md transition-colors ${
-                settings.viewMode === 'normal'
-                  ? 'bg-primary'
-                  : 'text-themed-secondary'
-              }`}
-              style={{
-                color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
-              }}
-            >
-              <Grid3x3 size={16} className="mx-auto" />
-            </button>
           </div>
         </div>
 

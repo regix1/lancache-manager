@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, ExternalLink, Gamepad2 } from 'lucide-react';
+import { ChevronRight, ExternalLink } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import type { Download, DownloadGroup } from '../../types';
 
@@ -143,32 +143,32 @@ const CompactView: React.FC<CompactViewProps> = ({
           />
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <span
-              className="px-2 py-0.5 text-xs font-bold rounded"
+              className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
               style={getServiceBadgeStyles(group.service)}
             >
               {group.service.toUpperCase()}
             </span>
-            <span className="text-base font-medium text-[var(--theme-text-primary)] truncate">
+            <span className="text-sm sm:text-base font-medium text-[var(--theme-text-primary)] truncate">
               {group.name}
             </span>
-            <span className="text-sm text-themed-muted">
+            <span className="hidden sm:inline text-sm text-themed-muted flex-shrink-0">
               {group.count} download{group.count !== 1 ? 's' : ''}
             </span>
           </div>
-          <div className="flex items-center gap-4 flex-shrink-0">
-            <span className="text-base font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[80px]">
+          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+            <span className="text-sm sm:text-base font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[60px] sm:min-w-[80px]">
               {formatBytes(group.totalBytes)}
             </span>
             {group.cacheHitBytes > 0 ? (
-              <span className="cache-hit font-medium text-sm font-mono text-right min-w-[50px]">
+              <span className="cache-hit font-medium text-xs sm:text-sm font-mono text-right min-w-[40px] sm:min-w-[50px]">
                 {formatPercent(hitPercent)}
               </span>
             ) : (
-              <span className="font-medium text-sm font-mono text-right min-w-[50px]" style={{ color: 'var(--theme-error-text)' }}>
+              <span className="font-medium text-xs sm:text-sm font-mono text-right min-w-[40px] sm:min-w-[50px]" style={{ color: 'var(--theme-error-text)' }}>
                 0%
               </span>
             )}
-            <span className="text-sm text-themed-muted font-mono text-right min-w-[70px]">
+            <span className="hidden sm:inline text-sm text-themed-muted font-mono text-right min-w-[70px]">
               {group.clientsSet.size} clients
             </span>
           </div>
@@ -188,9 +188,9 @@ const CompactView: React.FC<CompactViewProps> = ({
               {showGameImage && primaryDownload?.gameAppId && (
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-themed-muted">
-                    {aestheticMode || imageErrors.has(primaryDownload.gameAppId) ? 'Game Icon' : labels.banner}
+                    {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? 'Game Icon' : labels.banner}
                   </span>
-                  {aestheticMode || imageErrors.has(primaryDownload.gameAppId) ? (
+                  {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                     <div
                       className="w-full sm:w-[240px] h-[110px] sm:h-[120px] rounded-lg border flex items-center justify-center"
                       style={{
@@ -209,7 +209,7 @@ const CompactView: React.FC<CompactViewProps> = ({
                       alt={primaryDownload.gameName || group.name}
                       className="w-full sm:w-[240px] h-[110px] sm:h-[120px] rounded-lg object-cover"
                       loading="lazy"
-                      onError={() => handleImageError(primaryDownload.gameAppId)}
+                      onError={() => handleImageError(String(primaryDownload.gameAppId))}
                     />
                   )}
                 </div>

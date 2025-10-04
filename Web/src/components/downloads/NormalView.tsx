@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle, Gamepad2 } from 'lucide-react';
+import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import type { Download, DownloadGroup } from '../../types';
 
@@ -143,12 +143,12 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
           onClick={() => onItemClick(group.id)}
           className="w-full text-left no-click-outline"
         >
-          <div className="flex items-stretch">
+          <div className="flex flex-col sm:flex-row sm:items-stretch">
             {showGameImage && primaryDownload?.gameAppId && (
-              <div className="flex-shrink-0 overflow-hidden">
-                {aestheticMode || imageErrors.has(primaryDownload.gameAppId) ? (
+              <div className="flex-shrink-0 overflow-hidden w-full sm:w-auto">
+                {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
-                    className="w-[280px] h-[130px] flex items-center justify-center"
+                    className="w-full sm:w-[280px] h-[130px] flex items-center justify-center"
                     style={{
                       backgroundColor: 'var(--theme-bg-tertiary)',
                     }}
@@ -162,70 +162,73 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                   <img
                     src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
                     alt={primaryDownload.gameName || group.name}
-                    className="w-[280px] h-[130px] object-cover transition-transform duration-300 hover:scale-105"
+                    className="w-full sm:w-[280px] h-[130px] object-cover transition-transform duration-300 hover:scale-105"
                     loading="lazy"
-                    onError={() => handleImageError(primaryDownload.gameAppId)}
+                    onError={() => handleImageError(String(primaryDownload.gameAppId))}
                   />
                 )}
               </div>
             )}
-            <div className="flex-1 p-5">
-              <div className="flex items-start gap-4">
+            <div className="flex-1 p-4 sm:p-5">
+              <div className="flex items-start gap-3 sm:gap-4">
                 <ChevronRight
-                  size={20}
-                  className={`mt-1 text-[var(--theme-primary)] transition-all duration-300 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+                  size={18}
+                  className={`mt-0.5 sm:mt-1 text-[var(--theme-primary)] transition-all duration-300 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
                   style={{ opacity: isExpanded ? 1 : 0.6 }}
                 />
                 <div className="flex-1 min-w-0">
                   {/* Title Row */}
-                  <div className="flex items-center gap-3 mb-3">
-                    <span
-                      className="px-2.5 py-1 text-xs font-extrabold rounded-md shadow-sm"
-                      style={getServiceBadgeStyles(group.service)}
-                    >
-                      {group.service.toUpperCase()}
-                    </span>
-                    <h3 className="text-xl font-bold text-[var(--theme-text-primary)] truncate flex-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs font-extrabold rounded-md shadow-sm"
+                        style={getServiceBadgeStyles(group.service)}
+                      >
+                        {group.service.toUpperCase()}
+                      </span>
+                      {group.count > 1 && (
+                        <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]">
+                          {group.count}× downloads
+                        </span>
+                      )}
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-bold text-[var(--theme-text-primary)] truncate flex-1">
                       {group.name}
                     </h3>
-                    {group.count > 1 && (
-                      <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]">
-                        {group.count}× downloads
-                      </span>
-                    )}
                   </div>
 
                   {/* Stats Grid - Better aligned */}
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 sm:gap-y-2">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Total Downloaded</span>
-                      <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Total Downloaded</span>
+                      <span className="text-sm sm:text-base font-bold text-[var(--theme-text-primary)]">
                         {formatBytes(group.totalBytes)}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Clients</span>
-                      <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Clients</span>
+                      <span className="text-sm sm:text-base font-bold text-[var(--theme-text-primary)]">
                         {group.clientsSet.size}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Cache Saved</span>
-                      <span className="text-base font-bold text-[var(--theme-success-text)]">
+                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Cache Saved</span>
+                      <span className="text-sm sm:text-base font-bold text-[var(--theme-success-text)]">
                         {formatBytes(group.cacheHitBytes)}
                       </span>
                     </div>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-sm text-themed-muted font-medium min-w-[80px]">Last Active</span>
-                      <span className="text-sm font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5">
-                        <Clock size={14} />
+                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Last Active</span>
+                      <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5">
+                        <Clock size={12} className="sm:hidden" />
+                        <Clock size={14} className="hidden sm:block" />
                         {formatRelativeTime(group.lastSeen)}
                       </span>
                     </div>
                     {hitPercent > 0 && (
                       <div className="flex items-baseline gap-2">
-                        <span className="text-sm text-themed-muted font-medium min-w-[80px]">Efficiency</span>
-                        <span className="text-sm font-bold cache-hit inline-flex items-center gap-1.5">
+                        <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Efficiency</span>
+                        <span className="text-xs sm:text-sm font-bold cache-hit inline-flex items-center gap-1.5">
                           {formatPercent(hitPercent)}
                         </span>
                       </div>
