@@ -21,12 +21,13 @@ public class StatsCache
     {
         try
         {
-            // Pre-load client stats into cache
+            // Pre-load client stats into cache (exclude localhost test traffic)
             var clientStats = await context.ClientStats
                 .AsNoTracking()
+                .Where(c => c.ClientIp != "127.0.0.1")
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .ToListAsync();
-            
+
             _cache.Set("client_stats", clientStats, _cacheExpiration);
             _logger.LogInformation($"Cached {clientStats.Count} client stats");
 
@@ -101,9 +102,11 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("client_stats", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            
+
+            // Exclude localhost (127.0.0.1) test traffic from client stats
             return await context.ClientStats
                 .AsNoTracking()
+                .Where(c => c.ClientIp != "127.0.0.1")
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .Take(100)
                 .ToListAsync();

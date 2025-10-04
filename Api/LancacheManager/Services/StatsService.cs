@@ -144,9 +144,10 @@ public class StatsService
         var cutoff = GetCutoffTime(period, DateTime.UtcNow);
 
         // Load data first, then group in memory to avoid EF Core translation issues
+        // Exclude localhost (127.0.0.1) from statistics to filter out test/development traffic
         var downloads = await _context.Downloads
             .AsNoTracking()
-            .Where(d => d.StartTime >= cutoff && !string.IsNullOrEmpty(d.GameName))
+            .Where(d => d.StartTime >= cutoff && !string.IsNullOrEmpty(d.GameName) && d.ClientIp != "127.0.0.1")
             .Select(d => new { d.GameName, d.GameAppId, d.TotalBytes, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
             .ToListAsync(cancellationToken);
 
