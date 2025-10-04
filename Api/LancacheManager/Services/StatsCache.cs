@@ -39,9 +39,10 @@ public class StatsCache
             _cache.Set("service_stats", serviceStats, _cacheExpiration);
             _logger.LogInformation($"Cached {serviceStats.Count} service stats");
 
-            // Pre-load recent downloads into cache
+            // Pre-load recent downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
             var recentDownloads = await context.Downloads
                 .AsNoTracking()
+                .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
@@ -49,10 +50,10 @@ public class StatsCache
             _cache.Set("recent_downloads", recentDownloads, _cacheExpiration);
             _logger.LogInformation($"Cached {recentDownloads.Count} recent downloads");
 
-            // Pre-load active downloads into cache
+            // Pre-load active downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
             var activeDownloadsRaw = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0)
+                .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
@@ -148,7 +149,7 @@ public class StatsCache
             // Get all active downloads
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0)
+                .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();

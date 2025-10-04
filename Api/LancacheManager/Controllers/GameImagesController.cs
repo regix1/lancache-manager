@@ -60,6 +60,7 @@ public class GameImagesController : ControllerBase
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
 
+            // Try primary URL first
             var response = await httpClient.GetAsync(download.GameImageUrl);
 
             if (response.IsSuccessStatusCode)
@@ -72,24 +73,56 @@ public class GameImagesController : ControllerBase
 
                 return File(imageBytes, contentType);
             }
+
+            // Primary URL failed - try fallback URLs
+            var fallbackUrls = new[]
+            {
+                $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg",
+                $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg",
+                $"https://steamcdn-a.akamaihd.net/steam/apps/{appId}/header.jpg"
+            };
+
+            foreach (var fallbackUrl in fallbackUrls)
+            {
+                try
+                {
+                    var fallbackResponse = await httpClient.GetAsync(fallbackUrl);
+                    if (fallbackResponse.IsSuccessStatusCode)
+                    {
+                        var imageBytes = await fallbackResponse.Content.ReadAsByteArrayAsync();
+                        var contentType = fallbackResponse.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+
+                        _logger.LogInformation($"Using fallback image URL for app {appId}: {fallbackUrl}");
+
+                        // Update the database with working URL for future requests
+                        download.GameImageUrl = fallbackUrl;
+                        await _context.SaveChangesAsync();
+
+                        Response.Headers["Cache-Control"] = "public, max-age=3600";
+                        return File(imageBytes, contentType);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogTrace($"Fallback URL {fallbackUrl} failed for app {appId}: {ex.Message}");
+                }
+            }
+
+            // All URLs failed - cache this failure
+            _failedImageCache.TryAdd(appId, DateTime.UtcNow);
+
+            // Use Debug level for 404s (expected for non-game apps like tools/redistributables)
+            // Use Warning level for other errors
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogDebug($"Steam header image not found for app {appId} ({download.GameName ?? "Unknown"}) - likely a tool/redistributable");
+            }
             else
             {
-                // Cache this failure to prevent repeated requests (especially for tools/redistributables)
-                _failedImageCache.TryAdd(appId, DateTime.UtcNow);
-
-                // Use Debug level for 404s (expected for non-game apps like tools/redistributables)
-                // Use Warning level for other errors
-                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    _logger.LogDebug($"Steam header image not found for app {appId} ({download.GameName ?? "Unknown"}) - likely a tool/redistributable");
-                }
-                else
-                {
-                    _logger.LogWarning($"Failed to fetch Steam header image for app {appId} from {download.GameImageUrl}, status: {response.StatusCode}");
-                }
-
-                return NotFound(new { error = $"Steam header image not available for app {appId}" });
+                _logger.LogWarning($"Failed to fetch Steam header image for app {appId} from {download.GameImageUrl} and all fallbacks, status: {response.StatusCode}");
             }
+
+            return NotFound(new { error = $"Steam header image not available for app {appId}" });
         }
         catch (Exception ex)
         {
