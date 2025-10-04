@@ -12,53 +12,48 @@ const LancacheIcon: React.FC<LancacheIconProps> = ({ className = '', size = 24, 
       className={className}
       width={size}
       height={size}
-      viewBox="0 0 512 512"
+      viewBox="0 0 48 48"
       xmlns="http://www.w3.org/2000/svg"
-      fill="none"
       style={{ display: 'block', ...style }}
     >
-      {/* Main controller body - PlayStation style with flat top */}
+      {/* Main controller body */}
       <path
-        d="M 90 130 L 422 130 C 450 130, 475 155, 480 200 L 490 280 C 495 340, 480 400, 450 430 C 430 450, 420 455, 400 455 C 370 455, 350 435, 340 400 L 320 330 L 256 320 L 192 330 L 172 400 C 162 435, 142 455, 112 455 C 92 455, 82 450, 62 430 C 32 400, 17 340, 22 280 L 32 200 C 37 155, 62 130, 90 130 Z"
+        d="m42.059 40c-3.252 0-7.162-3.224-10.812-9h-14.494c-4.237 6.706-8.824 9.973-12.323 8.75a5.5 5.5 0 0 1 -3.077-3.056c-2.215-4.646-1.653-13.749 1.373-22.137a10.049 10.049 0 0 1 15.443-4.557h11.662a10.049 10.049 0 0 1 15.443 4.557c3.024 8.388 3.588 17.491 1.373 22.137a5.5 5.5 0 0 1 -3.077 3.056 4.555 4.555 0 0 1 -1.511.25z"
         fill="var(--theme-primary)"
-        stroke="#000000"
-        strokeWidth="8"
       />
 
-      {/* Top connecting bar - solid */}
-      <rect
-        x="190"
-        y="130"
-        width="132"
-        height="15"
-        fill="var(--theme-primary)"
-        stroke="#000000"
-        strokeWidth="6"
+      {/* Shadow/depth */}
+      <path
+        d="m44.794 36.735a4.854 4.854 0 0 1 -1.606.265c-3.455 0-7.609-3.425-11.488-9.565h-15.4c-4.5 7.125-9.376 10.6-13.094 9.3a5.249 5.249 0 0 1 -2.567-2.035 11.421 11.421 0 0 0 .714 2 5.5 5.5 0 0 0 3.077 3.05c3.5 1.223 8.086-2.044 12.323-8.75h14.494c3.65 5.778 7.56 9 10.812 9a4.555 4.555 0 0 0 1.511-.252 5.5 5.5 0 0 0 3.077-3.056 11.421 11.421 0 0 0 .714-2 5.249 5.249 0 0 1 -2.567 2.043z"
+        fill="#000000"
+        opacity="0.2"
       />
 
-      {/* D-Pad */}
-      <g>
-        <rect x="120" y="200" width="25" height="70" rx="6" fill="#000000" stroke="#000000" strokeWidth="4" />
-        <rect x="95" y="225" width="75" height="20" rx="6" fill="#000000" stroke="#000000" strokeWidth="4" />
-      </g>
+      {/* Center button divider */}
+      <path
+        d="m26 25h-4a1 1 0 0 1 0-2h4a1 1 0 0 1 0 2z"
+        fill="#000000"
+        opacity="0.3"
+      />
 
-      {/* Action Buttons - Four colored buttons */}
-      <circle cx="390" cy="190" r="16" fill="#9ACD32" stroke="#000000" strokeWidth="4" />
-      <circle cx="360" cy="220" r="16" fill="#FF6B6B" stroke="#000000" strokeWidth="4" />
-      <circle cx="420" cy="220" r="16" fill="#4FC3F7" stroke="#000000" strokeWidth="4" />
-      <circle cx="390" cy="250" r="16" fill="#FFD700" stroke="#000000" strokeWidth="4" />
+      {/* Right button circle (dark background) */}
+      <circle cx="36" cy="19" r="7.5" fill="#000000" opacity="0.3" />
 
-      {/* Center buttons */}
-      <rect x="220" y="218" width="30" height="12" rx="6" fill="#000000" opacity="0.6" />
-      <rect x="262" y="218" width="30" height="12" rx="6" fill="#000000" opacity="0.6" />
+      {/* Left D-pad circle (dark background) */}
+      <circle cx="12" cy="19" r="7" fill="#000000" opacity="0.3" />
 
-      {/* Left analog stick */}
-      <circle cx="160" cy="300" r="32" fill="#FFFFFF" stroke="#000000" strokeWidth="6" />
-      <circle cx="160" cy="300" r="20" fill="#E0E0E0" />
+      {/* Action buttons - colored */}
+      <circle cx="36" cy="15.5" r="1.5" fill="#F1C40F" />
+      <circle cx="36" cy="22.5" r="1.5" fill="#3498DB" />
+      <circle cx="39.5" cy="19" r="1.5" fill="#2ECC71" />
+      <circle cx="32.5" cy="19" r="1.5" fill="#E74C3C" />
 
-      {/* Right analog stick */}
-      <circle cx="352" cy="300" r="32" fill="#FFFFFF" stroke="#000000" strokeWidth="6" />
-      <circle cx="352" cy="300" r="20" fill="#E0E0E0" />
+      {/* D-pad */}
+      <path
+        d="m15.5 17.5h-2v-2a1.5 1.5 0 0 0 -3 0v2h-2a1.5 1.5 0 0 0 0 3h2v2a1.5 1.5 0 0 0 3 0v-2h2a1.5 1.5 0 0 0 0-3z"
+        fill="#FFFFFF"
+        opacity="0.9"
+      />
     </svg>
   );
 };
