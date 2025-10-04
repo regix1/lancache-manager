@@ -135,6 +135,12 @@ interface DataProviderProps {
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
+
+  // Keep refs updated whenever they change
+  useEffect(() => {
+    currentTimeRangeRef.current = timeRange;
+    getTimeRangeParamsRef.current = getTimeRangeParams;
+  }, [timeRange, getTimeRangeParams]);
   const [mockMode, setMockMode] = useState(false);
   const [lastCustomDates, setLastCustomDates] = useState<{start: Date | null, end: Date | null}>({
     start: null,
@@ -167,6 +173,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const lastMediumFetchTime = useRef<number>(0);
   const lastSlowFetchTime = useRef<number>(0);
   const isEffectActive = useRef<boolean>(true);
+  const currentTimeRangeRef = useRef<string>(timeRange);
+  const getTimeRangeParamsRef = useRef(getTimeRangeParams);
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -197,7 +205,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const fetchFastData = async () => {
     if (mockMode) return;
 
-    const { startTime, endTime } = getTimeRangeParams();
+    const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
     // Debounce fast data
@@ -223,7 +231,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         '1h': '1h', '6h': '6h', '12h': '12h', '24h': '24h',
         '7d': '7d', '30d': '30d', 'live': 'all', 'custom': 'custom'
       };
-      const period = periodMap[timeRange] || '24h';
+      const period = periodMap[currentTimeRangeRef.current] || '24h';
 
       const [cache, active, latest, dashboard] = await Promise.allSettled([
         ApiService.getCacheInfo(abortControllerRef.current.signal),
@@ -259,7 +267,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const fetchMediumData = async () => {
     if (mockMode) return;
 
-    const { startTime, endTime } = getTimeRangeParams();
+    const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
     // Debounce medium data
@@ -283,7 +291,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const fetchSlowData = async () => {
     if (mockMode) return;
 
-    const { startTime, endTime } = getTimeRangeParams();
+    const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
     // Debounce slow data
@@ -305,7 +313,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // Combined fetch for initial load or manual refresh
   const fetchData = async () => {
-    const { startTime, endTime } = getTimeRangeParams();
+    const { startTime, endTime } = getTimeRangeParamsRef.current();
 
     if (fetchInProgress.current && !isInitialLoad.current) {
       return;
@@ -350,7 +358,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
               '1h': '1h', '6h': '6h', '12h': '12h', '24h': '24h',
               '7d': '7d', '30d': '30d', 'live': 'all', 'custom': 'custom'
             };
-            const period = periodMap[timeRange] || '24h';
+            const period = periodMap[currentTimeRangeRef.current] || '24h';
 
             // Fetch all data on initial load or manual refresh
             const [cache, active, latest, clients, services, dashboard] = await Promise.allSettled([
