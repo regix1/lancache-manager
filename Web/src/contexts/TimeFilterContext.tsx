@@ -113,15 +113,18 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   const getTimeRangeParams = (): { startTime?: number; endTime?: number } => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
       const startTime = Math.floor(customStartDate.getTime() / 1000);
-      const endTime = Math.floor(customEndDate.getTime() / 1000);
+      // Set end time to end of day (23:59:59) instead of start of day
+      const endDate = new Date(customEndDate);
+      endDate.setHours(23, 59, 59, 999);
+      const endTime = Math.floor(endDate.getTime() / 1000);
 
       // Debug logging commented out - uncomment if needed for debugging
       // console.log('📅 Custom Range Selected:', {
       //   startDate: customStartDate.toLocaleString(),
-      //   endDate: customEndDate.toLocaleString(),
+      //   endDate: endDate.toLocaleString(),
       //   startTime,
       //   endTime,
-      //   daysDiff: Math.ceil((customEndDate.getTime() - customStartDate.getTime()) / (1000 * 60 * 60 * 24))
+      //   daysDiff: Math.ceil((endDate.getTime() - customStartDate.getTime()) / (1000 * 60 * 60 * 24))
       // });
 
       return { startTime, endTime };

@@ -26,6 +26,7 @@ export function formatPercent(value: number, decimals = 1): string {
 
 /**
  * Format date/time to locale string
+ * Uses 12-hour format by default, unless user is in UTC or a locale that prefers 24-hour format
  */
 export function formatDateTime(dateString: string | Date | null | undefined): string {
   if (!dateString) return 'N/A';
@@ -35,13 +36,17 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 
     if (isNaN(date.getTime())) return 'Invalid Date';
 
-    return date.toLocaleString('en-US', {
+    // Check if user's timezone is UTC
+    const isUTC = Intl.DateTimeFormat().resolvedOptions().timeZone === 'UTC';
+
+    // Use 24-hour format only for UTC or let the browser decide based on locale
+    return date.toLocaleString(undefined, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      hour12: false
+      hour12: isUTC ? false : undefined // undefined = use locale default
     });
   } catch (error) {
     return 'Invalid Date';
