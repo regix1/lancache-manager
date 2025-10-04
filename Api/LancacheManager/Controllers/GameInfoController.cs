@@ -176,7 +176,7 @@ public class GameInfoController : ControllerBase
         {
             _logger.LogInformation("Starting download of pre-created depot data from GitHub");
 
-            const string githubUrl = "https://raw.githubusercontent.com/regix1/lancache-manager/main/Data/pics_depot_mappings.json";
+            const string githubUrl = "https://raw.githubusercontent.com/regix1/lancache-pics/main/output/pics_depot_mappings.json";
 
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
