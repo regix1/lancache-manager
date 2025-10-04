@@ -499,6 +499,18 @@ public class SteamService : IHostedService, IDisposable
             var json = await response.Content.ReadAsStringAsync();
             return ParseStoreApiResponse(json, appId, knownName);
         }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            // Steam Store API timed out - this is expected for some apps
+            _logger.LogWarning($"Steam Store API timeout for app {appId} ({knownName ?? "Unknown"}) - using fallback");
+            return CreateFallbackGameInfo(appId, knownName);
+        }
+        catch (TaskCanceledException ex)
+        {
+            // Request was cancelled for other reasons
+            _logger.LogWarning($"Steam Store API request cancelled for app {appId} ({knownName ?? "Unknown"}) - using fallback");
+            return CreateFallbackGameInfo(appId, knownName);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error fetching detailed game info for app {appId}");
