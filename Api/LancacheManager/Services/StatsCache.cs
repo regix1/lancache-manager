@@ -134,6 +134,7 @@ public class StatsCache
 
             return await context.Downloads
                 .AsNoTracking()
+                .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
                 .OrderByDescending(d => d.StartTime)
                 .Take(count)
                 .ToListAsync();
