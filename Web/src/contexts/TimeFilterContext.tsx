@@ -142,20 +142,18 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       endTime: Math.floor(now / 1000)
     };
 
-    // Debug logging
-    if (timeRange !== 'live') {
-      const startDate = new Date(result.startTime * 1000);
-      const endDate = new Date(result.endTime * 1000);
-      console.log(`🕐 Time Filter Debug [${timeRange}]:`, {
-        range: timeRange,
-        hoursBack: getTimeRangeInHours(),
-        startTime: result.startTime,
-        endTime: result.endTime,
-        startDate: startDate.toLocaleString(),
-        endDate: endDate.toLocaleString(),
-        hoursDiff: (result.endTime - result.startTime) / 3600
-      });
-    }
+    // Debug logging (timeRange is not 'live' at this point due to early return above)
+    const startDate = new Date(result.startTime * 1000);
+    const endDate = new Date(result.endTime * 1000);
+    console.log(`🕐 Time Filter Debug [${timeRange}]:`, {
+      range: timeRange,
+      hoursBack: getTimeRangeInHours(),
+      startTime: result.startTime,
+      endTime: result.endTime,
+      startDate: startDate.toLocaleString(),
+      endDate: endDate.toLocaleString(),
+      hoursDiff: (result.endTime - result.startTime) / 3600
+    });
 
     return result;
   };
