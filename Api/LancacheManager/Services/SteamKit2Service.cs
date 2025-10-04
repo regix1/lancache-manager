@@ -1907,45 +1907,63 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Add fallback depot mappings for apps that use their own app ID as depot ID.
-    /// This is done LAST after all PICS processing and only adds mappings for apps
-    /// that have NO existing depot mappings (to never override correct PICS data).
+    /// Add fallback depot mappings for apps that use their own app ID as depot ID
+    /// This is a LAST RESORT for simple games with no separate depot structure
+    /// Only adds mappings for apps with NO existing depot data AND where the depot ID doesn't already exist
     /// </summary>
     private void AddFallbackAppIdDepotMappings()
     {
         try
         {
             int added = 0;
+            int skipped = 0;
 
-            // For each app we've seen, check if it has any depot mappings
-            foreach (var appKvp in _appNames)
+            // Get all apps we've scanned
+            var allApps = _appNames.Keys.ToHashSet();
+
+            // Get all apps that already have depot mappings
+            var appsWithDepots = _depotToAppMappings.Values
+                .SelectMany(appIds => appIds)
+                .ToHashSet();
+
+            // Find apps without any depot mappings
+            var appsWithoutDepots = allApps.Except(appsWithDepots).ToList();
+
+            foreach (var appId in appsWithoutDepots)
             {
-                var appId = appKvp.Key;
-                var appName = appKvp.Value;
-
-                // Check if this app appears in ANY depot mapping
-                bool hasDepotMapping = _depotToAppMappings.Values.Any(appSet => appSet.Contains(appId));
-
-                // If no depot mappings found, add fallback mapping: appId -> appId
-                if (!hasDepotMapping)
+                // CRITICAL: Only add if the depot ID doesn't already exist
+                // If depot with ID = appId already exists, it means it's a shared depot or has real PICS data
+                // We should NOT override or modify it
+                if (_depotToAppMappings.ContainsKey(appId))
                 {
-                    var set = _depotToAppMappings.GetOrAdd(appId, _ => new HashSet<uint>());
-                    if (set.Add(appId))
-                    {
-                        added++;
-                        _logger.LogDebug("Added fallback depot mapping: depot {DepotId} -> app {AppId} ({AppName})",
-                            appId, appId, appName);
-                    }
+                    skipped++;
+                    _logger.LogTrace("Skipping fallback for app {AppId} - depot {DepotId} already has PICS mappings",
+                        appId, appId);
+                    continue;
+                }
+
+                // Safe to add: app has no depot mappings AND depot ID doesn't exist
+                var set = new HashSet<uint> { appId };
+                if (_depotToAppMappings.TryAdd(appId, set))
+                {
+                    added++;
+                    _logger.LogDebug("Added fallback depot mapping: depot {DepotId} -> app {AppId} ({AppName})",
+                        appId, appId, _appNames.TryGetValue(appId, out var name) ? name : "Unknown");
                 }
             }
 
             if (added > 0)
             {
-                _logger.LogInformation("Added {Count} fallback depot mappings for apps using their own app ID as depot ID", added);
+                _logger.LogInformation("Added {Count} fallback depot mappings for apps using their own app ID as depot ID (skipped {Skipped} that had existing depot data)",
+                    added, skipped);
+            }
+            else if (skipped > 0)
+            {
+                _logger.LogDebug("No fallback depot mappings added - {Skipped} apps skipped because depot already exists with PICS data", skipped);
             }
             else
             {
-                _logger.LogDebug("No fallback depot mappings needed - all apps have PICS depot data");
+                _logger.LogDebug("No fallback depot mappings needed - all scanned apps have PICS depot data");
             }
         }
         catch (Exception ex)
