@@ -473,17 +473,17 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // Initial load and separate refresh intervals for different data types
   useEffect(() => {
     if (!mockMode) {
-      // Initial load - fetch all data once
-      fetchData();
+      // Initial load - fetch all data once, then start intervals
+      fetchData().then(() => {
+        // Set up separate intervals for different data refresh rates AFTER initial load
+        const fastInterval = getCurrentRefreshInterval();
+        const mediumInterval = getMediumRefreshInterval();
+        const slowInterval = getSlowRefreshInterval();
 
-      // Set up separate intervals for different data refresh rates
-      const fastInterval = getCurrentRefreshInterval();
-      const mediumInterval = getMediumRefreshInterval();
-      const slowInterval = getSlowRefreshInterval();
-
-      fastIntervalRef.current = setInterval(fetchFastData, fastInterval);
-      mediumIntervalRef.current = setInterval(fetchMediumData, mediumInterval);
-      slowIntervalRef.current = setInterval(fetchSlowData, slowInterval);
+        fastIntervalRef.current = setInterval(fetchFastData, fastInterval);
+        mediumIntervalRef.current = setInterval(fetchMediumData, mediumInterval);
+        slowIntervalRef.current = setInterval(fetchSlowData, slowInterval);
+      });
 
       return () => {
         if (fastIntervalRef.current) {
