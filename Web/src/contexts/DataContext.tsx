@@ -166,6 +166,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const lastFastFetchTime = useRef<number>(0);
   const lastMediumFetchTime = useRef<number>(0);
   const lastSlowFetchTime = useRef<number>(0);
+  const isEffectActive = useRef<boolean>(true);
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -473,8 +474,28 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // Initial load and separate refresh intervals for different data types
   useEffect(() => {
     if (!mockMode) {
+      // Mark this effect as active
+      isEffectActive.current = true;
+
+      // Clear any existing intervals first
+      if (fastIntervalRef.current) {
+        clearInterval(fastIntervalRef.current);
+        fastIntervalRef.current = null;
+      }
+      if (mediumIntervalRef.current) {
+        clearInterval(mediumIntervalRef.current);
+        mediumIntervalRef.current = null;
+      }
+      if (slowIntervalRef.current) {
+        clearInterval(slowIntervalRef.current);
+        slowIntervalRef.current = null;
+      }
+
       // Initial load - fetch all data once, then start intervals
       fetchData().then(() => {
+        // Only set up intervals if this effect is still active (not cleaned up)
+        if (!isEffectActive.current) return;
+
         // Set up separate intervals for different data refresh rates AFTER initial load
         const fastInterval = getCurrentRefreshInterval();
         const mediumInterval = getMediumRefreshInterval();
@@ -486,6 +507,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       });
 
       return () => {
+        // Mark effect as inactive to prevent stale .then() callbacks from running
+        isEffectActive.current = false;
+
         if (fastIntervalRef.current) {
           clearInterval(fastIntervalRef.current);
           fastIntervalRef.current = null;
