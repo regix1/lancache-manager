@@ -462,4 +462,79 @@ public class DatabaseService
             return 0;
         }
     }
+
+    public async Task<List<Download>> GetDownloadsWithApp0()
+    {
+        return await _context.Downloads
+            .Where(d => d.GameAppId == 0)
+            .ToListAsync();
+    }
+
+    public async Task MarkApp0DownloadsInactive()
+    {
+        var app0Downloads = await GetDownloadsWithApp0();
+        foreach (var download in app0Downloads)
+        {
+            download.IsActive = false;
+        }
+        await _context.SaveChangesAsync();
+        _statsCache.InvalidateDownloads();
+    }
+
+    public async Task<List<Download>> GetDownloadsWithBadImageUrls()
+    {
+        return await _context.Downloads
+            .Where(d => d.GameImageUrl != null && d.GameImageUrl.Contains("cdn.akamai.steamstatic.com"))
+            .ToListAsync();
+    }
+
+    public async Task<int> FixBadImageUrls()
+    {
+        var badImageUrls = await GetDownloadsWithBadImageUrls();
+        var updated = 0;
+
+        using var httpClient = new HttpClient();
+        httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
+        httpClient.Timeout = TimeSpan.FromSeconds(5);
+
+        foreach (var download in badImageUrls)
+        {
+            if (!download.GameAppId.HasValue) continue;
+
+            var appId = download.GameAppId.Value;
+            var fallbackUrls = new[]
+            {
+                $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg",
+                $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg",
+                $"https://steamcdn-a.akamaihd.net/steam/apps/{appId}/header.jpg"
+            };
+
+            foreach (var fallbackUrl in fallbackUrls)
+            {
+                try
+                {
+                    var response = await httpClient.GetAsync(fallbackUrl, HttpCompletionOption.ResponseHeadersRead);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        download.GameImageUrl = fallbackUrl;
+                        updated++;
+                        _logger.LogDebug($"Updated image URL for app {appId} to {fallbackUrl}");
+                        break;
+                    }
+                }
+                catch
+                {
+                    // Try next URL
+                }
+            }
+        }
+
+        if (updated > 0)
+        {
+            await _context.SaveChangesAsync();
+            _statsCache.InvalidateDownloads();
+        }
+
+        return updated;
+    }
 }

@@ -567,6 +567,53 @@ public class ManagementController : ControllerBase
             return StatusCode(500, new { error = "Failed to check setup status", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Manually trigger database cleanup to fix App 0 and bad image URLs
+    /// </summary>
+    [HttpPost("cleanup-database")]
+    [RequireAuth]
+    public async Task<IActionResult> CleanupDatabase()
+    {
+        try
+        {
+            _logger.LogInformation("Manual database cleanup triggered");
+
+            var app0Count = 0;
+            var imageUrlCount = 0;
+
+            // Fix App 0 entries
+            var app0Downloads = await _dbService.GetDownloadsWithApp0();
+            app0Count = app0Downloads.Count;
+            if (app0Count > 0)
+            {
+                await _dbService.MarkApp0DownloadsInactive();
+                _logger.LogInformation($"Marked {app0Count} 'App 0' downloads as inactive");
+            }
+
+            // Fix bad image URLs
+            var badImageUrls = await _dbService.GetDownloadsWithBadImageUrls();
+            imageUrlCount = badImageUrls.Count;
+            if (imageUrlCount > 0)
+            {
+                var updated = await _dbService.FixBadImageUrls();
+                _logger.LogInformation($"Updated {updated} image URLs to working fallback CDNs");
+            }
+
+            return Ok(new
+            {
+                message = "Database cleanup completed",
+                app0EntriesFixed = app0Count,
+                imageUrlsFixed = imageUrlCount,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during manual database cleanup");
+            return StatusCode(500, new { error = "Failed to cleanup database", details = ex.Message });
+        }
+    }
 }
 
 // Request model for removing service

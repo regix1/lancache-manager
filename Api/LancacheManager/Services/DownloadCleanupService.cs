@@ -17,8 +17,23 @@ public class DownloadCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Wait for app to start
-        await Task.Delay(5000, stoppingToken);
+        // Wait for app to start and database to be ready
+        await Task.Delay(10000, stoppingToken);
+
+        _logger.LogInformation("DownloadCleanupService started");
+
+        // Run initial cleanup immediately on first start
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await PerformInitialCleanup(context, stoppingToken);
+            _initialCleanupDone = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to run initial cleanup");
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -26,13 +41,6 @@ public class DownloadCleanupService : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                // Run one-time cleanup on first iteration
-                if (!_initialCleanupDone)
-                {
-                    await PerformInitialCleanup(context, stoppingToken);
-                    _initialCleanupDone = true;
-                }
 
                 // Use 1-minute timeout - if no new data in 1 minute, download is complete
                 var cutoff = DateTime.UtcNow.AddMinutes(-1);
