@@ -140,8 +140,8 @@ public class DownloadCleanupService : BackgroundService
                     var appId = download.GameAppId.Value;
                     var fallbackUrls = new[]
                     {
-                        $"https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg",
                         $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg",
+                        $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg",
                         $"https://steamcdn-a.akamaihd.net/steam/apps/{appId}/header.jpg"
                     };
 
