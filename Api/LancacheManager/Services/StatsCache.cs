@@ -49,81 +49,16 @@ public class StatsCache
             _cache.Set("recent_downloads", recentDownloads, _cacheExpiration);
             _logger.LogInformation($"Cached {recentDownloads.Count} recent downloads");
 
-            // Pre-load active downloads into cache
-            // Only check IsActive flag - cleanup service handles marking old downloads as complete
-            var activeDownloadsRaw = await context.Downloads
+            // Pre-load active downloads into cache - simple approach
+            var activeDownloads = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive)
+                .Where(d => d.IsActive && d.TotalBytes > 0)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
 
-            // Filter out unmapped downloads - only show downloads after depot mapping completes
-            // BUT: Show downloads with significant bytes even if mapping is in progress
-            var mappedDownloads = activeDownloadsRaw.Where(d =>
-            {
-                // Filter out 0-byte downloads (metadata/incomplete)
-                if (d.TotalBytes == 0) return false;
-
-                // Check if download has a depot ID (requires mapping)
-                if (d.DepotId.HasValue)
-                {
-                    // If download has significant bytes (> 1MB), show it even if mapping isn't complete
-                    // This prevents flickering during active depot mapping
-                    if (d.TotalBytes > 1_048_576) // 1 MB
-                    {
-                        return true; // Show active large downloads immediately
-                    }
-
-                    // For smaller downloads, wait for proper mapping
-                    // Must have GameAppId
-                    if (!d.GameAppId.HasValue) return false;
-
-                    // Must have a valid game name (not Unknown or Steam App pattern)
-                    if (string.IsNullOrEmpty(d.GameName)) return false;
-                    if (d.GameName == "Unknown Steam Game") return false;
-                    if (System.Text.RegularExpressions.Regex.IsMatch(d.GameName, @"^Steam App \d+$")) return false;
-                }
-                // No depot ID - show immediately (WSUS, Epic, etc. don't need depot mapping)
-
-                return true;
-            }).ToList();
-
-            // Group by game to combine chunks into single downloads
-            // Use GameAppId for Steam, GameName+Service for others
-            var activeDownloads = mappedDownloads
-                .GroupBy(d => new
-                {
-                    GameAppId = d.GameAppId ?? 0,
-                    GameName = d.GameName ?? "",
-                    Service = d.Service,
-                    ClientIp = d.ClientIp
-                })
-                .Select(group =>
-                {
-                    // Create a combined download representing all chunks
-                    var first = group.First();
-                    return new Download
-                    {
-                        Id = first.Id, // Use first chunk's ID as representative
-                        Service = first.Service,
-                        ClientIp = first.ClientIp,
-                        StartTime = group.Min(d => d.StartTime), // Earliest chunk
-                        EndTime = default(DateTime), // Still active
-                        CacheHitBytes = group.Sum(d => d.CacheHitBytes),
-                        CacheMissBytes = group.Sum(d => d.CacheMissBytes),
-                        // TotalBytes and CacheHitPercent are computed properties
-                        IsActive = true,
-                        GameName = first.GameName,
-                        GameAppId = first.GameAppId,
-                        DepotId = first.DepotId
-                    };
-                })
-                .OrderByDescending(d => d.StartTime)
-                .ToList();
-
-            _cache.Set("active_downloads", activeDownloads, _cacheExpiration);
-            _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (grouped from {mappedDownloads.Count} mapped, {activeDownloadsRaw.Count} raw)");
+            _cache.Set("active_downloads", activeDownloads, TimeSpan.FromSeconds(2)); // Fast refresh for live data
+            _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (from {activeDownloads.Count} raw chunks)");
         }
         catch (Exception ex)
         {
@@ -178,81 +113,17 @@ public class StatsCache
     {
         return await _cache.GetOrCreateAsync("active_downloads", async entry =>
         {
-            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(10); // Match general cache for consistency
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(2); // Fast refresh for live data
 
-            // Only check IsActive flag - cleanup service handles marking old downloads as complete
+            // Simple: Just get active downloads, filter only 0-byte metadata
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
-                .Where(d => d.IsActive)
+                .Where(d => d.IsActive && d.TotalBytes > 0)
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
 
-            // Filter out unmapped downloads - only show downloads after depot mapping completes
-            // BUT: Show downloads with significant bytes even if mapping is in progress
-            var mappedDownloads = activeDownloads.Where(d =>
-            {
-                // Filter out 0-byte downloads (metadata/incomplete)
-                if (d.TotalBytes == 0) return false;
-
-                // Check if download has a depot ID (requires mapping)
-                if (d.DepotId.HasValue)
-                {
-                    // If download has significant bytes (> 1MB), show it even if mapping isn't complete
-                    // This prevents flickering during active depot mapping
-                    if (d.TotalBytes > 1_048_576) // 1 MB
-                    {
-                        return true; // Show active large downloads immediately
-                    }
-
-                    // For smaller downloads, wait for proper mapping
-                    // Must have GameAppId
-                    if (!d.GameAppId.HasValue) return false;
-
-                    // Must have a valid game name (not Unknown or Steam App pattern)
-                    if (string.IsNullOrEmpty(d.GameName)) return false;
-                    if (d.GameName == "Unknown Steam Game") return false;
-                    if (System.Text.RegularExpressions.Regex.IsMatch(d.GameName, @"^Steam App \d+$")) return false;
-                }
-                // No depot ID - show immediately (WSUS, Epic, etc. don't need depot mapping)
-
-                return true;
-            }).ToList();
-
-            // Group by game to combine chunks into single downloads
-            // Use GameAppId for Steam, GameName+Service for others
-            var groupedDownloads = mappedDownloads
-                .GroupBy(d => new
-                {
-                    GameAppId = d.GameAppId ?? 0,
-                    GameName = d.GameName ?? "",
-                    Service = d.Service,
-                    ClientIp = d.ClientIp
-                })
-                .Select(group =>
-                {
-                    // Create a combined download representing all chunks
-                    var first = group.First();
-                    return new Download
-                    {
-                        Id = first.Id, // Use first chunk's ID as representative
-                        Service = first.Service,
-                        ClientIp = first.ClientIp,
-                        StartTime = group.Min(d => d.StartTime), // Earliest chunk
-                        EndTime = default(DateTime), // Still active
-                        CacheHitBytes = group.Sum(d => d.CacheHitBytes),
-                        CacheMissBytes = group.Sum(d => d.CacheMissBytes),
-                        // TotalBytes and CacheHitPercent are computed properties
-                        IsActive = true,
-                        GameName = first.GameName,
-                        GameAppId = first.GameAppId,
-                        DepotId = first.DepotId
-                    };
-                })
-                .OrderByDescending(d => d.StartTime)
-                .ToList();
-
-            return groupedDownloads;
+            return activeDownloads; // No grouping, no complex filtering - show all active downloads
         }) ?? new List<Download>();
     }
 

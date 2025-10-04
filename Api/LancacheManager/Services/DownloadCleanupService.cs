@@ -16,41 +16,17 @@ public class DownloadCleanupService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Wait a bit for the app to start
-        await Task.Delay(5000, stoppingToken);
-        
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                using var scope = _serviceProvider.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // Disabled time-based cleanup - Rust processor handles session management
+        // The Rust processor marks sessions inactive when a new session starts (session gap > 5 minutes)
+        // This prevents downloads from disappearing when they're still active but waiting for next chunk
 
-                // Use 10-minute timeout to avoid marking active downloads as complete too quickly
-                // This should be longer than the session gap (5 minutes) to account for slow downloads
-                var cutoff = DateTime.UtcNow.AddMinutes(-10);
-                var staleDownloads = await context.Downloads
-                    .Where(d => d.IsActive && d.EndTime < cutoff)
-                    .ToListAsync(stoppingToken);
+        _logger.LogInformation("DownloadCleanupService is disabled - session management handled by Rust processor");
 
-                if (staleDownloads.Any())
-                {
-                    foreach (var download in staleDownloads)
-                    {
-                        download.IsActive = false;
-                    }
+        await Task.Delay(Timeout.Infinite, stoppingToken);
 
-                    await context.SaveChangesAsync(stoppingToken);
-                    _logger.LogInformation($"Marked {staleDownloads.Count} downloads as complete (EndTime > 10 minutes old)");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in cleanup service");
-            }
-
-            // Run every 30 seconds
-            await Task.Delay(30000, stoppingToken);
-        }
+        // Old logic (disabled):
+        // - Used 10-minute timeout to mark downloads as complete
+        // - This caused downloads to disappear even when still active
+        // - Conflicted with 5-minute session gap in Rust processor
     }
 }
