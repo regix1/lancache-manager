@@ -491,50 +491,20 @@ public class DatabaseService
     public async Task<int> FixBadImageUrls()
     {
         var badImageUrls = await GetDownloadsWithBadImageUrls();
-        var updated = 0;
 
-        using var httpClient = new HttpClient();
-        httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
-        httpClient.Timeout = TimeSpan.FromSeconds(5);
-
-        foreach (var download in badImageUrls)
+        if (badImageUrls.Any())
         {
-            if (!download.GameAppId.HasValue) continue;
-
-            var appId = download.GameAppId.Value;
-            var fallbackUrls = new[]
+            // Clear bad image URLs - they will be backfilled from Steam API
+            foreach (var download in badImageUrls)
             {
-                $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg",
-                $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg",
-                $"https://steamcdn-a.akamaihd.net/steam/apps/{appId}/header.jpg"
-            };
-
-            foreach (var fallbackUrl in fallbackUrls)
-            {
-                try
-                {
-                    var response = await httpClient.GetAsync(fallbackUrl, HttpCompletionOption.ResponseHeadersRead);
-                    if (response.IsSuccessStatusCode)
-                    {
-                        download.GameImageUrl = fallbackUrl;
-                        updated++;
-                        _logger.LogDebug($"Updated image URL for app {appId} to {fallbackUrl}");
-                        break;
-                    }
-                }
-                catch
-                {
-                    // Try next URL
-                }
+                download.GameImageUrl = null;
             }
-        }
 
-        if (updated > 0)
-        {
             await _context.SaveChangesAsync();
             _statsCache.InvalidateDownloads();
+            return badImageUrls.Count;
         }
 
-        return updated;
+        return 0;
     }
 }

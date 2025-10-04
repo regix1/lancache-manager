@@ -118,69 +118,31 @@ public class DownloadCleanupService : BackgroundService
                 _logger.LogInformation("No App 0 downloads found to fix");
             }
 
-            // Fix bad image URLs (cdn.akamai.steamstatic.com) - try fallback URLs
-            _logger.LogInformation("Checking for bad image URLs...");
+            // Fix bad/missing image URLs - set them to NULL so DatabaseService will backfill from Steam API
+            _logger.LogInformation("Checking for bad or missing image URLs...");
             var badImageUrls = await context.Downloads
-                .Where(d => d.GameImageUrl != null && d.GameImageUrl.Contains("cdn.akamai.steamstatic.com"))
+                .Where(d => d.GameAppId.HasValue && d.GameAppId.Value != 0 && d.Service.ToLower() == "steam" &&
+                           (d.GameImageUrl == null || d.GameImageUrl.Contains("cdn.akamai.steamstatic.com")))
                 .ToListAsync(stoppingToken);
 
-            _logger.LogInformation($"Found {badImageUrls.Count} downloads with bad image URLs");
+            _logger.LogInformation($"Found {badImageUrls.Count} downloads with bad or missing image URLs");
 
             if (badImageUrls.Any())
             {
-                var httpClient = new HttpClient();
-                httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
-                httpClient.Timeout = TimeSpan.FromSeconds(5);
-
-                var updated = 0;
+                // Set all bad image URLs to NULL - DatabaseService will backfill them from Steam API
+                // This is more reliable than trying to guess the correct URL pattern
                 foreach (var download in badImageUrls)
                 {
-                    if (!download.GameAppId.HasValue) continue;
-
-                    var appId = download.GameAppId.Value;
-                    var fallbackUrls = new[]
-                    {
-                        $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/header.jpg",
-                        $"https://cdn.steamstatic.com/steam/apps/{appId}/header.jpg",
-                        $"https://steamcdn-a.akamaihd.net/steam/apps/{appId}/header.jpg"
-                    };
-
-                    foreach (var fallbackUrl in fallbackUrls)
-                    {
-                        try
-                        {
-                            var response = await httpClient.GetAsync(fallbackUrl, HttpCompletionOption.ResponseHeadersRead, stoppingToken);
-                            if (response.IsSuccessStatusCode)
-                            {
-                                download.GameImageUrl = fallbackUrl;
-                                updated++;
-                                _logger.LogDebug($"Updated image URL for app {appId} to {fallbackUrl}");
-                                break;
-                            }
-                        }
-                        catch
-                        {
-                            // Try next URL
-                        }
-                    }
+                    download.GameImageUrl = null;
                 }
 
-                if (updated > 0)
-                {
-                    await context.SaveChangesAsync(stoppingToken);
-                    _logger.LogInformation($"Updated {updated} image URLs to working fallback CDNs");
-                    needsCacheInvalidation = true;
-                }
-                else
-                {
-                    _logger.LogInformation("No image URLs were updated (all fallbacks failed or URLs already correct)");
-                }
-
-                httpClient.Dispose();
+                await context.SaveChangesAsync(stoppingToken);
+                _logger.LogInformation($"Cleared {badImageUrls.Count} bad/missing image URLs - will be backfilled from Steam API");
+                needsCacheInvalidation = true;
             }
             else
             {
-                _logger.LogInformation("No bad image URLs found to fix");
+                _logger.LogInformation("No bad or missing image URLs found to fix");
             }
 
             // Invalidate cache if we made any changes

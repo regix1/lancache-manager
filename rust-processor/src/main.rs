@@ -471,10 +471,9 @@ impl Processor {
             }
 
             // Create new download session with depot mapping
-            // Generate image URL from AppId if available
-            let game_image_url = game_app_id.map(|app_id|
-                format!("https://cdn.akamai.steamstatic.com/steam/apps/{}/header.jpg", app_id)
-            );
+            // Don't generate image URL here - let C# DatabaseService fetch it from Steam API
+            // This ensures we get the correct URL including hash-based URLs for newer games
+            let game_image_url: Option<String> = None;
 
             tx.execute(
                 "INSERT INTO Downloads (Service, ClientIp, StartTime, EndTime, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName, GameImageUrl)
@@ -558,10 +557,9 @@ impl Processor {
             };
 
             // If no active download found (e.g., cleanup service marked it complete), create a new one
-            // Generate image URL from AppId if available (for fallback insert)
-            let game_image_url = game_app_id.map(|app_id|
-                format!("https://cdn.akamai.steamstatic.com/steam/apps/{}/header.jpg", app_id)
-            );
+            // Don't generate image URL here - let C# DatabaseService fetch it from Steam API
+            // This ensures we get the correct URL including hash-based URLs for newer games
+            let game_image_url: Option<String> = None;
 
             let (download_id, is_new) = if let Some(id) = download_id_opt {
                 (id, false)
