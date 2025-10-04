@@ -40,13 +40,14 @@ public class StatsCache
             _cache.Set("service_stats", serviceStats, _cacheExpiration);
             _logger.LogInformation($"Cached {serviceStats.Count} service stats");
 
-            // Pre-load recent downloads into cache
+            // Pre-load recent downloads into cache (exclude localhost test traffic)
             var recentDownloads = await context.Downloads
                 .AsNoTracking()
+                .Where(d => d.ClientIp != "127.0.0.1")
                 .OrderByDescending(d => d.StartTime)
                 .Take(100)
                 .ToListAsync();
-            
+
             _cache.Set("recent_downloads", recentDownloads, _cacheExpiration);
             _logger.LogInformation($"Cached {recentDownloads.Count} recent downloads");
 
@@ -129,13 +130,15 @@ public class StatsCache
     public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = 9999)
     {
         var cacheKey = $"recent_downloads_{count}";
-        
+
         return await _cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            
+
+            // Exclude localhost (127.0.0.1) test traffic from downloads list
             return await context.Downloads
                 .AsNoTracking()
+                .Where(d => d.ClientIp != "127.0.0.1")
                 .OrderByDescending(d => d.StartTime)
                 .Take(count)
                 .ToListAsync();

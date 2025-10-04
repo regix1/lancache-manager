@@ -43,7 +43,9 @@ public class DatabaseService
     {
         try
         {
+            // Exclude localhost (127.0.0.1) test traffic
             return await _context.Downloads
+                .Where(d => d.ClientIp != "127.0.0.1")
                 .OrderByDescending(d => d.StartTime)
                 .Take(count)
                 .ToListAsync();
