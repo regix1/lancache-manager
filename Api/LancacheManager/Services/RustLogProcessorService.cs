@@ -235,11 +235,21 @@ public class RustLogProcessorService
 
                 // Invalidate cache for new entries
                 // For live data (silentMode=true), Rust processor automatically maps depots during processing
+                // but we still need to fetch game images from Steam API
                 // For manual processing (silentMode=false), depot mapping is done separately in step 5
                 if (finalProgress?.EntriesSaved > 0)
                 {
                     _logger.LogDebug("Invalidating cache for {EntriesCount} new entries", finalProgress.EntriesSaved);
-                    _ = Task.Run(async () => await InvalidateCacheAsync(silentMode));
+                    _ = Task.Run(async () =>
+                    {
+                        await InvalidateCacheAsync(silentMode);
+
+                        // For live data, Rust mapped the depot IDs to game names, but we still need to fetch images
+                        if (silentMode)
+                        {
+                            await FetchMissingGameImagesAsync();
+                        }
+                    });
                 }
 
                 if (!silentMode)
@@ -407,6 +417,80 @@ public class RustLogProcessorService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error invalidating cache after log processing");
+        }
+    }
+
+    /// <summary>
+    /// Fetch missing game images for downloads that have GameAppId but no GameImageUrl
+    /// This is called after live log processing where Rust mapped depot IDs to game names
+    /// but couldn't fetch images (requires Steam API call)
+    /// </summary>
+    private async Task FetchMissingGameImagesAsync()
+    {
+        try
+        {
+            _logger.LogDebug("Fetching missing game images for newly mapped downloads");
+
+            using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var steamService = scope.ServiceProvider.GetRequiredService<SteamService>();
+
+            // Find downloads that have GameAppId but missing image
+            var downloadsNeedingImages = await context.Downloads
+                .Where(d => d.GameAppId.HasValue && string.IsNullOrEmpty(d.GameImageUrl))
+                .Take(50) // Limit to avoid API rate limits
+                .ToListAsync();
+
+            if (downloadsNeedingImages.Count == 0)
+            {
+                return;
+            }
+
+            _logger.LogInformation("Fetching images for {Count} downloads", downloadsNeedingImages.Count);
+
+            int updated = 0;
+            foreach (var download in downloadsNeedingImages)
+            {
+                try
+                {
+                    var gameInfo = await steamService.GetGameInfoAsync(download.GameAppId!.Value);
+                    if (gameInfo != null && !string.IsNullOrEmpty(gameInfo.HeaderImage))
+                    {
+                        download.GameImageUrl = gameInfo.HeaderImage;
+
+                        // Also update game name if it's more accurate from API
+                        if (!string.IsNullOrEmpty(gameInfo.Name))
+                        {
+                            download.GameName = gameInfo.Name;
+                        }
+
+                        updated++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to fetch game info for app {AppId}", download.GameAppId);
+                }
+            }
+
+            if (updated > 0)
+            {
+                await context.SaveChangesAsync();
+                _logger.LogInformation("Updated {Count} downloads with game images", updated);
+
+                // Invalidate cache again to show the images
+                var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
+                statsCache.InvalidateDownloads();
+
+                await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
+                {
+                    timestamp = DateTime.UtcNow
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching missing game images - this is non-critical");
         }
     }
 
