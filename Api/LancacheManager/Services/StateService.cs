@@ -31,6 +31,7 @@ public class StateService
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
+        public bool CrawlIncrementalMode { get; set; } = true; // Default to incremental scans
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public DateTime? LastDataLoadTime { get; set; }
@@ -288,6 +289,17 @@ public class StateService
     public void SetCrawlIntervalHours(double hours)
     {
         UpdateState(state => state.CrawlIntervalHours = hours);
+    }
+
+    // Crawl Mode Methods
+    public bool GetCrawlIncrementalMode()
+    {
+        return GetState().CrawlIncrementalMode;
+    }
+
+    public void SetCrawlIncrementalMode(bool incremental)
+    {
+        UpdateState(state => state.CrawlIncrementalMode = incremental);
     }
 
     // Depot Processing Methods

@@ -436,6 +436,11 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                                     In progress
                                   </span>
                                 )}
+                                {download.depotId && (
+                                  <span className="flex items-center gap-1.5 text-[var(--theme-text-muted)] font-mono">
+                                    Depot: {download.depotId}
+                                  </span>
+                                )}
                               </div>
                             </div>
 

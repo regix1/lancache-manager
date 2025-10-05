@@ -23,6 +23,7 @@ export interface Download {
   isActive: boolean;
   gameName?: string;
   gameAppId?: number;
+  depotId?: number;
 }
 
 export interface GameInfo {

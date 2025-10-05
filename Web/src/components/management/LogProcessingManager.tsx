@@ -43,6 +43,7 @@ interface PicsProgress {
   lastCrawlTime?: string;
   nextCrawlIn: any; // Can be TimeSpan string, object, or number from backend
   crawlIntervalHours: number;
+  crawlIncrementalMode: boolean;
   isConnected: boolean;
   isLoggedOn: boolean;
 }
@@ -734,10 +735,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     try {
       if (mode === 'incremental') {
         // For incremental mode: trigger crawl, wait for completion, then apply mappings
-        onSuccess?.('Starting incremental depot crawl - check progress at top of page');
+        // Use the configured scan mode from the dropdown
+        const useIncrementalScan = depotProcessing?.crawlIncrementalMode ?? true;
+        const scanType = useIncrementalScan ? 'incremental' : 'full';
+        onSuccess?.(`Starting ${scanType} depot crawl - check progress at top of page`);
 
-        // Trigger PICS crawl (incremental)
-        await ApiService.triggerSteamKitRebuild(true);
+        // Trigger PICS crawl using the configured mode
+        await ApiService.triggerSteamKitRebuild(useIncrementalScan);
 
         // Wait for PICS crawl to complete by polling
         let attempts = 0;
@@ -984,6 +988,14 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  <span style={{ opacity: 0.6 }}>Scan mode:</span>
+                  <span className="font-medium text-themed-primary">
+                    {depotProcessing?.crawlIncrementalMode !== undefined
+                      ? depotProcessing.crawlIncrementalMode ? 'Incremental' : 'Full'
+                      : 'Loading...'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Next run:</span>
                   <span className="font-medium text-themed-primary">{formatNextRun()}</span>
                 </div>
@@ -1033,6 +1045,37 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
                 disabled={!isAuthenticated || mockMode}
                 className="w-full"
               />
+              <EnhancedDropdown
+                options={[
+                  { value: 'true', label: 'Incremental' },
+                  { value: 'false', label: 'Full scan' }
+                ]}
+                value={String(depotProcessing?.crawlIncrementalMode ?? true)}
+                onChange={async (value) => {
+                  const incremental = value === 'true';
+                  try {
+                    await fetch('/api/gameinfo/steamkit/scan-mode', {
+                      method: 'POST',
+                      headers: {
+                        ...ApiService.getHeaders(),
+                        'Content-Type': 'application/json'
+                      },
+                      body: JSON.stringify(incremental)
+                    });
+
+                    // Immediately fetch updated status to show new scan mode
+                    const response = await fetch('/api/gameinfo/steamkit/progress');
+                    if (response.ok) {
+                      const data: PicsProgress = await response.json();
+                      setDepotProcessing(data);
+                    }
+                  } catch (error) {
+                    console.error('Failed to update scan mode:', error);
+                  }
+                }}
+                disabled={!isAuthenticated || mockMode}
+                className="w-full"
+              />
             </div>
           </div>
         </div>
@@ -1047,8 +1090,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               onClick={async () => {
                 try {
                   setActionLoading(true);
-                  await ApiService.triggerSteamKitRebuild(true); // Incremental
-                  onSuccess?.('Depot scan started');
+                  // Use the configured scan mode
+                  const incremental = depotProcessing?.crawlIncrementalMode ?? true;
+                  await ApiService.triggerSteamKitRebuild(incremental);
+                  const scanType = incremental ? 'Incremental' : 'Full';
+                  onSuccess?.(`${scanType} depot scan started`);
 
                   // Refresh status
                   const response = await fetch('/api/gameinfo/steamkit/progress');
@@ -1102,9 +1148,15 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
         <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
           <p className="text-xs text-themed-muted leading-relaxed">
-            <strong>Apply Now:</strong> Maps unmapped downloads using existing depot data
+            <strong>Scan mode dropdown:</strong> Controls whether automatic runs use incremental or full scans
             <br />
-            <strong>Regenerate All:</strong> Re-fetches depot data from Steam and re-maps all downloads
+            <strong>Incremental:</strong> Only scans apps that changed since last run (faster, recommended)
+            <br />
+            <strong>Full scan:</strong> Re-scans all Steam apps from scratch (slower, but ensures complete data)
+            <br />
+            <strong>Apply Now:</strong> Runs a scan using the selected mode, then applies mappings to downloads
+            <br />
+            <strong>Regenerate All:</strong> Always runs full scan and re-maps all downloads
           </p>
         </div>
       </Card>

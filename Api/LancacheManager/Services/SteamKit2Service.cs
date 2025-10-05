@@ -41,6 +41,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;
     private TimeSpan _crawlInterval = TimeSpan.FromHours(1); // Default: Run incremental updates every hour
+    private bool _crawlIncrementalMode = true; // Default: Run incremental scans
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
 
@@ -101,6 +102,10 @@ public class SteamKit2Service : IHostedService, IDisposable
                 _crawlInterval = TimeSpan.FromHours(savedInterval);
                 _logger.LogInformation("Loaded crawl interval from state: {Hours} hour(s)", savedInterval);
             }
+
+            // Load saved crawl mode from state
+            _crawlIncrementalMode = _stateService.GetCrawlIncrementalMode();
+            _logger.LogInformation("Loaded crawl mode from state: {Mode}", _crawlIncrementalMode ? "Incremental" : "Full");
 
             // Load last crawl time from state to preserve schedule across restarts
             LoadLastCrawlTime();
@@ -267,13 +272,14 @@ public class SteamKit2Service : IHostedService, IDisposable
             return;
         }
 
-        // Always run incremental updates on schedule
+        // Use configured scan mode for automatic scheduled scans
         _ = Task.Run(async () =>
         {
             if (!IsRebuildRunning)
             {
-                _logger.LogInformation("Starting scheduled incremental PICS update");
-                if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: true))
+                var scanType = _crawlIncrementalMode ? "incremental" : "full";
+                _logger.LogInformation("Starting scheduled {ScanType} PICS update", scanType);
+                if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: _crawlIncrementalMode))
                 {
                     _lastCrawlTime = DateTime.UtcNow;
                 }
@@ -400,8 +406,6 @@ public class SteamKit2Service : IHostedService, IDisposable
         _isLoggedOn = false;
     }
 
-    private bool _isResumingGeneration = false; // Track if we're resuming an incomplete generation
-
     /// <summary>
     /// Build depot index by querying PICS for all apps
     /// </summary>
@@ -432,81 +436,37 @@ public class SteamKit2Service : IHostedService, IDisposable
             bool hasExistingDatabaseData = databaseDepotCount > 0;
             bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
 
-            if (hasExistingData && !incrementalOnly)
+            if (!incrementalOnly)
             {
-                // We're doing a "full rebuild" but have existing data - this means we're RESUMING
-                _isResumingGeneration = true;
-
-                // First, load all existing mappings from database
-                await LoadExistingDepotMappings();
-                _logger.LogInformation("Loaded {Count} existing depot mappings from database for resume", _depotToAppMappings.Count);
-
-                // Then, if we have JSON data, load from there too (might have newer data)
-                if (hasExistingJsonData)
-                {
-                    var previousChangeNumber = _lastChangeNumberSeen;
-                    var (jsonMappingsMerged, changeNumberUpdated) = MergeDepotMappingsFromJson(existingData);
-
-                    _logger.LogInformation("Loading {Count} existing depot mappings from JSON to resume generation",
-                        existingData?.Metadata?.TotalMappings ?? 0);
-
-                    if (jsonMappingsMerged > 0)
-                    {
-                        _logger.LogDebug("Merged {Count} app-to-depot relationships from JSON for resume", jsonMappingsMerged);
-                    }
-
-                    if (changeNumberUpdated || _lastChangeNumberSeen > 0 && _lastChangeNumberSeen != previousChangeNumber)
-                    {
-                        _logger.LogInformation("Resuming from change number: {ChangeNumber}", _lastChangeNumberSeen);
-                    }
-                }
-            }
-            else if (!incrementalOnly && !hasExistingData)
-            {
-                // Only clear if we're doing a full rebuild AND have no existing data (JSON or database)
-                _isResumingGeneration = false;
-                _logger.LogInformation("Starting fresh PICS generation - no existing data found in JSON or database");
+                // Full rebuild - start fresh, don't load change number
+                _logger.LogInformation("Starting full PICS generation (will use Web API for app enumeration)");
                 _depotToAppMappings.Clear();
                 _appNames.Clear();
+                _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
             }
             else if (incrementalOnly)
             {
-                // For incremental updates, we always preserve existing mappings (no clearing)
-                _isResumingGeneration = false;
+                // For incremental updates, load existing mappings and change number
+                _logger.LogInformation("Incremental update mode - loading existing data");
 
-                // Log the current state before loading
-                _logger.LogInformation("Incremental update starting. Current depot mappings in memory: {Count}", _depotToAppMappings.Count);
-
-                // Reload existing depot mappings to ensure we have all current data in memory
+                // Load existing mappings from database
                 await LoadExistingDepotMappings();
 
-                if (hasExistingJsonData)
+                // Load change number from JSON if available
+                if (hasExistingJsonData && existingData?.Metadata != null)
                 {
-                    var previousChangeNumber = _lastChangeNumberSeen;
-                    var (jsonMappingsMerged, changeNumberUpdated) = MergeDepotMappingsFromJson(existingData);
+                    _lastChangeNumberSeen = existingData.Metadata.LastChangeNumber;
+                    _logger.LogInformation("Loaded change number {ChangeNumber} from existing data", _lastChangeNumberSeen);
 
-                    _logger.LogInformation("Merged persisted JSON depot mappings into memory for incremental scan. JSON reported {TotalMappings} total mappings",
-                        existingData?.Metadata?.TotalMappings ?? 0);
-
+                    // Merge existing depot mappings from JSON
+                    var (jsonMappingsMerged, _) = MergeDepotMappingsFromJson(existingData);
                     if (jsonMappingsMerged > 0)
                     {
-                        _logger.LogDebug("Applied {Count} app-to-depot relationships from JSON while preparing incremental scan", jsonMappingsMerged);
-                    }
-
-                    if (changeNumberUpdated || _lastChangeNumberSeen > 0 && _lastChangeNumberSeen != previousChangeNumber)
-                    {
-                        _logger.LogInformation("Using persisted change number {ChangeNumber} for incremental crawl baseline", _lastChangeNumberSeen);
+                        _logger.LogInformation("Merged {Count} existing mappings from JSON", jsonMappingsMerged);
                     }
                 }
 
-                if (_sessionStartDepotCount < _depotToAppMappings.Count)
-                {
-                    _sessionStartDepotCount = _depotToAppMappings.Count;
-                    _logger.LogInformation("Updated session start count to {Count} after loading persisted depot mappings", _sessionStartDepotCount);
-                }
-
-                // Log the state after loading
-                _logger.LogInformation("After loading from database, depot mappings in memory: {Count}", _depotToAppMappings.Count);
+                _logger.LogInformation("Starting incremental update with {Count} existing depot mappings", _depotToAppMappings.Count);
             }
 
             // Enumerate every appid by crawling the PICS changelist with retry logic
@@ -553,30 +513,6 @@ public class SteamKit2Service : IHostedService, IDisposable
                 }
             }
 
-            // Fallback / merge to ensure completeness (skip in incremental mode)
-            if (!incrementalOnly && appIds.Count < 200_000) // heuristic: too few => seed
-            {
-                _logger.LogWarning("PICS enumeration returned {Count} apps; seeding with Web API applist", appIds.Count);
-                try
-                {
-                    var webIds = await TryGetAllAppIdsFromWebApiAsync();
-                    if (webIds.Count > 0)
-                    {
-                        var merged = new HashSet<uint>(appIds);
-                        foreach (var id in webIds) merged.Add(id);
-                        appIds = merged.ToList();
-                        appIds.Sort();
-                        _logger.LogInformation("After Web API seeding: {Count} unique app IDs", appIds.Count);
-                    }
-                }
-                catch (Exception e)
-                {
-                    _logger.LogWarning(e, "Failed to fetch Web API applist");
-                }
-            }
-
-            // Dynamic app discovery is now handled within EnumerateAllAppIdsViaPicsChangesAsync
-
             var allBatches = appIds
                 .Where(id => !_scannedApps.Contains(id))
                 .Chunk(AppBatchSize)
@@ -588,17 +524,9 @@ public class SteamKit2Service : IHostedService, IDisposable
             _processedBatches = 0;
             _currentStatus = "Processing app data";
 
-            // Only reset session start count for fresh scans, not incremental updates
-            if (!incrementalOnly)
-            {
-                _sessionStartDepotCount = _depotToAppMappings.Count;  // Capture starting depot count
-                _logger.LogInformation("Reset session start count to {Count} for fresh scan", _sessionStartDepotCount);
-            }
-            else
-            {
-                _logger.LogInformation("Preserving session start count {StartCount}, current count {CurrentCount} for incremental scan",
-                    _sessionStartDepotCount, _depotToAppMappings.Count);
-            }
+            // Reset session start count to track new mappings found
+            _sessionStartDepotCount = _depotToAppMappings.Count;
+            _logger.LogInformation("Session start depot count: {Count}", _sessionStartDepotCount);
 
             _logger.LogInformation("Processing {BatchCount} appinfo batches via PICS", allBatches.Count);
 
@@ -713,8 +641,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                             (_processedBatches * 100.0 / allBatches.Count),
                             _depotToAppMappings.Count);
 
-                        // When resuming, use merge to preserve existing data
-                        await SaveAllMappingsToJsonAsync(incrementalOnly || _isResumingGeneration);
+                        // Use merge for incremental, full save for complete rebuild
+                        await SaveAllMappingsToJsonAsync(incrementalOnly);
                     }
 
                     // Adaptive delay based on current performance
@@ -731,12 +659,12 @@ public class SteamKit2Service : IHostedService, IDisposable
             _currentStatus = "Saving PICS data to JSON";
             _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
 
-            // Add fallback mappings for apps that use their own app ID as depot ID
-            // This is done LAST and only for apps with no existing depot mappings
-            AddFallbackAppIdDepotMappings();
+            // Add log-based fallback mappings for depots that appear in actual downloads
+            // Only adds mappings where depotId = appId and no existing mapping exists
+            await AddLogBasedFallbackDepotMappingsAsync();
 
-            // Final save - use merge if resuming to preserve all data
-            await SaveAllMappingsToJsonAsync(incrementalOnly || _isResumingGeneration);
+            // Final save - use merge for incremental, full save for complete rebuild
+            await SaveAllMappingsToJsonAsync(incrementalOnly);
 
             _currentStatus = "Starting background database import";
             // Run database import on background thread to prevent blocking HTTP server
@@ -783,10 +711,9 @@ public class SteamKit2Service : IHostedService, IDisposable
             var appId = app.ID;
             var kv = app.KeyValues;
 
-            // Prefer "appinfo" block if present; otherwise use direct children
             var appinfo = kv["appinfo"];
-            var common  = appinfo != KeyValue.Invalid ? appinfo["common"]  : kv["common"];
-            var depots  = appinfo != KeyValue.Invalid ? appinfo["depots"]  : kv["depots"];
+            var common = appinfo != KeyValue.Invalid ? appinfo["common"] : kv["common"];
+            var depots = appinfo != KeyValue.Invalid ? appinfo["depots"] : kv["depots"];
 
             var appName = common?["name"]?.AsString() ?? $"App {appId}";
             var appType = common?["type"]?.AsString()?.ToLower() ?? "unknown";
@@ -800,39 +727,25 @@ public class SteamKit2Service : IHostedService, IDisposable
                 {
                     if (uint.TryParse(dlcChild.AsString(), out var dlcAppId))
                     {
-                        // Add DLC to scan list if not already scanned
-                        if (!_scannedApps.Contains(dlcAppId))
+                        // Add DLC to scan list if not already processed
+                        if (!_appNames.ContainsKey(dlcAppId))
                         {
                             dlcAppIdsToScan.Add(dlcAppId);
                         }
                     }
                 }
-                if (dlcAppIdsToScan.Count > 0)
-                {
-                    _logger.LogDebug("App {AppId} ({Name}) has {Count} DLCs to scan", appId, appName, dlcAppIdsToScan.Count);
-                }
             }
 
             if (depots == KeyValue.Invalid)
             {
-                _logger.LogDebug("App {AppId} ({Name}): no depots", appId, appName);
-                _scannedApps.Add(appId);
-
-                // Even if no depots, return the DLC list for future scanning
                 return dlcAppIdsToScan;
             }
 
-            int mapped = 0;
-            var manifestIds = new List<(uint depotId, ulong manifestId)>();
-
             foreach (var child in depots.Children)
             {
-                // Skip non-numeric keys (e.g., "branches", "overrides", etc.)
                 if (!uint.TryParse(child.Name, out var depotId))
                     continue;
 
-                // If this depot is shared, the *owner* is in depotfromapp.
-                // Map the depot to its owner app, not the current one.
                 var ownerFromPics = AsUInt(child["depotfromapp"]);
                 var ownerAppId = ownerFromPics ?? appId;
 
@@ -840,82 +753,35 @@ public class SteamKit2Service : IHostedService, IDisposable
                 // Only skip if it's a base game/app (not DLC) with self-referencing depot
                 if (depotId == ownerAppId && appType != "dlc" && !ownerFromPics.HasValue)
                 {
-                    _logger.LogTrace("Skipping base app self-mapping depot {DepotId} -> app {Owner}", depotId, ownerAppId);
                     continue;
                 }
 
                 // For DLCs, depot ID == app ID is expected and valid
                 if (depotId == ownerAppId && appType == "dlc")
                 {
-                    _logger.LogDebug("Found DLC depot {DepotId} for DLC app {AppId} ({Name})", depotId, appId, appName);
+                    _logger.LogDebug("  Found DLC depot {DepotId} for DLC app {AppId} ({Name})", depotId, appId, appName);
                 }
 
                 var set = _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>());
                 set.Add(ownerAppId);
-                mapped++;
 
-                // Extract manifest ID for the public branch (for size calculation later)
-                var manifestsNode = child["manifests"];
-                if (manifestsNode != KeyValue.Invalid)
+                // Store owner app name
+                if (ownerFromPics.HasValue && !_appNames.ContainsKey(ownerAppId))
                 {
-                    var publicManifest = manifestsNode["public"];
-                    if (publicManifest != KeyValue.Invalid && ulong.TryParse(publicManifest.AsString(), out var manifestId))
-                    {
-                        manifestIds.Add((depotId, manifestId));
-                    }
+                    _appNames[ownerAppId] = $"App {ownerAppId}";
                 }
-
-                var ownerName = _appNames.TryGetValue(ownerAppId, out var n) ? n : $"App {ownerAppId}";
-                _logger.LogInformation("Mapped depot {DepotId} -> app {OwnerAppId} ({OwnerName}) [via {Via}]",
-                    depotId, ownerAppId, ownerName, ownerFromPics.HasValue ? "depotfromapp" : "current-app");
             }
 
-            // Queue this app for size calculation if we found manifests
-            if (manifestIds.Count > 0)
-            {
-                _ = Task.Run(async () => await FetchAndStoreGameSize(appId, appName, manifestIds));
-            }
-
-            _logger.LogDebug("App {AppId} ({Name}): mapped {Count} depots", appId, appName, mapped);
             _scannedApps.Add(appId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing app {AppId}: {Message}", app.ID, ex.Message);
+            _logger.LogWarning(ex, "Warning: Error processing app {AppId}", app.ID);
         }
 
         return dlcAppIdsToScan;
     }
 
-    /// <summary>
-    /// Store manifest IDs for future size calculation
-    /// For now, we store the depot info but don't fetch manifests during PICS crawl
-    /// TODO: Implement background job to fetch manifests from CDN using CDNClient
-    /// </summary>
-    private async Task FetchAndStoreGameSize(uint appId, string appName, List<(uint depotId, ulong manifestId)> manifestIds)
-    {
-        try
-        {
-            // For now, just log that we found manifest info
-            // In the future, this will use CDNClient.DownloadManifestAsync to get actual sizes
-            _logger.LogDebug("Found {Count} depot manifests for {AppName} (App {AppId})",
-                manifestIds.Count, appName, appId);
-
-            // TODO: Implement manifest download using CDNClient
-            // This requires:
-            // 1. Creating CDNClient instance
-            // 2. Getting manifest request code via GetDepotManifestRequestCodeAsync
-            // 3. Downloading manifest via CDNClient.DownloadManifestAsync
-            // 4. Summing TotalUncompressedSize from all manifests
-            // 5. Storing in GameSizes table
-
-            await Task.CompletedTask;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error processing game size for app {AppId}", appId);
-        }
-    }
 
     private async Task<List<uint>> EnumerateAllAppIdsViaPicsChangesAsync(CancellationToken ct, bool incrementalOnly = false)
     {
@@ -925,35 +791,67 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
 
         var allApps = new HashSet<uint>();
+
+        // Only use Web API for full update when there's truly no existing data
+        // If we have mappings loaded (from JSON or DB), use PICS even with change number 0
+        bool hasExistingMappings = _depotToAppMappings.Count > 0;
+
+        if (!incrementalOnly && _lastChangeNumberSeen == 0 && !hasExistingMappings)
+        {
+            _logger.LogInformation("Full update mode with no existing data: Using Steam Web API to get all app IDs");
+            var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
+            _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API", webApiApps.Count);
+
+            // Get and save current change number so future incremental updates work
+            var changeNumberJob = _steamApps.PICSGetChangesSince(0, false, false);
+            var changeNumberResult = await WaitForCallbackAsync(changeNumberJob, ct);
+            _lastChangeNumberSeen = changeNumberResult.CurrentChangeNumber;
+            _logger.LogInformation("Initialized change number to {ChangeNumber} for future incremental updates", _lastChangeNumberSeen);
+
+            return webApiApps;
+        }
+
+        if (incrementalOnly && hasExistingMappings && _lastChangeNumberSeen == 0)
+        {
+            _logger.LogInformation("Incremental mode with existing data but no change number - will use PICS to check for updates");
+        }
+
+        // For incremental updates, use PICS changes
         uint since = 0;
-        uint maxChangesToCheck = 50000; // Reduced from 200k to 50k to avoid full update requests
 
-        _logger.LogInformation("Enumerating app IDs via Steam PICS changelists...");
-
-        // First, get the current changelist number
+        // Get current change number
         var initialJob = _steamApps.PICSGetChangesSince(0, false, false);
         var initialChanges = await WaitForCallbackAsync(initialJob, ct);
         var currentChangeNumber = initialChanges.CurrentChangeNumber;
 
-        // Use saved change number if available, otherwise start from recent point
-        if (_lastChangeNumberSeen > 0 && _lastChangeNumberSeen < currentChangeNumber)
+        // Use saved change number for incremental, or start from recent point if we have existing data
+        if (incrementalOnly && _lastChangeNumberSeen > 0)
         {
             since = _lastChangeNumberSeen;
-            _logger.LogInformation("Resuming PICS enumeration from saved change number: {FromChange} to {CurrentChange}",
-                since, currentChangeNumber);
+            _logger.LogInformation("Incremental update from saved change #{FromChange} to #{CurrentChange}", since, currentChangeNumber);
+        }
+        else if (incrementalOnly && hasExistingMappings && _lastChangeNumberSeen == 0)
+        {
+            // Have data but no change number - start from recent point to avoid full scan
+            since = Math.Max(0, currentChangeNumber - 10000); // Last ~10k changes (about 1-2 weeks)
+            _logger.LogInformation("Incremental update with existing data but no change number - starting from recent change #{FromChange} to #{CurrentChange}", since, currentChangeNumber);
         }
         else
         {
-            // Fallback: Start from a more recent point to avoid triggering full updates
-            since = Math.Max(0, currentChangeNumber - maxChangesToCheck);
-            _logger.LogInformation("Starting PICS enumeration from recent point: {FromChange} to {CurrentChange}",
-                since, currentChangeNumber);
+            // Full mode or no existing data - start from recent point for partial updates
+            since = Math.Max(0, currentChangeNumber - 50000);
+            _logger.LogInformation("Enumerating from change #{FromChange} to #{CurrentChange}", since, currentChangeNumber);
         }
 
-        _logger.LogInformation($"Starting PICS crawl from change {since} to {currentChangeNumber}");
+        // Update change number NOW so it gets saved during batch processing
+        if (currentChangeNumber > _lastChangeNumberSeen)
+        {
+            _lastChangeNumberSeen = currentChangeNumber;
+            _logger.LogInformation("Updated change number to {ChangeNumber} for this crawl", _lastChangeNumberSeen);
+        }
 
         int consecutiveFullUpdates = 0;
-        int maxFullUpdates = 3;
+        const int maxFullUpdates = 3;
 
         while (since < currentChangeNumber && consecutiveFullUpdates < maxFullUpdates)
         {
@@ -961,26 +859,26 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             var job = _steamApps.PICSGetChangesSince(since, true, true);
             var changes = await WaitForCallbackAsync(job, ct);
-            var pageAppCount = changes.AppChanges.Count;
-            _lastChangeNumberSeen = changes.CurrentChangeNumber; // Track the latest change number
 
             if (changes.RequiresFullUpdate || changes.RequiresFullAppUpdate)
             {
                 consecutiveFullUpdates++;
-                _logger.LogWarning(
-                    "PICS signaled a full update (since={Since}, current={Current}, attempt={Attempt}); skipping to more recent changes.",
-                    since,
-                    changes.CurrentChangeNumber,
-                    consecutiveFullUpdates);
+                _logger.LogWarning("PICS requesting full update, falling back to Web API");
+                // Fall back to Web API
+                var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
+                _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API fallback", webApiApps.Count);
 
-                // Skip ahead more aggressively to find a recent enough starting point
-                var skipAmount = Math.Min(maxChangesToCheck / 4, currentChangeNumber - since);
-                since += skipAmount;
-                await Task.Delay(TimeSpan.FromSeconds(2), ct);
-                continue;
+                // Update change number even when falling back to Web API so future incremental updates work
+                if (currentChangeNumber > _lastChangeNumberSeen)
+                {
+                    _lastChangeNumberSeen = currentChangeNumber;
+                    _logger.LogInformation("Updated change number to {ChangeNumber} after Web API fallback", _lastChangeNumberSeen);
+                }
+
+                return webApiApps;
             }
 
-            consecutiveFullUpdates = 0; // Reset counter on successful request
+            consecutiveFullUpdates = 0;
 
             foreach (var change in changes.AppChanges)
             {
@@ -988,175 +886,31 @@ public class SteamKit2Service : IHostedService, IDisposable
             }
 
             var last = changes.LastChangeNumber;
-            var current = changes.CurrentChangeNumber;
-
-            _logger.LogDebug(
-                "PICS changes page fetched: last={Last}, current={Current}, pageApps={PageApps}, collectedApps={Count}",
-                last,
-                current,
-                pageAppCount,
-                allApps.Count);
-
             if (last <= since)
             {
-                if (pageAppCount == 0)
+                if (changes.AppChanges.Count == 0)
                 {
-                    // If we get no apps for several iterations, move forward more aggressively
-                    since += 500; // Reduced step size
-                    await Task.Delay(TimeSpan.FromMilliseconds(100), ct);
+                    since += 500;
+                    await Task.Delay(100, ct);
                     continue;
                 }
-
-                last = (uint)Math.Min((long)current, (long)since + Math.Max(1, pageAppCount));
+                last = (uint)Math.Min((long)currentChangeNumber, (long)since + Math.Max(1, changes.AppChanges.Count));
             }
 
             since = last;
 
-            // Maximum possible limit for complete Steam catalog coverage
             if (allApps.Count >= 500000)
-            {
-                _logger.LogInformation("Collected {Count} apps, stopping enumeration to prevent excessive API calls", allApps.Count);
                 break;
-            }
 
-            await Task.Delay(100, ct); // Slightly longer delay to be more respectful
-        }
-
-        // Add dynamic app discovery only when not in incremental mode
-        var initialAppCount = allApps.Count;
-        if (!incrementalOnly)
-        {
-            await AddDynamicAppDiscoveryAsync(allApps, ct);
-
-            var discoveredApps = allApps.Count - initialAppCount;
-            if (discoveredApps > 0)
-            {
-                _logger.LogInformation($"PICS enumeration found {initialAppCount} apps via changes, plus {discoveredApps} apps via dynamic discovery.");
-            }
-            else
-            {
-                _logger.LogInformation($"PICS enumeration found {initialAppCount} apps via changes.");
-            }
-        }
-        else
-        {
-            _logger.LogInformation($"Incremental PICS enumeration found {initialAppCount} changed apps (skipping dynamic discovery).");
+            await Task.Delay(100, ct);
         }
 
         var list = allApps.ToList();
         list.Sort();
 
-        _logger.LogInformation("PICS enumeration complete. Found {Count} total apps", list.Count);
+        _logger.LogInformation("PICS enumeration complete. Found {Count} apps", list.Count);
         return list;
     }
-
-    /// <summary>
-    /// Add dynamic app discovery using various algorithms when PICS enumeration yields too few results
-    /// </summary>
-    private async Task AddDynamicAppDiscoveryAsync(HashSet<uint> allApps, CancellationToken ct)
-    {
-        var initialCount = allApps.Count;
-        _logger.LogInformation("Starting dynamic app discovery to supplement PICS enumeration");
-
-        // Strategy 1: Add apps from existing database depot mappings
-        await AddAppsFromExistingMappingsAsync(allApps);
-
-        // Strategy 2: Use mathematical ranges based on Steam's app ID patterns
-        AddAppsFromMathematicalRanges(allApps);
-
-        // Strategy 3: Add apps from recent downloads that we've seen before
-        await AddAppsFromDownloadHistoryAsync(allApps);
-
-        var discoveredCount = allApps.Count - initialCount;
-        _logger.LogInformation("Dynamic app discovery added {NewCount} apps", discoveredCount);
-    }
-
-    /// <summary>
-    /// Add app IDs from existing depot mappings in database
-    /// </summary>
-    private async Task AddAppsFromExistingMappingsAsync(HashSet<uint> allApps)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var existingAppIds = await context.SteamDepotMappings
-                .Select(m => m.AppId)
-                .Distinct()
-                .ToListAsync();
-
-            foreach (var appId in existingAppIds)
-            {
-                allApps.Add(appId);
-            }
-
-            _logger.LogDebug("Added {Count} apps from existing database mappings", existingAppIds.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to add apps from existing mappings");
-        }
-    }
-
-    /// <summary>
-    /// Add app IDs using mathematical ranges based on Steam's historical patterns
-    /// </summary>
-    private void AddAppsFromMathematicalRanges(HashSet<uint> allApps)
-    {
-        // Simplified coverage of Steam's app ID range with practical step sizes
-        // This is a fallback discovery method - most apps should come from PICS enumeration
-        var ranges = new List<(uint start, uint end, uint step)>
-        {
-            (1U, 1000U, 1U),           // Classic games - full coverage
-            (1000U, 100000U, 10U),     // Early/popular games - tight coverage
-            (100000U, 1000000U, 100U), // Modern games - moderate coverage
-            (1000000U, 3000000U, 500U) // Recent games - sparse coverage
-        };
-
-        int addedCount = 0;
-        foreach (var (start, end, step) in ranges)
-        {
-            for (uint appId = start; appId <= end && allApps.Count < 300000; appId += step)
-            {
-                if (allApps.Add(appId))
-                    addedCount++;
-            }
-        }
-
-        _logger.LogDebug("Mathematical range discovery added {Count} potential app IDs", addedCount);
-    }
-
-    /// <summary>
-    /// Add app IDs from recent download history that we've successfully resolved
-    /// </summary>
-    private async Task AddAppsFromDownloadHistoryAsync(HashSet<uint> allApps)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var recentAppIds = await context.Downloads
-                .Where(d => d.GameAppId.HasValue && d.StartTimeUtc > DateTime.UtcNow.AddDays(-30))
-                .Select(d => d.GameAppId!.Value)
-                .Distinct()
-                .Take(500)
-                .ToListAsync();
-
-            foreach (var appId in recentAppIds)
-            {
-                allApps.Add(appId);
-            }
-
-            _logger.LogDebug("Added {Count} apps from recent download history", recentAppIds.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to add apps from download history");
-        }
-    }
-
 
     private async Task<T> WaitForCallbackAsync<T>(AsyncJob<T> job, CancellationToken ct, TimeSpan? timeout = null) where T : CallbackMsg
     {
@@ -1465,6 +1219,22 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Get or set whether automatic scans should be incremental (true) or full (false)
+    /// </summary>
+    public bool CrawlIncrementalMode
+    {
+        get => _crawlIncrementalMode;
+        set
+        {
+            _crawlIncrementalMode = value;
+
+            // Save to state for persistence across restarts
+            _stateService.SetCrawlIncrementalMode(value);
+            _logger.LogInformation("Saved crawl mode to state: {Mode}", value ? "Incremental" : "Full");
+        }
+    }
+
+    /// <summary>
     /// Get current PICS crawl progress
     /// </summary>
     public object GetProgress()
@@ -1496,6 +1266,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             LastCrawlTime = _lastCrawlTime == DateTime.MinValue ? (DateTime?)null : _lastCrawlTime,
             NextCrawlIn = nextCrawlIn.TotalSeconds, // Return as a number (total seconds) instead of TimeSpan object
             CrawlIntervalHours = _crawlInterval.TotalHours,
+            CrawlIncrementalMode = _crawlIncrementalMode,
             IsConnected = _steamClient?.IsConnected == true,
             IsLoggedOn = _isLoggedOn
         };
@@ -1839,69 +1610,92 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Add fallback depot mappings for apps that use their own app ID as depot ID
-    /// This is a LAST RESORT for simple games with no separate depot structure
-    /// Only adds mappings for apps with NO existing depot data AND where the depot ID doesn't already exist
+    /// Add fallback depot mappings ONLY for depots that appear in actual download logs
+    /// where depotId = appId and no existing mapping exists
+    /// This is data-driven, not speculative - only maps depots we've actually seen downloaded
     /// </summary>
-    private void AddFallbackAppIdDepotMappings()
+    private async Task AddLogBasedFallbackDepotMappingsAsync()
     {
         try
         {
             int added = 0;
             int skipped = 0;
 
-            // Get all apps we've scanned
-            var allApps = _appNames.Keys.ToHashSet();
+            // Get all unique depot IDs from actual downloads in the database
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            // Get all apps that already have depot mappings
-            var appsWithDepots = _depotToAppMappings.Values
-                .SelectMany(appIds => appIds)
-                .ToHashSet();
+            var depotIdsInLogs = await context.Downloads
+                .Where(d => d.DepotId.HasValue && d.Service.ToLower() == "steam")
+                .Select(d => d.DepotId!.Value)
+                .Distinct()
+                .ToListAsync();
 
-            // Find apps without any depot mappings
-            var appsWithoutDepots = allApps.Except(appsWithDepots).ToList();
+            _logger.LogInformation("Found {Count} unique depot IDs in download logs", depotIdsInLogs.Count);
 
-            foreach (var appId in appsWithoutDepots)
+            foreach (var depotId in depotIdsInLogs)
             {
-                // CRITICAL: Only add if the depot ID doesn't already exist
-                // If depot with ID = appId already exists, it means it's a shared depot or has real PICS data
-                // We should NOT override or modify it
-                if (_depotToAppMappings.ContainsKey(appId))
+                // Only consider depots where depotId = appId
+                var appId = depotId;
+
+                // Skip if this depot already has mappings (either from PICS or previous fallback)
+                if (_depotToAppMappings.ContainsKey(depotId))
                 {
                     skipped++;
-                    _logger.LogTrace("Skipping fallback for app {AppId} - depot {DepotId} already has PICS mappings",
-                        appId, appId);
                     continue;
                 }
 
-                // Safe to add: app has no depot mappings AND depot ID doesn't exist
+                // Check if this app ID is valid in Steam
+                if (!_appNames.ContainsKey(appId) && !await IsValidSteamAppAsync(appId))
+                {
+                    _logger.LogTrace("Skipping depot {DepotId} - app {AppId} not found in Steam", depotId, appId);
+                    continue;
+                }
+
+                // Safe to add: depot appears in logs, no existing mapping, and appId is valid
                 var set = new HashSet<uint> { appId };
-                if (_depotToAppMappings.TryAdd(appId, set))
+                if (_depotToAppMappings.TryAdd(depotId, set))
                 {
                     added++;
-                    _logger.LogDebug("Added fallback depot mapping: depot {DepotId} -> app {AppId} ({AppName})",
-                        appId, appId, _appNames.TryGetValue(appId, out var name) ? name : "Unknown");
+                    var appName = _appNames.TryGetValue(appId, out var name) ? name : "Unknown";
+                    _logger.LogInformation("Added log-based fallback mapping: depot {DepotId} -> app {AppId} ({AppName})",
+                        depotId, appId, appName);
                 }
             }
 
             if (added > 0)
             {
-                _logger.LogInformation("Added {Count} fallback depot mappings for apps using their own app ID as depot ID (skipped {Skipped} that had existing depot data)",
+                _logger.LogInformation("Added {Count} log-based fallback depot mappings (skipped {Skipped} that already had mappings)",
                     added, skipped);
             }
             else if (skipped > 0)
             {
-                _logger.LogDebug("No fallback depot mappings added - {Skipped} apps skipped because depot already exists with PICS data", skipped);
+                _logger.LogDebug("No fallback depot mappings added - {Skipped} depots already have mappings", skipped);
             }
             else
             {
-                _logger.LogDebug("No fallback depot mappings needed - all scanned apps have PICS depot data");
+                _logger.LogDebug("No fallback depot mappings needed - all log depots have PICS data or are invalid");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error adding fallback app ID depot mappings");
+            _logger.LogError(ex, "Error adding log-based fallback depot mappings");
         }
+    }
+
+    /// <summary>
+    /// Check if an app ID is valid in Steam (has a name in our app list)
+    /// </summary>
+    private async Task<bool> IsValidSteamAppAsync(uint appId)
+    {
+        // Check if we have this app in our scanned apps
+        if (_appNames.ContainsKey(appId))
+        {
+            return true;
+        }
+
+        // Could also check the database, but for now just check our in-memory list
+        return false;
     }
 
 }

@@ -116,6 +116,32 @@ public class GameInfoController : ControllerBase
     }
 
     /// <summary>
+    /// Set the crawl mode for automatic scheduled depot mapping updates
+    /// </summary>
+    /// <param name="incremental">True for incremental scans, false for full scans</param>
+    [HttpPost("steamkit/scan-mode")]
+    [RequireAuth]
+    public IActionResult SetCrawlMode([FromBody] bool incremental)
+    {
+        try
+        {
+            _steamKit2Service.CrawlIncrementalMode = incremental;
+            _logger.LogInformation("Crawl mode updated to {Mode}", incremental ? "Incremental" : "Full");
+
+            return Ok(new
+            {
+                incrementalMode = _steamKit2Service.CrawlIncrementalMode,
+                message = $"Automatic scan mode set to {(incremental ? "incremental" : "full")} scans"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting crawl mode");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Get status of PICS JSON data and database
     /// </summary>
     [HttpGet("pics-status")]
