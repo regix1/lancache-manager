@@ -1,6 +1,3 @@
-using Microsoft.AspNetCore.SignalR;
-using LancacheManager.Hubs;
-
 namespace LancacheManager.Services;
 
 /// <summary>
