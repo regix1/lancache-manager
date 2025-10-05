@@ -73,6 +73,7 @@ struct Processor {
     entries_saved: AtomicU64,
     cancel_flag: Arc<AtomicBool>,
     local_tz: Tz,
+    auto_map_depots: bool,
 }
 
 impl Processor {
@@ -82,6 +83,7 @@ impl Processor {
         progress_path: PathBuf,
         cancel_path: PathBuf,
         start_position: u64,
+        auto_map_depots: bool,
     ) -> Self {
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
@@ -89,6 +91,7 @@ impl Processor {
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
         let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
         println!("Using timezone: {} (from TZ env var)", local_tz);
+        println!("Auto-map depots: {}", auto_map_depots);
 
         // Spawn background thread to monitor cancel file
         let cancel_flag_clone = Arc::clone(&cancel_flag);
@@ -116,6 +119,7 @@ impl Processor {
             entries_saved: AtomicU64::new(0),
             cancel_flag,
             local_tz,
+            auto_map_depots,
         }
     }
 
@@ -345,6 +349,25 @@ impl Processor {
         Ok(())
     }
 
+    fn lookup_depot_mapping(&self, tx: &Transaction, depot_id: u32) -> Result<Option<(u32, Option<String>)>> {
+        // Only use owner apps (IsOwner = true) - matches C# behavior
+        // No fallback to non-owner apps to avoid incorrect mappings
+        let result = tx.query_row(
+            "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? AND IsOwner = 1 LIMIT 1",
+            params![depot_id],
+            |row| {
+                let app_id: u32 = row.get(0)?;
+                let app_name: Option<String> = row.get(1)?;
+                Ok((app_id, app_name))
+            }
+        );
+
+        match result {
+            Ok(mapping) => Ok(Some(mapping)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into())
+        }
+    }
 
     fn process_session_group(
         &mut self,
@@ -429,10 +452,30 @@ impl Processor {
 
         let last_url = new_entries.last().map(|e| e.url.as_str());
 
-        // Don't lookup depot mappings during log processing - this will be done in step 5 (depot mapping)
-        // Just store the depot ID and leave GameAppId/GameName as NULL
-        let game_app_id: Option<u32> = None;
-        let game_name: Option<String> = None;
+        // Lookup depot mappings only for live/background processing (auto_map_depots = true)
+        // For manual processing from frontend, leave as NULL so step 5 can handle it
+        let (game_app_id, game_name) = if self.auto_map_depots && service.to_lowercase() == "steam" {
+            if let Some(depot_id) = primary_depot_id {
+                match self.lookup_depot_mapping(tx, depot_id) {
+                    Ok(Some((app_id, app_name))) => {
+                        let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
+                        println!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
+                        (Some(app_id), app_name)
+                    },
+                    Ok(None) => {
+                        (None, None)
+                    },
+                    Err(e) => {
+                        println!("Warning: Failed to lookup depot mapping for {}: {}", depot_id, e);
+                        (None, None)
+                    }
+                }
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
 
         // Check if we should create a new download session
         let should_create_new = self
@@ -693,11 +736,12 @@ impl Processor {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
-    if args.len() < 5 {
+    if args.len() < 6 {
         eprintln!(
-            "Usage: {} <db_path> <log_path> <progress_path> <start_position>",
+            "Usage: {} <db_path> <log_path> <progress_path> <start_position> <auto_map_depots>",
             args[0]
         );
+        eprintln!("  auto_map_depots: 1 for live/background processing (auto-map), 0 for manual processing");
         std::process::exit(1);
     }
 
@@ -705,6 +749,7 @@ fn main() -> Result<()> {
     let log_path = PathBuf::from(&args[2]);
     let progress_path = PathBuf::from(&args[3]);
     let start_position: u64 = args[4].parse().context("Invalid start_position")?;
+    let auto_map_depots: bool = args[5].parse::<u8>().context("Invalid auto_map_depots")? == 1;
 
     // Create cancel marker path in same directory as progress file
     let mut cancel_path = progress_path.clone();
@@ -715,7 +760,7 @@ fn main() -> Result<()> {
         let _ = std::fs::remove_file(&cancel_path);
     }
 
-    let mut processor = Processor::new(db_path, log_path, progress_path, cancel_path, start_position);
+    let mut processor = Processor::new(db_path, log_path, progress_path, cancel_path, start_position, auto_map_depots);
     processor.process()?;
 
     Ok(())

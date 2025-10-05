@@ -106,10 +106,12 @@ public class RustLogProcessorService
             }
 
             // Start Rust process
+            // Pass auto_map_depots flag: 1 for silent mode (live processing), 0 for manual processing
+            var autoMapDepots = silentMode ? 1 : 0;
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustExecutablePath,
-                Arguments = $"\"{dbPath}\" \"{logFilePath}\" \"{progressPath}\" {startPosition}",
+                Arguments = $"\"{dbPath}\" \"{logFilePath}\" \"{progressPath}\" {startPosition} {autoMapDepots}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -231,21 +233,13 @@ public class RustLogProcessorService
                     }
                 }
 
-                // Invalidate cache for new entries and apply depot mappings if available
+                // Invalidate cache for new entries
+                // For live data (silentMode=true), Rust processor automatically maps depots during processing
+                // For manual processing (silentMode=false), depot mapping is done separately in step 5
                 if (finalProgress?.EntriesSaved > 0)
                 {
                     _logger.LogDebug("Invalidating cache for {EntriesCount} new entries", finalProgress.EntriesSaved);
-                    _ = Task.Run(async () =>
-                    {
-                        await InvalidateCacheAsync(silentMode);
-
-                        // For live data (silent mode), automatically apply depot mappings to new downloads
-                        // This ensures new downloads get game names without manual intervention
-                        if (silentMode)
-                        {
-                            await ApplyDepotMappingsToNewDownloadsAsync();
-                        }
-                    });
+                    _ = Task.Run(async () => await InvalidateCacheAsync(silentMode));
                 }
 
                 if (!silentMode)
@@ -413,30 +407,6 @@ public class RustLogProcessorService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error invalidating cache after log processing");
-        }
-    }
-
-    /// <summary>
-    /// Apply depot mappings to newly created downloads that have depot IDs but no game info
-    /// This is called automatically for live data processing to ensure new downloads get mapped
-    /// </summary>
-    private async Task ApplyDepotMappingsToNewDownloadsAsync()
-    {
-        try
-        {
-            _logger.LogInformation("Automatically applying depot mappings to new downloads");
-
-            using var scope = _serviceProvider.CreateScope();
-            var steamKit2Service = scope.ServiceProvider.GetRequiredService<SteamKit2Service>();
-
-            // Use the same method as manual depot mapping, but only for new downloads
-            await steamKit2Service.ManuallyApplyDepotMappings();
-
-            _logger.LogInformation("Automatic depot mapping completed");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error applying depot mappings to new downloads - this is non-critical");
         }
     }
 
