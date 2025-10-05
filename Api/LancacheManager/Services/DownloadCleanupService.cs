@@ -40,8 +40,8 @@ public class DownloadCleanupService : BackgroundService
                 using var scope = _serviceProvider.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                // Use 1-minute timeout - if no new data in 1 minute, download is complete
-                var cutoff = DateTime.UtcNow.AddMinutes(-1);
+                // Use 30-second timeout - if no new data in 30 seconds, download is complete
+                var cutoff = DateTime.UtcNow.AddSeconds(-30);
 
                 // Process in smaller batches to avoid long locks (important when Rust processor is running)
                 const int batchSize = 10;
@@ -72,7 +72,7 @@ public class DownloadCleanupService : BackgroundService
 
                 if (totalUpdated > 0)
                 {
-                    _logger.LogInformation($"Marked {totalUpdated} downloads as complete (EndTime > 1 minute old)");
+                    _logger.LogInformation($"Marked {totalUpdated} downloads as complete (EndTime > 30 seconds old)");
                 }
             }
             catch (Exception ex)
