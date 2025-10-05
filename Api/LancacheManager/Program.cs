@@ -254,7 +254,37 @@ using (var scope = app.Services.CreateScope())
         // Load initial stats into cache
         var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
         await statsCache.RefreshFromDatabase(dbContext);
-        
+
+        // Auto-import PICS data if database is sparse but JSON file exists
+        try
+        {
+            var depotCount = await dbContext.SteamDepotMappings.CountAsync();
+            logger.LogInformation("Database has {DepotCount} depot mappings", depotCount);
+
+            if (depotCount < 1000) // Threshold: fewer than 1000 mappings means database is sparse
+            {
+                var picsDataService = scope.ServiceProvider.GetRequiredService<PicsDataService>();
+                var pathResolver = scope.ServiceProvider.GetRequiredService<IPathResolver>();
+                var jsonPath = Path.Combine(pathResolver.GetDataDirectory(), "pics_depot_mappings.json");
+
+                if (File.Exists(jsonPath))
+                {
+                    logger.LogInformation("Database is sparse ({DepotCount} mappings) but PICS JSON exists - auto-importing...", depotCount);
+                    await picsDataService.ImportJsonDataToDatabaseAsync();
+                    var newCount = await dbContext.SteamDepotMappings.CountAsync();
+                    logger.LogInformation("Auto-import complete: {NewCount} depot mappings now in database", newCount);
+                }
+                else
+                {
+                    logger.LogInformation("Database is sparse but no PICS JSON file found at {JsonPath}", jsonPath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to auto-import PICS data on startup (non-critical)");
+        }
+
         logger.LogInformation("Database initialization complete");
     }
     catch (Exception ex)

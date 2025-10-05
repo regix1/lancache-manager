@@ -410,7 +410,8 @@ public class DatabaseService
     }
 
     /// <summary>
-    /// Select the best app ID from a list of candidates, preferring owner apps
+    /// Select the owner app ID from a list of candidates
+    /// Returns null if no owner app is found (no fallback/guessing)
     /// </summary>
     private async Task<uint?> SelectBestAppIdAsync(uint depotId, List<uint> appIds)
     {
@@ -423,14 +424,8 @@ public class DatabaseService
             .Select(m => m.AppId)
             .ToListAsync();
 
-        // If we have an owner app, use it
-        if (ownerApps.Any())
-        {
-            return ownerApps.First();
-        }
-
-        // Fallback: Just use the first app if no owner is marked
-        return appIds.First();
+        // Only return owner app - no fallback/guessing
+        return ownerApps.FirstOrDefault();
     }
 
     private async Task StoreDepotMappingAsync(uint appId, uint depotId, string? appName, string source)

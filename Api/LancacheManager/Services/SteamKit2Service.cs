@@ -291,14 +291,72 @@ public class SteamKit2Service : IHostedService, IDisposable
 
     private async Task ConnectAndBuildIndexAsync(CancellationToken ct, bool incrementalOnly = false)
     {
+        const int maxRetries = 2; // Max 2 retries = 3 total attempts
+        int attempt = 0;
+
+        while (attempt <= maxRetries)
+        {
+            try
+            {
+                if (attempt > 0)
+                {
+                    _logger.LogInformation("Retry attempt {Attempt}/{MaxRetries} for PICS crawl", attempt, maxRetries);
+                    await Task.Delay(5000, ct); // Wait 5 seconds before retry
+                }
+
+                await ConnectAndLoginAsync(ct);
+                await BuildDepotIndexAsync(ct, incrementalOnly);
+
+                // Check if we still have unmapped downloads after the scan
+                if (incrementalOnly)
+                {
+                    int unmappedCount = await CheckUnmappedDownloadsAsync();
+                    if (unmappedCount > 0 && attempt < maxRetries)
+                    {
+                        _logger.LogWarning("Found {UnmappedCount} unmapped downloads after incremental scan - will retry", unmappedCount);
+                        attempt++;
+                        continue;
+                    }
+                    else if (unmappedCount > 0)
+                    {
+                        _logger.LogWarning("Found {UnmappedCount} unmapped downloads after all retries", unmappedCount);
+                    }
+                }
+
+                // Success - exit retry loop
+                break;
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                _logger.LogError(ex, "Failed to connect and build depot index (attempt {Attempt}/{MaxRetries})", attempt + 1, maxRetries + 1);
+                attempt++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to connect and build depot index after all retries");
+                break;
+            }
+        }
+    }
+
+    private async Task<int> CheckUnmappedDownloadsAsync()
+    {
         try
         {
-            await ConnectAndLoginAsync(ct);
-            await BuildDepotIndexAsync(ct, incrementalOnly);
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // Count downloads with depot IDs but no game info
+            return await context.Downloads
+                .Where(d => d.Service.ToLower() == "steam"
+                       && d.DepotId.HasValue
+                       && !d.GameAppId.HasValue)
+                .CountAsync();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to connect and build depot index");
+            _logger.LogWarning(ex, "Failed to check unmapped downloads");
+            return 0;
         }
     }
 
@@ -668,20 +726,17 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Final save - use merge for incremental, full save for complete rebuild
             await SaveAllMappingsToJsonAsync(incrementalOnly);
 
-            _currentStatus = "Starting background database import";
-            // Run database import on background thread to prevent blocking HTTP server
-            _ = Task.Run(async () =>
+            _currentStatus = "Importing to database";
+            // Import to database BEFORE updating downloads so mappings are available
+            try
             {
-                try
-                {
-                    await ImportJsonToDatabase();
-                    _logger.LogInformation("Background database import completed successfully");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Background database import failed");
-                }
-            });
+                await ImportJsonToDatabase();
+                _logger.LogInformation("Database import completed successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Database import failed");
+            }
 
             _currentStatus = "Updating downloads";
             await UpdateDownloadsWithDepotMappings();
@@ -751,19 +806,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                 var ownerFromPics = AsUInt(child["depotfromapp"]);
                 var ownerAppId = ownerFromPics ?? appId;
 
-                // FIXED: DLC depots use their App ID as Depot ID - this is normal Steam behavior
-                // Only skip if it's a base game/app (not DLC) with self-referencing depot
-                if (depotId == ownerAppId && appType != "dlc" && !ownerFromPics.HasValue)
-                {
-                    continue;
-                }
-
-                // For DLCs, depot ID == app ID is expected and valid
-                if (depotId == ownerAppId && appType == "dlc")
-                {
-                    _logger.LogDebug("  Found DLC depot {DepotId} for DLC app {AppId} ({Name})", depotId, appId, appName);
-                }
-
+                // Self-referencing depots (depot ID = app ID) are valid owner depots
+                // This includes both base games and DLCs
                 var set = _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>());
                 set.Add(ownerAppId);
 
@@ -837,9 +881,9 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
         else if (incrementalOnly && hasExistingMappings && _lastChangeNumberSeen == 0)
         {
-            // Have data but no change number - start from recent point to avoid full scan
-            since = Math.Max(0, currentChangeNumber - 10000); // Last ~10k changes (about 1-2 weeks)
-            _logger.LogInformation("Incremental update with existing data but no change number - starting from recent change #{FromChange} to #{CurrentChange}", since, currentChangeNumber);
+            // Have data but no change number - be more aggressive and scan more changes
+            since = Math.Max(0, currentChangeNumber - 50000); // Last ~50k changes (about 2-3 months) - more aggressive
+            _logger.LogInformation("Incremental update with existing data but no change number - starting from recent change #{FromChange} to #{CurrentChange} (aggressive scan)", since, currentChangeNumber);
         }
         else
         {
@@ -1096,8 +1140,9 @@ public class SteamKit2Service : IHostedService, IDisposable
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            // Only return owner apps - no fallback/guessing
             var dbAppIds = context.SteamDepotMappings
-                .Where(m => m.DepotId == depotId)
+                .Where(m => m.DepotId == depotId && m.IsOwner)  // Owner apps only
                 .Select(m => m.AppId)
                 .ToList();
 

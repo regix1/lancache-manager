@@ -382,8 +382,9 @@ public class SteamService : IHostedService, IDisposable
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
+            // Only return owner apps - no fallback/guessing
             var appIds = context.SteamDepotMappings
-                .Where(m => m.DepotId == depotId)
+                .Where(m => m.DepotId == depotId && m.IsOwner)  // Owner apps only
                 .Select(m => m.AppId)
                 .ToList();
 

@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+using LancacheManager.Data;
 using LancacheManager.Hubs;
 
 namespace LancacheManager.Services;
@@ -88,6 +90,39 @@ public class RustLogProcessorService
             _logger.LogInformation($"Log file: {logFilePath}");
             _logger.LogInformation($"Progress file: {progressPath}");
             _logger.LogInformation($"Start position: {startPosition}");
+
+            // Auto-import PICS data if database is sparse but JSON file exists
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var depotCount = await context.SteamDepotMappings.CountAsync();
+
+                if (depotCount < 1000) // Threshold: fewer than 1000 mappings means database is sparse
+                {
+                    var jsonPath = Path.Combine(dataDirectory, "pics_depot_mappings.json");
+
+                    if (File.Exists(jsonPath))
+                    {
+                        _logger.LogInformation("Database has {DepotCount} depot mappings but PICS JSON exists - auto-importing before log processing...", depotCount);
+
+                        using var importScope = _serviceProvider.CreateScope();
+                        var picsDataService = importScope.ServiceProvider.GetRequiredService<PicsDataService>();
+                        await picsDataService.ImportJsonDataToDatabaseAsync();
+
+                        var newCount = await context.SteamDepotMappings.CountAsync();
+                        _logger.LogInformation("Auto-import complete: {NewCount} depot mappings now available for log processing", newCount);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Database is sparse ({DepotCount} mappings) and no PICS JSON file found - log processing may have incomplete game mappings", depotCount);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to auto-import PICS data before log processing (non-critical, continuing...)");
+            }
 
             // Start Rust process
             var startInfo = new ProcessStartInfo

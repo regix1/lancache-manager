@@ -647,51 +647,16 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     setActionLoading(true);
     try {
       if (mode === 'incremental') {
-        // For incremental mode: trigger crawl, wait for completion, then apply mappings
-        // Use the configured scan mode from the dropdown
+        // For incremental mode: trigger crawl (backend auto-applies mappings when complete)
         const useIncrementalScan = depotProcessing?.crawlIncrementalMode ?? true;
         const scanType = useIncrementalScan ? 'incremental' : 'full';
-        onSuccess?.(`Starting ${scanType} depot crawl - check progress at top of page`);
-
-        // Trigger PICS crawl using the configured mode
         await ApiService.triggerSteamKitRebuild(useIncrementalScan);
-
-        // Wait for PICS crawl to complete by polling
-        let attempts = 0;
-        const maxAttempts = 600; // 10 minutes max (600 * 1 second)
-
-        while (attempts < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-          attempts++;
-
-          try {
-            const progress = await fetch('/api/gameinfo/steamkit/progress');
-            if (progress.ok) {
-              const data = await progress.json();
-
-              // Check if crawl is complete (not running and status is Complete)
-              if (!data.isRunning && data.status === 'Complete') {
-                onSuccess?.('Depot crawl complete! Now applying mappings to downloads...');
-
-                // Apply the new depot mappings to existing downloads
-                const applyResult = await ApiService.postProcessDepotMappings();
-                onSuccess?.(applyResult.message || `Applied depot mappings to ${applyResult.mappingsProcessed || 0} downloads`);
-                setTimeout(() => onDataRefresh?.(), 2000);
-                break;
-              }
-            }
-          } catch (pollErr) {
-            console.warn('Error polling PICS progress:', pollErr);
-          }
-        }
-
-        if (attempts >= maxAttempts) {
-          onError?.('Depot crawl timed out. Mappings may not have been applied.');
-        }
+        onSuccess?.(`${scanType} depot crawl started - downloads will be updated automatically when complete`);
+        setTimeout(() => onDataRefresh?.(), 2000);
       } else {
-        // For full rebuild: just trigger it, don't auto-apply
+        // For full rebuild: trigger it (backend auto-applies mappings when complete)
         await ApiService.triggerSteamKitRebuild(false);
-        onSuccess?.('Full depot rebuild initiated - check progress at top of page');
+        onSuccess?.('Full depot rebuild initiated - downloads will be updated automatically when complete');
         setTimeout(() => onDataRefresh?.(), 2000);
       }
     } catch (err: any) {
