@@ -1225,24 +1225,16 @@ const DownloadsTab: React.FC = () => {
                 {totalPages > 10 && (
                   <>
                     <div className="border-l mx-2 h-6" style={{ borderColor: 'var(--theme-border-secondary)' }} />
-                    <select
-                      value={currentPage}
-                      onChange={(e) => handlePageChange(parseInt(e.target.value))}
-                      className="px-3 py-1 rounded-lg text-sm font-medium transition-colors"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-secondary)',
-                        color: 'var(--theme-text-primary)',
-                        border: '1px solid var(--theme-border-primary)'
-                      }}
-                      aria-label="Jump to page"
-                    >
-                      <option value="" disabled>Jump to...</option>
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
-                        <option key={pageNum} value={pageNum}>
-                          Page {pageNum}
-                        </option>
-                      ))}
-                    </select>
+                    <EnhancedDropdown
+                      options={Array.from({ length: totalPages }, (_, i) => ({
+                        value: (i + 1).toString(),
+                        label: `Page ${i + 1}`
+                      }))}
+                      value={currentPage.toString()}
+                      onChange={(value) => handlePageChange(parseInt(value))}
+                      placeholder="Jump to..."
+                      className="w-32"
+                    />
                   </>
                 )}
               </div>

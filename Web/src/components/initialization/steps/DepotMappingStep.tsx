@@ -14,9 +14,29 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete }
   const [progress, setProgress] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>('');
 
-  // Log when component mounts
+  // Log when component mounts and check for active PICS scan
   useEffect(() => {
     console.log('[DepotMapping] Component mounted - Step 5 is now active');
+
+    // Check if PICS scan is already running (page reload restoration)
+    const checkActiveScan = async () => {
+      try {
+        const response = await fetch('/api/gameinfo/steamkit/progress');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.isRunning) {
+            console.log('[DepotMapping] Detected active PICS scan on mount, restoring...');
+            setMapping(true);
+            setProgress(data.progressPercent || 0);
+            setStatusMessage(data.status || 'Processing...');
+          }
+        }
+      } catch (error) {
+        console.error('[DepotMapping] Failed to check PICS scan status:', error);
+      }
+    };
+
+    checkActiveScan();
   }, []);
 
   // Poll for PICS progress

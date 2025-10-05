@@ -42,19 +42,54 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
   const [picsData, setPicsData] = useState<any>(null);
-  const [initializing, setInitializing] = useState(false);
-  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(null);
+  const [initializing, setInitializing] = useState(() => {
+    // Restore from localStorage to survive page reloads
+    const stored = localStorage.getItem('initializationInProgress');
+    return stored === 'true';
+  });
+  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(() => {
+    // Restore from localStorage
+    const stored = localStorage.getItem('initializationMethod');
+    return (stored as 'cloud' | 'generate' | 'continue') || null;
+  });
   const [error, setError] = useState<string | null>(null);
-  const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
+  const [downloadStatus, setDownloadStatus] = useState<string | null>(() => {
+    // Restore from localStorage
+    return localStorage.getItem('initializationDownloadStatus') || null;
+  });
 
   // Persist current step to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('initializationCurrentStep', currentStep);
   }, [currentStep]);
 
+  // Persist initialization state to localStorage
+  useEffect(() => {
+    localStorage.setItem('initializationInProgress', initializing.toString());
+  }, [initializing]);
+
+  useEffect(() => {
+    if (selectedMethod) {
+      localStorage.setItem('initializationMethod', selectedMethod);
+    } else {
+      localStorage.removeItem('initializationMethod');
+    }
+  }, [selectedMethod]);
+
+  useEffect(() => {
+    if (downloadStatus) {
+      localStorage.setItem('initializationDownloadStatus', downloadStatus);
+    } else {
+      localStorage.removeItem('initializationDownloadStatus');
+    }
+  }, [downloadStatus]);
+
   // Wrapper to clear localStorage and call onInitialized
   const handleInitializationComplete = () => {
     localStorage.removeItem('initializationCurrentStep');
+    localStorage.removeItem('initializationInProgress');
+    localStorage.removeItem('initializationMethod');
+    localStorage.removeItem('initializationDownloadStatus');
     onInitialized();
   };
 
@@ -62,10 +97,59 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     const checkSetupStatus = async () => {
       await checkDataAvailability();
 
-      // If we have a stored step from a previous session, don't override it
+      // If we have a stored step from a previous session, validate it's still relevant
       const storedStep = localStorage.getItem('initializationCurrentStep');
       if (storedStep) {
-        console.log('[DepotInit] Restoring step from localStorage:', storedStep);
+        console.log('[DepotInit] Found stored step from localStorage:', storedStep);
+
+        // Check if initialization state is stale (browser was closed mid-setup)
+        // If user is not authenticated and we're past step 1, it's stale - reset to step 1
+        const authCheck = await authService.checkAuth();
+        if (!authCheck.isAuthenticated && storedStep !== 'api-key') {
+          console.log('[DepotInit] Stale initialization state detected (not authenticated), resetting to step 1');
+          localStorage.removeItem('initializationCurrentStep');
+          localStorage.removeItem('initializationInProgress');
+          localStorage.removeItem('initializationMethod');
+          localStorage.removeItem('initializationDownloadStatus');
+          localStorage.removeItem('initializationFlowActive');
+          setCurrentStep('api-key');
+          return;
+        }
+
+        console.log('[DepotInit] Restoring to step:', storedStep);
+
+        // Check if we were in the middle of a download when page reloaded
+        const storedMethod = localStorage.getItem('initializationMethod');
+        const storedInProgress = localStorage.getItem('initializationInProgress');
+
+        if (storedStep === 'depot-init' && storedMethod === 'cloud' && storedInProgress === 'true') {
+          console.log('[DepotInit] Download was in progress, checking completion status...');
+          // Check if download actually completed while page was reloading
+          const picsStatus = await checkPicsDataStatus();
+          if (picsStatus?.database?.totalMappings > 0) {
+            console.log('[DepotInit] Download completed, moving to log-processing');
+            setInitializing(false);
+            setSelectedMethod(null);
+            setDownloadStatus(null);
+            localStorage.removeItem('initializationInProgress');
+            localStorage.removeItem('initializationMethod');
+            localStorage.removeItem('initializationDownloadStatus');
+            setCurrentStep('log-processing');
+            return;
+          } else {
+            console.log('[DepotInit] Download was interrupted by page reload');
+            // Keep the UI state to show download was interrupted
+            // User will see the download status and can retry
+            setError('Download was interrupted by page reload. Please try again.');
+            setInitializing(false);
+            setSelectedMethod(null);
+            setDownloadStatus(null);
+            localStorage.removeItem('initializationInProgress');
+            localStorage.removeItem('initializationMethod');
+            localStorage.removeItem('initializationDownloadStatus');
+          }
+        }
+
         // Still need to check PICS data if we're past the depot-init step
         if (storedStep === 'pics-progress' || storedStep === 'log-processing' || storedStep === 'depot-mapping') {
           checkPicsDataStatus();
@@ -237,6 +321,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
+      // Clear localStorage since download is complete
+      localStorage.removeItem('initializationInProgress');
+      localStorage.removeItem('initializationMethod');
+      localStorage.removeItem('initializationDownloadStatus');
       setCurrentStep('log-processing');
       console.log('[DepotInit] Step changed to log-processing');
     } catch (err: any) {
@@ -245,6 +333,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
+      // Clear localStorage on error
+      localStorage.removeItem('initializationInProgress');
+      localStorage.removeItem('initializationMethod');
+      localStorage.removeItem('initializationDownloadStatus');
     }
   };
 
@@ -262,6 +354,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       console.log('[DepotInit] Changing step to pics-progress');
       setInitializing(false);
       setSelectedMethod(null);
+      // Clear localStorage since generation started successfully
+      localStorage.removeItem('initializationInProgress');
+      localStorage.removeItem('initializationMethod');
+      localStorage.removeItem('initializationDownloadStatus');
       setCurrentStep('pics-progress');
       console.log('[DepotInit] Step changed to pics-progress');
     } catch (err: any) {
@@ -269,6 +365,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setError(err.message || 'Failed to start depot generation');
       setInitializing(false);
       setSelectedMethod(null);
+      // Clear localStorage on error
+      localStorage.removeItem('initializationInProgress');
+      localStorage.removeItem('initializationMethod');
+      localStorage.removeItem('initializationDownloadStatus');
     }
   };
 
@@ -316,6 +416,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
+      // Clear localStorage since continue started successfully
+      localStorage.removeItem('initializationInProgress');
+      localStorage.removeItem('initializationMethod');
+      localStorage.removeItem('initializationDownloadStatus');
       setCurrentStep('pics-progress');
       console.log('[DepotInit] Step changed to pics-progress');
     } catch (err: any) {
@@ -324,6 +428,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
+      // Clear localStorage on error
+      localStorage.removeItem('initializationInProgress');
+      localStorage.removeItem('initializationMethod');
+      localStorage.removeItem('initializationDownloadStatus');
     }
   };
 

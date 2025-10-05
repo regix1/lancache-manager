@@ -24,10 +24,28 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
+
+  // Check if dropdown should open upward
+  useEffect(() => {
+    if (isOpen && buttonRef.current) {
+      const buttonRect = buttonRef.current.getBoundingClientRect();
+      const dropdownHeight = 240; // maxHeight from styles
+      const spaceBelow = window.innerHeight - buttonRect.bottom;
+      const spaceAbove = buttonRect.top;
+
+      // Open upward if not enough space below but enough space above
+      if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
+        setOpenUpward(true);
+      } else {
+        setOpenUpward(false);
+      }
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -101,7 +119,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute mt-1 w-full rounded-lg border shadow-xl z-[9999] overflow-x-hidden"
+          className={`absolute w-full rounded-lg border shadow-xl z-[9999] overflow-x-hidden ${
+            openUpward ? 'bottom-full mb-1' : 'mt-1'
+          }`}
           style={{
             backgroundColor: 'var(--theme-bg-secondary)',
             borderColor: 'var(--theme-border-primary)',

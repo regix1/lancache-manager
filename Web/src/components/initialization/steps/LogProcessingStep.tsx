@@ -14,6 +14,51 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Check if processing is already active on mount (page reload restoration)
+  React.useEffect(() => {
+    const checkActiveProcessing = async () => {
+      try {
+        const status = await ApiService.getProcessingStatus();
+        if (status.isProcessing) {
+          console.log('[LogProcessing] Detected active processing on mount, restoring...');
+          setProcessing(true);
+          setProgress(status);
+          startPolling();
+        }
+      } catch (error) {
+        console.error('[LogProcessing] Failed to check processing status:', error);
+      }
+    };
+
+    checkActiveProcessing();
+  }, []);
+
+  const startPolling = () => {
+    const pollingInterval = setInterval(async () => {
+      try {
+        const status = await ApiService.getProcessingStatus();
+        setProgress(status);
+
+        // Check if complete - must have finished processing AND have data
+        const isFullyComplete =
+          (!status.isProcessing && status.linesProcessed && status.linesProcessed > 0 &&
+           (status.progress === 100 || status.percentComplete === 100)) ||
+          (!status.isProcessing && status.currentPosition && status.totalSize &&
+           status.currentPosition >= status.totalSize);
+
+        if (isFullyComplete) {
+          setComplete(true);
+          clearInterval(pollingInterval);
+          // Don't auto-continue - let user click the Continue button
+        }
+      } catch (err) {
+        console.error('Failed to fetch processing status:', err);
+      }
+    }, 1000);
+
+    return () => clearInterval(pollingInterval);
+  };
+
   const startLogProcessing = async () => {
     setProcessing(true);
     setError(null);
@@ -22,32 +67,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
       // Start log processing
       await ApiService.processAllLogs();
 
-      // Poll for progress
-      const pollingInterval = setInterval(async () => {
-        try {
-          const status = await ApiService.getProcessingStatus();
-          setProgress(status);
-
-          // Check if complete - must have finished processing AND have data
-          // Check for either 100% progress OR explicitly not processing with processed data
-          const isFullyComplete =
-            (!status.isProcessing && status.linesProcessed && status.linesProcessed > 0 &&
-             (status.progress === 100 || status.percentComplete === 100)) ||
-            (!status.isProcessing && status.currentPosition && status.totalSize &&
-             status.currentPosition >= status.totalSize);
-
-          if (isFullyComplete) {
-            setComplete(true);
-            clearInterval(pollingInterval);
-            // Don't auto-continue - let user click the Continue button
-          }
-        } catch (err) {
-          console.error('Failed to fetch processing status:', err);
-        }
-      }, 1000);
-
-      // Store interval ID for cleanup
-      return () => clearInterval(pollingInterval);
+      // Start polling for progress
+      startPolling();
     } catch (err: any) {
       setError(err.message || 'Failed to start log processing');
       setProcessing(false);

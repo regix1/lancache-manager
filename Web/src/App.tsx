@@ -63,6 +63,21 @@ const AppContent: React.FC = () => {
         if (authResult.authMode === 'guest') {
           setWasGuestMode(true);
         }
+
+        // Clear stale initialization state if user is not authenticated
+        // This handles the case where user closed browser mid-setup and comes back later
+        if (!authResult.isAuthenticated && authResult.authMode !== 'guest') {
+          const storedStep = localStorage.getItem('initializationCurrentStep');
+          if (storedStep && storedStep !== 'api-key') {
+            console.log('[App] Clearing stale initialization state (not authenticated)');
+            localStorage.removeItem('initializationCurrentStep');
+            localStorage.removeItem('initializationInProgress');
+            localStorage.removeItem('initializationMethod');
+            localStorage.removeItem('initializationDownloadStatus');
+            localStorage.removeItem('initializationFlowActive');
+            setIsInitializationFlowActive(false);
+          }
+        }
       } catch (error) {
         console.error('Failed to check auth status:', error);
         setIsAuthenticated(false);
@@ -122,11 +137,11 @@ const AppContent: React.FC = () => {
           const hasData = (data.database?.totalMappings > 0) ||
                          (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
 
-          // IMPORTANT: Don't auto-close the modal if initialization flow is active
-          // This prevents the modal from closing while user is going through the setup steps
-          if (!isInitializationFlowActive) {
-            setDepotInitialized(hasData);
-          }
+          // Don't clear initialization flag just because we have some depot data
+          // The user might be in the middle of setup (e.g., on step 4 after completing step 2)
+          // Only clear the flag when initialization actually completes (handled in modal's onInitialized)
+
+          setDepotInitialized(hasData);
         } else {
           // If we can't check status, assume not initialized for safety
           if (!isInitializationFlowActive) {
@@ -371,9 +386,11 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Show initialization modal if depot data doesn't exist (after authentication)
-  // This should show for authenticated users who came from guest mode
-  if (!depotInitialized && authMode === 'authenticated' && !isUpgradingAuth) {
+  // Show initialization modal if:
+  // 1. Depot data doesn't exist (after authentication), OR
+  // 2. Initialization flow is active (user is in the middle of setup)
+  // This ensures the modal shows even if some depot data exists but user isn't done with setup
+  if (((!depotInitialized && authMode === 'authenticated') || (isInitializationFlowActive && authMode === 'authenticated')) && !isUpgradingAuth) {
     // Mark initialization flow as active when showing the modal
     if (!isInitializationFlowActive) {
       setIsInitializationFlowActive(true);
