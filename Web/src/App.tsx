@@ -29,6 +29,11 @@ const AppContent: React.FC = () => {
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
   const [, setWasGuestMode] = useState(false);
   const [isUpgradingAuth, setIsUpgradingAuth] = useState(false);
+  const [isInitializationFlowActive, setIsInitializationFlowActive] = useState(() => {
+    // Initialize from localStorage to survive page reloads
+    const stored = localStorage.getItem('initializationFlowActive');
+    return stored === 'true';
+  });
 
   // Fetch server timezone on mount
   useEffect(() => {
@@ -113,18 +118,26 @@ const AppContent: React.FC = () => {
         });
         if (response.ok) {
           const data = await response.json();
-          // Consider initialized if we have database mappings, SteamKit2 is ready, or rebuild is running
+          // Consider initialized if we have database mappings or SteamKit2 is ready with depots
           const hasData = (data.database?.totalMappings > 0) ||
-                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0) ||
-                         (data.steamKit2?.isRebuildRunning === true);
-          setDepotInitialized(hasData);
+                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
+
+          // IMPORTANT: Don't auto-close the modal if initialization flow is active
+          // This prevents the modal from closing while user is going through the setup steps
+          if (!isInitializationFlowActive) {
+            setDepotInitialized(hasData);
+          }
         } else {
           // If we can't check status, assume not initialized for safety
-          setDepotInitialized(false);
+          if (!isInitializationFlowActive) {
+            setDepotInitialized(false);
+          }
         }
       } catch (error) {
         console.error('Failed to check depot initialization status:', error);
-        setDepotInitialized(false);
+        if (!isInitializationFlowActive) {
+          setDepotInitialized(false);
+        }
       } finally {
         setCheckingDepotStatus(false);
       }
@@ -134,16 +147,20 @@ const AppContent: React.FC = () => {
 
     // Also recheck when window regains focus (in case of external changes)
     const handleFocus = () => {
-      if (depotInitialized !== null) {
+      if (depotInitialized !== null && !isInitializationFlowActive) {
         checkDepotStatus();
       }
     };
 
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
-  }, [checkingAuth, depotInitialized, authMode]);
+  }, [checkingAuth, authMode, isInitializationFlowActive]); // Added isInitializationFlowActive to dependencies
 
   const handleDepotInitialized = async () => {
+    // Initialization flow is complete
+    setIsInitializationFlowActive(false);
+    localStorage.removeItem('initializationFlowActive');
+
     // Double-check that depot is actually initialized before updating state
     try {
       const response = await fetch('/api/gameinfo/pics-status', {
@@ -152,8 +169,7 @@ const AppContent: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         const hasData = (data.database?.totalMappings > 0) ||
-                       (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0) ||
-                       (data.steamKit2?.isRebuildRunning === true);
+                       (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
         if (hasData) {
           setDepotInitialized(true);
         } else {
@@ -191,7 +207,7 @@ const AppContent: React.FC = () => {
       setDepotInitialized(null);
       setCheckingDepotStatus(true);
 
-      // Force check depot status now
+      // Force check depot status now (but respect initialization flow)
       try {
         const response = await fetch('/api/gameinfo/pics-status', {
           headers: ApiService.getHeaders()
@@ -199,15 +215,22 @@ const AppContent: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
           const hasData = (data.database?.totalMappings > 0) ||
-                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0) ||
-                         (data.steamKit2?.isRebuildRunning === true);
-          setDepotInitialized(hasData);
+                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
+
+          // Only update if we're not in the middle of initialization flow
+          if (!isInitializationFlowActive) {
+            setDepotInitialized(hasData);
+          }
         } else {
-          setDepotInitialized(false);
+          if (!isInitializationFlowActive) {
+            setDepotInitialized(false);
+          }
         }
       } catch (error) {
         console.error('Failed to check depot initialization status:', error);
-        setDepotInitialized(false);
+        if (!isInitializationFlowActive) {
+          setDepotInitialized(false);
+        }
       } finally {
         setCheckingDepotStatus(false);
       }
@@ -245,8 +268,7 @@ const AppContent: React.FC = () => {
         if (response.ok) {
           const data = await response.json();
           const hasData = (data.database?.totalMappings > 0) ||
-                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0) ||
-                         (data.steamKit2?.isRebuildRunning === true);
+                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
           setDepotInitialized(hasData);
         } else {
           setDepotInitialized(false);
@@ -306,7 +328,6 @@ const AppContent: React.FC = () => {
       <>
         <DepotInitializationModal
           onInitialized={handleApiKeyRegenerationCompleted}
-          isAuthenticated={false}
           onAuthChanged={handleAuthChanged}
           apiKeyOnlyMode={true}
         />
@@ -320,12 +341,17 @@ const AppContent: React.FC = () => {
   // Show initialization modal only if not authenticated AND not in guest mode AND not expired
   // Don't skip for users who WERE in guest mode if they're not currently in guest mode
   if (!hasAccess && authMode !== 'expired' && !isUpgradingAuth) {
+    // Mark initialization flow as active when showing the modal
+    if (!isInitializationFlowActive) {
+      setIsInitializationFlowActive(true);
+      localStorage.setItem('initializationFlowActive', 'true');
+    }
+
     // Show initialization modal with auth form
     return (
       <>
         <DepotInitializationModal
           onInitialized={handleDepotInitialized}
-          isAuthenticated={false}
           onAuthChanged={handleAuthChanged}
         />
       </>
@@ -338,7 +364,6 @@ const AppContent: React.FC = () => {
       <>
         <DepotInitializationModal
           onInitialized={handleApiKeyRegenerationCompleted}
-          isAuthenticated={false}
           onAuthChanged={handleAuthChanged}
           apiKeyOnlyMode={true}
         />
@@ -349,11 +374,16 @@ const AppContent: React.FC = () => {
   // Show initialization modal if depot data doesn't exist (after authentication)
   // This should show for authenticated users who came from guest mode
   if (!depotInitialized && authMode === 'authenticated' && !isUpgradingAuth) {
+    // Mark initialization flow as active when showing the modal
+    if (!isInitializationFlowActive) {
+      setIsInitializationFlowActive(true);
+      localStorage.setItem('initializationFlowActive', 'true');
+    }
+
     return (
       <>
         <DepotInitializationModal
           onInitialized={handleDepotInitialized}
-          isAuthenticated={isAuthenticated}
           onAuthChanged={handleAuthChanged}
         />
       </>

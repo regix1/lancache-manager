@@ -290,4 +290,63 @@ public class GameInfoController : ControllerBase
             return StatusCode(500, new { error = "Failed to download and import pre-created depot data", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Import existing PICS JSON file to database
+    /// </summary>
+    [HttpPost("import-pics-data")]
+    [RequireAuth]
+    public async Task<IActionResult> ImportPicsData(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("Starting import of existing PICS data to database");
+
+            // Import to database
+            await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
+
+            // Enable periodic crawls now that we have data
+            _steamKit2Service.EnablePeriodicCrawls();
+
+            return Ok(new
+            {
+                message = "PICS data imported successfully",
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to import PICS data");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Manually apply depot mappings to existing downloads
+    /// </summary>
+    [HttpPost("apply-depot-mappings")]
+    [RequireAuth]
+    public async Task<IActionResult> ApplyDepotMappings(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogInformation("[API] apply-depot-mappings endpoint called - starting manual depot mapping");
+
+            // Call the depot mapping method directly
+            await _steamKit2Service.ManuallyApplyDepotMappings();
+
+            _logger.LogInformation("[API] Manual depot mapping completed successfully");
+
+            return Ok(new
+            {
+                message = "Depot mappings applied successfully",
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[API] Failed to apply depot mappings");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
 }

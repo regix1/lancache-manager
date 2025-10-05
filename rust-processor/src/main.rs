@@ -345,40 +345,6 @@ impl Processor {
         Ok(())
     }
 
-    fn lookup_depot_mapping(&self, tx: &Transaction, depot_id: u32) -> Result<Option<(u32, Option<String>)>> {
-        // First, try to find the owner app for this depot
-        let owner_result = tx.query_row(
-            "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? AND IsOwner = 1 LIMIT 1",
-            params![depot_id],
-            |row| {
-                let app_id: u32 = row.get(0)?;
-                let app_name: Option<String> = row.get(1)?;
-                Ok((app_id, app_name))
-            }
-        );
-
-        // If we found an owner, use it
-        if let Ok(owner) = owner_result {
-            return Ok(Some(owner));
-        }
-
-        // Fallback: Just use the first mapping if no owner is marked
-        let result = tx.query_row(
-            "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? LIMIT 1",
-            params![depot_id],
-            |row| {
-                let app_id: u32 = row.get(0)?;
-                let app_name: Option<String> = row.get(1)?;
-                Ok((app_id, app_name))
-            }
-        );
-
-        match result {
-            Ok(mapping) => Ok(Some(mapping)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into())
-        }
-    }
 
     fn process_session_group(
         &mut self,
@@ -463,30 +429,10 @@ impl Processor {
 
         let last_url = new_entries.last().map(|e| e.url.as_str());
 
-        // Lookup depot mapping for Steam downloads
-        let (game_app_id, game_name) = if service.to_lowercase() == "steam" {
-            if let Some(depot_id) = primary_depot_id {
-                match self.lookup_depot_mapping(tx, depot_id) {
-                    Ok(Some((app_id, app_name))) => {
-                        let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
-                        println!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
-                        (Some(app_id), app_name)
-                    },
-                    Ok(None) => {
-                        println!("No mapping found for depot {}", depot_id);
-                        (None, None)
-                    },
-                    Err(e) => {
-                        println!("Warning: Failed to lookup depot mapping for {}: {}", depot_id, e);
-                        (None, None)
-                    }
-                }
-            } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
+        // Don't lookup depot mappings during log processing - this will be done in step 5 (depot mapping)
+        // Just store the depot ID and leave GameAppId/GameName as NULL
+        let game_app_id: Option<u32> = None;
+        let game_name: Option<String> = None;
 
         // Check if we should create a new download session
         let should_create_new = self

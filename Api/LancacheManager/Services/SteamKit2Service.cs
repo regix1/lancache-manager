@@ -238,29 +238,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         // Load last crawl time from JSON file or fallback to text file
         _ = Task.Run(async () => await LoadLastCrawlTimeAsync());
 
-        // Start the initial crawl only if needed (with a small delay to allow startup to complete)
-        _ = Task.Run(async () =>
-        {
-            await Task.Delay(5000); // Wait 5 seconds for startup to complete
-
-            if (!_cancellationTokenSource.Token.IsCancellationRequested)
-            {
-                // Check if JSON data needs updating
-                var needsUpdate = await _picsDataService.NeedsUpdateAsync();
-
-                if (needsUpdate)
-                {
-                    _logger.LogInformation("Starting initial PICS crawl - JSON data needs updating or doesn't exist");
-                    TryStartRebuild(_cancellationTokenSource.Token);
-                }
-                else
-                {
-                    // Always start with an incremental update to catch any recent changes
-                    _logger.LogInformation("Starting incremental PICS update to catch recent changes");
-                    TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: true);
-                }
-            }
-        });
+        // Don't auto-start any crawls - user must explicitly trigger via UI
+        // This prevents unwanted background processing during initialization
 
         // Set up the periodic timer for subsequent crawls
         _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
@@ -738,7 +717,9 @@ public class SteamKit2Service : IHostedService, IDisposable
                 _logger.LogError(ex, "Database import failed");
             }
 
-            _currentStatus = "Updating downloads";
+            // Auto-apply depot mappings to downloads after PICS data is ready
+            _currentStatus = "Applying depot mappings";
+            _logger.LogInformation("Automatically applying depot mappings after PICS completion");
             await UpdateDownloadsWithDepotMappings();
 
             _currentStatus = "Complete";
@@ -1132,6 +1113,7 @@ public class SteamKit2Service : IHostedService, IDisposable
 
     /// <summary>
     /// Get app IDs from depot ID (always from database for accuracy)
+    /// Returns ALL apps for a depot - caller can filter for owners if needed
     /// </summary>
     public IReadOnlyCollection<uint> GetAppIdsForDepot(uint depotId)
     {
@@ -1140,10 +1122,11 @@ public class SteamKit2Service : IHostedService, IDisposable
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            // Only return owner apps - no fallback/guessing
+            // Return ALL apps for this depot (owner preference happens in calling code)
             var dbAppIds = context.SteamDepotMappings
-                .Where(m => m.DepotId == depotId && m.IsOwner)  // Owner apps only
+                .Where(m => m.DepotId == depotId)
                 .Select(m => m.AppId)
+                .Distinct()
                 .ToList();
 
             return dbAppIds;
@@ -1529,6 +1512,24 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Manually apply depot mappings to existing downloads (called from UI)
+    /// </summary>
+    public async Task ManuallyApplyDepotMappings()
+    {
+        _logger.LogInformation("Manually applying depot mappings to downloads");
+
+        // Wait a moment to ensure database operations have completed
+        _logger.LogInformation("Waiting 2 seconds to ensure database is fully synced...");
+        await Task.Delay(2000);
+
+        // Reload depot mappings from database to ensure we have latest data
+        _logger.LogInformation("Reloading depot mappings from database...");
+        await LoadExistingDepotMappings();
+
+        await UpdateDownloadsWithDepotMappings();
+    }
+
+    /// <summary>
     /// Update downloads that have depot IDs but no game information
     /// </summary>
     private async Task UpdateDownloadsWithDepotMappings()
@@ -1560,7 +1561,21 @@ public class SteamKit2Service : IHostedService, IDisposable
                         var appIds = GetAppIdsForDepot(download.DepotId.Value);
                         if (appIds.Any())
                         {
-                            appId = appIds.First(); // Take the first app ID if multiple exist
+                            // Only use owner apps (IsOwner = true) - no fallback/guessing
+                            var ownerApps = await context.SteamDepotMappings
+                                .Where(m => m.DepotId == download.DepotId.Value && appIds.Contains(m.AppId) && m.IsOwner)
+                                .Select(m => m.AppId)
+                                .ToListAsync();
+
+                            if (ownerApps.Any())
+                            {
+                                appId = ownerApps.First();
+                                _logger.LogTrace($"Using owner app {appId} for depot {download.DepotId}");
+                            }
+                            else
+                            {
+                                _logger.LogDebug($"No owner app found for depot {download.DepotId} - skipping (needs owner designation)");
+                            }
                         }
                     }
 
@@ -1728,6 +1743,9 @@ public class SteamKit2Service : IHostedService, IDisposable
                 var set = new HashSet<uint> { appId };
                 if (_depotToAppMappings.TryAdd(depotId, set))
                 {
+                    // Also set this app as the owner so it gets IsOwner = true in database
+                    _depotOwners[depotId] = appId;
+
                     added++;
                     var appName = _appNames.TryGetValue(appId, out var name) ? name : "Unknown";
                     _logger.LogInformation("Added log-based fallback mapping: depot {DepotId} -> app {AppId} ({AppName})",

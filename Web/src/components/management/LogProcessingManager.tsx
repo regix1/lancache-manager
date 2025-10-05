@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, Clock, Zap, RotateCcw } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, Clock, Zap } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
@@ -638,7 +638,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     depotPollingInterval.current = setInterval(checkDepotStatus, 3000);
   };
 
-  const executePostProcessDepotMappings = async (mode: 'incremental' | 'full') => {
+  const executePostProcessDepotMappings = async () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
@@ -646,19 +646,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     setActionLoading(true);
     try {
-      if (mode === 'incremental') {
-        // For incremental mode: trigger crawl (backend auto-applies mappings when complete)
-        const useIncrementalScan = depotProcessing?.crawlIncrementalMode ?? true;
-        const scanType = useIncrementalScan ? 'incremental' : 'full';
-        await ApiService.triggerSteamKitRebuild(useIncrementalScan);
-        onSuccess?.(`${scanType} depot crawl started - downloads will be updated automatically when complete`);
-        setTimeout(() => onDataRefresh?.(), 2000);
-      } else {
-        // For full rebuild: trigger it (backend auto-applies mappings when complete)
-        await ApiService.triggerSteamKitRebuild(false);
-        onSuccess?.('Full depot rebuild initiated - downloads will be updated automatically when complete');
-        setTimeout(() => onDataRefresh?.(), 2000);
-      }
+      // Use the scan mode from dropdown (incremental or full)
+      const useIncrementalScan = depotProcessing?.crawlIncrementalMode ?? true;
+      await ApiService.triggerSteamKitRebuild(useIncrementalScan);
+      const scanType = useIncrementalScan ? 'Incremental' : 'Full';
+      onSuccess?.(`${scanType} depot scan started - mappings will be applied when complete`);
+      setTimeout(() => onDataRefresh?.(), 2000);
     } catch (err: any) {
       onError?.(err.message || 'Failed to process depot mappings');
     } finally {
@@ -666,15 +659,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   };
 
-  const handlePostProcessDepotMappings = (mode: 'incremental' | 'full') => {
+  const handlePostProcessDepotMappings = () => {
+    const scanMode = depotProcessing?.crawlIncrementalMode ? 'incremental' : 'full';
     setConfirmModal({
-      title: mode === 'full' ? 'Regenerate All Mappings' : 'Apply Depot Mappings',
-      message:
-        mode === 'full'
-          ? 'Regenerate depot mappings from scratch? This will re-map all depot IDs to Steam game names.'
-          : 'Apply depot mappings now? This will attempt to map depot IDs to Steam game names for all unidentified downloads.',
-      confirmLabel: mode === 'full' ? 'Regenerate All' : 'Apply Mappings',
-      onConfirm: () => executePostProcessDepotMappings(mode)
+      title: 'Run Depot Scan & Apply',
+      message: `Run ${scanMode} PICS scan and apply mappings? This will ${depotProcessing?.crawlIncrementalMode ? 'update only apps that changed since the last scan' : 're-scan all Steam apps'}, then apply all mappings to downloads.`,
+      confirmLabel: 'Scan & Apply',
+      onConfirm: () => executePostProcessDepotMappings()
     });
   };
 
@@ -959,43 +950,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         </div>
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {formatNextRun() === 'Due now' && !depotProcessing?.isRunning && (
-            <Button
-              variant="filled"
-              color="blue"
-              leftSection={<RefreshCw className="w-4 h-4" />}
-              onClick={async () => {
-                try {
-                  setActionLoading(true);
-                  // Use the configured scan mode
-                  const incremental = depotProcessing?.crawlIncrementalMode ?? true;
-                  await ApiService.triggerSteamKitRebuild(incremental);
-                  const scanType = incremental ? 'Incremental' : 'Full';
-                  onSuccess?.(`${scanType} depot scan started`);
-
-                  // Refresh status
-                  const response = await fetch('/api/gameinfo/steamkit/progress');
-                  if (response.ok) {
-                    const data: PicsProgress = await response.json();
-                    setDepotProcessing(data);
-                  }
-                } catch (error: any) {
-                  onError?.(error.message || 'Failed to start depot scan');
-                } finally {
-                  setActionLoading(false);
-                }
-              }}
-              disabled={actionLoading || mockMode || !isAuthenticated}
-              fullWidth
-            >
-              Run Scan Now
-            </Button>
-          )}
+        <div className="flex">
           <Button
-            variant="default"
+            variant="filled"
+            color="blue"
             leftSection={<Zap className="w-4 h-4" />}
-            onClick={() => handlePostProcessDepotMappings('incremental')}
+            onClick={() => handlePostProcessDepotMappings()}
             disabled={
               actionLoading ||
               isProcessingLogs ||
@@ -1007,34 +967,17 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           >
             Apply Now
           </Button>
-          <Button
-            variant="default"
-            leftSection={<RotateCcw className="w-4 h-4" />}
-            onClick={() => handlePostProcessDepotMappings('full')}
-            disabled={
-              actionLoading ||
-              isProcessingLogs ||
-              depotProcessing?.isRunning ||
-              mockMode ||
-              !isAuthenticated
-            }
-            fullWidth
-          >
-            Regenerate All
-          </Button>
         </div>
 
         <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
           <p className="text-xs text-themed-muted leading-relaxed">
-            <strong>Scan mode dropdown:</strong> Controls whether automatic runs use incremental or full scans
+            <strong>Scan mode dropdown:</strong> Controls whether "Apply Now" and automatic runs use incremental or full scans
             <br />
             <strong>Incremental:</strong> Only scans apps that changed since last run (faster, recommended)
             <br />
             <strong>Full scan:</strong> Re-scans all Steam apps from scratch (slower, but ensures complete data)
             <br />
-            <strong>Apply Now:</strong> Runs a scan using the selected mode, then applies mappings to downloads
-            <br />
-            <strong>Regenerate All:</strong> Always runs full scan and re-maps all downloads
+            <strong>Apply Now:</strong> Runs a scan using the dropdown setting (incremental or full), then applies mappings to all downloads
           </p>
         </div>
       </Card>

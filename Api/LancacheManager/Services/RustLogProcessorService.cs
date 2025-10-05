@@ -92,36 +92,17 @@ public class RustLogProcessorService
             _logger.LogInformation($"Start position: {startPosition}");
 
             // Auto-import PICS data if database is sparse but JSON file exists
+            // Depot mappings should be set up via initialization flow before log processing
             try
             {
                 using var scope = _serviceProvider.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 var depotCount = await context.SteamDepotMappings.CountAsync();
-
-                if (depotCount < 1000) // Threshold: fewer than 1000 mappings means database is sparse
-                {
-                    var jsonPath = Path.Combine(dataDirectory, "pics_depot_mappings.json");
-
-                    if (File.Exists(jsonPath))
-                    {
-                        _logger.LogInformation("Database has {DepotCount} depot mappings but PICS JSON exists - auto-importing before log processing...", depotCount);
-
-                        using var importScope = _serviceProvider.CreateScope();
-                        var picsDataService = importScope.ServiceProvider.GetRequiredService<PicsDataService>();
-                        await picsDataService.ImportJsonDataToDatabaseAsync();
-
-                        var newCount = await context.SteamDepotMappings.CountAsync();
-                        _logger.LogInformation("Auto-import complete: {NewCount} depot mappings now available for log processing", newCount);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Database is sparse ({DepotCount} mappings) and no PICS JSON file found - log processing may have incomplete game mappings", depotCount);
-                    }
-                }
+                _logger.LogInformation("Starting log processing with {DepotCount} depot mappings available", depotCount);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to auto-import PICS data before log processing (non-critical, continuing...)");
+                _logger.LogWarning(ex, "Failed to check depot count before log processing");
             }
 
             // Start Rust process
@@ -250,11 +231,21 @@ public class RustLogProcessorService
                     }
                 }
 
-                // Invalidate cache for new entries (depot mapping now happens in Rust)
+                // Invalidate cache for new entries and apply depot mappings if available
                 if (finalProgress?.EntriesSaved > 0)
                 {
-                    _logger.LogDebug("Invalidating cache for {EntriesCount} new entries (depot mapping handled in Rust)", finalProgress.EntriesSaved);
-                    _ = Task.Run(async () => await InvalidateCacheAsync(silentMode));
+                    _logger.LogDebug("Invalidating cache for {EntriesCount} new entries", finalProgress.EntriesSaved);
+                    _ = Task.Run(async () =>
+                    {
+                        await InvalidateCacheAsync(silentMode);
+
+                        // For live data (silent mode), automatically apply depot mappings to new downloads
+                        // This ensures new downloads get game names without manual intervention
+                        if (silentMode)
+                        {
+                            await ApplyDepotMappingsToNewDownloadsAsync();
+                        }
+                    });
                 }
 
                 if (!silentMode)
@@ -422,6 +413,30 @@ public class RustLogProcessorService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error invalidating cache after log processing");
+        }
+    }
+
+    /// <summary>
+    /// Apply depot mappings to newly created downloads that have depot IDs but no game info
+    /// This is called automatically for live data processing to ensure new downloads get mapped
+    /// </summary>
+    private async Task ApplyDepotMappingsToNewDownloadsAsync()
+    {
+        try
+        {
+            _logger.LogInformation("Automatically applying depot mappings to new downloads");
+
+            using var scope = _serviceProvider.CreateScope();
+            var steamKit2Service = scope.ServiceProvider.GetRequiredService<SteamKit2Service>();
+
+            // Use the same method as manual depot mapping, but only for new downloads
+            await steamKit2Service.ManuallyApplyDepotMappings();
+
+            _logger.LogInformation("Automatic depot mapping completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error applying depot mappings to new downloads - this is non-critical");
         }
     }
 

@@ -332,28 +332,6 @@ public class ManagementController : ControllerBase
     // to avoid database locking issues when Rust process holds database lock
 
 
-    [HttpPost("post-process-depot-mappings")]
-    [RequireAuth]
-    public async Task<IActionResult> PostProcessDepotMappings()
-    {
-        try
-        {
-            _logger.LogInformation("Starting depot mapping post-processing");
-
-            var mappingsProcessed = await _dbService.PostProcessDepotMappings();
-
-            return Ok(new {
-                message = $"Depot mapping post-processing completed. Processed {mappingsProcessed} downloads.",
-                mappingsProcessed,
-                status = "completed"
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during depot mapping post-processing");
-            return StatusCode(500, new { error = "Failed to post-process depot mappings", details = ex.Message });
-        }
-    }
 
     [HttpGet("processing-status")]
     public async Task<IActionResult> GetProcessingStatus()
