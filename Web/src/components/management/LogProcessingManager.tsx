@@ -627,7 +627,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         const response = await fetch('/api/gameinfo/steamkit/progress');
         if (response.ok) {
           const data: PicsProgress = await response.json();
-          const wasRunning = depotProcessing?.isRunning;
           setDepotProcessing(data);
         }
       } catch (error) {
