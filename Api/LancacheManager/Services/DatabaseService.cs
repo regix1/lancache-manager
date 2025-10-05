@@ -278,8 +278,11 @@ public class DatabaseService
                         var appIds = _steamKit2Service.GetAppIdsForDepot(download.DepotId.Value);
                         if (appIds.Any())
                         {
-                            appId = appIds.First(); // Take the first app ID if multiple exist
-                            _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from database");
+                            appId = await SelectBestAppIdAsync(download.DepotId.Value, appIds.ToList());
+                            if (appId.HasValue)
+                            {
+                                _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from database");
+                            }
                         }
                         else
                         {
@@ -287,8 +290,11 @@ public class DatabaseService
                             var jsonAppIds = await _picsDataService.GetAppIdsForDepotFromJsonAsync(download.DepotId.Value);
                             if (jsonAppIds.Any())
                             {
-                                appId = jsonAppIds.First();
-                                _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from JSON file");
+                                appId = await SelectBestAppIdAsync(download.DepotId.Value, jsonAppIds.ToList());
+                                if (appId.HasValue)
+                                {
+                                    _logger.LogTrace($"Mapped depot {download.DepotId} to app {appId} using PICS data from JSON file");
+                                }
                             }
                             else
                             {
@@ -401,6 +407,30 @@ public class DatabaseService
             _logger.LogError(ex, "Error during depot mapping post-processing");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Select the best app ID from a list of candidates, preferring owner apps
+    /// </summary>
+    private async Task<uint?> SelectBestAppIdAsync(uint depotId, List<uint> appIds)
+    {
+        if (!appIds.Any())
+            return null;
+
+        // Check database for owner apps for this depot
+        var ownerApps = await _context.SteamDepotMappings
+            .Where(m => m.DepotId == depotId && appIds.Contains(m.AppId) && m.IsOwner)
+            .Select(m => m.AppId)
+            .ToListAsync();
+
+        // If we have an owner app, use it
+        if (ownerApps.Any())
+        {
+            return ownerApps.First();
+        }
+
+        // Fallback: Just use the first app if no owner is marked
+        return appIds.First();
     }
 
     private async Task StoreDepotMappingAsync(uint appId, uint depotId, string? appName, string source)

@@ -47,6 +47,8 @@ public class SteamKit2Service : IHostedService, IDisposable
 
     // depotId -> set of appIds (can be multiple for shared depots)
     private readonly ConcurrentDictionary<uint, HashSet<uint>> _depotToAppMappings = new();
+    // depotId -> owner appId (from depotfromapp PICS field)
+    private readonly ConcurrentDictionary<uint, uint> _depotOwners = new();
     private readonly HashSet<uint> _scannedApps = new();
 
     // Cache for app names
@@ -765,6 +767,9 @@ public class SteamKit2Service : IHostedService, IDisposable
                 var set = _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>());
                 set.Add(ownerAppId);
 
+                // Store the owner app for this depot
+                _depotOwners.TryAdd(depotId, ownerAppId);
+
                 // Store owner app name
                 if (ownerFromPics.HasValue && !_appNames.ContainsKey(ownerAppId))
                 {
@@ -1016,17 +1021,23 @@ public class SteamKit2Service : IHostedService, IDisposable
                 appNamesDict[kvp.Key] = kvp.Value;
             }
 
+            var depotOwnersDict = new Dictionary<uint, uint>();
+            foreach (var kvp in _depotOwners)
+            {
+                depotOwnersDict[kvp.Key] = kvp.Value;
+            }
+
             if (incrementalOnly)
             {
                 // Pass validateExisting=true to clean up corrupted entries during incremental updates
-                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true);
+                await _picsDataService.MergePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true, depotOwners: depotOwnersDict);
                 _logger.LogInformation(
                     "Merged {DepotCount} unique depot mappings to JSON (incremental); JSON metadata totals will list depot/app pairs when depots are shared",
                     depotMappingsDict.Count);
             }
             else
             {
-                await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen);
+                await _picsDataService.SavePicsDataToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, depotOwners: depotOwnersDict);
                 _logger.LogInformation(
                     "Saved {DepotCount} unique depot mappings to JSON file (full); JSON metadata totals will list depot/app pairs when depots are shared",
                     _depotToAppMappings.Count);
@@ -1406,6 +1417,16 @@ public class SteamKit2Service : IHostedService, IDisposable
                 }
             }
 
+            // Use explicit OwnerId if available, otherwise fallback to first app in array
+            if (mapping.OwnerId.HasValue)
+            {
+                _depotOwners.TryAdd(depotId, mapping.OwnerId.Value);
+            }
+            else if (mapping.AppIds.Count > 0)
+            {
+                _depotOwners.TryAdd(depotId, mapping.AppIds[0]);
+            }
+
             if (mapping.AppNames?.Any() == true && mapping.AppIds.Count == mapping.AppNames.Count)
             {
                 for (int i = 0; i < mapping.AppIds.Count; i++)
@@ -1441,6 +1462,12 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 var set = _depotToAppMappings.GetOrAdd(mapping.DepotId, _ => new HashSet<uint>());
                 set.Add(mapping.AppId);
+
+                // Track owner apps from database
+                if (mapping.IsOwner)
+                {
+                    _depotOwners.TryAdd(mapping.DepotId, mapping.AppId);
+                }
 
                 if (!string.IsNullOrEmpty(mapping.AppName) && mapping.AppName != $"App {mapping.AppId}")
                 {

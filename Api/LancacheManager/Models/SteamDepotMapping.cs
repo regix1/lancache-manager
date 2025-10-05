@@ -12,8 +12,14 @@ public class SteamDepotMapping
     public uint AppId { get; set; }
     
     public string? AppName { get; set; }
-    
+
+    /// <summary>
+    /// True if this app owns the depot (from depotfromapp PICS field)
+    /// False if this app just references/uses the depot
+    /// </summary>
+    public bool IsOwner { get; set; } = false;
+
     public DateTime DiscoveredAt { get; set; } = DateTime.UtcNow;
-    
+
     public string Source { get; set; } = "observed";
 }

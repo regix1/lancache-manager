@@ -346,7 +346,23 @@ impl Processor {
     }
 
     fn lookup_depot_mapping(&self, tx: &Transaction, depot_id: u32) -> Result<Option<(u32, Option<String>)>> {
-        // Query SteamDepotMappings table for AppId and AppName
+        // First, try to find the owner app for this depot
+        let owner_result = tx.query_row(
+            "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? AND IsOwner = 1 LIMIT 1",
+            params![depot_id],
+            |row| {
+                let app_id: u32 = row.get(0)?;
+                let app_name: Option<String> = row.get(1)?;
+                Ok((app_id, app_name))
+            }
+        );
+
+        // If we found an owner, use it
+        if let Ok(owner) = owner_result {
+            return Ok(Some(owner));
+        }
+
+        // Fallback: Just use the first mapping if no owner is marked
         let result = tx.query_row(
             "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? LIMIT 1",
             params![depot_id],

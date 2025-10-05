@@ -219,7 +219,7 @@ public class RustLogProcessorService
                 if (finalProgress?.EntriesSaved > 0)
                 {
                     _logger.LogDebug("Invalidating cache for {EntriesCount} new entries (depot mapping handled in Rust)", finalProgress.EntriesSaved);
-                    _ = Task.Run(async () => await TriggerAutomaticDepotMappingAsync(silentMode));
+                    _ = Task.Run(async () => await InvalidateCacheAsync(silentMode));
                 }
 
                 if (!silentMode)
@@ -361,9 +361,8 @@ public class RustLogProcessorService
 
     /// <summary>
     /// Invalidate cache and refresh UI after log processing
-    /// Depot mapping is now handled in Rust processor
     /// </summary>
-    private async Task TriggerAutomaticDepotMappingAsync(bool silentMode)
+    private async Task InvalidateCacheAsync(bool silentMode)
     {
         try
         {
@@ -372,14 +371,8 @@ public class RustLogProcessorService
 
             using var scope = _serviceProvider.CreateScope();
             var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-            var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            // Run post-processing to map depot IDs to app IDs and fetch game info
-            _logger.LogInformation("Starting automatic depot mapping post-processing...");
-            var mappingsProcessed = await databaseService.PostProcessDepotMappings();
-            _logger.LogInformation("Automatic depot mapping complete - processed {Count} downloads", mappingsProcessed);
-
-            // Invalidate cache to refresh UI with newly mapped downloads
+            // Invalidate cache to refresh UI with newly imported downloads
             statsCache.InvalidateDownloads();
 
             // In silent mode, send a refresh notification so the UI updates

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, CheckCircle, Clock, Zap, RotateCcw } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, Clock, Zap, RotateCcw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
@@ -61,10 +61,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [actionLoading, setActionLoading] = useState(false);
   const [signalRConnected, setSignalRConnected] = useState(false);
   const [depotProcessing, setDepotProcessing] = useState<PicsProgress | null>(null);
-  const [showPostDepotPopup, setShowPostDepotPopup] = useState(false);
-  const [postDepotTimer, setPostDepotTimer] = useState(60);
-  const [showPostLogProcessingPopup, setShowPostLogProcessingPopup] = useState(false);
-  const [postLogProcessingTimer, setPostLogProcessingTimer] = useState(60);
   const [confirmModal, setConfirmModal] = useState<
     | {
         title: string;
@@ -80,8 +76,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
   const depotPollingInterval = useRef<NodeJS.Timeout | null>(null);
-  const postDepotPopupInterval = useRef<NodeJS.Timeout | null>(null);
-  const postLogProcessingPopupInterval = useRef<NodeJS.Timeout | null>(null);
   const onBackgroundOperationRef = useRef(onBackgroundOperation);
 
   // Keep the ref up to date
@@ -154,12 +148,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
       if (depotPollingInterval.current) {
         clearInterval(depotPollingInterval.current);
-      }
-      if (postDepotPopupInterval.current) {
-        clearInterval(postDepotPopupInterval.current);
-      }
-      if (postLogProcessingPopupInterval.current) {
-        clearInterval(postLogProcessingPopupInterval.current);
       }
       if (signalRConnection.current) {
         signalRConnection.current.stop();
@@ -323,11 +311,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         } catch (error) {
           console.warn('Failed to mark setup as completed:', error);
         }
-
-        // Show prompt to apply depot mappings
-        setShowPostLogProcessingPopup(true);
-        setPostLogProcessingTimer(60);
-        startPostLogProcessingTimer();
 
         // Show completion for 3 seconds instead of 10, then stop completely
         setTimeout(async () => {
@@ -646,13 +629,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           const data: PicsProgress = await response.json();
           const wasRunning = depotProcessing?.isRunning;
           setDepotProcessing(data);
-
-          // If depot just finished, show popup for 1 minute
-          if (wasRunning && !data.isRunning && data.status === 'Complete') {
-            setShowPostDepotPopup(true);
-            setPostDepotTimer(60);
-            startPostDepotTimer();
-          }
         }
       } catch (error) {
         console.error('Failed to fetch depot status:', error);
@@ -661,68 +637,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     checkDepotStatus();
     depotPollingInterval.current = setInterval(checkDepotStatus, 3000);
-  };
-
-  const startPostDepotTimer = () => {
-    if (postDepotPopupInterval.current) {
-      clearInterval(postDepotPopupInterval.current);
-    }
-
-    postDepotPopupInterval.current = setInterval(() => {
-      setPostDepotTimer((prev) => {
-        if (prev <= 1) {
-          setShowPostDepotPopup(false);
-          if (postDepotPopupInterval.current) {
-            clearInterval(postDepotPopupInterval.current);
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const handleClosePostDepotPopup = () => {
-    setShowPostDepotPopup(false);
-    if (postDepotPopupInterval.current) {
-      clearInterval(postDepotPopupInterval.current);
-    }
-  };
-
-  const handleProcessLogsFromPopup = () => {
-    handleClosePostDepotPopup();
-    handleProcessAllLogs();
-  };
-
-  const startPostLogProcessingTimer = () => {
-    if (postLogProcessingPopupInterval.current) {
-      clearInterval(postLogProcessingPopupInterval.current);
-    }
-
-    postLogProcessingPopupInterval.current = setInterval(() => {
-      setPostLogProcessingTimer((prev) => {
-        if (prev <= 1) {
-          setShowPostLogProcessingPopup(false);
-          if (postLogProcessingPopupInterval.current) {
-            clearInterval(postLogProcessingPopupInterval.current);
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const handleClosePostLogProcessingPopup = () => {
-    setShowPostLogProcessingPopup(false);
-    if (postLogProcessingPopupInterval.current) {
-      clearInterval(postLogProcessingPopupInterval.current);
-    }
-  };
-
-  const handleApplyDepotMappingsFromPopup = () => {
-    handleClosePostLogProcessingPopup();
-    handlePostProcessDepotMappings('incremental');
   };
 
   const executePostProcessDepotMappings = async (mode: 'incremental' | 'full') => {
@@ -1160,106 +1074,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           </p>
         </div>
       </Card>
-
-      {/* Post-Depot Processing Modal */}
-      <Modal
-        opened={showPostDepotPopup}
-        onClose={handleClosePostDepotPopup}
-        title={
-          <div className="flex items-center space-x-3">
-            <CheckCircle className="w-6 h-6 text-themed-success" />
-            <span>Depot Processing Complete</span>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            Steam depot mapping has finished! Would you like to process all logs now to update download statistics with the new depot mappings?
-          </p>
-
-          <Alert color="green">
-            <p className="text-sm">
-              New depot mappings are ready to be applied to your download history.
-            </p>
-          </Alert>
-
-          <div className="flex flex-col gap-3">
-            <Button
-              variant="filled"
-              color="green"
-              leftSection={<PlayCircle className="w-4 h-4" />}
-              onClick={handleProcessLogsFromPopup}
-              disabled={!isAuthenticated || mockMode}
-              fullWidth
-            >
-              Process All Logs
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleClosePostDepotPopup}
-              fullWidth
-            >
-              Maybe Later
-            </Button>
-          </div>
-
-          <div className="text-center">
-            <span className="text-xs text-themed-muted">
-              This dialog will close in {postDepotTimer} seconds
-            </span>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Post-Log Processing Modal */}
-      <Modal
-        opened={showPostLogProcessingPopup}
-        onClose={handleClosePostLogProcessingPopup}
-        title={
-          <div className="flex items-center space-x-3">
-            <CheckCircle className="w-6 h-6 text-themed-success" />
-            <span>Log Processing Complete</span>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            Log processing has finished! Would you like to apply depot mappings now to identify Steam games from depot IDs?
-          </p>
-
-          <Alert color="green">
-            <p className="text-sm">
-              Applying depot mappings will help identify which Steam games were downloaded.
-            </p>
-          </Alert>
-
-          <div className="flex flex-col gap-3">
-            <Button
-              variant="filled"
-              color="green"
-              leftSection={<Database className="w-4 h-4" />}
-              onClick={handleApplyDepotMappingsFromPopup}
-              disabled={!isAuthenticated || mockMode || depotProcessing?.isRunning}
-              fullWidth
-            >
-              Apply Depot Mappings
-            </Button>
-            <Button
-              variant="outline"
-              onClick={handleClosePostLogProcessingPopup}
-              fullWidth
-            >
-              Maybe Later
-            </Button>
-          </div>
-
-          <div className="text-center">
-            <span className="text-xs text-themed-muted">
-              This dialog will close in {postLogProcessingTimer} seconds
-            </span>
-          </div>
-        </div>
-      </Modal>
 
       <Modal
         opened={confirmModal !== null}

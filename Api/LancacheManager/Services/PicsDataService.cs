@@ -30,7 +30,7 @@ public class PicsDataService
     /// <summary>
     /// Save PICS depot mappings to JSON file
     /// </summary>
-    public Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0)
+    public Task SavePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, Dictionary<uint, uint>? depotOwners = null)
     {
         try
         {
@@ -49,13 +49,31 @@ public class PicsDataService
 
             foreach (var (depotId, appIds) in depotMappings)
             {
-                var appIdsList = appIds.ToList();
+                // Ensure owner app is first in the list
+                var appIdsList = new List<uint>();
+                uint? ownerId = null;
+
+                if (depotOwners != null && depotOwners.TryGetValue(depotId, out var ownerAppId) && appIds.Contains(ownerAppId))
+                {
+                    ownerId = ownerAppId;
+                    // Add owner first
+                    appIdsList.Add(ownerAppId);
+                    // Add remaining apps
+                    appIdsList.AddRange(appIds.Where(id => id != ownerAppId));
+                }
+                else
+                {
+                    // No owner tracked, just convert as-is
+                    appIdsList = appIds.ToList();
+                }
+
                 var appNamesList = appIdsList.Select(appId =>
                     appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
                 ).ToList();
 
                 picsData.DepotMappings[depotId.ToString()] = new PicsDepotMapping
                 {
+                    OwnerId = ownerId,
                     AppIds = appIdsList,
                     AppNames = appNamesList,
                     Source = "SteamKit2-PICS",
@@ -100,7 +118,7 @@ public class PicsDataService
     /// <summary>
     /// Merge incremental PICS depot mappings into existing JSON file with validation
     /// </summary>
-    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true)
+    public async Task MergePicsDataToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null)
     {
         try
         {
@@ -150,13 +168,32 @@ public class PicsDataService
             foreach (var (depotId, appIds) in newDepotMappings)
             {
                 var depotKey = depotId.ToString();
-                var appIdsList = appIds.ToList();
+
+                // Ensure owner app is first in the list
+                var appIdsList = new List<uint>();
+                uint? ownerId = null;
+
+                if (depotOwners != null && depotOwners.TryGetValue(depotId, out var ownerAppId) && appIds.Contains(ownerAppId))
+                {
+                    ownerId = ownerAppId;
+                    // Add owner first
+                    appIdsList.Add(ownerAppId);
+                    // Add remaining apps
+                    appIdsList.AddRange(appIds.Where(id => id != ownerAppId));
+                }
+                else
+                {
+                    // No owner tracked, just convert as-is
+                    appIdsList = appIds.ToList();
+                }
+
                 var appNamesList = appIdsList.Select(appId =>
                     appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
                 ).ToList();
 
                 var newMapping = new PicsDepotMapping
                 {
+                    OwnerId = ownerId,
                     AppIds = appIdsList,
                     AppNames = appNamesList,
                     Source = "SteamKit2-PICS",
@@ -371,7 +408,9 @@ public class PicsDataService
                             AppId = appId,
                             AppName = appName,
                             Source = mapping.Source ?? "JSON-Import",
-                            DiscoveredAt = mapping.DiscoveredAt
+                            DiscoveredAt = mapping.DiscoveredAt,
+                            // Use explicit OwnerId if available, otherwise fallback to first position
+                            IsOwner = mapping.OwnerId.HasValue ? appId == mapping.OwnerId.Value : i == 0
                         });
 
                         processedCount++;
@@ -406,6 +445,7 @@ public class PicsDataService
                         existing.AppName = mapping.AppName;
                         existing.Source = GetCombinedSource(existing.Source, mapping.Source);
                         existing.DiscoveredAt = mapping.DiscoveredAt;
+                        existing.IsOwner = mapping.IsOwner; // Update owner flag
                         updated++;
                     }
                 }
@@ -514,6 +554,7 @@ public class PicsMetadata
 /// </summary>
 public class PicsDepotMapping
 {
+    public uint? OwnerId { get; set; }  // The app that owns this depot (from depotfromapp PICS field)
     public List<uint>? AppIds { get; set; }
     public List<string>? AppNames { get; set; }
     public string Source { get; set; } = "SteamKit2-PICS";
