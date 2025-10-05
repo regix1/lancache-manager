@@ -4,15 +4,10 @@
 ARG VERSION=1.2.0
 
 # Stage 1: Build Rust binaries
-FROM rust:1.83-slim AS rust-builder
+# Using full rust image (not slim) to avoid installing gcc/g++ which causes timeouts
+FROM rust:1.83 AS rust-builder
 
 ARG TARGETPLATFORM
-
-# Install build essentials
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build/rust-processor
 
