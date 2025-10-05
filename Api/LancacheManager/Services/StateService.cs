@@ -13,7 +13,6 @@ public class StateService
     private readonly string _stateFilePath;
     private readonly object _lock = new object();
     private AppState? _cachedState;
-    private volatile bool _skipSavesDuringBulkProcessing = false;
     private int _consecutiveFailures = 0;
 
     public StateService(ILogger<StateService> logger, IPathResolver pathResolver)
@@ -124,8 +123,8 @@ public class StateService
     /// </summary>
     public void SaveState(AppState state)
     {
-        // Skip saves if we've had too many failures or bulk processing mode
-        if (_skipSavesDuringBulkProcessing || _consecutiveFailures > 5)
+        // Skip saves if we've had too many failures
+        if (_consecutiveFailures > 5)
         {
             return;
         }
@@ -171,20 +170,6 @@ public class StateService
         }
     }
 
-    public void SetBulkProcessingMode(bool enabled)
-    {
-        _skipSavesDuringBulkProcessing = enabled;
-        if (enabled)
-        {
-            _logger.LogInformation("State saving disabled during bulk processing");
-        }
-        else
-        {
-            _logger.LogInformation("State saving re-enabled");
-            _consecutiveFailures = 0; // Reset failure counter
-        }
-    }
-
     /// <summary>
     /// Updates a specific part of the state
     /// </summary>
@@ -217,23 +202,6 @@ public class StateService
     public List<CacheClearOperation> GetCacheClearOperations()
     {
         return GetState().CacheClearOperations;
-    }
-
-    public void AddCacheClearOperation(CacheClearOperation operation)
-    {
-        UpdateState(state => state.CacheClearOperations.Add(operation));
-    }
-
-    public void UpdateCacheClearOperation(string id, Action<CacheClearOperation> updater)
-    {
-        UpdateState(state =>
-        {
-            var operation = state.CacheClearOperations.FirstOrDefault(o => o.Id == id);
-            if (operation != null)
-            {
-                updater(operation);
-            }
-        });
     }
 
     public void RemoveCacheClearOperation(string id)
@@ -326,23 +294,6 @@ public class StateService
     public DepotProcessingState GetDepotProcessingState()
     {
         return GetState().DepotProcessing;
-    }
-
-    public void UpdateDepotProcessingState(Action<DepotProcessingState> updater)
-    {
-        UpdateState(state =>
-        {
-            updater(state.DepotProcessing);
-            state.DepotProcessing.LastUpdated = DateTime.UtcNow;
-        });
-    }
-
-    public void ClearDepotProcessingState()
-    {
-        UpdateState(state =>
-        {
-            state.DepotProcessing = new DepotProcessingState();
-        });
     }
 
     /// <summary>
@@ -452,34 +403,6 @@ public class StateService
 
             SaveState(state);
             _logger.LogInformation("Cleaned up {Count} stale operations", staleOperations.Count);
-        }
-    }
-
-    public void CleanupLegacyFiles()
-    {
-        var filesToRemove = new[]
-        {
-            Path.Combine(_pathResolver.GetDataDirectory(), "position.txt"),
-            Path.Combine(_pathResolver.GetDataDirectory(), "cache_clear_status.json"),
-            Path.Combine(_pathResolver.GetDataDirectory(), "operation_states.json"),
-            Path.Combine(_pathResolver.GetDataDirectory(), "setup_completed.txt"),
-            Path.Combine(_pathResolver.GetDataDirectory(), "last_pics_crawl.txt")
-        };
-
-        foreach (var file in filesToRemove)
-        {
-            try
-            {
-                if (File.Exists(file))
-                {
-                    File.Delete(file);
-                    _logger.LogInformation("Removed legacy file: {File}", Path.GetFileName(file));
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to remove legacy file: {File}", file);
-            }
         }
     }
 }

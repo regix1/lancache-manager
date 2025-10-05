@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Data;
@@ -31,9 +30,6 @@ public class SteamService : IHostedService, IDisposable
     private Dictionary<uint, HashSet<uint>> _depotMappings = new();
     private DateTime _lastRefresh = DateTime.MinValue;
     private bool _isReady = false;
-
-    // Regex patterns for depot extraction
-    private static readonly Regex DepotRegex = new(@"/depot/(\d+)/", RegexOptions.Compiled);
 
     public class GameInfo
     {
@@ -341,41 +337,6 @@ public class SteamService : IHostedService, IDisposable
     #region Public API Methods
 
     /// <summary>
-    /// Extract depot ID from Steam URL
-    /// </summary>
-    public uint? ExtractDepotIdFromUrl(string url)
-    {
-        if (string.IsNullOrEmpty(url)) return null;
-
-        try
-        {
-            var match = DepotRegex.Match(url);
-            if (match.Success && uint.TryParse(match.Groups[1].Value, out var depotId))
-            {
-                _logger.LogDebug($"Extracted depot {depotId} from URL: {url}");
-                return depotId;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Error extracting depot ID from URL: {url}");
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Extract app ID from URL using depot mapping
-    /// </summary>
-    public uint? ExtractAppIdFromUrl(string url)
-    {
-        var depotId = ExtractDepotIdFromUrl(url);
-        if (!depotId.HasValue) return null;
-
-        return GetAppIdFromDepot(depotId.Value);
-    }
-
-    /// <summary>
     /// Get app ID from depot using real Steam API relationships
     /// </summary>
     public uint? GetAppIdFromDepot(uint depotId)
@@ -505,7 +466,7 @@ public class SteamService : IHostedService, IDisposable
             _logger.LogWarning($"Steam Store API timeout for app {appId} ({knownName ?? "Unknown"}) - using fallback");
             return CreateFallbackGameInfo(appId, knownName);
         }
-        catch (TaskCanceledException ex)
+        catch (TaskCanceledException)
         {
             // Request was cancelled for other reasons
             _logger.LogWarning($"Steam Store API request cancelled for app {appId} ({knownName ?? "Unknown"}) - using fallback");
@@ -571,49 +532,6 @@ public class SteamService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Get multiple game info entries efficiently
-    /// </summary>
-    public async Task<Dictionary<uint, GameInfo>> GetMultipleGameInfoAsync(IEnumerable<uint> appIds)
-    {
-        var result = new Dictionary<uint, GameInfo>();
-        var tasks = appIds.Select(async appId =>
-        {
-            var gameInfo = await GetGameInfoAsync(appId);
-            if (gameInfo != null)
-            {
-                result[appId] = gameInfo;
-            }
-        });
-
-        await Task.WhenAll(tasks);
-        return result;
-    }
-
-    /// <summary>
-    /// Get all available games from Steam API
-    /// </summary>
-    public Dictionary<uint, GameInfo> GetAvailableGames()
-    {
-        var result = new Dictionary<uint, GameInfo>();
-
-        foreach (var steamApp in _steamApps.Values)
-        {
-            var gameInfo = new GameInfo
-            {
-                AppId = steamApp.AppId,
-                Name = steamApp.Name,
-                Type = steamApp.Type,
-                HeaderImage = steamApp.HeaderImage ?? $"https://cdn.akamai.steamstatic.com/steam/apps/{steamApp.AppId}/header.jpg",
-                Description = steamApp.Description,
-                CacheTime = steamApp.CacheTime
-            };
-            result[steamApp.AppId] = gameInfo;
-        }
-
-        return result;
-    }
-
-    /// <summary>
     /// Clear all caches
     /// </summary>
     public void ClearCache()
@@ -622,14 +540,6 @@ public class SteamService : IHostedService, IDisposable
         _depotToAppCache.Clear();
         _appInfoCache.Clear();
         _logger.LogInformation("Cleared all Steam service caches");
-    }
-
-    /// <summary>
-    /// Get service statistics
-    /// </summary>
-    public (int CachedGames, int SteamApps, bool SessionReady) GetStats()
-    {
-        return (_gameCache.Count, _steamApps.Count, _isReady);
     }
 
     /// <summary>

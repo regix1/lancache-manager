@@ -4,7 +4,6 @@ using LancacheManager.Data;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Services;
-using LancacheManager.Utilities;
 
 namespace LancacheManager.Services;
 
@@ -447,19 +446,6 @@ public class DatabaseService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, $"Failed to store depot mapping {depotId} -> {appId}");
-        }
-    }
-
-    public async Task<long> GetLogEntryCountAsync()
-    {
-        try
-        {
-            return await _context.LogEntries.LongCountAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to count log entries");
-            return 0;
         }
     }
 

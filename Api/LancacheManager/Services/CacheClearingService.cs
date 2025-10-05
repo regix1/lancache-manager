@@ -969,15 +969,4 @@ public class CacheClearProgress
     public int Errors { get; set; }
     public string? Error { get; set; }
     public double PercentComplete { get; set; }
-    
-    public string BytesDeletedFormatted => FormatBytes(BytesDeleted);
-    public string TotalBytesFormatted => FormatBytes(TotalBytesToDelete);
-    
-    private string FormatBytes(long bytes)
-    {
-        if (bytes < 1024) return $"{bytes} B";
-        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
-        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024.0):F1} MB";
-        return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
-    }
 }

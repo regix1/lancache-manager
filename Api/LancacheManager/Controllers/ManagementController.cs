@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
 using LancacheManager.Security;
-using LancacheManager.Utilities;
 using System.Text.Json;
 
 namespace LancacheManager.Controllers;

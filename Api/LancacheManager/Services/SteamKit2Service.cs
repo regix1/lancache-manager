@@ -117,9 +117,6 @@ public class SteamKit2Service : IHostedService, IDisposable
                 _currentStatus = depotState.Status;
             }
 
-            // DISABLED: No automatic import - users must choose initialization method via UI
-            // await ImportJsonOnStartupIfNeeded();
-
             // Initialize SteamKit2
             _steamClient = new SteamClient();
             _manager = new CallbackManager(_steamClient);
@@ -1160,26 +1157,6 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
-    /// <summary>
-    /// Combine sources to show discovery method hierarchy
-    /// </summary>
-    private string GetCombinedSource(string existingSource, string newSource)
-    {
-        // If sources are the same, just return one
-        if (existingSource == newSource)
-            return existingSource;
-
-        // If existing is PatternMatching and new is PICS, show both
-        if (existingSource == "PatternMatching" && newSource == "SteamKit2-PICS")
-            return "PatternMatching+PICS";
-
-        // If existing is any other source and new is PICS, upgrade to PICS
-        if (newSource == "SteamKit2-PICS")
-            return "SteamKit2-PICS";
-
-        // Otherwise keep the existing source (preserve manual/higher confidence sources)
-        return existingSource;
-    }
 
     private async Task<T> WaitForCallbackAsync<T>(AsyncJob<T> job, CancellationToken ct, TimeSpan? timeout = null) where T : CallbackMsg
     {
@@ -1345,41 +1322,6 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Import JSON data on startup if database is empty but JSON exists
-    /// </summary>
-    private async Task ImportJsonOnStartupIfNeeded()
-    {
-        try
-        {
-            // Check if we have any depot mappings in memory (loaded from database)
-            if (_depotToAppMappings.Count == 0)
-            {
-                // Check if JSON file exists and has data
-                var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
-                if (picsData?.DepotMappings?.Any() == true)
-                {
-                    _logger.LogInformation("Database is empty but JSON file contains {Count} depot mappings. Importing...",
-                        picsData.Metadata?.TotalMappings ?? 0);
-
-                    _currentStatus = "Importing JSON to database (startup)";
-                    await _picsDataService.ImportJsonDataToDatabaseAsync();
-
-                    // Reload depot mappings into memory after import
-                    await LoadExistingDepotMappings();
-
-                    _logger.LogInformation("Successfully imported {Count} depot mappings from JSON on startup",
-                        _depotToAppMappings.Count);
-                    _currentStatus = "Idle";
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to import JSON data on startup - will proceed with normal PICS crawl");
-        }
-    }
-
-    /// <summary>
     /// Get app IDs from depot ID (always from database for accuracy)
     /// </summary>
     public IReadOnlyCollection<uint> GetAppIdsForDepot(uint depotId)
@@ -1461,16 +1403,6 @@ public class SteamKit2Service : IHostedService, IDisposable
             _logger.LogWarning(ex, "Failed to query database for depot mapping count");
             return 0;
         }
-    }
-
-    /// <summary>
-    /// Get sample depot mappings for testing
-    /// </summary>
-    public IEnumerable<KeyValuePair<uint, uint>> GetSampleDepotMappings(int count = 10)
-    {
-        return _depotToAppMappings
-            .SelectMany(kvp => kvp.Value.Select(appId => new KeyValuePair<uint, uint>(kvp.Key, appId)))
-            .Take(count);
     }
 
     /// <summary>

@@ -7,7 +7,6 @@ public class DownloadCleanupService : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<DownloadCleanupService> _logger;
-    private bool _initialCleanupDone = false;
 
     public DownloadCleanupService(IServiceProvider serviceProvider, ILogger<DownloadCleanupService> logger)
     {
@@ -28,7 +27,6 @@ public class DownloadCleanupService : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await PerformInitialCleanup(context, stoppingToken);
-            _initialCleanupDone = true;
         }
         catch (Exception ex)
         {

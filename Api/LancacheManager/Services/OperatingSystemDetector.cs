@@ -19,35 +19,7 @@ public static class OperatingSystemDetector
     public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
 
     /// <summary>
-    /// Checks if the current operating system is macOS
-    /// </summary>
-    public static bool IsMacOS => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-
-    /// <summary>
     /// Gets a human-readable description of the current operating system
     /// </summary>
     public static string Description => RuntimeInformation.OSDescription;
-
-    /// <summary>
-    /// Gets the current platform as an OSPlatform enum
-    /// </summary>
-    public static OSPlatform CurrentPlatform
-    {
-        get
-        {
-            if (IsWindows) return OSPlatform.Windows;
-            if (IsLinux) return OSPlatform.Linux;
-            if (IsMacOS) return OSPlatform.OSX;
-
-            throw new PlatformNotSupportedException($"Unsupported operating system: {Description}");
-        }
-    }
-
-    /// <summary>
-    /// Extension method for cleaner OS checks
-    /// </summary>
-    public static bool IsRunning(this OSPlatform platform)
-    {
-        return RuntimeInformation.IsOSPlatform(platform);
-    }
 }

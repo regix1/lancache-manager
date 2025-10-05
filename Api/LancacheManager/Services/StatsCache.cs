@@ -198,15 +198,6 @@ public class StatsCache
         }) ?? new List<Download>();
     }
 
-    public void InvalidateCache()
-    {
-        _cache.Remove("client_stats");
-        _cache.Remove("service_stats");
-        _cache.Remove("recent_downloads");
-        _cache.Remove("active_downloads");
-        _logger.LogInformation("Cache invalidated");
-    }
-
     public void InvalidateDownloads()
     {
         _cache.Remove("recent_downloads");

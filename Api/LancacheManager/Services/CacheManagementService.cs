@@ -488,18 +488,4 @@ public class CacheManagementService
         
         return services.OrderBy(s => s).ToList();
     }
-
-    // Compatibility method for old interface
-    public async Task ClearCache(string? service)
-    {
-        if (string.IsNullOrEmpty(service))
-        {
-            await ClearAllCache();
-        }
-        else
-        {
-            // For specific service, remove from logs instead
-            await RemoveServiceFromLogs(service);
-        }
-    }
 }

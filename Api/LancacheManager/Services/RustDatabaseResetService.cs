@@ -272,37 +272,4 @@ public class RustDatabaseResetService
             return null;
         }
     }
-
-    public async Task StopResetAsync()
-    {
-        if (!IsProcessing || _rustProcess == null)
-        {
-            return;
-        }
-
-        try
-        {
-            _logger.LogInformation("Stopping rust database reset");
-            _cancellationTokenSource?.Cancel();
-
-            if (_rustProcess != null && !_rustProcess.HasExited)
-            {
-                _rustProcess.Kill(true); // Kill process tree
-                await _rustProcess.WaitForExitAsync();
-            }
-
-            if (_progressMonitorTask != null)
-            {
-                await _progressMonitorTask;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error stopping rust database reset");
-        }
-        finally
-        {
-            IsProcessing = false;
-        }
-    }
 }

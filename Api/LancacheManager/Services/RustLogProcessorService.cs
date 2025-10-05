@@ -372,12 +372,14 @@ public class RustLogProcessorService
 
             using var scope = _serviceProvider.CreateScope();
             var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
+            var databaseService = scope.ServiceProvider.GetRequiredService<DatabaseService>();
 
-            // Depot mapping now happens in Rust, just invalidate cache and refresh UI
-            _logger.LogDebug("Invalidating cache after log processing (depot mapping handled in Rust)");
+            // Run post-processing to map depot IDs to app IDs and fetch game info
+            _logger.LogInformation("Starting automatic depot mapping post-processing...");
+            var mappingsProcessed = await databaseService.PostProcessDepotMappings();
+            _logger.LogInformation("Automatic depot mapping complete - processed {Count} downloads", mappingsProcessed);
 
-            // Always invalidate cache and send refresh
-            // This ensures new downloads show up in the UI immediately
+            // Invalidate cache to refresh UI with newly mapped downloads
             statsCache.InvalidateDownloads();
 
             // In silent mode, send a refresh notification so the UI updates
@@ -395,98 +397,4 @@ public class RustLogProcessorService
         }
     }
 
-    public async Task StopProcessingAsync()
-    {
-        if (!IsProcessing || _rustProcess == null)
-        {
-            return;
-        }
-
-        try
-        {
-            _logger.LogInformation("Stopping rust log processor");
-
-            // Create cancel marker file to signal the rust process to stop gracefully
-            var dataDirectory = _pathResolver.GetDataDirectory();
-            var cancelMarkerPath = Path.Combine(dataDirectory, "cancel_processing.marker");
-
-            try
-            {
-                await File.WriteAllTextAsync(cancelMarkerPath, DateTime.UtcNow.ToString());
-                _logger.LogInformation("Created cancel marker at {Path}", cancelMarkerPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to create cancel marker, will kill process instead");
-            }
-
-            // Wait up to 30 seconds for graceful shutdown (Rust checks every 10k lines which could take ~15 seconds)
-            var waitTask = Task.Run(async () =>
-            {
-                if (_rustProcess != null && !_rustProcess.HasExited)
-                {
-                    await _rustProcess.WaitForExitAsync();
-                }
-            });
-
-            var completedTask = await Task.WhenAny(waitTask, Task.Delay(30000));
-
-            if (completedTask != waitTask && _rustProcess != null && !_rustProcess.HasExited)
-            {
-                _logger.LogWarning("Rust process did not exit gracefully after 30 seconds, forcing termination");
-                _rustProcess.Kill(true); // Kill process tree as fallback
-                await _rustProcess.WaitForExitAsync();
-            }
-            else
-            {
-                _logger.LogInformation("Rust process exited gracefully");
-            }
-
-            _cancellationTokenSource?.Cancel();
-
-            if (_progressMonitorTask != null)
-            {
-                try
-                {
-                    await _progressMonitorTask;
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected
-                }
-            }
-
-            // Send cancellation signal via SignalR
-            await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
-            {
-                percentComplete = 0.0,
-                status = "cancelled",
-                message = "Processing cancelled by user",
-                isProcessing = false,
-                timestamp = DateTime.UtcNow
-            });
-
-            // Clean up cancel marker
-            if (File.Exists(cancelMarkerPath))
-            {
-                try
-                {
-                    File.Delete(cancelMarkerPath);
-                    _logger.LogInformation("Deleted cancel marker");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to delete cancel marker");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error stopping rust log processor");
-        }
-        finally
-        {
-            IsProcessing = false;
-        }
-    }
 }
