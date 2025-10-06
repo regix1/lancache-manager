@@ -168,31 +168,3 @@ jobs:
               ${tag}-amd64 \
               ${tag}-arm64
           done
-
-      - name: Delete architecture-specific tags
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAGS: ${{ steps.meta.outputs.json }}
-        run: |
-          # Get the package name (lowercase)
-          PACKAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]' | cut -d'/' -f2)
-
-          # Get all tags from meta output
-          echo "$TAGS" | jq -r '.tags[]' | while IFS= read -r tag; do
-            # Extract just the tag name (remove registry and image name)
-            TAG_NAME=$(echo "$tag" | cut -d':' -f2)
-
-            # Delete the -amd64 and -arm64 variants
-            for ARCH_TAG in "${TAG_NAME}-amd64" "${TAG_NAME}-arm64"; do
-              echo "Looking for tag: $ARCH_TAG"
-
-              # Get version ID for this tag
-              VERSION_ID=$(gh api "/user/packages/container/${PACKAGE_NAME}/versions" \
-                --jq ".[] | select(.metadata.container.tags[]? == \"${ARCH_TAG}\") | .id" 2>/dev/null || true)
-
-              if [ -n "$VERSION_ID" ]; then
-                echo "Deleting version ID $VERSION_ID for tag $ARCH_TAG"
-                gh api -X DELETE "/user/packages/container/${PACKAGE_NAME}/versions/${VERSION_ID}" || echo "Failed to delete $ARCH_TAG"
-              fi
-            done
-          done

@@ -111,24 +111,3 @@ jobs:
           docker buildx imagetools create -t ${IMAGE}:dev \
             ${IMAGE}:dev-amd64 \
             ${IMAGE}:dev-arm64
-
-      - name: Delete architecture-specific tags
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Get the package name (lowercase)
-          PACKAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]' | cut -d'/' -f2)
-
-          # Delete the -amd64 and -arm64 variants
-          for ARCH_TAG in "dev-amd64" "dev-arm64"; do
-            echo "Looking for tag: $ARCH_TAG"
-
-            # Get version ID for this tag
-            VERSION_ID=$(gh api "/user/packages/container/${PACKAGE_NAME}/versions" \
-              --jq ".[] | select(.metadata.container.tags[]? == \"${ARCH_TAG}\") | .id" 2>/dev/null || true)
-
-            if [ -n "$VERSION_ID" ]; then
-              echo "Deleting version ID $VERSION_ID for tag $ARCH_TAG"
-              gh api -X DELETE "/user/packages/container/${PACKAGE_NAME}/versions/${VERSION_ID}" || echo "Failed to delete $ARCH_TAG"
-            fi
-          done
