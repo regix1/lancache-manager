@@ -3,10 +3,10 @@ name: Docker Build and Push
 on:
   push:
     branches: [ main, master, develop ]
-    tags:
-      - 'v*'
   pull_request:
     branches: [ main, master ]
+  release:
+    types: [published]
   workflow_dispatch:
 
 env:
@@ -66,13 +66,13 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.version.outputs.VERSION }}
-            type=sha
+            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=release,enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ steps.version.outputs.VERSION }},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
           flavor: |
             suffix=-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
 
@@ -127,13 +127,13 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.version.outputs.VERSION }}
-            type=sha
+            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=release,enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ steps.version.outputs.VERSION }},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
 
       - name: Create and push multi-arch manifest
         env:
