@@ -1,12 +1,8 @@
-name: Docker Build and Push
+name: Docker Build and Push (Dev)
 
 on:
   push:
-    branches: [ main, master, develop ]
-  pull_request:
     branches: [ main, master ]
-  release:
-    types: [published]
   workflow_dispatch:
 
 env:
@@ -35,7 +31,6 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         timeout-minutes: 5
         with:
@@ -44,7 +39,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify Docker authentication
-        if: github.event_name != 'pull_request'
         run: |
           echo "Verifying Docker authentication..."
           docker info | grep -i username || echo "Not logged in via docker info"
@@ -66,13 +60,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=pr
-            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-            type=raw,value=release,enable=${{ github.event_name == 'release' }}
-            type=raw,value=${{ steps.version.outputs.VERSION }},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
+            type=raw,value=dev
           flavor: |
             suffix=-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
 
@@ -82,7 +70,7 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
@@ -94,7 +82,6 @@ jobs:
   create-manifest:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
@@ -111,37 +98,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read VERSION file
-        id: version
-        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
-
       - name: Prepare image name
         id: image
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
-          tags: |
-            type=ref,event=pr
-            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-            type=raw,value=release,enable=${{ github.event_name == 'release' }}
-            type=raw,value=${{ steps.version.outputs.VERSION }},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'release' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'release' }}
-
       - name: Create and push multi-arch manifest
-        env:
-          TAGS: ${{ steps.meta.outputs.json }}
         run: |
-          echo "$TAGS" | jq -r '.tags[]' | while IFS= read -r tag; do
-            echo "Creating manifest for: $tag"
-            docker buildx imagetools create -t ${tag} \
-              ${tag}-amd64 \
-              ${tag}-arm64
-          done
+          IMAGE=${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+          echo "Creating manifest for: ${IMAGE}:dev"
+          docker buildx imagetools create -t ${IMAGE}:dev \
+            ${IMAGE}:dev-amd64 \
+            ${IMAGE}:dev-arm64
