@@ -168,13 +168,3 @@ jobs:
               ${tag}-amd64 \
               ${tag}-arm64
           done
-
-      - name: Clean up architecture-specific tags
-        uses: actions/delete-package-versions@v5
-        continue-on-error: true
-        with:
-          package-name: 'lancache-manager'
-          package-type: 'container'
-          min-versions-to-keep: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ignore-versions: '^(latest|release|dev|\d+\.\d+\.\d+|\d+\.\d+|\d+)$'
