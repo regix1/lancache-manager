@@ -1,8 +1,10 @@
 name: Docker Build and Push (Release)
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Create Release"]
+    types:
+      - completed
   workflow_dispatch:
 
 env:
@@ -11,6 +13,8 @@ env:
 
 jobs:
   build-and-push:
+    # Only run if the Create Release workflow succeeded
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     strategy:
       matrix:
         include:
@@ -26,6 +30,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -103,6 +110,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
