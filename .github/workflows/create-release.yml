@@ -50,17 +50,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit and push VERSION file
+      - name: Commit VERSION file
         run: |
           VERSION="${{ github.event.inputs.version }}"
           git add VERSION
           git commit -m "Bump version to $VERSION"
-          git push origin main
 
-      - name: Create Git tag
+      - name: Create Git tag on version commit
         run: |
           VERSION="${{ github.event.inputs.version }}"
           git tag -a "v$VERSION" -m "Release version $VERSION"
+
+      - name: Push commit and tag
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          git push origin main
           git push origin "v$VERSION"
 
       - name: Create GitHub Release
