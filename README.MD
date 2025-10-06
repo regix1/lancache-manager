@@ -84,6 +84,8 @@ services:
 | `LanCache__LogPath` | Path to nginx access.log | `/logs/access.log` |
 | `LanCache__CachePath` | Cache storage directory | `/cache` |
 | `TZ` | Timezone | `UTC` |
+| `Security__RequireAuthForMetrics` | Require API key for `/metrics` endpoint | `false` |
+| `Security__EnableAuthentication` | Enable authentication for Management tab | `true` |
 
 ### Authentication
 
@@ -96,8 +98,31 @@ The API key is required for:
 - Database reset
 - Theme management
 - Protected API endpoints
+- `/metrics` endpoint (when `Security__RequireAuthForMetrics=true`)
 
 The key persists across container restarts via the `/data` volume mount.
+
+#### Securing Metrics Endpoint
+
+By default, the `/metrics` endpoint is **public** for easy Prometheus/Grafana integration. To require API key authentication:
+
+```yaml
+environment:
+  - Security__RequireAuthForMetrics=true
+```
+
+Then configure Prometheus with the API key:
+
+```yaml
+scrape_configs:
+  - job_name: 'lancache-manager'
+    static_configs:
+      - targets: ['lancache-manager:80']
+    metrics_path: '/metrics'
+    # Add API key header when auth is enabled
+    headers:
+      X-Api-Key: 'your-api-key-here'
+```
 
 ## Building from Source
 
@@ -234,11 +259,8 @@ Select any theme and click Export to download as `.toml` file. Modify and re-upl
 ### Metrics
 
 ```bash
-# Prometheus format
-curl http://localhost:8080/api/metrics
-
-# JSON format
-curl http://localhost:8080/api/metrics/json
+# Prometheus format (for Prometheus scraping)
+curl http://localhost:8080/metrics
 ```
 
 ### Management (requires API key)

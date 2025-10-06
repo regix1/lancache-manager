@@ -26,6 +26,10 @@ export default defineConfig({
         target: 'http://localhost:5000',
         ws: true,
         changeOrigin: true
+      },
+      '/metrics': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
       }
     }
   },

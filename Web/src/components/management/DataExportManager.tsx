@@ -312,14 +312,11 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
             <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
           </div>
           {metricsSecured !== null && (
-            <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium ${
+            <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${
               metricsSecured
                 ? 'access-indicator-secured'
                 : 'access-indicator-public'
-            }`}
-            style={{
-              border: '1px solid var(--theme-border)'
-            }}>
+            }`}>
               {metricsSecured ? (
                 <>
                   <Lock className="w-3 h-3" />
@@ -342,36 +339,20 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
         </p>
 
         <div className="space-y-3">
-          <div className="p-3 rounded-lg themed-card" style={{ border: '1px solid var(--theme-border)' }}>
+          <div className="p-3 rounded-lg themed-card border">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
               <Button
                 size="xs"
                 variant="default"
-                onClick={() => copyToClipboard(`${apiBaseUrl}/api/metrics`, 'prometheus')}
+                onClick={() => copyToClipboard(`${apiBaseUrl}/metrics`, 'prometheus')}
                 leftSection={copiedEndpoint === 'prometheus' ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
               >
                 {copiedEndpoint === 'prometheus' ? 'Copied!' : 'Copy'}
               </Button>
             </div>
-            <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/api/metrics</code>
-            <p className="text-xs text-themed-muted mt-1">OpenMetrics format for Prometheus scraping</p>
-          </div>
-
-          <div className="p-3 rounded-lg themed-card" style={{ border: '1px solid var(--theme-border)' }}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-themed-primary">JSON Metrics</span>
-              <Button
-                size="xs"
-                variant="default"
-                onClick={() => copyToClipboard(`${apiBaseUrl}/api/metrics/json`, 'json-api')}
-                leftSection={copiedEndpoint === 'json-api' ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              >
-                {copiedEndpoint === 'json-api' ? 'Copied!' : 'Copy'}
-              </Button>
-            </div>
-            <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/api/metrics/json</code>
-            <p className="text-xs text-themed-muted mt-1">JSON format for direct Grafana integration</p>
+            <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/metrics</code>
+            <p className="text-xs text-themed-muted mt-1">OpenMetrics/Prometheus format for scraping</p>
           </div>
         </div>
 

@@ -1,9 +1,12 @@
 using LancacheManager.Data;
 using LancacheManager.Hubs;
+using LancacheManager.Middleware;
 using LancacheManager.Security;
 using LancacheManager.Services;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -96,6 +99,9 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddScoped<StatsService>();
 builder.Services.AddSingleton<PicsDataService>();
 
+// Register metrics service for Prometheus/Grafana
+builder.Services.AddSingleton<LancacheMetricsService>();
+
 // Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
 builder.Services.AddSingleton<RustLogProcessorService>();
 
@@ -117,6 +123,18 @@ builder.Services.AddHostedService<LiveLogMonitorService>();
 // Add memory cache for storing stats
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<StatsCache>();
+
+// Configure OpenTelemetry Metrics for Prometheus + Grafana
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        metrics
+            .AddPrometheusExporter()
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddRuntimeInstrumentation()
+            .AddMeter("LancacheManager"); // For custom business metrics
+    });
 
 // Configure logging
 builder.Logging.ClearProviders();
@@ -155,15 +173,18 @@ app.UseSwaggerUI(c =>
 
 app.UseCors("AllowAll");
 
-// Add Authentication Middleware
-app.UseMiddleware<AuthenticationMiddleware>();
-
 // Serve static files
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.UseRouting();
 app.UseAuthorization();
+
+// Add Authentication Middleware (after routing so endpoints are resolved)
+app.UseMiddleware<AuthenticationMiddleware>();
+
+// Add Metrics Authentication Middleware (optional API key for /metrics)
+app.UseMiddleware<MetricsAuthenticationMiddleware>();
 
 // Minimal API endpoint for canceling log processing - NO database access required
 // This endpoint must work even when database is locked by Rust process
@@ -190,6 +211,9 @@ app.MapPost("/api/management/cancel-processing", (IPathResolver pathResolver, IL
 app.MapControllers();
 app.MapHub<DownloadHub>("/hubs/downloads");
 
+// Map Prometheus metrics endpoint for Grafana
+app.MapPrometheusScrapingEndpoint();
+
 // Explicit route mapping for OperationState controller to fix 404 issues
 app.MapControllerRoute(
     name: "operationstate_patch",
@@ -207,10 +231,11 @@ app.MapGet("/health", () => Results.Ok(new {
 // Fallback to index.html for client-side routing
 app.MapFallback(async context =>
 {
-    if (context.Request.Path.StartsWithSegments("/api") || 
+    if (context.Request.Path.StartsWithSegments("/api") ||
         context.Request.Path.StartsWithSegments("/health") ||
         context.Request.Path.StartsWithSegments("/hubs") ||
-        context.Request.Path.StartsWithSegments("/swagger"))
+        context.Request.Path.StartsWithSegments("/swagger") ||
+        context.Request.Path.StartsWithSegments("/metrics"))
     {
         context.Response.StatusCode = 404;
         return;

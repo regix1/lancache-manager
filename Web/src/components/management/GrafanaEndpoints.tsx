@@ -54,14 +54,11 @@ const GrafanaEndpoints: React.FC = () => {
           <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
         </div>
         {metricsSecured !== null && (
-          <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium ${
+          <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${
             metricsSecured
               ? 'access-indicator-secured'
               : 'access-indicator-public'
-          }`}
-          style={{
-            border: '1px solid var(--theme-border)'
-          }}>
+          }`}>
             {metricsSecured ? (
               <>
                 <Lock className="w-3 h-3" />
@@ -84,46 +81,52 @@ const GrafanaEndpoints: React.FC = () => {
       </p>
 
       <div className="space-y-3">
-        <div className="p-3 rounded-lg themed-card" style={{ border: '1px solid var(--theme-border)' }}>
+        <div className="p-3 rounded-lg themed-card border">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
             <Button
               size="xs"
               variant="default"
-              onClick={() => copyToClipboard(`${apiBaseUrl}/api/metrics`, 'prometheus')}
+              onClick={() => copyToClipboard(`${apiBaseUrl}/metrics`, 'prometheus')}
               leftSection={copiedEndpoint === 'prometheus' ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
             >
               {copiedEndpoint === 'prometheus' ? 'Copied!' : 'Copy'}
             </Button>
           </div>
-          <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/api/metrics</code>
-          <p className="text-xs text-themed-muted mt-1">OpenMetrics format for Prometheus scraping</p>
-        </div>
-
-        <div className="p-3 rounded-lg themed-card" style={{ border: '1px solid var(--theme-border)' }}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-medium text-themed-primary">JSON Metrics</span>
-            <Button
-              size="xs"
-              variant="default"
-              onClick={() => copyToClipboard(`${apiBaseUrl}/api/metrics/json`, 'json-api')}
-              leftSection={copiedEndpoint === 'json-api' ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-            >
-              {copiedEndpoint === 'json-api' ? 'Copied!' : 'Copy'}
-            </Button>
-          </div>
-          <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/api/metrics/json</code>
-          <p className="text-xs text-themed-muted mt-1">JSON format for direct Grafana integration</p>
+          <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/metrics</code>
+          <p className="text-xs text-themed-muted mt-1">OpenMetrics/Prometheus format for scraping</p>
         </div>
       </div>
 
       <div className="mt-4">
-        <Alert color="blue">
-          <p className="text-sm">
-            <strong>Security Options:</strong> By default, these endpoints are public.
-            To require API key authentication, set <code>RequireAuthForMetrics: true</code> in your config.
-            Then add header <code>X-Api-Key: your-key</code> to Grafana/Prometheus.
-          </p>
+        <Alert color={metricsSecured ? "yellow" : "blue"}>
+          <div className="space-y-2">
+            <p className="text-sm">
+              <strong>Security:</strong> {metricsSecured
+                ? "Metrics endpoint requires API key authentication."
+                : "Metrics endpoint is public (no authentication required)."}
+            </p>
+            {metricsSecured && (
+              <div className="text-sm">
+                <p className="font-medium mb-1">Configure Prometheus with API key:</p>
+                <div className="bg-themed-tertiary p-2 rounded font-mono text-xs mt-2">
+                  <div>scrape_configs:</div>
+                  <div className="ml-2">- job_name: 'lancache-manager'</div>
+                  <div className="ml-4">metrics_path: '/metrics'</div>
+                  <div className="ml-4">headers:</div>
+                  <div className="ml-6">X-Api-Key: your-api-key-here</div>
+                </div>
+                <p className="mt-2 text-xs opacity-75">
+                  To make metrics public, set <code>Security__RequireAuthForMetrics=false</code> in docker-compose.yml
+                </p>
+              </div>
+            )}
+            {!metricsSecured && (
+              <p className="text-xs opacity-75">
+                To require API key, set <code>Security__RequireAuthForMetrics=true</code> in docker-compose.yml
+              </p>
+            )}
+          </div>
         </Alert>
       </div>
 
