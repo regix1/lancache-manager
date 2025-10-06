@@ -9,6 +9,28 @@ using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Read version from VERSION file if not set in environment (for dev mode)
+if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION")))
+{
+    try
+    {
+        var versionFilePath = Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "VERSION");
+        if (File.Exists(versionFilePath))
+        {
+            var version = File.ReadAllText(versionFilePath).Trim();
+            Environment.SetEnvironmentVariable("LANCACHE_MANAGER_VERSION", version);
+        }
+        else
+        {
+            Environment.SetEnvironmentVariable("LANCACHE_MANAGER_VERSION", "dev");
+        }
+    }
+    catch
+    {
+        Environment.SetEnvironmentVariable("LANCACHE_MANAGER_VERSION", "dev");
+    }
+}
+
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -221,11 +243,19 @@ app.MapControllerRoute(
     constraints: new { httpMethod = new HttpMethodRouteConstraint("PATCH") });
 
 // Health check endpoint
-app.MapGet("/health", () => Results.Ok(new { 
-    status = "healthy", 
+app.MapGet("/health", () => Results.Ok(new {
+    status = "healthy",
     timestamp = DateTime.UtcNow,
-    service = "LancacheManager"
+    service = "LancacheManager",
+    version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
 }));
+
+// Version endpoint
+app.MapGet("/api/version", () =>
+{
+    var version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev";
+    return Results.Ok(new { version });
+});
 
 // Fallback to index.html for client-side routing
 app.MapFallback(async context =>

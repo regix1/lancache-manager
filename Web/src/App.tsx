@@ -3,6 +3,7 @@ import { DataProvider, useData } from '@contexts/DataContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
+import Footer from '@components/layout/Footer';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import PicsProgressBar from '@components/common/PicsProgressBar';
@@ -409,7 +410,7 @@ const AppContent: React.FC = () => {
 
   return (
     <div
-      className="min-h-screen"
+      className="min-h-screen flex flex-col"
       style={{
         backgroundColor: 'var(--theme-bg-primary)',
         color: 'var(--theme-text-primary)',
@@ -420,7 +421,8 @@ const AppContent: React.FC = () => {
       <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
       <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
       <PicsProgressBar />
-      <main className="container mx-auto px-4 py-6">{renderContent()}</main>
+      <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
+      <Footer />
     </div>
   );
 };
