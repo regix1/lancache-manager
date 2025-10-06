@@ -85,6 +85,25 @@ public class GameInfoController : ControllerBase
     }
 
     /// <summary>
+    /// Check if incremental scan is viable or if change gap is too large
+    /// </summary>
+    [HttpGet("steamkit/check-incremental")]
+    [RequireAuth]
+    public async Task<IActionResult> CheckIncrementalViability(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking incremental viability");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Set the crawl interval for periodic depot mapping updates
     /// </summary>
     /// <param name="intervalHours">Interval in hours</param>

@@ -463,6 +463,34 @@ class ApiService {
       throw error;
     }
   }
+
+  static async checkIncrementalViability(signal?: AbortSignal): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/gameinfo/steamkit/check-incremental`, {
+        method: 'GET',
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('checkIncrementalViability error:', error);
+      throw error;
+    }
+  }
+
+  static async downloadPrecreatedDepotData(signal?: AbortSignal): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/gameinfo/download-precreated-data`, {
+        method: 'POST',
+        signal,
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('downloadPrecreatedDepotData error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

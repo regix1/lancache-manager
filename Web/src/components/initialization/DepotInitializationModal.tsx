@@ -166,7 +166,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const setupResponse = await fetch('/api/management/setup-status');
         const setupData = await setupResponse.json();
 
-        if (!setupData.isSetupCompleted) {
+        if (!setupData.isCompleted) {
           setCurrentStep('api-key');
           return;
         }
@@ -477,14 +477,24 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         return (
           <LogProcessingStep
             onComplete={() => setCurrentStep('depot-mapping')}
-            onSkip={() => handleInitializationComplete()}
+            onSkip={async () => {
+              await markSetupCompleted();
+              handleInitializationComplete();
+            }}
           />
         );
 
       case 'depot-mapping':
         return (
           <DepotMappingStep
-            onComplete={() => handleInitializationComplete()}
+            onComplete={async () => {
+              await markSetupCompleted();
+              handleInitializationComplete();
+            }}
+            onSkip={async () => {
+              await markSetupCompleted();
+              handleInitializationComplete();
+            }}
           />
         );
 

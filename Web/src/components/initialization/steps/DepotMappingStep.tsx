@@ -2,17 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { Map, Loader, SkipForward, CheckCircle, Home } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
+import { ChangeGapWarningModal } from '@components/shared/ChangeGapWarningModal';
 
 interface DepotMappingStepProps {
   onComplete: () => void;
+  onSkip?: () => void;
 }
 
-export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete }) => {
+export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, onSkip }) => {
   const [mapping, setMapping] = useState(false);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [changeGapWarning, setChangeGapWarning] = useState<{
+    show: boolean;
+    changeGap: number;
+    estimatedApps: number;
+  } | null>(null);
 
   // Log when component mounts and check for active PICS scan
   useEffect(() => {
@@ -75,15 +82,42 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete }
   }, [mapping]);
 
   const startDepotMapping = async () => {
-    console.log('[DepotMapping] Starting PICS scan and depot mapping...');
-    setMapping(true);
+    console.log('[DepotMapping] Starting depot mapping process...');
     setError(null);
+
+    try {
+      // Check if incremental scan is viable (change gap check)
+      console.log('[DepotMapping] Checking incremental viability...');
+      const viability = await ApiService.checkIncrementalViability();
+
+      if (viability.willTriggerFullScan) {
+        // Show warning modal if change gap is too large
+        console.log(`[DepotMapping] Large change gap detected (${viability.changeGap}), showing warning...`);
+        setChangeGapWarning({
+          show: true,
+          changeGap: viability.changeGap,
+          estimatedApps: viability.estimatedAppsToScan
+        });
+        return;
+      }
+
+      // Proceed with incremental scan
+      await proceedWithScan();
+    } catch (err: any) {
+      console.error('[DepotMapping] Error checking viability:', err);
+      // If check fails, proceed anyway
+      await proceedWithScan();
+    }
+  };
+
+  const proceedWithScan = async () => {
+    console.log('[DepotMapping] Starting PICS scan...');
+    setMapping(true);
     setProgress(0);
     setStatusMessage('Starting scan...');
 
     try {
       // Use incremental scan by default for initialization (faster)
-      // This will scan PICS data and automatically apply depot mappings when complete
       console.log('[DepotMapping] Triggering incremental PICS crawl...');
       await ApiService.triggerSteamKitRebuild(true);
       console.log('[DepotMapping] PICS crawl started successfully');
@@ -94,8 +128,34 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete }
     }
   };
 
+  const handleDownloadFromGitHub = async () => {
+    setChangeGapWarning(null);
+    setMapping(true);
+    setProgress(0);
+    setStatusMessage('Downloading from GitHub...');
+
+    try {
+      await ApiService.downloadPrecreatedDepotData();
+      setProgress(100);
+      setStatusMessage('Download complete!');
+
+      setTimeout(() => {
+        setComplete(true);
+        setMapping(false);
+      }, 1000);
+    } catch (err: any) {
+      console.error('[DepotMapping] Error downloading from GitHub:', err);
+      setError(err.message || 'Failed to download from GitHub');
+      setMapping(false);
+    }
+  };
+
   const handleSkip = () => {
-    onComplete();
+    if (onSkip) {
+      onSkip();
+    } else {
+      onComplete();
+    }
   };
 
   return (
@@ -240,6 +300,21 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete }
         >
           Go to Dashboard
         </Button>
+      )}
+
+      {/* Change Gap Warning Modal */}
+      {changeGapWarning?.show && (
+        <ChangeGapWarningModal
+          changeGap={changeGapWarning.changeGap}
+          estimatedApps={changeGapWarning.estimatedApps}
+          onConfirm={() => {
+            setChangeGapWarning(null);
+            proceedWithScan();
+          }}
+          onCancel={() => setChangeGapWarning(null)}
+          onDownloadFromGitHub={handleDownloadFromGitHub}
+          showDownloadOption={true}
+        />
       )}
     </div>
   );

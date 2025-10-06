@@ -112,6 +112,9 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Load last crawl time from state to preserve schedule across restarts
             LoadLastCrawlTime();
 
+            // Load last change number from PICS data to enable proper incremental updates
+            await LoadLastChangeNumberAsync();
+
             // Check for interrupted depot processing and resume if needed
             var depotState = _stateService.GetDepotProcessingState();
             if (depotState.IsActive && depotState.RemainingApps.Any())
@@ -698,9 +701,10 @@ public class SteamKit2Service : IHostedService, IDisposable
             _currentStatus = "Saving PICS data to JSON";
             _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
 
+            // DISABLED: Using OwnerId from PICS data instead of log-based fallback
             // Add log-based fallback mappings for depots that appear in actual downloads
             // Only adds mappings where depotId = appId and no existing mapping exists
-            await AddLogBasedFallbackDepotMappingsAsync();
+            // await AddLogBasedFallbackDepotMappingsAsync();
 
             // Final save - use merge for incremental, full save for complete rebuild
             await SaveAllMappingsToJsonAsync(incrementalOnly);
@@ -1274,8 +1278,79 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Get current PICS crawl progress
+    /// Check if incremental scan is viable or if change gap is too large (will trigger full scan)
     /// </summary>
+    public async Task<object> CheckIncrementalViabilityAsync(CancellationToken ct)
+    {
+        try
+        {
+            // Load last change number from JSON if not already loaded
+            if (_lastChangeNumberSeen == 0)
+            {
+                var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+                if (picsData?.Metadata?.LastChangeNumber > 0)
+                {
+                    _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
+                }
+            }
+
+            // Need to be connected to check current change number
+            bool wasConnected = _isLoggedOn && _steamClient?.IsConnected == true;
+
+            if (!wasConnected)
+            {
+                await ConnectAndLoginAsync(ct);
+            }
+
+            try
+            {
+                // Get current change number from Steam
+                var job = _steamApps!.PICSGetChangesSince(0, false, false);
+                var changes = await WaitForCallbackAsync(job, ct);
+                var currentChangeNumber = changes.CurrentChangeNumber;
+
+                uint changeGap = _lastChangeNumberSeen > 0
+                    ? currentChangeNumber - _lastChangeNumberSeen
+                    : currentChangeNumber;
+
+                // Steam PICS typically requests full update when gap > ~20000 changes
+                const uint largeGapThreshold = 20000;
+                bool isLargeGap = changeGap > largeGapThreshold;
+
+                return new
+                {
+                    isViable = !isLargeGap,
+                    lastChangeNumber = _lastChangeNumberSeen,
+                    currentChangeNumber = currentChangeNumber,
+                    changeGap = changeGap,
+                    isLargeGap = isLargeGap,
+                    willTriggerFullScan = isLargeGap,
+                    estimatedAppsToScan = isLargeGap ? 270000 : (int)Math.Min(changeGap * 2, 50000) // Rough estimate
+                };
+            }
+            finally
+            {
+                // Disconnect if we connected just for this check
+                if (!wasConnected && _steamClient?.IsConnected == true)
+                {
+                    _intentionalDisconnect = true;
+                    _steamUser?.LogOff();
+                    await Task.Delay(500, ct);
+                    _steamClient.Disconnect();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking incremental viability");
+            return new
+            {
+                isViable = false,
+                error = ex.Message
+            };
+        }
+    }
+
     public object GetProgress()
     {
         // If never crawled, initialize to current time so next crawl is in the future
@@ -1555,26 +1630,42 @@ public class SteamKit2Service : IHostedService, IDisposable
                 {
                     uint? appId = download.GameAppId; // Use existing appId if available
 
-                    // If no AppId yet, use PICS mappings to find it
+                    // If no AppId yet, use owner ID from PICS data
                     if (!appId.HasValue)
                     {
-                        var appIds = GetAppIdsForDepot(download.DepotId.Value);
-                        if (appIds.Any())
+                        // First, check in-memory owner mapping from PICS scan
+                        if (_depotOwners.TryGetValue(download.DepotId.Value, out var ownerId))
                         {
-                            // Only use owner apps (IsOwner = true) - no fallback/guessing
-                            var ownerApps = await context.SteamDepotMappings
-                                .Where(m => m.DepotId == download.DepotId.Value && appIds.Contains(m.AppId) && m.IsOwner)
+                            appId = ownerId;
+                            _logger.LogTrace($"Using PICS owner app {appId} for depot {download.DepotId}");
+                        }
+                        else
+                        {
+                            // Fallback to database owner lookup
+                            var ownerApp = await context.SteamDepotMappings
+                                .Where(m => m.DepotId == download.DepotId.Value && m.IsOwner)
                                 .Select(m => m.AppId)
-                                .ToListAsync();
+                                .FirstOrDefaultAsync();
 
-                            if (ownerApps.Any())
+                            if (ownerApp != 0)
                             {
-                                appId = ownerApps.First();
-                                _logger.LogTrace($"Using owner app {appId} for depot {download.DepotId}");
+                                appId = ownerApp;
+                                _logger.LogTrace($"Using database owner app {appId} for depot {download.DepotId}");
                             }
                             else
                             {
-                                _logger.LogDebug($"No owner app found for depot {download.DepotId} - skipping (needs owner designation)");
+                                // Last resort fallback: Use depot ID as app ID if app exists
+                                // This handles cases where depot appears in logs but has no PICS mapping (depot ID = app ID)
+                                var potentialAppId = download.DepotId.Value;
+                                if (_appNames.ContainsKey(potentialAppId))
+                                {
+                                    appId = potentialAppId;
+                                    _logger.LogDebug($"Using log-based fallback: depot {download.DepotId} -> app {appId} (depot ID = app ID)");
+                                }
+                                else
+                                {
+                                    _logger.LogDebug($"No owner app found for depot {download.DepotId}");
+                                }
                             }
                         }
                     }
@@ -1697,95 +1788,28 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Add fallback depot mappings ONLY for depots that appear in actual download logs
-    /// where depotId = appId and no existing mapping exists
-    /// This is data-driven, not speculative - only maps depots we've actually seen downloaded
+    /// Load the last PICS change number from existing JSON data to enable proper incremental updates
     /// </summary>
-    private async Task AddLogBasedFallbackDepotMappingsAsync()
+    private async Task LoadLastChangeNumberAsync()
     {
         try
         {
-            int added = 0;
-            int skipped = 0;
-
-            // Get all unique depot IDs from actual downloads in the database
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var depotIdsInLogs = await context.Downloads
-                .Where(d => d.DepotId.HasValue && d.Service.ToLower() == "steam")
-                .Select(d => d.DepotId!.Value)
-                .Distinct()
-                .ToListAsync();
-
-            _logger.LogInformation("Found {Count} unique depot IDs in download logs", depotIdsInLogs.Count);
-
-            foreach (var depotId in depotIdsInLogs)
+            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            if (picsData?.Metadata?.LastChangeNumber > 0)
             {
-                // Only consider depots where depotId = appId
-                var appId = depotId;
-
-                // Skip if this depot already has mappings (either from PICS or previous fallback)
-                if (_depotToAppMappings.ContainsKey(depotId))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                // Check if this app ID is valid in Steam
-                if (!_appNames.ContainsKey(appId) && !await IsValidSteamAppAsync(appId))
-                {
-                    _logger.LogTrace("Skipping depot {DepotId} - app {AppId} not found in Steam", depotId, appId);
-                    continue;
-                }
-
-                // Safe to add: depot appears in logs, no existing mapping, and appId is valid
-                var set = new HashSet<uint> { appId };
-                if (_depotToAppMappings.TryAdd(depotId, set))
-                {
-                    // Also set this app as the owner so it gets IsOwner = true in database
-                    _depotOwners[depotId] = appId;
-
-                    added++;
-                    var appName = _appNames.TryGetValue(appId, out var name) ? name : "Unknown";
-                    _logger.LogInformation("Added log-based fallback mapping: depot {DepotId} -> app {AppId} ({AppName})",
-                        depotId, appId, appName);
-                }
-            }
-
-            if (added > 0)
-            {
-                _logger.LogInformation("Added {Count} log-based fallback depot mappings (skipped {Skipped} that already had mappings)",
-                    added, skipped);
-            }
-            else if (skipped > 0)
-            {
-                _logger.LogDebug("No fallback depot mappings added - {Skipped} depots already have mappings", skipped);
+                _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
+                _logger.LogInformation("Loaded last PICS change number from JSON: {ChangeNumber} (from {LastUpdated})",
+                    _lastChangeNumberSeen,
+                    picsData.Metadata.LastUpdated.ToString("yyyy-MM-dd HH:mm:ss"));
             }
             else
             {
-                _logger.LogDebug("No fallback depot mappings needed - all log depots have PICS data or are invalid");
+                _logger.LogInformation("No previous PICS change number found in JSON data");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error adding log-based fallback depot mappings");
+            _logger.LogWarning(ex, "Failed to load last PICS change number from JSON");
         }
     }
-
-    /// <summary>
-    /// Check if an app ID is valid in Steam (has a name in our app list)
-    /// </summary>
-    private async Task<bool> IsValidSteamAppAsync(uint appId)
-    {
-        // Check if we have this app in our scanned apps
-        if (_appNames.ContainsKey(appId))
-        {
-            return true;
-        }
-
-        // Could also check the database, but for now just check our in-memory list
-        return false;
-    }
-
 }

@@ -35,6 +35,8 @@ const AppContent: React.FC = () => {
     const stored = localStorage.getItem('initializationFlowActive');
     return stored === 'true';
   });
+  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  const [checkingSetupStatus, setCheckingSetupStatus] = useState(true);
 
   // Fetch server timezone on mount
   useEffect(() => {
@@ -113,6 +115,39 @@ const AppContent: React.FC = () => {
     }
   }, [checkingAuth]);
 
+  // Check setup completion status (only after auth check is done)
+  useEffect(() => {
+    if (checkingAuth) {
+      return; // Don't check setup status until auth check is complete
+    }
+
+    // Skip setup check for guest mode
+    if (authMode === 'guest') {
+      setSetupCompleted(true);
+      setCheckingSetupStatus(false);
+      return;
+    }
+
+    const checkSetupCompletionStatus = async () => {
+      try {
+        const response = await fetch('/api/management/setup-status');
+        if (response.ok) {
+          const data = await response.json();
+          setSetupCompleted(data.isCompleted === true);
+        } else {
+          setSetupCompleted(false);
+        }
+      } catch (error) {
+        console.error('Failed to check setup completion status:', error);
+        setSetupCompleted(false);
+      } finally {
+        setCheckingSetupStatus(false);
+      }
+    };
+
+    checkSetupCompletionStatus();
+  }, [checkingAuth, authMode]);
+
   // Check if depot data exists (only after auth check is done)
   useEffect(() => {
     if (checkingAuth) {
@@ -177,6 +212,9 @@ const AppContent: React.FC = () => {
     setIsInitializationFlowActive(false);
     localStorage.removeItem('initializationFlowActive');
 
+    // Mark setup as completed
+    setSetupCompleted(true);
+
     // Double-check that depot is actually initialized before updating state
     try {
       const response = await fetch('/api/gameinfo/pics-status', {
@@ -190,7 +228,9 @@ const AppContent: React.FC = () => {
           setDepotInitialized(true);
         } else {
           console.warn('Depot initialization reported complete but no data found');
-          // Keep showing initialization modal
+          // Don't keep showing initialization modal if setup is completed
+          // User may have skipped data steps, which is fine
+          setDepotInitialized(true);
         }
       }
     } catch (error) {
@@ -274,8 +314,26 @@ const AppContent: React.FC = () => {
     setShowApiKeyRegenerationModal(false);
     setIsAuthenticated(authService.isAuthenticated);
 
-    // Check if depot needs initialization after authentication
+    // Check setup status after API key regeneration
     if (authService.isAuthenticated) {
+      // Check if setup was already completed
+      setCheckingSetupStatus(true);
+      try {
+        const setupResponse = await fetch('/api/management/setup-status');
+        if (setupResponse.ok) {
+          const setupData = await setupResponse.json();
+          setSetupCompleted(setupData.isCompleted === true);
+        } else {
+          setSetupCompleted(false);
+        }
+      } catch (error) {
+        console.error('Failed to check setup status:', error);
+        setSetupCompleted(false);
+      } finally {
+        setCheckingSetupStatus(false);
+      }
+
+      // Check if depot needs initialization after authentication
       setCheckingDepotStatus(true);
       try {
         const response = await fetch('/api/gameinfo/pics-status', {
@@ -327,13 +385,13 @@ const AppContent: React.FC = () => {
     );
   };
 
-  // Show loading while checking auth or depot status
+  // Show loading while checking auth, setup status, or depot status
   // Skip depot check only for active guest mode, not for users who were guests
-  if (!isUpgradingAuth && (checkingAuth || (checkingDepotStatus && authMode !== 'guest'))) {
+  if (!isUpgradingAuth && (checkingAuth || checkingSetupStatus || (checkingDepotStatus && authMode !== 'guest'))) {
     return (
       <div className="min-h-screen flex items-center justify-center"
            style={{ backgroundColor: 'var(--theme-bg-primary)' }}>
-        <LoadingSpinner fullScreen={false} message={checkingAuth ? "Checking authentication..." : "Checking depot initialization status..."} />
+        <LoadingSpinner fullScreen={false} message={checkingAuth ? "Checking authentication..." : checkingSetupStatus ? "Checking setup status..." : "Checking depot initialization status..."} />
       </div>
     );
   }
@@ -388,10 +446,13 @@ const AppContent: React.FC = () => {
   }
 
   // Show initialization modal if:
-  // 1. Depot data doesn't exist (after authentication), OR
-  // 2. Initialization flow is active (user is in the middle of setup)
-  // This ensures the modal shows even if some depot data exists but user isn't done with setup
-  if (((!depotInitialized && authMode === 'authenticated') || (isInitializationFlowActive && authMode === 'authenticated')) && !isUpgradingAuth) {
+  // 1. Setup has NOT been completed yet, AND
+  // 2. User is authenticated (not guest or expired), AND
+  // 3. Either depot data doesn't exist OR initialization flow is active
+  // This ensures the modal doesn't show again after setup is completed, even if user skipped data steps
+  if (!setupCompleted && authMode === 'authenticated' &&
+      ((!depotInitialized && !isInitializationFlowActive) || isInitializationFlowActive) &&
+      !isUpgradingAuth) {
     // Mark initialization flow as active when showing the modal
     if (!isInitializationFlowActive) {
       setIsInitializationFlowActive(true);

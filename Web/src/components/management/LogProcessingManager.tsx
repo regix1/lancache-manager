@@ -8,6 +8,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { ChangeGapWarningModal } from '@components/shared/ChangeGapWarningModal';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../types';
 
@@ -70,6 +71,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
     | null
   >(null);
+  const [changeGapWarning, setChangeGapWarning] = useState<{
+    show: boolean;
+    changeGap: number;
+    estimatedApps: number;
+  } | null>(null);
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
@@ -646,6 +652,22 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     setActionLoading(true);
     try {
+      // Check if JSON file exists and needs to be imported to database
+      const picsStatus = await ApiService.getPicsStatus();
+      const hasJsonFile = picsStatus?.jsonFile?.exists === true;
+      const hasDatabaseMappings = (picsStatus?.database?.totalMappings || 0) > 1000;
+
+      // Import JSON to database if needed (JSON exists but database is empty)
+      if (hasJsonFile && !hasDatabaseMappings) {
+        console.log('[Management] Importing JSON file to database before scan');
+        await fetch('/api/gameinfo/import-pics-data', {
+          method: 'POST',
+          headers: ApiService.getHeaders()
+        });
+        onSuccess?.('Imported depot mappings to database - depot count will update after scan completes');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
       // Use the scan mode from dropdown (incremental or full)
       const useIncrementalScan = depotProcessing?.crawlIncrementalMode ?? true;
       await ApiService.triggerSteamKitRebuild(useIncrementalScan);
@@ -659,7 +681,43 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   };
 
-  const handlePostProcessDepotMappings = () => {
+  const handleDownloadFromGitHub = async () => {
+    setChangeGapWarning(null);
+    setActionLoading(true);
+
+    try {
+      await ApiService.downloadPrecreatedDepotData();
+      onSuccess?.('Pre-created depot data downloaded and imported successfully');
+      setTimeout(() => onDataRefresh?.(), 2000);
+    } catch (err: any) {
+      onError?.(err.message || 'Failed to download from GitHub');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handlePostProcessDepotMappings = async () => {
+    // Check for change gap if incremental mode is selected
+    if (depotProcessing?.crawlIncrementalMode) {
+      try {
+        const viability = await ApiService.checkIncrementalViability();
+
+        if (viability.willTriggerFullScan) {
+          // Show warning modal if change gap is too large
+          setChangeGapWarning({
+            show: true,
+            changeGap: viability.changeGap,
+            estimatedApps: viability.estimatedAppsToScan
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to check incremental viability:', err);
+        // If check fails, proceed with normal flow
+      }
+    }
+
+    // Show normal confirmation modal
     const scanMode = depotProcessing?.crawlIncrementalMode ? 'incremental' : 'full';
     setConfirmModal({
       title: 'Run Depot Scan & Apply',
@@ -1068,6 +1126,21 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           )}
         </div>
       </Modal>
+
+      {/* Change Gap Warning Modal */}
+      {changeGapWarning?.show && (
+        <ChangeGapWarningModal
+          changeGap={changeGapWarning.changeGap}
+          estimatedApps={changeGapWarning.estimatedApps}
+          onConfirm={() => {
+            setChangeGapWarning(null);
+            executePostProcessDepotMappings();
+          }}
+          onCancel={() => setChangeGapWarning(null)}
+          onDownloadFromGitHub={handleDownloadFromGitHub}
+          showDownloadOption={true}
+        />
+      )}
     </>
   );
 };
