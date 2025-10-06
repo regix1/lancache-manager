@@ -5,7 +5,6 @@ using LancacheManager.Security;
 using LancacheManager.Services;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
-using OpenTelemetry;
 using OpenTelemetry.Metrics;
 
 var builder = WebApplication.CreateBuilder(args);

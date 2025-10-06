@@ -232,52 +232,6 @@ public class DatabaseService
         }
     }
 
-
-    private async Task StoreDepotMappingAsync(uint appId, uint depotId, string? appName, string source)
-    {
-        try
-        {
-            var existing = await _context.SteamDepotMappings
-                .FirstOrDefaultAsync(m => m.DepotId == depotId && m.AppId == appId);
-
-            if (existing != null)
-            {
-                bool changed = false;
-
-                if (!string.IsNullOrWhiteSpace(appName) && string.IsNullOrWhiteSpace(existing.AppName))
-                {
-                    existing.AppName = appName;
-                    changed = true;
-                }
-
-                if (changed)
-                {
-                    existing.Source = source;
-                    existing.DiscoveredAt = DateTime.UtcNow;
-                    await _context.SaveChangesAsync();
-                }
-                return;
-            }
-
-            var mapping = new SteamDepotMapping
-            {
-                DepotId = depotId,
-                AppId = appId,
-                AppName = appName,
-                Source = source,
-                DiscoveredAt = DateTime.UtcNow
-            };
-
-            _context.SteamDepotMappings.Add(mapping);
-            await _context.SaveChangesAsync();
-            _logger.LogDebug($"Stored depot mapping {depotId} -> {appId} ({appName ?? "unknown"}) via {source}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, $"Failed to store depot mapping {depotId} -> {appId}");
-        }
-    }
-
     public async Task<List<Download>> GetDownloadsWithApp0()
     {
         return await _context.Downloads
