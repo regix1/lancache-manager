@@ -12,9 +12,28 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  check-trigger:
+    runs-on: ubuntu-latest
+    outputs:
+      should-run: ${{ steps.check.outputs.should-run }}
+    steps:
+      - name: Check if workflow should run
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should-run=true" >> $GITHUB_OUTPUT
+            echo "Manually triggered"
+          elif [[ "${{ github.event_name }}" == "workflow_run" && "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "should-run=true" >> $GITHUB_OUTPUT
+            echo "Triggered by successful Create Release workflow"
+          else
+            echo "should-run=false" >> $GITHUB_OUTPUT
+            echo "Conditions not met. Event: ${{ github.event_name }}, Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          fi
+
   build-and-push:
-    # Only run if the Create Release workflow succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    needs: check-trigger
+    if: ${{ needs.check-trigger.outputs.should-run == 'true' }}
     strategy:
       matrix:
         include:
@@ -28,6 +47,13 @@ jobs:
       packages: write
 
     steps:
+      - name: Debug workflow trigger
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Workflow run conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Workflow run event: ${{ github.event.workflow_run.event }}"
+          echo "Workflow run name: ${{ github.event.workflow_run.name }}"
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -89,7 +115,9 @@ jobs:
           provenance: false
 
   create-manifest:
-    needs: build-and-push
+    needs: [check-trigger, build-and-push]
+    # Only run if check passed and build succeeded
+    if: ${{ needs.check-trigger.outputs.should-run == 'true' && success() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
