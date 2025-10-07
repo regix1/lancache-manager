@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   ToggleLeft,
   ToggleRight,
@@ -289,6 +289,45 @@ const DatabaseManager: React.FC<{
   );
 };
 
+// Main services that should always be shown first
+const MAIN_SERVICES = [
+  'steam', 'epic', 'riot', 'blizzard', 'origin', 'uplay',
+  'gog', 'wsus', 'microsoft', 'sony', 'nintendo', 'apple'
+];
+
+// Memoized Service Button Component
+const ServiceButton = React.memo<{
+  service: string;
+  count: number;
+  isRemoving: boolean;
+  isDisabled: boolean;
+  onClick: () => void;
+}>(({ service, count, isRemoving, isDisabled, onClick }) => {
+  return (
+    <Button
+      onClick={onClick}
+      disabled={isDisabled}
+      variant="default"
+      loading={isRemoving}
+      className="flex flex-col items-center min-h-[60px] justify-center"
+      fullWidth
+    >
+      {!isRemoving ? (
+        <>
+          <span className="capitalize font-medium text-sm sm:text-base">Clear {service}</span>
+          <span className="text-xs text-themed-muted mt-1">
+            ({count.toLocaleString()} entries)
+          </span>
+        </>
+      ) : (
+        <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
+      )}
+    </Button>
+  );
+});
+
+ServiceButton.displayName = 'ServiceButton';
+
 // Log File Manager Component
 const LogFileManager: React.FC<{
   isAuthenticated: boolean;
@@ -307,6 +346,7 @@ const LogFileManager: React.FC<{
   const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingServiceRemoval, setPendingServiceRemoval] = useState<string | null>(null);
+  const [showMoreServices, setShowMoreServices] = useState(false);
 
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
 
@@ -365,6 +405,9 @@ const LogFileManager: React.FC<{
       return;
     }
 
+    // Close modal immediately for better UX
+    setPendingServiceRemoval(null);
+
     try {
       setActiveServiceRemoval(serviceName);
       await serviceRemovalOp.save({ service: serviceName });
@@ -398,25 +441,37 @@ const LogFileManager: React.FC<{
         ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
         : err.message || 'Action failed';
       onError?.(errorMessage);
-    } finally {
-      setPendingServiceRemoval(null);
     }
   };
 
-  const handleRemoveServiceLogs = (serviceName: string) => {
+  const handleRemoveServiceLogs = useCallback((serviceName: string) => {
     if (authMode !== 'authenticated') {
       onError?.('Full authentication required for management operations');
       return;
     }
 
     setPendingServiceRemoval(serviceName);
-  };
+  }, [authMode, onError]);
 
   // Show all services that have log entries (get from serviceCounts, not config.services)
   // This ensures we show ALL services found in logs, including "unknown" and any others
-  const servicesWithData = Object.keys(serviceCounts)
-    .filter(service => serviceCounts[service] > 0)
-    .sort();
+  const { mainServices, otherServices, servicesWithData } = useMemo(() => {
+    const allServices = Object.keys(serviceCounts).filter(service => serviceCounts[service] > 0);
+
+    // Split services into main (always shown) and other (show more)
+    const main = allServices
+      .filter(service => MAIN_SERVICES.includes(service.toLowerCase()))
+      .sort();
+
+    const other = allServices
+      .filter(service => !MAIN_SERVICES.includes(service.toLowerCase()))
+      .sort();
+
+    // Services to display based on "Show More" state
+    const displayed = showMoreServices ? [...main, ...other] : main;
+
+    return { mainServices: main, otherServices: other, servicesWithData: displayed };
+  }, [serviceCounts, showMoreServices]);
 
   return (
     <>
@@ -435,38 +490,43 @@ const LogFileManager: React.FC<{
           <p className="text-sm text-themed-secondary">Scanning log file for services...</p>
           <p className="text-xs text-themed-muted">This may take up to 5 minutes for large log files</p>
         </div>
-      ) : servicesWithData.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {servicesWithData.map((service) => {
-          const isRemoving = activeServiceRemoval === service;
-          return (
-            <Button
-              key={service}
-              onClick={() => handleRemoveServiceLogs(service)}
-              disabled={
-                mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || authMode !== 'authenticated'
-              }
-              variant="default"
-              loading={isRemoving || serviceRemovalOp.loading}
-              className="flex flex-col items-center min-h-[60px] justify-center"
-              fullWidth
-            >
-              {!isRemoving && !serviceRemovalOp.loading ? (
-                <>
-                  <span className="capitalize font-medium text-sm sm:text-base">Clear {service}</span>
-                  {serviceCounts[service] !== undefined && (
-                    <span className="text-xs text-themed-muted mt-1">
-                      ({serviceCounts[service].toLocaleString()} entries)
-                    </span>
-                  )}
-                </>
-              ) : (
-                <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
-              )}
-            </Button>
-          );
-          })}
-        </div>
+      ) : mainServices.length > 0 || otherServices.length > 0 ? (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {servicesWithData.map((service) => {
+              const handleClick = () => handleRemoveServiceLogs(service);
+              return (
+                <ServiceButton
+                  key={service}
+                  service={service}
+                  count={serviceCounts[service] || 0}
+                  isRemoving={activeServiceRemoval === service}
+                  isDisabled={
+                    mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || authMode !== 'authenticated'
+                  }
+                  onClick={handleClick}
+                />
+              );
+            })}
+          </div>
+
+          {/* Show More / Show Less button if there are other services */}
+          {otherServices.length > 0 && (
+            <div className="mt-4 text-center">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setShowMoreServices(!showMoreServices)}
+              >
+                {showMoreServices ? (
+                  <>Show Less ({otherServices.length} hidden)</>
+                ) : (
+                  <>Show More ({otherServices.length} more)</>
+                )}
+              </Button>
+            </div>
+          )}
+        </>
       ) : (
         <div className="text-center py-8 text-themed-muted">
           <div className="mb-2">No services with log entries found</div>

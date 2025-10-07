@@ -32,6 +32,9 @@ public class WindowsPathResolver : IPathResolver
     public string GetRustDatabaseResetPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "database_reset.exe");
 
+    public string GetRustLogManagerPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_manager.exe");
+
     /// <summary>
     /// Resolves a relative path to an absolute path based on the operating system
     /// </summary>

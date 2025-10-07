@@ -1,5 +1,7 @@
 using LancacheManager.Models;
 using LancacheManager.Constants;
+using System.Diagnostics;
+using System.Text.Json;
 
 namespace LancacheManager.Services;
 
@@ -236,7 +238,6 @@ public class CacheManagementService
 
     public async Task RemoveServiceFromLogs(string service)
     {
-
         try
         {
             if (!File.Exists(_logPath))
@@ -245,8 +246,6 @@ public class CacheManagementService
             }
 
             var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
-            var backupFile = $"{_logPath}.bak";
-            var tempFile = Path.Combine(logDir, $"access.log.tmp.{Guid.NewGuid()}");
 
             // Test write permissions by trying to create a temp file
             try
@@ -263,69 +262,49 @@ public class CacheManagementService
                 throw new UnauthorizedAccessException(errorMsg, ex);
             }
 
-            _logger.LogInformation($"Removing {service} entries from log file");
+            // Use Rust binary for fast log filtering
+            var dataDir = _pathResolver.GetDataDirectory();
+            var progressFile = Path.Combine(dataDir, "log_remove_progress.json");
+            var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
-            await Task.Run(async () =>
+            // Check if Rust binary exists
+            if (!File.Exists(rustBinaryPath))
             {
-                // Create backup
-                File.Copy(_logPath, backupFile, true);
-                _logger.LogInformation($"Backup created at {backupFile}");
+                var errorMsg = $"Rust log_manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
 
-                using (var reader = new StreamReader(_logPath))
-                using (var writer = new StreamWriter(tempFile))
+            _logger.LogInformation($"Using Rust binary for log filtering: {rustBinaryPath}");
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = rustBinaryPath,
+                Arguments = $"remove \"{_logPath}\" \"{service}\" \"{progressFile}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
                 {
-                    string? line;
-                    int removedCount = 0;
-                    int totalLines = 0;
-
-                    while ((line = await reader.ReadLineAsync()) != null)
-                    {
-                        totalLines++;
-                        bool shouldRemove = false;
-
-                        if (line.StartsWith("[") && line.IndexOf(']') > 0)
-                        {
-                            var endIndex = line.IndexOf(']');
-                            var lineService = line.Substring(1, endIndex - 1).ToLower();
-
-                            // If removing "unknown", remove all non-known services (except localhost)
-                            if (service.Equals("unknown", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (lineService != "127" && lineService != "localhost" && !LancacheConstants.KNOWN_SERVICES.Contains(lineService))
-                                {
-                                    shouldRemove = true;
-                                }
-                            }
-                            // Otherwise, exact match for known services
-                            else if (lineService.Equals(service, StringComparison.OrdinalIgnoreCase))
-                            {
-                                shouldRemove = true;
-                            }
-                        }
-
-                        if (!shouldRemove)
-                        {
-                            await writer.WriteLineAsync(line);
-                        }
-                        else
-                        {
-                            removedCount++;
-                            if (removedCount % 10000 == 0)
-                            {
-                                _logger.LogDebug($"Removed {removedCount} {service} entries");
-                            }
-                        }
-                    }
-
-                    _logger.LogInformation($"Removed {removedCount} {service} entries from {totalLines} total lines");
+                    throw new Exception("Failed to start Rust log_manager process");
                 }
 
-                // Replace original with filtered version
-                File.Delete(_logPath);
-                File.Move(tempFile, _logPath);
+                await process.WaitForExitAsync();
 
-                _logger.LogInformation($"Log file updated successfully");
-            });
+                if (process.ExitCode != 0)
+                {
+                    var error = await process.StandardError.ReadToEndAsync();
+                    throw new Exception($"Rust log_manager failed with exit code {process.ExitCode}: {error}");
+                }
+
+                var output = await process.StandardOutput.ReadToEndAsync();
+                _logger.LogInformation($"Rust log filtering completed: {output}");
+            }
         }
         catch (UnauthorizedAccessException)
         {
@@ -334,8 +313,8 @@ public class CacheManagementService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error removing {service} from logs");
-            throw new Exception($"Failed to remove {service} from logs: {ex.Message}", ex);
+            _logger.LogError(ex, $"Error removing {service} from logs with Rust binary");
+            throw;
         }
     }
 
@@ -351,141 +330,110 @@ public class CacheManagementService
                 return counts;
             }
 
-            await Task.Run(async () =>
+            // Use Rust binary for fast log counting
+            var dataDir = _pathResolver.GetDataDirectory();
+            var progressFile = Path.Combine(dataDir, "log_count_progress.json");
+            var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
+
+            // Check if Rust binary exists
+            if (!File.Exists(rustBinaryPath))
             {
-                using (var reader = new StreamReader(_logPath))
+                var errorMsg = $"Rust log_manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            _logger.LogInformation($"Using Rust binary for log counting: {rustBinaryPath}");
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = rustBinaryPath,
+                Arguments = $"count \"{_logPath}\" \"{progressFile}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
                 {
-                    string? line;
-                    var serviceSet = new HashSet<string>();
-                    int linesProcessed = 0;
-
-                    while ((line = await reader.ReadLineAsync()) != null)
-                    {
-                        linesProcessed++;
-
-                        // Extract service name from line
-                        if (line.StartsWith("[") && line.IndexOf(']') > 0)
-                        {
-                            var endIndex = line.IndexOf(']');
-                            var service = line.Substring(1, endIndex - 1).ToLower();
-
-                            // Skip localhost entries (pure IP or localhost identifier)
-                            if (service == "127" || service == "localhost")
-                                continue;
-
-                            // Determine if this is a known service or unknown
-                            string serviceKey;
-                            if (LancacheConstants.KNOWN_SERVICES.Contains(service))
-                            {
-                                serviceKey = service;
-                            }
-                            else if (service.Contains("."))
-                            {
-                                // IP addresses or domain names that aren't known services
-                                serviceKey = "unknown";
-                            }
-                            else
-                            {
-                                // Unknown service identifiers
-                                serviceKey = "unknown";
-                            }
-
-                            if (!counts.ContainsKey(serviceKey))
-                            {
-                                counts[serviceKey] = 0;
-                                serviceSet.Add(serviceKey);
-                            }
-
-                            counts[serviceKey]++;
-                        }
-                    }
-
-                    _logger.LogInformation($"Found {serviceSet.Count} services in logs (scanned {linesProcessed} lines): {string.Join(", ", serviceSet)}");
+                    throw new Exception("Failed to start Rust log_manager process");
                 }
-            });
 
-            _logger.LogInformation($"Log counts: {string.Join(", ", counts.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode != 0)
+                {
+                    var error = await process.StandardError.ReadToEndAsync();
+                    throw new Exception($"Rust log_manager failed with exit code {process.ExitCode}: {error}");
+                }
+
+                // Read results from progress file
+                if (File.Exists(progressFile))
+                {
+                    var json = await File.ReadAllTextAsync(progressFile);
+                    var options = new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    };
+                    var progressData = JsonSerializer.Deserialize<LogCountProgressData>(json, options);
+
+                    if (progressData?.ServiceCounts != null)
+                    {
+                        counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+                        _logger.LogInformation($"Rust log counting completed: Found {counts.Count} services");
+                    }
+                }
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error counting service logs");
+            _logger.LogError(ex, "Error counting service logs with Rust binary");
+            throw;
         }
 
         return counts;
     }
 
+    // Helper class for deserializing Rust progress data
+    private class LogCountProgressData
+    {
+        public bool IsProcessing { get; set; }
+        public double PercentComplete { get; set; }
+        public string Status { get; set; } = "";
+        public string Message { get; set; } = "";
+        public ulong LinesProcessed { get; set; }
+        public Dictionary<string, ulong>? ServiceCounts { get; set; }
+    }
+
     // Get list of unique services from logs
     public async Task<List<string>> GetServicesFromLogs()
     {
-        var services = new HashSet<string>();
-        
         try
         {
-            // First, get all services that have counts
+            // Get all services that have counts (uses Rust binary for fast counting)
             var serviceCounts = await GetServiceLogCounts();
-            foreach (var service in serviceCounts.Keys)
-            {
-                if (!string.IsNullOrEmpty(service) && !service.Contains("."))
-                {
-                    services.Add(service);
-                }
-            }
-            
-            // If we found services from counts, return them
+            var services = serviceCounts.Keys
+                .Where(service => !string.IsNullOrEmpty(service) && !service.Contains("."))
+                .OrderBy(s => s)
+                .ToList();
+
             if (services.Count > 0)
             {
                 _logger.LogInformation($"Found services from counts: {string.Join(", ", services)}");
-                return services.OrderBy(s => s).ToList();
-            }
-            
-            // Fallback: scan log file if no counts found
-            if (!File.Exists(_logPath))
-            {
-                _logger.LogWarning($"Log file not found: {_logPath}");
-                return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
+                return services;
             }
 
-            await Task.Run(async () =>
-            {
-                using (var reader = new StreamReader(_logPath))
-                {
-                    string? line;
-                    int linesChecked = 0;
-                    int maxLinesToCheck = 50000; // Increased from 10000 to scan more lines
-                    
-                    while ((line = await reader.ReadLineAsync()) != null && linesChecked < maxLinesToCheck)
-                    {
-                        linesChecked++;
-                        
-                        if (line.StartsWith("[") && line.IndexOf(']') > 0)
-                        {
-                            var endIndex = line.IndexOf(']');
-                            var service = line.Substring(1, endIndex - 1).ToLower();
-                            
-                            // Skip IP addresses and localhost
-                            if (!service.Contains(".") && service != "127")
-                            {
-                                services.Add(service);
-                            }
-                        }
-                    }
-                    
-                    _logger.LogInformation($"Found services by scanning {linesChecked} lines: {string.Join(", ", services)}");
-                }
-            });
+            // If no services found, return empty list
+            _logger.LogWarning("No services found in log file");
+            return new List<string>();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error scanning for services");
-            return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
+            _logger.LogError(ex, "Error getting services from logs");
+            throw;
         }
-        
-        // If no services found, return defaults
-        if (services.Count == 0)
-        {
-            return new List<string> { "steam", "epic", "origin", "blizzard", "wsus", "riot" };
-        }
-        
-        return services.OrderBy(s => s).ToList();
     }
 }

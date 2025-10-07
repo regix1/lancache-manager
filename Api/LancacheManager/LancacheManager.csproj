@@ -60,6 +60,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\database_reset.exe</Link>
     </None>
+    <None Include="..\..\rust-processor\target\release\log_manager.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\log_manager.exe</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(SkipRustBuild)' != 'true'">
@@ -71,6 +75,10 @@
     <None Include="..\..\rust-processor\bin\win-x64\database_reset.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\database_reset.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\log_manager.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\log_manager.exe</Link>
     </None>
   </ItemGroup>
 
@@ -84,6 +92,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\database_reset</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\log_manager">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\log_manager</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And '$(SkipRustBuild)' != 'true'">
@@ -96,6 +108,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\database_reset</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\log_manager">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\log_manager</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
@@ -107,6 +123,10 @@
     <None Include="../../rust-processor/target/release/database_reset">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/database_reset</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/log_manager">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/log_manager</Link>
     </None>
   </ItemGroup>
 
