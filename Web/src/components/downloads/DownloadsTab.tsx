@@ -961,24 +961,37 @@ const DownloadsTab: React.FC = () => {
 
       {/* Stats */}
       <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <span>
-            {settings.itemsPerPage !== 'unlimited' && `Page ${currentPage} of ${totalPages} - `}
-            Showing {itemsToDisplay.length} of {allItemsSorted.length} groups
-            ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'})
-            {filteredDownloads.length !== serviceFilteredDownloads.length &&
-              ` of ${serviceFilteredDownloads.length} total`}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
+            <span className="whitespace-nowrap">
+              {settings.itemsPerPage !== 'unlimited' && (
+                <span className="font-medium">Page {currentPage} of {totalPages}</span>
+              )}
+            </span>
+            <span className="flex flex-wrap items-center gap-1">
+              {settings.itemsPerPage !== 'unlimited' && <span className="hidden sm:inline">-</span>}
+              <span>Showing {itemsToDisplay.length} of {allItemsSorted.length} groups</span>
+              <span className="whitespace-nowrap">
+                ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'}
+                {filteredDownloads.length !== serviceFilteredDownloads.length &&
+                  ` of ${serviceFilteredDownloads.length} total`})
+              </span>
+            </span>
             {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
-              <span className="ml-1">
-                {settings.selectedService !== 'all' && ` • Service: ${settings.selectedService}`}
-                {settings.selectedClient !== 'all' && ` • Client: ${settings.selectedClient}`}
+              <span className="flex flex-wrap gap-1 text-xs sm:text-sm">
+                {settings.selectedService !== 'all' && (
+                  <span className="whitespace-nowrap">• Service: {settings.selectedService}</span>
+                )}
+                {settings.selectedClient !== 'all' && (
+                  <span className="whitespace-nowrap">• Client: {settings.selectedClient}</span>
+                )}
               </span>
             )}
-          </span>
+          </div>
           {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
             <button
               onClick={() => setSettings({ ...settings, selectedService: 'all', selectedClient: 'all' })}
-              className="text-xs px-2 py-1 rounded bg-themed-accent text-white hover:opacity-80 transition-opacity"
+              className="text-xs px-3 py-1.5 rounded bg-themed-accent text-white hover:opacity-80 transition-opacity whitespace-nowrap self-start sm:self-auto"
             >
               Clear Filters
             </button>

@@ -88,7 +88,35 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     <>
       <div className="relative" ref={dropdownRef}>
         <div className="flex items-center gap-2">
-          <Tooltip content={disabled ? "Time filter is disabled in mock mode" : undefined}>
+          {disabled ? (
+            <Tooltip content="Time filter is disabled in mock mode">
+              <button
+                onClick={() => !disabled && setShowDropdown(!showDropdown)}
+                disabled={disabled}
+                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg transition-all"
+                style={{
+                  backgroundColor: showDropdown ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
+                  border: showDropdown ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-primary)',
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {timeFilterLoading ? (
+                  <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
+                ) : (
+                  <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
+                )}
+                <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-primary)]">
+                  {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
+                </span>
+                <ChevronDown
+                  className={`w-3 h-3 text-[var(--theme-text-secondary)] transition-transform ${
+                    showDropdown ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+            </Tooltip>
+          ) : (
             <button
               onClick={() => !disabled && setShowDropdown(!showDropdown)}
               disabled={disabled}
@@ -114,7 +142,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                 }`}
               />
             </button>
-          </Tooltip>
+          )}
           {timeRange === 'live' && !timeFilterLoading && !disabled && (
             <Tooltip content="Live Mode: Data updates automatically every few seconds">
               <div className="flex items-center">

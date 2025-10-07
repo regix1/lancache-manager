@@ -88,14 +88,14 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
 
         {displayClients.length > 0 ? (
           <div className="overflow-x-auto -mx-2 px-2">
-            <table className="w-full min-w-[600px]">
+            <table className="w-full">
               <thead>
                 <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                  <th className="pb-3 min-w-[120px]">Client IP</th>
-                  <th className="pb-3 hidden sm:table-cell">Total Downloaded</th>
-                  <th className="pb-3 hidden md:table-cell">Cache Hits</th>
-                  <th className="pb-3 hidden md:table-cell">Cache Misses</th>
-                  <th className="pb-3 min-w-[100px]">Hit Rate</th>
+                  <th className="pb-3">Client IP</th>
+                  <th className="pb-3 hidden sm:table-cell">Total</th>
+                  <th className="pb-3 hidden md:table-cell">Hits</th>
+                  <th className="pb-3 hidden md:table-cell">Misses</th>
+                  <th className="pb-3">Hit Rate</th>
                   <th className="pb-3 hidden lg:table-cell">Last Seen</th>
                 </tr>
               </thead>
@@ -111,7 +111,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                     <td className="py-3 cache-miss hidden md:table-cell whitespace-nowrap">{formatBytes(client.totalCacheMissBytes)}</td>
                     <td className="py-3">
                       <span
-                        className={`px-2 py-1 rounded text-xs hit-rate-badge ${
+                        className={`px-2 py-1 rounded text-xs hit-rate-badge whitespace-nowrap ${
                           client.cacheHitPercent > 50 ? 'high' : 'warning'
                         }`}
                       >

@@ -21,22 +21,26 @@ export const ChangeGapWarningModal: React.FC<ChangeGapWarningModalProps> = ({
 }) => {
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-[var(--theme-bg-secondary)] rounded-lg shadow-xl max-w-2xl w-full mx-4 border-2 border-red-500">
+    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+      <div className="rounded-lg shadow-xl max-w-2xl w-full mx-4 border-2"
+           style={{
+             backgroundColor: 'var(--theme-bg-secondary)',
+             borderColor: 'var(--theme-error)'
+           }}>
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-[var(--theme-border)]">
+        <div className="flex items-center justify-between p-6 border-b"
+             style={{ borderColor: 'var(--theme-border-primary)' }}>
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-500/10 rounded-lg">
-              <AlertTriangle className="w-6 h-6 text-red-500" />
+            <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--theme-error-bg)' }}>
+              <AlertTriangle className="w-6 h-6" style={{ color: 'var(--theme-error)' }} />
             </div>
-            <h2 className="text-xl font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
+            <h2 className="text-xl font-semibold text-themed-primary">
               Large Change Gap Detected
             </h2>
           </div>
           <button
             onClick={onCancel}
-            className="p-1 hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
-            style={{ color: 'var(--theme-text-secondary)' }}
+            className="p-1 rounded transition-colors text-themed-secondary hover:bg-themed-hover"
           >
             <X className="w-5 h-5" />
           </button>
@@ -44,27 +48,35 @@ export const ChangeGapWarningModal: React.FC<ChangeGapWarningModalProps> = ({
 
         {/* Content */}
         <div className="p-6 space-y-4">
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-            <p className="text-red-400 font-medium mb-2">
+          <div className="rounded-lg p-4 border"
+               style={{
+                 backgroundColor: 'var(--theme-error-bg)',
+                 borderColor: 'var(--theme-error)'
+               }}>
+            <p className="font-medium mb-2" style={{ color: 'var(--theme-error-text)' }}>
               Your depot data is too far behind Steam's current state
             </p>
-            <div className="space-y-1 text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
-              <p>• Change gap: <span className="font-mono text-red-400">{changeGap.toLocaleString()}</span> updates behind</p>
-              <p>• Estimated apps to scan: <span className="font-mono text-red-400">~{estimatedApps.toLocaleString()}</span> apps</p>
-              <p>• Steam's PICS API will force a <span className="font-bold text-red-400">FULL SCAN</span> instead of incremental</p>
+            <div className="space-y-1 text-sm text-themed-secondary">
+              <p>• Change gap: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>{changeGap.toLocaleString()}</span> updates behind</p>
+              <p>• Estimated apps to scan: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>~{estimatedApps.toLocaleString()}</span> apps</p>
+              <p>• Steam's PICS API will force a <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>FULL SCAN</span> instead of incremental</p>
             </div>
           </div>
 
           <div className="space-y-3">
-            <p style={{ color: 'var(--theme-text-primary)' }}>
+            <p className="text-themed-primary">
               <strong>Why this happens:</strong> When depot data becomes too outdated (typically &gt;24 hours),
               Steam's API refuses incremental updates and requires a full rescan for data integrity.
             </p>
 
             {showDownloadOption && (
-              <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                <p className="text-blue-400 font-medium mb-2">Recommended: Download from GitHub</p>
-                <ul className="space-y-1 text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+              <div className="rounded-lg p-4 border"
+                   style={{
+                     backgroundColor: 'var(--theme-info-bg)',
+                     borderColor: 'var(--theme-info)'
+                   }}>
+                <p className="font-medium mb-2" style={{ color: 'var(--theme-info-text)' }}>Recommended: Download from GitHub</p>
+                <ul className="space-y-1 text-sm text-themed-secondary">
                   <li>✓ Instant: Get pre-generated depot mappings in seconds</li>
                   <li>✓ Complete: Contains all current Steam depot data</li>
                   <li>✓ Efficient: Avoids scanning 270,000+ Steam apps</li>
@@ -75,7 +87,8 @@ export const ChangeGapWarningModal: React.FC<ChangeGapWarningModalProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 p-6 border-t border-[var(--theme-border)]">
+        <div className="flex flex-col sm:flex-row gap-3 p-6 border-t"
+             style={{ borderColor: 'var(--theme-border-primary)' }}>
           {showDownloadOption && (
             <Button
               onClick={onDownloadFromGitHub}

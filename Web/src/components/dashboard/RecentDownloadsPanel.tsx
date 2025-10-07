@@ -204,15 +204,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     return (
       <Card>
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <h3 className="text-lg font-semibold text-themed-primary">Downloads</h3>
 
               {/* View Mode Toggle */}
-              <div className="flex items-center gap-1 p-1 rounded-lg" style={{ backgroundColor: 'var(--theme-card-hover)' }}>
+              <div className="flex items-center gap-1 p-1 rounded-lg w-full sm:w-auto" style={{ backgroundColor: 'var(--theme-card-hover)' }}>
                 <button
                   onClick={() => setViewMode('recent')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 sm:flex-initial ${
                     viewMode === 'recent' ? 'shadow-sm' : ''
                   }`}
                   style={{
@@ -225,7 +225,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 </button>
                 <button
                   onClick={() => setViewMode('active')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 sm:flex-initial ${
                     viewMode === 'active' ? 'shadow-sm' : ''
                   }`}
                   style={{
@@ -246,21 +246,21 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 </button>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center flex-wrap gap-2 sm:gap-3 w-full sm:w-auto justify-start sm:justify-end">
               {viewMode === 'active' ? (
                 <>
                   {activeDownloadCount > 0 && (
-                    <span className="text-xs text-themed-muted">{activeDownloadCount} active</span>
+                    <span className="text-xs text-themed-muted whitespace-nowrap">{activeDownloadCount} active</span>
                   )}
-                  <span className="text-xs text-themed-muted">Live</span>
+                  <span className="text-xs text-themed-muted whitespace-nowrap">Live</span>
                 </>
               ) : (
                 <>
                   {!loading && latestDownloads.length > 0 && (
                     <>
-                      <span className="text-xs text-themed-muted">{stats.totalDownloads} shown</span>
+                      <span className="text-xs text-themed-muted whitespace-nowrap">{stats.totalDownloads} shown</span>
                       <span
-                        className={`text-xs px-2 py-0.5 rounded ${
+                        className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${
                           stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
                         }`}
                       >
@@ -268,7 +268,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                       </span>
                     </>
                   )}
-                  <span className="text-xs text-themed-muted">{getTimeRangeLabel}</span>
+                  <span className="text-xs text-themed-muted whitespace-nowrap">{getTimeRangeLabel}</span>
                 </>
               )}
             </div>
