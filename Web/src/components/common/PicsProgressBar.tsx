@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import themeService from '@services/theme.service';
 
 interface PicsProgress {
   isRunning: boolean;
@@ -23,6 +24,25 @@ const PicsProgressBar: React.FC = () => {
   const [progress, setProgress] = useState<PicsProgress | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [alwaysVisible, setAlwaysVisible] = useState(false);
+  const [wasRunning, setWasRunning] = useState(false);
+
+  useEffect(() => {
+    // Load the setting on mount
+    setAlwaysVisible(themeService.getPicsAlwaysVisible());
+
+    // Listen for visibility setting changes
+    const handleVisibilityChange = () => {
+      const newSetting = themeService.getPicsAlwaysVisible();
+      setAlwaysVisible(newSetting);
+    };
+
+    window.addEventListener('picsvisibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('picsvisibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     let intervalId: NodeJS.Timeout | null = null;
@@ -40,17 +60,26 @@ const PicsProgressBar: React.FC = () => {
             setHideTimeout(null);
           }
 
-          // Show progress bar when PICS is running or has connection issues
-          const shouldShow = data.isRunning || !data.isConnected || !data.isLoggedOn;
-
-          if (shouldShow) {
+          // If alwaysVisible is enabled, always show the bar
+          if (alwaysVisible) {
             setIsVisible(true);
-          } else if (data.isReady && !data.isRunning && data.isConnected && data.isLoggedOn) {
-            // Hide after 3 seconds when processing is complete
-            const timeout = setTimeout(() => {
+            setWasRunning(data.isRunning);
+          } else {
+            // Show progress bar only when PICS is actually running
+            if (data.isRunning) {
+              setIsVisible(true);
+              setWasRunning(true);
+            } else if (wasRunning && !data.isRunning) {
+              // Was just running, now stopped - hide after 10 seconds
+              const timeout = setTimeout(() => {
+                setIsVisible(false);
+                setWasRunning(false);
+              }, 10000);
+              setHideTimeout(timeout);
+            } else if (!data.isRunning && !wasRunning) {
+              // Never was running in this session, hide immediately
               setIsVisible(false);
-            }, 3000);
-            setHideTimeout(timeout);
+            }
           }
         }
       } catch (error) {
@@ -61,7 +90,7 @@ const PicsProgressBar: React.FC = () => {
     // Initial fetch
     fetchProgress();
 
-    // Poll for updates every 2 seconds when running
+    // Poll for updates every 2 seconds
     intervalId = setInterval(fetchProgress, 2000);
 
     return () => {
@@ -72,9 +101,9 @@ const PicsProgressBar: React.FC = () => {
         clearTimeout(hideTimeout);
       }
     };
-  }, [hideTimeout]);
+  }, [alwaysVisible, wasRunning]);
 
-  if (!isVisible || !progress) {
+  if (!progress) {
     return null;
   }
 
@@ -99,10 +128,14 @@ const PicsProgressBar: React.FC = () => {
 
   return (
     <div
-      className="w-full border-b shadow-sm"
+      className="w-full border-b shadow-sm overflow-hidden"
       style={{
         backgroundColor: 'var(--theme-nav-bg)',
-        borderColor: 'var(--theme-nav-border)'
+        borderColor: 'var(--theme-nav-border)',
+        maxHeight: isVisible ? '200px' : '0px',
+        opacity: isVisible ? 1 : 0,
+        borderBottomWidth: isVisible ? '1px' : '0px',
+        transition: 'max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1), border-bottom-width 0.5s cubic-bezier(0.4, 0, 0.2, 1)'
       }}
     >
       <div className="container mx-auto px-4 py-2">

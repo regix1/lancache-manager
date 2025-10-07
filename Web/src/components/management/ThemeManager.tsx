@@ -51,6 +51,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [editSelectedPage, setEditSelectedPage] = useState<string>('all');
   const [sharpCornersEnabled, setSharpCornersEnabled] = useState(false);
   const [tooltipsDisabled, setTooltipsDisabled] = useState(false);
+  const [picsAlwaysVisible, setPicsAlwaysVisible] = useState(false);
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -73,6 +74,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     // Load current option states
     setSharpCornersEnabled(themeService.getSharpCorners());
     setTooltipsDisabled(themeService.getDisableTooltips());
+    setPicsAlwaysVisible(themeService.getPicsAlwaysVisible());
   }, []);
 
   // Handler Functions
@@ -380,6 +382,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     themeService.setDisableTooltips(enabled);
   };
 
+  const handlePicsAlwaysVisibleToggle = (enabled: boolean) => {
+    setPicsAlwaysVisible(enabled);
+    themeService.setPicsAlwaysVisible(enabled);
+  };
+
   // Utility Functions
   const toggleGroup = (groupName: string) => {
     setExpandedGroups(prev =>
@@ -558,6 +565,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   onChange={(e) => handleTooltipsToggle(e.target.checked)}
                   variant="rounded"
                   label="Disable Tooltips"
+                />
+                <Checkbox
+                  checked={picsAlwaysVisible}
+                  onChange={(e) => handlePicsAlwaysVisibleToggle(e.target.checked)}
+                  variant="rounded"
+                  label="Steam PICS Always Visible"
                 />
               </div>
             </div>

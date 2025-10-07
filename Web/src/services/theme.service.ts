@@ -1107,6 +1107,11 @@ class ThemeService {
         localStorage.setItem('lancache_disable_tooltips', 'false'); // Default to enabled
       }
 
+      // Migration for PICS always visible feature
+      if (!localStorage.getItem('lancache_pics_always_visible')) {
+        localStorage.setItem('lancache_pics_always_visible', 'false'); // Default to only show when processing
+      }
+
       // Set migration version to prevent future runs
       localStorage.setItem('lancache_migration_version', currentVersion);
     }
@@ -1204,6 +1209,17 @@ class ThemeService {
 
   getDisableTooltips(): boolean {
     return localStorage.getItem('lancache_disable_tooltips') === 'true';
+  }
+
+  setPicsAlwaysVisible(enabled: boolean): void {
+    localStorage.setItem('lancache_pics_always_visible', enabled.toString());
+
+    // Dispatch event for any components that need to react
+    window.dispatchEvent(new Event('picsvisibilitychange'));
+  }
+
+  getPicsAlwaysVisible(): boolean {
+    return localStorage.getItem('lancache_pics_always_visible') === 'true';
   }
 
   async setTheme(themeId: string): Promise<void> {
