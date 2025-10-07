@@ -13,7 +13,6 @@ import {
   ChevronDown,
   Search,
   GripVertical,
-  Loader,
   LayoutGrid,
   X
 } from 'lucide-react';
