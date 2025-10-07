@@ -37,6 +37,11 @@ public class SteamKit2Service : IHostedService, IDisposable
     private int _rebuildActive;
     private bool _disposed;
 
+    // Connection keep-alive for viability checks
+    private Timer? _idleDisconnectTimer;
+    private DateTime _lastConnectionActivity = DateTime.MinValue;
+    private const int ConnectionKeepAliveSeconds = 60; // Keep connection alive for 60 seconds after viability check
+
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;
@@ -109,11 +114,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             _crawlIncrementalMode = _stateService.GetCrawlIncrementalMode();
             _logger.LogInformation("Loaded crawl mode from state: {Mode}", _crawlIncrementalMode ? "Incremental" : "Full");
 
-            // Load last crawl time from state to preserve schedule across restarts
-            LoadLastCrawlTime();
-
-            // Load last change number from PICS data to enable proper incremental updates
-            await LoadLastChangeNumberAsync();
+            // Load PICS metadata (crawl time and change number) from JSON or state
+            await LoadPicsMetadataAsync();
 
             // Check for interrupted depot processing and resume if needed
             var depotState = _stateService.GetDepotProcessingState();
@@ -178,12 +180,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Token source already disposed
         }
 
-        if (_steamClient?.IsConnected == true)
-        {
-            _steamUser?.LogOff();
-            await Task.Delay(1000);
-            _steamClient.Disconnect();
-        }
+        _intentionalDisconnect = true;
+        await DisconnectFromSteamAsync();
 
         if (_currentBuildTask is not null)
         {
@@ -238,9 +236,6 @@ public class SteamKit2Service : IHostedService, IDisposable
 
     private void SetupPeriodicCrawls()
     {
-        // Load last crawl time from JSON file or fallback to text file
-        _ = Task.Run(async () => await LoadLastCrawlTimeAsync());
-
         // Don't auto-start any crawls - user must explicitly trigger via UI
         // This prevents unwanted background processing during initialization
 
@@ -286,7 +281,11 @@ public class SteamKit2Service : IHostedService, IDisposable
                     await Task.Delay(5000, ct); // Wait 5 seconds before retry
                 }
 
+                // Stop idle disconnect timer since we're actively using the connection
+                StopIdleDisconnectTimer();
+
                 await ConnectAndLoginAsync(ct);
+                UpdateConnectionActivity();
                 await BuildDepotIndexAsync(ct, incrementalOnly);
 
                 // Check if we still have unmapped downloads after the scan
@@ -364,8 +363,6 @@ public class SteamKit2Service : IHostedService, IDisposable
 
         // Wait for logged on
         await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(30), ct);
-
-        _logger.LogInformation("Successfully logged onto Steam!");
     }
 
     private async Task WaitForTaskWithTimeout(Task task, TimeSpan timeout, CancellationToken ct)
@@ -1038,23 +1035,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         try
         {
             // Convert ConcurrentDictionary to Dictionary for the service call
-            var depotMappingsDict = new Dictionary<uint, HashSet<uint>>();
-            foreach (var kvp in _depotToAppMappings)
-            {
-                depotMappingsDict[kvp.Key] = kvp.Value;
-            }
-
-            var appNamesDict = new Dictionary<uint, string>();
-            foreach (var kvp in _appNames)
-            {
-                appNamesDict[kvp.Key] = kvp.Value;
-            }
-
-            var depotOwnersDict = new Dictionary<uint, uint>();
-            foreach (var kvp in _depotOwners)
-            {
-                depotOwnersDict[kvp.Key] = kvp.Value;
-            }
+            var (depotMappingsDict, appNamesDict, depotOwnersDict) = ConvertMappingsDictionaries();
 
             if (incrementalOnly)
             {
@@ -1330,13 +1311,13 @@ public class SteamKit2Service : IHostedService, IDisposable
             }
             finally
             {
-                // Disconnect if we connected just for this check
+                // Keep connection alive for a short period if we just connected
+                // This allows reuse if a crawl starts immediately after viability check
                 if (!wasConnected && _steamClient?.IsConnected == true)
                 {
-                    _intentionalDisconnect = true;
-                    _steamUser?.LogOff();
-                    await Task.Delay(500, ct);
-                    _steamClient.Disconnect();
+                    _logger.LogDebug("Keeping Steam connection alive for {Seconds} seconds for potential reuse", ConnectionKeepAliveSeconds);
+                    UpdateConnectionActivity();
+                    StartIdleDisconnectTimer();
                 }
             }
         }
@@ -1396,9 +1377,11 @@ public class SteamKit2Service : IHostedService, IDisposable
         _disposed = true;
         _isRunning = false;
 
-        // Clean up the periodic timer
+        // Clean up timers
         _periodicTimer?.Dispose();
         _periodicTimer = null;
+        _idleDisconnectTimer?.Dispose();
+        _idleDisconnectTimer = null;
 
         try
         {
@@ -1464,18 +1447,18 @@ public class SteamKit2Service : IHostedService, IDisposable
             }
             finally
             {
+                // Clear rebuild flag BEFORE disconnecting to prevent reconnection attempts
+                Interlocked.Exchange(ref _rebuildActive, 0);
+
                 // Explicitly disconnect after crawl completion to prevent reconnection loops
                 if (_steamClient?.IsConnected == true)
                 {
                     _logger.LogDebug("Disconnecting from Steam after PICS crawl completion");
                     _intentionalDisconnect = true;
-                    _steamUser?.LogOff();
-                    await Task.Delay(1000); // Give LogOff time to complete
-                    _steamClient.Disconnect();
+                    await DisconnectFromSteamAsync();
                 }
 
                 linkedCts.Dispose();
-                Interlocked.Exchange(ref _rebuildActive, 0);
             }
         }
 
@@ -1720,54 +1703,38 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Load the last PICS crawl time from JSON file or fallback to text file
+    /// Load PICS metadata (crawl time and change number) from JSON or state
     /// </summary>
-    private async Task LoadLastCrawlTimeAsync()
+    private async Task LoadPicsMetadataAsync()
     {
         try
         {
-            // First try to get the time from JSON file
+            // Try to load from JSON file first (contains both crawl time and change number)
             var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
             if (picsData?.Metadata != null)
             {
                 _lastCrawlTime = picsData.Metadata.LastUpdated;
                 _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
-                _logger.LogInformation("Loaded last PICS crawl time from JSON: {LastCrawl}, change number: {ChangeNumber}",
+                _logger.LogInformation("Loaded PICS metadata from JSON: crawl time {LastCrawl}, change number {ChangeNumber}",
                     _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"), _lastChangeNumberSeen);
                 return;
             }
 
-            // Fallback to text file
-            LoadLastCrawlTime();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to load last PICS crawl time from JSON, falling back to text file");
-            LoadLastCrawlTime();
-        }
-    }
-
-    /// <summary>
-    /// Load the last PICS crawl time from state
-    /// </summary>
-    private void LoadLastCrawlTime()
-    {
-        try
-        {
+            // Fallback to state service for crawl time only
             var lastCrawl = _stateService.GetLastPicsCrawl();
             if (lastCrawl.HasValue)
             {
                 _lastCrawlTime = lastCrawl.Value;
-                _logger.LogInformation("Loaded last PICS crawl time: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                _logger.LogInformation("Loaded last PICS crawl time from state: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
             }
             else
             {
-                _logger.LogInformation("No previous PICS crawl time found");
+                _logger.LogInformation("No previous PICS metadata found");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load last PICS crawl time from state");
+            _logger.LogWarning(ex, "Failed to load PICS metadata, will use defaults");
         }
     }
 
@@ -1788,28 +1755,83 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Load the last PICS change number from existing JSON data to enable proper incremental updates
+    /// Helper method to disconnect from Steam properly
     /// </summary>
-    private async Task LoadLastChangeNumberAsync()
+    private async Task DisconnectFromSteamAsync(int delayMs = 1000)
     {
-        try
+        if (_steamClient?.IsConnected == true)
         {
-            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
-            if (picsData?.Metadata?.LastChangeNumber > 0)
-            {
-                _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
-                _logger.LogInformation("Loaded last PICS change number from JSON: {ChangeNumber} (from {LastUpdated})",
-                    _lastChangeNumberSeen,
-                    picsData.Metadata.LastUpdated.ToString("yyyy-MM-dd HH:mm:ss"));
-            }
-            else
-            {
-                _logger.LogInformation("No previous PICS change number found in JSON data");
-            }
+            _steamUser?.LogOff();
+            await Task.Delay(delayMs);
+            _steamClient.Disconnect();
         }
-        catch (Exception ex)
+    }
+
+    /// <summary>
+    /// Helper method to convert concurrent dictionaries to regular dictionaries
+    /// </summary>
+    private (Dictionary<uint, HashSet<uint>>, Dictionary<uint, string>, Dictionary<uint, uint>) ConvertMappingsDictionaries()
+    {
+        var depotMappingsDict = new Dictionary<uint, HashSet<uint>>();
+        foreach (var kvp in _depotToAppMappings)
         {
-            _logger.LogWarning(ex, "Failed to load last PICS change number from JSON");
+            depotMappingsDict[kvp.Key] = kvp.Value;
         }
+
+        var appNamesDict = new Dictionary<uint, string>();
+        foreach (var kvp in _appNames)
+        {
+            appNamesDict[kvp.Key] = kvp.Value;
+        }
+
+        var depotOwnersDict = new Dictionary<uint, uint>();
+        foreach (var kvp in _depotOwners)
+        {
+            depotOwnersDict[kvp.Key] = kvp.Value;
+        }
+
+        return (depotMappingsDict, appNamesDict, depotOwnersDict);
+    }
+
+    /// <summary>
+    /// Update connection activity timestamp
+    /// </summary>
+    private void UpdateConnectionActivity()
+    {
+        _lastConnectionActivity = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Start idle disconnect timer to close connection after inactivity
+    /// </summary>
+    private void StartIdleDisconnectTimer()
+    {
+        // Cancel existing timer if any
+        _idleDisconnectTimer?.Dispose();
+
+        // Create new timer that checks every 10 seconds
+        _idleDisconnectTimer = new Timer(async _ =>
+        {
+            if (_steamClient?.IsConnected == true && !IsRebuildRunning)
+            {
+                var idleTime = DateTime.UtcNow - _lastConnectionActivity;
+                if (idleTime.TotalSeconds >= ConnectionKeepAliveSeconds)
+                {
+                    _logger.LogDebug("Connection idle for {Seconds} seconds, disconnecting", (int)idleTime.TotalSeconds);
+                    _intentionalDisconnect = true;
+                    await DisconnectFromSteamAsync();
+                    StopIdleDisconnectTimer();
+                }
+            }
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>
+    /// Stop idle disconnect timer
+    /// </summary>
+    private void StopIdleDisconnectTimer()
+    {
+        _idleDisconnectTimer?.Dispose();
+        _idleDisconnectTimer = null;
     }
 }
