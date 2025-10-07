@@ -110,7 +110,6 @@ const EdgeTooltip: React.FC<{
     const viewportPadding = 12;
     let x = 0;
     let y = 0;
-    let actualPosition = position;
 
     // Calculate initial position
     switch (position) {
@@ -119,7 +118,6 @@ const EdgeTooltip: React.FC<{
         y = rect.top - tooltipRect.height - offset;
         // Flip to bottom if would go off top
         if (y < viewportPadding) {
-          actualPosition = 'bottom';
           y = rect.bottom + offset;
         }
         break;
@@ -128,7 +126,6 @@ const EdgeTooltip: React.FC<{
         y = rect.bottom + offset;
         // Flip to top if would go off bottom
         if (y + tooltipRect.height > window.innerHeight - viewportPadding) {
-          actualPosition = 'top';
           y = rect.top - tooltipRect.height - offset;
         }
         break;
@@ -137,7 +134,6 @@ const EdgeTooltip: React.FC<{
         y = rect.top + rect.height / 2 - tooltipRect.height / 2;
         // Flip to right if would go off left
         if (x < viewportPadding) {
-          actualPosition = 'right';
           x = rect.right + offset;
         }
         break;
@@ -146,7 +142,6 @@ const EdgeTooltip: React.FC<{
         y = rect.top + rect.height / 2 - tooltipRect.height / 2;
         // Flip to left if would go off right
         if (x + tooltipRect.width > window.innerWidth - viewportPadding) {
-          actualPosition = 'left';
           x = rect.left - tooltipRect.width - offset;
         }
         break;
