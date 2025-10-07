@@ -792,9 +792,15 @@ const Dashboard: React.FC = () => {
             <Tooltip content="Hide this card" strategy="overlay" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={() => toggleCardVisibility(card.key)}
-                className="p-1.5 rounded-lg"
+                className="p-1.5 rounded-lg transition-colors"
                 style={{
-                  backgroundColor: 'var(--theme-bg-hover)'
+                  backgroundColor: 'transparent'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
                 <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
