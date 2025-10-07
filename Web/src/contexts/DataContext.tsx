@@ -142,6 +142,13 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     getTimeRangeParamsRef.current = getTimeRangeParams;
   }, [timeRange, getTimeRangeParams]);
   const [mockMode, setMockMode] = useState(false);
+
+  // Create a ref to track mock mode for use in callbacks/intervals that might have stale closures
+  const mockModeRef = useRef(mockMode);
+  useEffect(() => {
+    mockModeRef.current = mockMode;
+  }, [mockMode]);
+
   const [lastCustomDates, setLastCustomDates] = useState<{start: Date | null, end: Date | null}>({
     start: null,
     end: null
@@ -184,6 +191,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   };
 
   const checkConnectionStatus = async () => {
+    // Don't check connection in mock mode - always return connected - use ref to avoid stale closure
+    if (mockModeRef.current) {
+      setConnectionStatus('connected');
+      return true;
+    }
+
     try {
       const apiUrl = getApiUrl();
       const response = await fetch(`${apiUrl}/health`, {
@@ -203,7 +216,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // Fast refresh data: cards, active downloads, recent downloads (5 seconds)
   const fetchFastData = async () => {
-    if (mockMode) return;
+    // Immediately exit if in mock mode - use ref to avoid stale closure
+    if (mockModeRef.current) {
+      console.warn('[DataContext] fetchFastData blocked - mock mode enabled');
+      return;
+    }
 
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
@@ -265,7 +282,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // Medium refresh data: client stats (15 seconds)
   const fetchMediumData = async () => {
-    if (mockMode) return;
+    // Immediately exit if in mock mode - use ref to avoid stale closure
+    if (mockModeRef.current) {
+      console.warn('[DataContext] fetchMediumData blocked - mock mode enabled');
+      return;
+    }
 
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
@@ -289,7 +310,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // Slow refresh data: service stats for chart (30 seconds)
   const fetchSlowData = async () => {
-    if (mockMode) return;
+    // Immediately exit if in mock mode - use ref to avoid stale closure
+    if (mockModeRef.current) {
+      console.warn('[DataContext] fetchSlowData blocked - mock mode enabled');
+      return;
+    }
 
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
@@ -313,6 +338,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // Combined fetch for initial load or manual refresh
   const fetchData = async () => {
+    // Don't fetch real data if in mock mode - use ref to avoid stale closure
+    if (mockModeRef.current) {
+      console.warn('[DataContext] fetchData blocked - mock mode enabled');
+      return;
+    }
+
     const { startTime, endTime } = getTimeRangeParamsRef.current();
 
     if (fetchInProgress.current && !isInitialLoad.current) {
@@ -446,7 +477,15 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   // SignalR connection for real-time updates
   useEffect(() => {
-    if (mockMode) return;
+    // Don't set up SignalR in mock mode
+    if (mockMode) {
+      // Clean up any existing connection
+      if (signalRConnection.current) {
+        signalRConnection.current.stop();
+        signalRConnection.current = null;
+      }
+      return;
+    }
 
     const setupSignalR = async () => {
       try {
@@ -513,29 +552,29 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         mediumIntervalRef.current = setInterval(fetchMediumData, mediumInterval);
         slowIntervalRef.current = setInterval(fetchSlowData, slowInterval);
       });
-
-      return () => {
-        // Mark effect as inactive to prevent stale .then() callbacks from running
-        isEffectActive.current = false;
-
-        if (fastIntervalRef.current) {
-          clearInterval(fastIntervalRef.current);
-          fastIntervalRef.current = null;
-        }
-        if (mediumIntervalRef.current) {
-          clearInterval(mediumIntervalRef.current);
-          mediumIntervalRef.current = null;
-        }
-        if (slowIntervalRef.current) {
-          clearInterval(slowIntervalRef.current);
-          slowIntervalRef.current = null;
-        }
-        if (abortControllerRef.current) {
-          abortControllerRef.current.abort();
-        }
-      };
     }
-  }, [isProcessingLogs, mockMode, apiDownloadCount, timeRange]);
+
+    return () => {
+      // Only clear intervals when switching modes, not on other dependency changes
+      isEffectActive.current = false;
+
+      if (fastIntervalRef.current) {
+        clearInterval(fastIntervalRef.current);
+        fastIntervalRef.current = null;
+      }
+      if (mediumIntervalRef.current) {
+        clearInterval(mediumIntervalRef.current);
+        mediumIntervalRef.current = null;
+      }
+      if (slowIntervalRef.current) {
+        clearInterval(slowIntervalRef.current);
+        slowIntervalRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [mockMode]); // Only depend on mockMode to avoid clearing mock intervals
 
   // Debounced custom date changes - only refetch when both dates are set and different from last
   useEffect(() => {
@@ -569,7 +608,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   // Mock mode changes
   useEffect(() => {
     if (mockMode) {
-      // Clear any existing intervals
+      // Clear any existing intervals and abort any pending requests
       if (fastIntervalRef.current) {
         clearInterval(fastIntervalRef.current);
         fastIntervalRef.current = null;
@@ -581,6 +620,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       if (slowIntervalRef.current) {
         clearInterval(slowIntervalRef.current);
         slowIntervalRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
       }
 
       // Clear real data
@@ -667,6 +710,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     setDashboardStats(null);
     hasData.current = false;
   };
+
 
   const value: DataContextType = {
     mockMode,

@@ -606,6 +606,11 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
   // Setup SignalR for depot mapping progress
   useEffect(() => {
+    if (mockMode) {
+      // Don't setup SignalR in mock mode
+      return;
+    }
+
     const setupSignalR = async () => {
       try {
         const connection = new signalR.HubConnectionBuilder()
@@ -714,7 +719,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         signalRConnection.current.stop();
       }
     };
-  }, [addError]);
+  }, [mockMode, addError]);
 
   return (
     <>

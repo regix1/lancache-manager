@@ -123,12 +123,19 @@ export interface DashboardStats {
   topService: string;
   period: {
     duration: string;
+    since?: Date | null;
     bandwidthSaved: number;
     addedToCache: number;
     totalServed: number;
     hitRatio: number;
     downloads: number;
   };
+  serviceBreakdown?: Array<{
+    service: string;
+    bytes: number;
+    percentage: number;
+  }>;
+  lastUpdated?: Date;
 }
 
 // API Response Types - matching api.service.ts

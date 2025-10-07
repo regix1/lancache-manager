@@ -83,11 +83,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
   const depotPollingInterval = useRef<NodeJS.Timeout | null>(null);
   const onBackgroundOperationRef = useRef(onBackgroundOperation);
+  const mockModeRef = useRef(mockMode);
 
-  // Keep the ref up to date
+  // Keep the refs up to date
   useEffect(() => {
     onBackgroundOperationRef.current = onBackgroundOperation;
-  });
+    mockModeRef.current = mockMode;
+  }, [onBackgroundOperation, mockMode]);
 
   // Report processing status to parent
   useEffect(() => {
@@ -141,6 +143,23 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
 
   useEffect(() => {
+    if (mockMode) {
+      // Don't setup SignalR or polling in mock mode
+      // Clear any pending reconnect attempts
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current);
+        reconnectTimeout.current = null;
+      }
+
+      // Stop existing SignalR connection if any
+      if (signalRConnection.current) {
+        signalRConnection.current.stop();
+        signalRConnection.current = null;
+      }
+
+      return;
+    }
+
     restoreLogProcessing();
     setupSignalR();
     startDepotPolling();
@@ -159,7 +178,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         signalRConnection.current.stop();
       }
     };
-  }, []);
+  }, [mockMode]);
 
   const restoreLogProcessing = async () => {
     const logOp = await logProcessingOp.load();
@@ -347,12 +366,21 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         console.error('SignalR disconnected:', error);
         setSignalRConnected(false);
 
+        // Don't reconnect if we're in mock mode
+        if (mockModeRef.current) {
+          return;
+        }
+
         if (isProcessingLogs) {
           console.log('Starting polling fallback due to SignalR disconnect');
           startProcessingPolling();
         }
 
         reconnectTimeout.current = setTimeout(() => {
+          // Check again before reconnecting in case mode changed
+          if (mockModeRef.current) {
+            return;
+          }
           console.log('Attempting to reconnect SignalR...');
           setupSignalR();
         }, 5000);

@@ -2,6 +2,7 @@ import React from 'react';
 import TimeFilter from '../common/TimeFilter';
 import Tooltip from '../ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
+import { useData } from '@contexts/DataContext';
 
 interface HeaderProps {
   title?: string;
@@ -14,6 +15,7 @@ const Header: React.FC<HeaderProps> = ({
   subtitle = 'High-performance cache monitoring & management',
   connectionStatus = 'connected'
 }) => {
+  const { mockMode } = useData();
 
   return (
     <>
@@ -122,7 +124,7 @@ const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <TimeFilter />
+            <TimeFilter disabled={mockMode} />
           </div>
         </div>
       </div>

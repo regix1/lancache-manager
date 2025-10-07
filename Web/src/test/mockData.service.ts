@@ -102,8 +102,10 @@ class MockDataService {
           id: i + 1,
           service,
           clientIp: client,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
+          startTimeUtc: startTime.toISOString(),
+          endTimeUtc: endTime.toISOString(),
+          startTimeLocal: startTime.toISOString(),
+          endTimeLocal: endTime.toISOString(),
           cacheHitBytes: 0,
           cacheMissBytes: 0,
           totalBytes: 0,
@@ -141,8 +143,10 @@ class MockDataService {
           id: i + 1,
           service,
           clientIp: client,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
+          startTimeUtc: startTime.toISOString(),
+          endTimeUtc: endTime.toISOString(),
+          startTimeLocal: startTime.toISOString(),
+          endTimeLocal: endTime.toISOString(),
           cacheHitBytes,
           cacheMissBytes,
           totalBytes,
@@ -162,7 +166,7 @@ class MockDataService {
           totalCacheHitBytes: 0,
           totalCacheMissBytes: 0,
           totalDownloads: 0,
-          lastActivityLocal: startTime
+          lastSeen: startTime
         };
       }
 
@@ -189,6 +193,7 @@ class MockDataService {
         if (activity) {
           // Use actual data from downloads
           const totalBytes = activity.totalCacheHitBytes + activity.totalCacheMissBytes;
+          const lastSeenIso = activity.lastSeen.toISOString();
           return {
             clientIp: ip,
             totalCacheHitBytes: activity.totalCacheHitBytes,
@@ -196,7 +201,8 @@ class MockDataService {
             totalBytes: totalBytes,
             cacheHitPercent: totalBytes > 0 ? (activity.totalCacheHitBytes / totalBytes) * 100 : 0,
             totalDownloads: activity.totalDownloads,
-            lastActivityLocal: activity.lastSeen.toISOString()
+            lastActivityUtc: lastSeenIso,
+            lastActivityLocal: lastSeenIso
           };
         } else {
           // Client had no downloads - return zeros
@@ -207,6 +213,7 @@ class MockDataService {
             totalBytes: 0,
             cacheHitPercent: 0,
             totalDownloads: 0,
+            lastActivityUtc: null,
             lastActivityLocal: null
           };
         }
@@ -219,6 +226,9 @@ class MockDataService {
       const hitBytes = serviceDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
       const missBytes = serviceDownloads.reduce((sum, d) => sum + d.cacheMissBytes, 0);
 
+      const lastActivity = serviceDownloads[0]?.startTimeLocal ||
+        new Date(now.getTime() - Math.random() * 7200000).toISOString();
+
       return {
         service,
         totalCacheHitBytes: hitBytes || cacheInfo.serviceSizes[service] * 0.8,
@@ -226,9 +236,8 @@ class MockDataService {
         totalBytes: hitBytes + missBytes || cacheInfo.serviceSizes[service],
         cacheHitPercent: hitBytes + missBytes > 0 ? (hitBytes / (hitBytes + missBytes)) * 100 : 80,
         totalDownloads: serviceDownloads.length,
-        lastActivityLocal:
-          serviceDownloads[0]?.startTimeLocal ||
-          new Date(now.getTime() - Math.random() * 7200000).toISOString()
+        lastActivityUtc: lastActivity,
+        lastActivityLocal: lastActivity
       };
     });
 
@@ -287,14 +296,17 @@ class MockDataService {
     ];
 
     const isMetadata = Math.random() < 0.2;
+    const nowIso = new Date().toISOString();
 
     if (isMetadata) {
       return {
         id: Date.now(),
         service: SERVICES[Math.floor(Math.random() * SERVICES.length)],
         clientIp: clients[Math.floor(Math.random() * clients.length)],
-        startTime: new Date().toISOString(),
-        endTime: new Date().toISOString(),
+        startTimeUtc: nowIso,
+        endTimeUtc: nowIso,
+        startTimeLocal: nowIso,
+        endTimeLocal: nowIso,
         cacheHitBytes: 0,
         cacheMissBytes: 0,
         totalBytes: 0,
@@ -310,8 +322,10 @@ class MockDataService {
       id: Date.now(),
       service: SERVICES[Math.floor(Math.random() * SERVICES.length)],
       clientIp: clients[Math.floor(Math.random() * clients.length)],
-      startTime: new Date().toISOString(),
-      endTime: null,
+      startTimeUtc: nowIso,
+      endTimeUtc: null,
+      startTimeLocal: nowIso,
+      endTimeLocal: null,
       cacheHitBytes,
       cacheMissBytes,
       totalBytes: cacheHitBytes + cacheMissBytes,
