@@ -157,6 +157,7 @@ interface ThemeMeta {
   isDark?: boolean;
   sharpCorners?: boolean;
   disableFocusOutlines?: boolean;
+  disableTooltips?: boolean;
 }
 
 interface Theme {
@@ -258,7 +259,8 @@ class ThemeService {
           version: '1.0.0',
           isDark: true,
           sharpCorners: false,
-          disableFocusOutlines: true
+          disableFocusOutlines: true,
+          disableTooltips: false
         },
         colors: {
           // Core colors
@@ -415,7 +417,8 @@ class ThemeService {
           version: '1.0.0',
           isDark: false,
           sharpCorners: false,
-          disableFocusOutlines: true
+          disableFocusOutlines: true,
+          disableTooltips: false
         },
         colors: {
           // Core colors
@@ -811,15 +814,37 @@ class ThemeService {
     }
 
     // Apply theme-specific settings
-    const sharpCorners = theme.meta.sharpCorners ?? false;
-    const disableFocusOutlines = theme.meta.disableFocusOutlines ?? false;
+    // Check if user has manually overridden these settings, otherwise use theme defaults
+    const existingSharpCorners = localStorage.getItem('lancache_sharp_corners');
+    const existingDisableFocusOutlines = localStorage.getItem('lancache_disable_focus_outlines');
+    const existingDisableTooltips = localStorage.getItem('lancache_disable_tooltips');
 
-    // Update localStorage to match theme settings
-    localStorage.setItem('lancache_sharp_corners', sharpCorners.toString());
-    localStorage.setItem('lancache_disable_focus_outlines', disableFocusOutlines.toString());
+    const sharpCorners = existingSharpCorners !== null
+      ? existingSharpCorners === 'true'
+      : (theme.meta.sharpCorners ?? false);
+    const disableFocusOutlines = existingDisableFocusOutlines !== null
+      ? existingDisableFocusOutlines === 'true'
+      : (theme.meta.disableFocusOutlines ?? false);
+    const disableTooltips = existingDisableTooltips !== null
+      ? existingDisableTooltips === 'true'
+      : (theme.meta.disableTooltips ?? false);
+
+    // Update localStorage if not already set
+    if (existingSharpCorners === null) {
+      localStorage.setItem('lancache_sharp_corners', sharpCorners.toString());
+    }
+    if (existingDisableFocusOutlines === null) {
+      localStorage.setItem('lancache_disable_focus_outlines', disableFocusOutlines.toString());
+    }
+    if (existingDisableTooltips === null) {
+      localStorage.setItem('lancache_disable_tooltips', disableTooltips.toString());
+    }
 
     // Apply focus outlines setting
     document.documentElement.setAttribute('data-disable-focus-outlines', disableFocusOutlines.toString());
+
+    // Apply tooltips setting
+    document.documentElement.setAttribute('data-disable-tooltips', disableTooltips.toString());
 
     const colors = theme.colors;
 
@@ -1020,6 +1045,10 @@ class ThemeService {
     const disableFocusOutlines = this.getDisableFocusOutlines();
     document.documentElement.setAttribute('data-disable-focus-outlines', disableFocusOutlines.toString());
 
+    // Initialize tooltips setting
+    const disableTooltips = this.getDisableTooltips();
+    document.documentElement.setAttribute('data-disable-tooltips', disableTooltips.toString());
+
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
     const savedThemeId = localStorage.getItem('lancache_selected_theme');
@@ -1073,6 +1102,11 @@ class ThemeService {
         localStorage.setItem('lancache_disable_focus_outlines', 'true'); // Default to disabled (no blue borders)
       }
 
+      // Migration for disable tooltips feature
+      if (!localStorage.getItem('lancache_disable_tooltips')) {
+        localStorage.setItem('lancache_disable_tooltips', 'false'); // Default to enabled
+      }
+
       // Set migration version to prevent future runs
       localStorage.setItem('lancache_migration_version', currentVersion);
     }
@@ -1102,6 +1136,7 @@ class ThemeService {
     if (theme.meta.isDark !== undefined) toml += `isDark = ${theme.meta.isDark}\n`;
     if (theme.meta.sharpCorners !== undefined) toml += `sharpCorners = ${theme.meta.sharpCorners}\n`;
     if (theme.meta.disableFocusOutlines !== undefined) toml += `disableFocusOutlines = ${theme.meta.disableFocusOutlines}\n`;
+    if (theme.meta.disableTooltips !== undefined) toml += `disableTooltips = ${theme.meta.disableTooltips}\n`;
     toml += '\n';
 
     toml += '[colors]\n';
@@ -1155,6 +1190,20 @@ class ThemeService {
 
   getDisableFocusOutlines(): boolean {
     return localStorage.getItem('lancache_disable_focus_outlines') === 'true';
+  }
+
+  setDisableTooltips(enabled: boolean): void {
+    localStorage.setItem('lancache_disable_tooltips', enabled.toString());
+
+    // Trigger update
+    document.documentElement.setAttribute('data-disable-tooltips', enabled.toString());
+
+    // Dispatch event for any components that need to react
+    window.dispatchEvent(new Event('tooltipschange'));
+  }
+
+  getDisableTooltips(): boolean {
+    return localStorage.getItem('lancache_disable_tooltips') === 'true';
   }
 
   async setTheme(themeId: string): Promise<void> {

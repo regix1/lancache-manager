@@ -243,14 +243,6 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
               />
               <span className="text-xs text-themed-muted">Theme ID: {editingTheme?.meta.id}</span>
             </div>
-            <div className="flex items-center gap-4">
-              <Checkbox
-                checked={editedTheme.sharpCorners || false}
-                onChange={(e) => setEditedTheme({ ...editedTheme, sharpCorners: e.target.checked })}
-                variant="rounded"
-                label="Sharp Corners"
-              />
-            </div>
           </div>
         </div>
 

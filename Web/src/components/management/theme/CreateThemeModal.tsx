@@ -362,14 +362,6 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                 Load Light Preset
               </button>
             </div>
-            <div className="flex items-center gap-4">
-              <Checkbox
-                checked={newTheme.sharpCorners}
-                onChange={(e) => setNewTheme({ ...newTheme, sharpCorners: e.target.checked })}
-                variant="rounded"
-                label="Sharp Corners"
-              />
-            </div>
           </div>
         </div>
 

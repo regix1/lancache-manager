@@ -18,7 +18,7 @@ interface TooltipProps {
 const DEFAULT_OFFSET = 8;
 
 export const Tooltip: React.FC<TooltipProps> = ({
-  children = <Info className="w-5 h-5 text-themed-muted cursor-help p-1.5 -m-1.5" />,
+  children,
   content,
   position = 'top',
   offset = DEFAULT_OFFSET,
@@ -31,28 +31,37 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const [y, setY] = useState(0);
   const triggerRef = useRef<HTMLDivElement>(null);
 
+  // Check if tooltips are disabled globally
+  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+
+  // Default children with conditional cursor style
+  const defaultChildren = <Info className={`w-5 h-5 text-themed-muted p-1.5 -m-1.5 ${tooltipsDisabled ? '' : 'cursor-help'}`} />;
+  const childContent = children ?? defaultChildren;
+
   return (
     <>
       <div
         ref={triggerRef}
         className={className || 'inline-flex'}
         onMouseEnter={(e) => {
-          setShow(true);
-          setX(e.clientX);
-          setY(e.clientY);
+          if (!tooltipsDisabled) {
+            setShow(true);
+            setX(e.clientX);
+            setY(e.clientY);
+          }
         }}
         onMouseMove={(e) => {
-          if (strategy === 'overlay') {
+          if (!tooltipsDisabled && strategy === 'overlay') {
             setX(e.clientX);
             setY(e.clientY);
           }
         }}
         onMouseLeave={() => setShow(false)}
       >
-        {children}
+        {childContent}
       </div>
 
-      {show && strategy === 'overlay' && createPortal(
+      {show && !tooltipsDisabled && strategy === 'overlay' && createPortal(
         <div
           className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
           style={{
@@ -68,7 +77,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         document.body
       )}
 
-      {show && strategy === 'edge' && triggerRef.current && createPortal(
+      {show && !tooltipsDisabled && strategy === 'edge' && triggerRef.current && createPortal(
         <EdgeTooltip
           trigger={triggerRef.current}
           content={content}
@@ -167,22 +176,26 @@ const EdgeTooltip: React.FC<{
   );
 };
 
-export const CacheInfoTooltip: React.FC = () => (
-  <Tooltip
-    content={
-      <div className="whitespace-nowrap">
-        <span className="cache-hit font-medium">Cache Hits:</span>
-        <span className="text-themed-secondary"> Data served from local cache</span>
-        <span className="text-themed-muted mx-2">|</span>
-        <span className="cache-miss font-medium">Cache Misses:</span>
-        <span className="text-themed-secondary"> Data downloaded from internet</span>
-      </div>
-    }
-    contentClassName="!max-w-none"
-  >
-    <Info className="w-5 h-5 text-themed-muted cursor-help" />
-  </Tooltip>
-);
+export const CacheInfoTooltip: React.FC = () => {
+  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+
+  return (
+    <Tooltip
+      content={
+        <div className="whitespace-nowrap">
+          <span className="cache-hit font-medium">Cache Hits:</span>
+          <span className="text-themed-secondary"> Data served from local cache</span>
+          <span className="text-themed-muted mx-2">|</span>
+          <span className="cache-miss font-medium">Cache Misses:</span>
+          <span className="text-themed-secondary"> Data downloaded from internet</span>
+        </div>
+      }
+      contentClassName="!max-w-none"
+    >
+      <Info className={`w-5 h-5 text-themed-muted ${tooltipsDisabled ? '' : 'cursor-help'}`} />
+    </Tooltip>
+  );
+};
 
 export const CachePerformanceTooltip: React.FC = () => (
   <Tooltip

@@ -18,8 +18,11 @@ const Tooltip: React.FC<TooltipProps> = ({
   const tooltipRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
 
+  // Check if tooltips are disabled globally
+  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+
   useEffect(() => {
-    if (isVisible && tooltipRef.current && triggerRef.current) {
+    if (isVisible && tooltipRef.current && triggerRef.current && !tooltipsDisabled) {
       const triggerRect = triggerRef.current.getBoundingClientRect();
       const tooltipRect = tooltipRef.current.getBoundingClientRect();
 
@@ -47,10 +50,12 @@ const Tooltip: React.FC<TooltipProps> = ({
 
       setTooltipPosition({ top, left });
     }
-  }, [isVisible, position]);
+  }, [isVisible, position, tooltipsDisabled]);
 
   const handleMouseEnter = () => {
-    setIsVisible(true);
+    if (!tooltipsDisabled) {
+      setIsVisible(true);
+    }
   };
 
   const handleMouseLeave = () => {
@@ -68,7 +73,7 @@ const Tooltip: React.FC<TooltipProps> = ({
         {children}
       </div>
 
-      {isVisible && (
+      {isVisible && !tooltipsDisabled && (
         <div
           ref={tooltipRef}
           className="fixed z-50 px-2 py-1 text-xs font-medium rounded shadow-lg pointer-events-none transition-opacity duration-200"

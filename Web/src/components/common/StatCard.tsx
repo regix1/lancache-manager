@@ -20,6 +20,10 @@ const StatCard: React.FC<StatCardProps> = ({
   color,
   tooltip
 }) => {
+  // Check if tooltips are disabled globally
+  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+  const showTooltipIndicators = tooltip && !tooltipsDisabled;
+
   // Map color names to CSS variables
   const getIconBackground = (color: string): string => {
     const colorMap: Record<string, string> = {
@@ -42,7 +46,7 @@ const StatCard: React.FC<StatCardProps> = ({
       style={{
         backgroundColor: 'var(--theme-card-bg)',
         borderColor: 'var(--theme-card-border)',
-        cursor: tooltip ? 'help' : 'default'
+        cursor: showTooltipIndicators ? 'help' : 'default'
       }}
       data-stat-card={title.toLowerCase().replace(/\s+/g, '')}
     >
@@ -51,10 +55,10 @@ const StatCard: React.FC<StatCardProps> = ({
           <p
             className="text-sm font-medium inline-block transition-colors"
             style={{
-              color: tooltip ? 'var(--theme-text-secondary)' : 'var(--theme-text-muted)',
-              borderBottom: tooltip ? '1px dotted currentColor' : 'none',
-              paddingBottom: tooltip ? '1px' : '0',
-              opacity: tooltip ? '0.9' : '1'
+              color: showTooltipIndicators ? 'var(--theme-text-secondary)' : 'var(--theme-text-muted)',
+              borderBottom: showTooltipIndicators ? '1px dotted currentColor' : 'none',
+              paddingBottom: showTooltipIndicators ? '1px' : '0',
+              opacity: showTooltipIndicators ? '0.9' : '1'
             }}
           >
             {title}

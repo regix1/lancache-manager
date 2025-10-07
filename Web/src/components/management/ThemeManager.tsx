@@ -17,6 +17,7 @@ import authService from '../../services/auth.service';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
+import { Checkbox } from '../ui/Checkbox';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 import { API_BASE } from '../../utils/constants';
 import { ThemeCard } from './theme/ThemeCard';
@@ -48,6 +49,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [selectedPage, setSelectedPage] = useState<string>('all');
   const [editOrganizationMode, setEditOrganizationMode] = useState<'category' | 'page'>('category');
   const [editSelectedPage, setEditSelectedPage] = useState<string>('all');
+  const [sharpCornersEnabled, setSharpCornersEnabled] = useState(false);
+  const [tooltipsDisabled, setTooltipsDisabled] = useState(false);
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -56,7 +59,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     author: '',
     version: '1.0.0',
     isDark: true,
-    sharpCorners: false,
     customCSS: ''
   });
 
@@ -67,6 +69,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     loadThemes();
     const saved = themeService.getCurrentThemeId();
     if (saved) setCurrentTheme(saved);
+
+    // Load current option states
+    setSharpCornersEnabled(themeService.getSharpCorners());
+    setTooltipsDisabled(themeService.getDisableTooltips());
   }, []);
 
   // Handler Functions
@@ -113,7 +119,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       author: theme.meta.author || '',
       version: theme.meta.version || '1.0.0',
       isDark: theme.meta.isDark ?? true,
-      sharpCorners: theme.meta.sharpCorners ?? false,
       ...theme.colors,
       customCSS: theme.css?.content || ''
     });
@@ -125,7 +130,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     setLoading(true);
     try {
-      const { name, description, author, version, isDark, sharpCorners, customCSS, ...colors } = editedTheme;
+      const { name, description, author, version, isDark, customCSS, ...colors } = editedTheme;
 
       const themeData = {
         meta: {
@@ -134,8 +139,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           description,
           author,
           version,
-          isDark,
-          sharpCorners
+          isDark
         },
         colors,
         css: customCSS ? { content: customCSS } : undefined
@@ -175,7 +179,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const handleCreateTheme = async () => {
     setLoading(true);
     try {
-      const { name, description, author, version, isDark, sharpCorners, customCSS, ...colors } = newTheme;
+      const { name, description, author, version, isDark, customCSS, ...colors } = newTheme;
 
       // Generate a safe ID from the theme name
       const themeId = name.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
@@ -187,8 +191,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           description,
           author,
           version,
-          isDark,
-          sharpCorners
+          isDark
         },
         colors,
         css: customCSS ? { content: customCSS } : undefined
@@ -218,7 +221,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         author: '',
         version: '1.0.0',
         isDark: true,
-        sharpCorners: false,
         customCSS: ''
       });
     } catch (error) {
@@ -367,6 +369,17 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     }
   };
 
+  // Options Handlers
+  const handleSharpCornersToggle = (enabled: boolean) => {
+    setSharpCornersEnabled(enabled);
+    themeService.setSharpCorners(enabled);
+  };
+
+  const handleTooltipsToggle = (enabled: boolean) => {
+    setTooltipsDisabled(enabled);
+    themeService.setDisableTooltips(enabled);
+  };
+
   // Utility Functions
   const toggleGroup = (groupName: string) => {
     setExpandedGroups(prev =>
@@ -394,7 +407,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         author: '',
         version: '1.0.0',
         isDark: currentThemeData.meta.isDark ?? true,
-        sharpCorners: currentThemeData.meta.sharpCorners ?? false,
         ...currentThemeData.colors,
         customCSS: ''
       });
@@ -527,6 +539,27 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   Preview mode active. Select a theme to apply it permanently.
                 </p>
               )}
+            </div>
+
+            {/* Options */}
+            <div className="mb-6 p-4 rounded-lg bg-themed-tertiary">
+              <label className="block text-sm font-medium mb-3 text-themed-secondary">
+                Options
+              </label>
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Checkbox
+                  checked={sharpCornersEnabled}
+                  onChange={(e) => handleSharpCornersToggle(e.target.checked)}
+                  variant="rounded"
+                  label="Sharp Corners"
+                />
+                <Checkbox
+                  checked={tooltipsDisabled}
+                  onChange={(e) => handleTooltipsToggle(e.target.checked)}
+                  variant="rounded"
+                  label="Disable Tooltips"
+                />
+              </div>
             </div>
 
             {/* Theme Cards Grid */}
