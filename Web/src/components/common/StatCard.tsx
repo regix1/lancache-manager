@@ -1,6 +1,7 @@
 // StatCard.tsx - Component without gradient backgrounds
 import React from 'react';
 import { type LucideIcon } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 interface StatCardProps {
   title: string;
@@ -8,7 +9,7 @@ interface StatCardProps {
   subtitle?: string;
   icon: LucideIcon;
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan' | 'red';
-  tooltip?: string;
+  tooltip?: React.ReactNode;
 }
 
 const StatCard: React.FC<StatCardProps> = ({
@@ -35,7 +36,7 @@ const StatCard: React.FC<StatCardProps> = ({
     return colorMap[color] || colorMap.blue;
   };
 
-  return (
+  const cardContent = (
     <div
       className="rounded-lg p-4 border transition-all hover:shadow-lg relative group"
       style={{
@@ -43,14 +44,13 @@ const StatCard: React.FC<StatCardProps> = ({
         borderColor: 'var(--theme-card-border)',
         cursor: tooltip ? 'help' : 'default'
       }}
-      title={tooltip}
       data-stat-card={title.toLowerCase().replace(/\s+/g, '')}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <p 
-            className="text-sm font-medium inline-block transition-colors" 
-            style={{ 
+          <p
+            className="text-sm font-medium inline-block transition-colors"
+            style={{
               color: tooltip ? 'var(--theme-text-secondary)' : 'var(--theme-text-muted)',
               borderBottom: tooltip ? '1px dotted currentColor' : 'none',
               paddingBottom: tooltip ? '1px' : '0',
@@ -79,6 +79,16 @@ const StatCard: React.FC<StatCardProps> = ({
       </div>
     </div>
   );
+
+  if (tooltip) {
+    return (
+      <Tooltip content={tooltip} className="block w-full" position="top" strategy="overlay">
+        {cardContent}
+      </Tooltip>
+    );
+  }
+
+  return cardContent;
 };
 
 export default StatCard;

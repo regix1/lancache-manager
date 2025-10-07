@@ -23,6 +23,7 @@ import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
 import { type StatCardData } from '../../types';
 import StatCard from '../common/StatCard';
+import { Tooltip } from '../common/Tooltip';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
@@ -514,28 +515,29 @@ const Dashboard: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">Dashboard</h2>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-          <button
-            onClick={resetCardOrder}
-            className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border order-2 sm:order-1 w-full sm:w-auto justify-center sm:justify-start"
-            style={{
-              color: 'var(--theme-text-secondary)',
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderColor: 'var(--theme-border-primary)'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-              e.currentTarget.style.color = 'var(--theme-text-primary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
-              e.currentTarget.style.color = 'var(--theme-text-secondary)';
-            }}
-            title="Reset card layout to default order"
-          >
-            <LayoutGrid className="w-4 h-4" />
-            <span className="hidden sm:inline">Reset Layout</span>
-            <span className="sm:hidden">Reset Card Layout</span>
-          </button>
+          <Tooltip content="Reset card layout to default order" strategy="overlay" className="order-2 sm:order-1 w-full sm:w-auto">
+            <button
+              onClick={resetCardOrder}
+              className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border w-full justify-center sm:justify-start"
+              style={{
+                color: 'var(--theme-text-secondary)',
+                backgroundColor: 'var(--theme-bg-secondary)',
+                borderColor: 'var(--theme-border-primary)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                e.currentTarget.style.color = 'var(--theme-text-primary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
+                e.currentTarget.style.color = 'var(--theme-text-secondary)';
+              }}
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span className="hidden sm:inline">Reset Layout</span>
+              <span className="sm:hidden">Reset Card Layout</span>
+            </button>
+          </Tooltip>
 
         </div>
       </div>
@@ -721,49 +723,49 @@ const Dashboard: React.FC = () => {
           >
             {/* Desktop drag handle - smaller, hover-triggered */}
             {(
-              <div
-                className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all p-1 rounded hidden md:block"
-                style={{
-                  cursor: 'grab',
-                  zIndex: 5
-                }}
-                title="Drag to reorder"
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <GripVertical
-                  className="w-4 h-4 transition-colors"
-                  style={{ color: 'var(--theme-drag-handle)' }}
+              <Tooltip content="Drag to reorder" strategy="overlay" className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]">
+                <div
+                  className="p-1 rounded"
+                  style={{
+                    cursor: 'grab'
+                  }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
+                    e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.color = 'var(--theme-drag-handle)';
+                    e.currentTarget.style.backgroundColor = 'transparent';
                   }}
-                />
-              </div>
+                >
+                  <GripVertical
+                    className="w-4 h-4 transition-colors"
+                    style={{ color: 'var(--theme-drag-handle)' }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = 'var(--theme-drag-handle)';
+                    }}
+                  />
+                </div>
+              </Tooltip>
             )}
 
             {/* Mobile drag handle - small, transparent, always visible in top-left */}
             {(
-              <div
-                className="absolute top-2 left-2 transition-all p-1 rounded md:hidden opacity-60"
-                style={{
-                  cursor: 'grab',
-                  zIndex: 5,
-                  backgroundColor: 'transparent'
-                }}
-                title="Hold to reorder"
-              >
-                <GripVertical
-                  className="w-4 h-4 transition-colors"
-                  style={{ color: 'var(--theme-drag-handle)' }}
-                />
-              </div>
+              <Tooltip content="Hold to reorder" strategy="overlay" className="absolute top-2 left-2 transition-all md:hidden opacity-60 z-[5]">
+                <div
+                  className="p-1 rounded"
+                  style={{
+                    cursor: 'grab',
+                    backgroundColor: 'transparent'
+                  }}
+                >
+                  <GripVertical
+                    className="w-4 h-4 transition-colors"
+                    style={{ color: 'var(--theme-drag-handle)' }}
+                  />
+                </div>
+              </Tooltip>
             )}
 
             {/* Touch feedback overlay */}
@@ -787,16 +789,17 @@ const Dashboard: React.FC = () => {
               tooltip={card.tooltip}
             />
 
-            <button
-              onClick={() => toggleCardVisibility(card.key)}
-              className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{
-                backgroundColor: 'var(--theme-bg-hover)'
-              }}
-              title="Hide this card"
-            >
-              <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
-            </button>
+            <Tooltip content="Hide this card" strategy="overlay" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => toggleCardVisibility(card.key)}
+                className="p-1.5 rounded-lg"
+                style={{
+                  backgroundColor: 'var(--theme-bg-hover)'
+                }}
+              >
+                <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
+              </button>
+            </Tooltip>
           </div>
         ))}
       </div>

@@ -1,6 +1,6 @@
 import React from 'react';
 import TimeFilter from '../common/TimeFilter';
-import Tooltip from '../ui/Tooltip';
+import { Tooltip } from '../common/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useData } from '@contexts/DataContext';
 
