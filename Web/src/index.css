@@ -1237,3 +1237,12 @@
 .animate-stagger-8 { animation-delay: 400ms; }
 .animate-stagger-9 { animation-delay: 450ms; }
 .animate-stagger-10 { animation-delay: 500ms; }
+
+/* Smooth data transition animations */
+.animate-fadeIn {
+  animation: gentleFadeIn 0.4s ease-out;
+}
+
+.animate-fadeInSlow {
+  animation: gentleFadeIn 0.6s ease-out;
+}

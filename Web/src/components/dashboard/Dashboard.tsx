@@ -132,10 +132,23 @@ const Dashboard: React.FC = () => {
       return true;
     });
   }, [clientStats, timeRange, getTimeRangeParams]);
-  const [loading] = useState(false);
+  const { loading } = useData(); // Use actual loading state from API
+  const [showLoading, setShowLoading] = useState(false); // Delayed loading state
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Delay showing loading state to avoid flashing for quick API responses
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => {
+        setShowLoading(true);
+      }, 200); // Wait 200ms before showing skeleton
+      return () => clearTimeout(timer);
+    } else {
+      setShowLoading(false); // Hide immediately when done
+    }
+  }, [loading]);
 
   const [draggedCard, setDraggedCard] = useState<string | null>(null);
   const [dragOverCard, setDragOverCard] = useState<string | null>(null);
@@ -658,16 +671,6 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Loading overlay */}
-      {loading && (
-        <div className="text-center py-4">
-          <div className="inline-flex items-center gap-2 text-themed-muted">
-            <Loader className="animate-spin h-5 w-5" />
-            <span>Loading {getTimeRangeLabel().toLowerCase()} data...</span>
-          </div>
-        </div>
-      )}
-
       {/* Touch instruction for mobile */}
       {showDragHint && (
         <div className="md:hidden">
@@ -695,8 +698,30 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {visibleCards.map((card: StatCardData) => (
+      {showLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+            <div
+              key={i}
+              className="rounded-lg p-4 border animate-pulse"
+              style={{
+                backgroundColor: 'var(--theme-card-bg)',
+                borderColor: 'var(--theme-card-border)',
+                height: '120px'
+              }}
+            >
+              <div className="h-4 rounded" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '60%' }}></div>
+              <div className="h-8 rounded mt-2" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '80%' }}></div>
+              <div className="h-3 rounded mt-2" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}></div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          key={`stats-grid-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn"
+        >
+          {visibleCards.map((card: StatCardData) => (
           <div
             key={card.key}
             data-card-key={card.key}
@@ -808,25 +833,71 @@ const Dashboard: React.FC = () => {
             </Tooltip>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Charts Row - Pass the actual data arrays */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} />
-        <RecentDownloadsPanel
-          downloads={filteredLatestDownloads || []}
-          timeRange={timeRange}
-        />
-      </div>
+      {showLoading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
+          {[1, 2].map((i) => (
+            <div
+              key={i}
+              className="rounded-lg p-6 border animate-pulse"
+              style={{
+                backgroundColor: 'var(--theme-card-bg)',
+                borderColor: 'var(--theme-card-border)',
+                height: '400px'
+              }}
+            >
+              <div className="h-6 rounded mb-4" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}></div>
+              <div className="h-full rounded" style={{ backgroundColor: 'var(--theme-bg-hover)' }}></div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          key={`charts-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn"
+        >
+          <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} />
+          <RecentDownloadsPanel
+            downloads={filteredLatestDownloads || []}
+            timeRange={timeRange}
+          />
+        </div>
+      )}
 
       {/* Top Clients - Pass the filtered data arrays */}
-      <TopClientsTable
-        clientStats={filteredClientStats || []}
-        downloads={filteredLatestDownloads || []}
-        timeRange={timeRange}
-        customStartDate={customStartDate}
-        customEndDate={customEndDate}
-      />
+      {showLoading ? (
+        <div
+          className="rounded-lg p-6 border animate-pulse animate-fadeIn"
+          style={{
+            backgroundColor: 'var(--theme-card-bg)',
+            borderColor: 'var(--theme-card-border)',
+            height: '400px'
+          }}
+        >
+          <div className="h-6 rounded mb-4" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '30%' }}></div>
+          <div className="space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-12 rounded" style={{ backgroundColor: 'var(--theme-bg-hover)' }}></div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div
+          key={`top-clients-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
+          className="animate-fadeIn"
+        >
+          <TopClientsTable
+            clientStats={filteredClientStats || []}
+            downloads={filteredLatestDownloads || []}
+            timeRange={timeRange}
+            customStartDate={customStartDate}
+            customEndDate={customEndDate}
+          />
+        </div>
+      )}
     </div>
   );
 };

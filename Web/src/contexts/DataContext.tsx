@@ -444,8 +444,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         setError('An unexpected error occurred');
       }
     } finally {
+      setLoading(false); // Always set loading to false when done
       if (isInitialLoad.current) {
-        setLoading(false);
         isInitialLoad.current = false;
       }
       fetchInProgress.current = false;
@@ -576,6 +576,21 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     };
   }, [mockMode]); // Only depend on mockMode to avoid clearing mock intervals
 
+  // Handle time range changes - refetch data when time range changes
+  useEffect(() => {
+    if (!mockMode && !isInitialLoad.current) {
+      // Set loading state when time range changes
+      setLoading(true);
+
+      // Debounce the fetch slightly to avoid rapid calls
+      const debounceTimer = setTimeout(() => {
+        fetchData();
+      }, 100);
+
+      return () => clearTimeout(debounceTimer);
+    }
+  }, [timeRange, mockMode]);
+
   // Debounced custom date changes - only refetch when both dates are set and different from last
   useEffect(() => {
     if (timeRange === 'custom' && !mockMode) {
@@ -587,6 +602,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           lastCustomDates.end?.getTime() !== customEndDate.getTime();
 
         if (datesChanged) {
+          setLoading(true);
           // Debounce the fetch to avoid multiple rapid calls
           const debounceTimer = setTimeout(() => {
             setLastCustomDates({
@@ -594,7 +610,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
               end: customEndDate
             });
             fetchData();
-          }, 500); // 500ms debounce
+          }, 300); // 300ms debounce
 
           return () => clearTimeout(debounceTimer);
         }

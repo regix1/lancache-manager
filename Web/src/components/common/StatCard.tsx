@@ -63,7 +63,7 @@ const StatCard: React.FC<StatCardProps> = ({
           >
             {title}
           </p>
-          <p className="text-2xl font-bold mt-1" style={{ color: 'var(--theme-text-primary)' }}>
+          <p className="text-2xl font-bold mt-1 transition-all duration-300" style={{ color: 'var(--theme-text-primary)' }}>
             {value}
           </p>
           {subtitle && (
