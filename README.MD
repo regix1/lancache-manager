@@ -134,16 +134,17 @@ You'll need the API key to access the Management tab where you can process logs,
 
 ### Volume Permissions
 
-The examples above mount `/logs` and `/cache` as read-only (`:ro`) for security. However, if you want to use the cache clearing feature in the Management tab, you'll need to mount `/cache` with read-write permissions by removing `:ro`:
-
-```yaml
-volumes:
-  - ./data:/data
-  - /path/to/lancache/logs:/logs:ro  # Read-only is fine for logs
-  - /path/to/lancache/cache:/cache   # Read-write needed for cache clearing
-```
-
-If you plan to only read statistics and not clear cache, keeping both mounts as read-only is recommended.
+> [!TIP]
+> The examples above mount `/logs` and `/cache` as read-only (`:ro`) for security. However, if you want to use the cache clearing feature in the Management tab, you'll need to mount `/cache` with read-write permissions by removing `:ro`:
+>
+> ```yaml
+> volumes:
+>   - ./data:/data
+>   - /path/to/lancache/logs:/logs:ro  # Read-only is fine for logs
+>   - /path/to/lancache/cache:/cache   # Read-write needed for cache clearing
+> ```
+>
+> If you plan to only read statistics and not clear cache, keeping both mounts as read-only is recommended.
 
 ## Configuration
 
