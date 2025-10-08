@@ -264,6 +264,14 @@ public class CacheManagementService
 
             // Use Rust binary for fast log filtering
             var dataDir = _pathResolver.GetDataDirectory();
+
+            // Ensure data directory exists
+            if (!Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+                _logger.LogInformation($"Created data directory: {dataDir}");
+            }
+
             var progressFile = Path.Combine(dataDir, "log_remove_progress.json");
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
@@ -341,6 +349,14 @@ public class CacheManagementService
 
             // Use Rust binary for fast log counting
             var dataDir = _pathResolver.GetDataDirectory();
+
+            // Ensure data directory exists
+            if (!Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+                _logger.LogInformation($"Created data directory: {dataDir}");
+            }
+
             var progressFile = Path.Combine(dataDir, "log_count_progress.json");
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
