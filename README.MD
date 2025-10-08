@@ -20,9 +20,34 @@ LANCache Manager gives you visibility into your LANCache deployment. It processe
 
 The log processor is written in Rust for performance - it can process millions of log entries in just a few minutes. It automatically detects your nginx log format, groups downloads into sessions, and identifies Steam games using depot mappings from SteamDB.
 
-## Quick Start
+## Screenshots
+
+<div align="center">
+
+### Dashboard
+<img width="1527" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/56b5a0bb-066a-437e-8773-115e6687ddcb" />
+
+### Downloads
+<img width="1521" alt="Downloads Tab - Overview" src="https://github.com/user-attachments/assets/8d3421e7-1aac-4172-8eaf-631b697ae7c0" />
+<img width="1520" alt="Downloads Tab - Detailed View" src="https://github.com/user-attachments/assets/c8d82fbb-61b2-4ee5-8cd7-33b62fcabfab" />
+
+### Clients
+<img width="1522" alt="Client Statistics" src="https://github.com/user-attachments/assets/b591f36f-dbdd-4373-ab5e-e717b0893ebc" />
+
+### Management
+<img width="1521" alt="Management Tab - Settings" src="https://github.com/user-attachments/assets/d86ed2d0-13db-4031-8bfd-2bc637179041" />
+<img width="1516" alt="Management Tab - Advanced" src="https://github.com/user-attachments/assets/38300c13-b9c6-46e6-b06d-efe2d857ed6c" />
+
+### Themes
+<img width="1512" alt="Custom Theme Editor" src="https://github.com/user-attachments/assets/c0628129-12ef-4ff6-a30e-979f40804a57" />
+
+</div>
+
+## Docker Setup
 
 ### Docker Run
+
+Basic setup with minimal configuration:
 
 ```bash
 docker run -d \
@@ -37,7 +62,25 @@ docker run -d \
   ghcr.io/regix1/lancache-manager:latest
 ```
 
+With authenticated metrics endpoint for Prometheus:
+
+```bash
+docker run -d \
+  --name lancache-manager \
+  -p 8080:80 \
+  -v ./data:/data \
+  -v /path/to/lancache/logs:/logs:ro \
+  -v /path/to/lancache/cache:/cache:ro \
+  -e TZ=America/Chicago \
+  -e LanCache__LogPath=/logs/access.log \
+  -e LanCache__CachePath=/cache \
+  -e Security__RequireAuthForMetrics=true \
+  ghcr.io/regix1/lancache-manager:latest
+```
+
 ### Docker Compose
+
+Basic setup:
 
 ```yaml
 services:
@@ -57,13 +100,36 @@ services:
     restart: unless-stopped
 ```
 
+With authenticated metrics:
+
+```yaml
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    ports:
+      - "8080:80"
+    environment:
+      TZ: America/Chicago
+      LanCache__LogPath: /logs/access.log
+      LanCache__CachePath: /cache
+      Security__RequireAuthForMetrics: "true"
+    volumes:
+      - ./data:/data
+      - /path/to/lancache/logs:/logs:ro
+      - /path/to/lancache/cache:/cache:ro
+    restart: unless-stopped
+```
+
+### Getting Started
+
 After starting the container, visit `http://localhost:8080` and check the logs for your API key:
 
 ```bash
 docker logs lancache-manager | grep "API Key"
 ```
 
-You'll need the API key to access the Management tab where you can process logs, manage depot mappings, customize themes, and configure settings.
+You'll need the API key to access the Management tab where you can process logs, manage depot mappings, customize themes, and configure settings. The API key is also saved to `/data/api_key.txt` in your data volume.
 
 ## Configuration
 
@@ -137,18 +203,6 @@ curl http://localhost:8080/metrics
 ```
 
 To require authentication for the `/metrics` endpoint, set `Security__RequireAuthForMetrics=true`.
-
-## Performance
-
-The Rust log processor is fast. Processing 4 million log entries takes 3-5 minutes on typical hardware, compared to 25+ minutes with the original C# implementation. This is thanks to bulk transactions, prepared statements, SQLite WAL mode, and zero-copy regex parsing.
-
-For resource planning:
-- Home use (1-10 clients): 2 CPU cores, 2GB RAM
-- Small LAN (10-25 clients): 2 cores, 4GB RAM
-- Medium LAN (25-50 clients): 4 cores, 4GB RAM
-- Large events (50+ clients): 8+ cores, 8GB RAM
-
-Database size depends on activity level. Expect 50-100MB per month for light usage, 500MB-1GB for medium usage, and 2-5GB for heavy usage.
 
 ## Building from Source
 
