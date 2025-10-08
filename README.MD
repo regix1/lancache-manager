@@ -91,9 +91,6 @@ services:
 
       # Optional: Custom path for device registrations (default: /data/devices)
       # Security__DevicesPath: /data/custom_devices
-
-      # Optional: Custom database path (default: data/lancache.db)
-      # ConnectionStrings__DefaultConnection: "Data Source=/data/custom.db"
     volumes:
       # Required: Persistent data (database, API key, themes)
       - ./data:/data
