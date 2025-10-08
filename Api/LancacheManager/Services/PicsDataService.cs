@@ -361,6 +361,31 @@ public class PicsDataService
     }
 
     /// <summary>
+    /// Clear all depot mappings from the database
+    /// </summary>
+    public async Task ClearDepotMappingsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var count = await context.SteamDepotMappings.CountAsync(cancellationToken);
+            _logger.LogInformation($"Clearing {count} depot mappings from database");
+
+            // Use ExecuteDeleteAsync for efficient bulk delete (EF Core 7+)
+            await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
+
+            _logger.LogInformation("Successfully cleared all depot mappings");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear depot mappings");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Import PICS data from JSON file to database
     /// </summary>
     public async Task ImportJsonDataToDatabaseAsync()

@@ -49,6 +49,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private bool _crawlIncrementalMode = true; // Default: Run incremental scans
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
+    private bool _lastScanWasForced = false; // Track if the last scan was forced to be full due to Steam requirements
 
     // depotId -> set of appIds (can be multiple for shared depots)
     private readonly ConcurrentDictionary<uint, HashSet<uint>> _depotToAppMappings = new();
@@ -895,6 +896,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 consecutiveFullUpdates++;
                 _logger.LogWarning("PICS requesting full update, falling back to Web API");
+                _lastScanWasForced = true; // Mark that this scan was forced to be full
+
                 // Fall back to Web API
                 var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
                 _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API fallback", webApiApps.Count);
@@ -1265,14 +1268,14 @@ public class SteamKit2Service : IHostedService, IDisposable
     {
         try
         {
-            // Load last change number from JSON if not already loaded
-            if (_lastChangeNumberSeen == 0)
+            // Always load the latest change number from JSON to ensure viability check matches what the scan will use
+            // (scan always reloads from JSON, so viability check must too)
+            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            uint changeNumberToCheck = 0;
+            if (picsData?.Metadata?.LastChangeNumber > 0)
             {
-                var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
-                if (picsData?.Metadata?.LastChangeNumber > 0)
-                {
-                    _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
-                }
+                changeNumberToCheck = picsData.Metadata.LastChangeNumber;
+                _logger.LogInformation("Viability check will use change number {ChangeNumber} from JSON file", changeNumberToCheck);
             }
 
             // Need to be connected to check current change number
@@ -1290,23 +1293,36 @@ public class SteamKit2Service : IHostedService, IDisposable
                 var changes = await WaitForCallbackAsync(job, ct);
                 var currentChangeNumber = changes.CurrentChangeNumber;
 
-                uint changeGap = _lastChangeNumberSeen > 0
-                    ? currentChangeNumber - _lastChangeNumberSeen
+                uint changeGap = changeNumberToCheck > 0
+                    ? currentChangeNumber - changeNumberToCheck
                     : currentChangeNumber;
 
-                // Steam PICS typically requests full update when gap > ~20000 changes
-                const uint largeGapThreshold = 20000;
-                bool isLargeGap = changeGap > largeGapThreshold;
+                // Actually check with Steam if it will accept incremental update
+                bool willRequireFullScan = false;
+                if (changeNumberToCheck > 0)
+                {
+                    _logger.LogInformation("Checking with Steam if incremental update is viable (last: {Last}, current: {Current}, gap: {Gap})",
+                        changeNumberToCheck, currentChangeNumber, changeGap);
+
+                    var incrementalJob = _steamApps!.PICSGetChangesSince(changeNumberToCheck, true, true);
+                    var incrementalChanges = await WaitForCallbackAsync(incrementalJob, ct);
+
+                    // Steam will tell us if it requires a full update
+                    willRequireFullScan = incrementalChanges.RequiresFullUpdate || incrementalChanges.RequiresFullAppUpdate;
+
+                    _logger.LogInformation("Steam RequiresFullUpdate: {Full}, RequiresFullAppUpdate: {App}",
+                        incrementalChanges.RequiresFullUpdate, incrementalChanges.RequiresFullAppUpdate);
+                }
 
                 return new
                 {
-                    isViable = !isLargeGap,
-                    lastChangeNumber = _lastChangeNumberSeen,
+                    isViable = !willRequireFullScan,
+                    lastChangeNumber = changeNumberToCheck,
                     currentChangeNumber = currentChangeNumber,
                     changeGap = changeGap,
-                    isLargeGap = isLargeGap,
-                    willTriggerFullScan = isLargeGap,
-                    estimatedAppsToScan = isLargeGap ? 270000 : (int)Math.Min(changeGap * 2, 50000) // Rough estimate
+                    isLargeGap = willRequireFullScan,
+                    willTriggerFullScan = willRequireFullScan,
+                    estimatedAppsToScan = willRequireFullScan ? 270000 : (int)Math.Min(changeGap * 2, 50000) // Rough estimate
                 };
             }
             finally
@@ -1324,9 +1340,26 @@ public class SteamKit2Service : IHostedService, IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error checking incremental viability");
+
+            // Try to get the change number from JSON for error reporting
+            uint changeNumberForError = 0;
+            try
+            {
+                var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+                changeNumberForError = picsData?.Metadata?.LastChangeNumber ?? 0;
+            }
+            catch { }
+
+            // If we can't check viability, assume full scan is required for safety
             return new
             {
                 isViable = false,
+                lastChangeNumber = changeNumberForError,
+                currentChangeNumber = (uint)0,
+                changeGap = (uint)0,
+                isLargeGap = true,
+                willTriggerFullScan = true,
+                estimatedAppsToScan = 270000,
                 error = ex.Message
             };
         }
@@ -1362,6 +1395,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             NextCrawlIn = nextCrawlIn.TotalSeconds, // Return as a number (total seconds) instead of TimeSpan object
             CrawlIntervalHours = _crawlInterval.TotalHours,
             CrawlIncrementalMode = _crawlIncrementalMode,
+            LastScanWasForced = _lastScanWasForced,
             IsConnected = _steamClient?.IsConnected == true,
             IsLoggedOn = _isLoggedOn
         };
@@ -1414,6 +1448,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
 
         _logger.LogInformation("Starting Steam PICS depot crawl");
+        _lastScanWasForced = false; // Reset flag at start of new scan
 
         CancellationTokenSource linkedCts;
         try

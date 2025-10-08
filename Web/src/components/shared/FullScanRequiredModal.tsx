@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertTriangle, Download, X } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 
-interface ChangeGapWarningModalProps {
+interface FullScanRequiredModalProps {
   changeGap: number;
   estimatedApps: number;
   onConfirm: () => void;
@@ -11,7 +11,7 @@ interface ChangeGapWarningModalProps {
   showDownloadOption?: boolean;
 }
 
-export const ChangeGapWarningModal: React.FC<ChangeGapWarningModalProps> = ({
+export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   changeGap,
   estimatedApps,
   onConfirm,
@@ -35,7 +35,7 @@ export const ChangeGapWarningModal: React.FC<ChangeGapWarningModalProps> = ({
               <AlertTriangle className="w-6 h-6" style={{ color: 'var(--theme-error)' }} />
             </div>
             <h2 className="text-xl font-semibold text-themed-primary">
-              Large Change Gap Detected
+              Full Scan Required
             </h2>
           </div>
           <button
@@ -54,19 +54,19 @@ export const ChangeGapWarningModal: React.FC<ChangeGapWarningModalProps> = ({
                  borderColor: 'var(--theme-error)'
                }}>
             <p className="font-medium mb-2" style={{ color: 'var(--theme-error-text)' }}>
-              Your depot data is too far behind Steam's current state
+              Steam requires a full scan - incremental update not possible
             </p>
             <div className="space-y-1 text-sm text-themed-secondary">
               <p>• Change gap: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>{changeGap.toLocaleString()}</span> updates behind</p>
               <p>• Estimated apps to scan: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>~{estimatedApps.toLocaleString()}</span> apps</p>
-              <p>• Steam's PICS API will force a <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>FULL SCAN</span> instead of incremental</p>
+              <p>• Steam's PICS API will force a <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>FULL SCAN</span> via Web API</p>
             </div>
           </div>
 
           <div className="space-y-3">
             <p className="text-themed-primary">
-              <strong>Why this happens:</strong> When depot data becomes too outdated (typically &gt;24 hours),
-              Steam's API refuses incremental updates and requires a full rescan for data integrity.
+              <strong>Why this happens:</strong> When depot data becomes too outdated (change gap &gt;20,000),
+              Steam's PICS API refuses incremental updates and requires a full rescan for data integrity.
             </p>
 
             {showDownloadOption && (
@@ -77,9 +77,9 @@ export const ChangeGapWarningModal: React.FC<ChangeGapWarningModalProps> = ({
                    }}>
                 <p className="font-medium mb-2" style={{ color: 'var(--theme-info-text)' }}>Recommended: Download from GitHub</p>
                 <ul className="space-y-1 text-sm text-themed-secondary">
-                  <li>✓ Instant: Get pre-generated depot mappings in seconds</li>
-                  <li>✓ Complete: Contains all current Steam depot data</li>
-                  <li>✓ Efficient: Avoids scanning 270,000+ Steam apps</li>
+                  <li>✓ Instant: Get pre-generated depot mappings in 1-2 minutes</li>
+                  <li>✓ Complete: Contains 299,000+ current Steam depot mappings</li>
+                  <li>✓ Efficient: Avoids scanning 270,000+ Steam apps (15-30 min)</li>
                 </ul>
               </div>
             )}

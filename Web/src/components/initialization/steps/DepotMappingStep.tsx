@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Map, Loader, SkipForward, CheckCircle, Home } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
-import { ChangeGapWarningModal } from '@components/shared/ChangeGapWarningModal';
+import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
 
 interface DepotMappingStepProps {
   onComplete: () => void;
@@ -84,42 +84,34 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   const startDepotMapping = async () => {
     console.log('[DepotMapping] Starting depot mapping process...');
     setError(null);
-
-    try {
-      // Check if incremental scan is viable (change gap check)
-      console.log('[DepotMapping] Checking incremental viability...');
-      const viability = await ApiService.checkIncrementalViability();
-
-      if (viability.willTriggerFullScan) {
-        // Show warning modal if change gap is too large
-        console.log(`[DepotMapping] Large change gap detected (${viability.changeGap}), showing warning...`);
-        setChangeGapWarning({
-          show: true,
-          changeGap: viability.changeGap,
-          estimatedApps: viability.estimatedAppsToScan
-        });
-        return;
-      }
-
-      // Proceed with incremental scan
-      await proceedWithScan();
-    } catch (err: any) {
-      console.error('[DepotMapping] Error checking viability:', err);
-      // If check fails, proceed anyway
-      await proceedWithScan();
-    }
+    await proceedWithScan(false);
   };
 
-  const proceedWithScan = async () => {
+  const proceedWithScan = async (forceFull: boolean = false) => {
     console.log('[DepotMapping] Starting PICS scan...');
     setMapping(true);
     setProgress(0);
     setStatusMessage('Starting scan...');
 
     try {
-      // Use incremental scan by default for initialization (faster)
-      console.log('[DepotMapping] Triggering incremental PICS crawl...');
-      await ApiService.triggerSteamKitRebuild(true);
+      // Use incremental scan by default for initialization (faster), unless forcing full
+      const useIncremental = !forceFull;
+      console.log('[DepotMapping] Triggering PICS crawl (incremental:', useIncremental, ')...');
+      const response = await ApiService.triggerSteamKitRebuild(useIncremental);
+      console.log('[DepotMapping] Backend response:', response);
+
+      // Check if backend says full scan is required (for incremental requests)
+      if (response.requiresFullScan) {
+        console.log('[DepotMapping] Backend requires full scan - showing modal');
+        setChangeGapWarning({
+          show: true,
+          changeGap: response.changeGap || 25000,
+          estimatedApps: response.estimatedApps || 270000
+        });
+        setMapping(false);
+        return;
+      }
+
       console.log('[DepotMapping] PICS crawl started successfully');
     } catch (err: any) {
       console.error('[DepotMapping] Error:', err);
@@ -201,17 +193,6 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       {/* Progress Display */}
       {mapping && !complete && (
         <div className="space-y-4">
-          {/* Progress Bar */}
-          <div className="w-full bg-themed-border rounded-full h-3 overflow-hidden">
-            <div
-              className="h-full transition-all duration-500 ease-out"
-              style={{
-                width: `${progress}%`,
-                backgroundColor: 'var(--theme-primary)'
-              }}
-            />
-          </div>
-
           <div className="p-4 rounded-lg text-center"
                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
             <Loader className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: 'var(--theme-primary)' }} />
@@ -302,14 +283,14 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         </Button>
       )}
 
-      {/* Change Gap Warning Modal */}
+      {/* Full Scan Required Modal */}
       {changeGapWarning?.show && (
-        <ChangeGapWarningModal
+        <FullScanRequiredModal
           changeGap={changeGapWarning.changeGap}
           estimatedApps={changeGapWarning.estimatedApps}
           onConfirm={() => {
             setChangeGapWarning(null);
-            proceedWithScan();
+            proceedWithScan(true); // Force full scan
           }}
           onCancel={() => setChangeGapWarning(null)}
           onDownloadFromGitHub={handleDownloadFromGitHub}

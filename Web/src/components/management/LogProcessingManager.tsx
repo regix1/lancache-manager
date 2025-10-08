@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, Database, AlertTriangle, Clock, Zap } from 'lucide-react';
+import { FileText, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
@@ -7,10 +7,9 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { ChangeGapWarningModal } from '@components/shared/ChangeGapWarningModal';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../types';
+import DepotMappingManager from './DepotMappingManager';
 
 interface LogProcessingManagerProps {
   isAuthenticated: boolean;
@@ -29,26 +28,6 @@ interface ProcessingUIStatus {
   status: string;
 }
 
-
-interface PicsProgress {
-  isRunning: boolean;
-  status: string;
-  totalApps: number;
-  processedApps: number;
-  totalBatches: number;
-  processedBatches: number;
-  progressPercent: number;
-  depotMappingsFound: number;
-  depotMappingsFoundInSession: number;
-  isReady: boolean;
-  lastCrawlTime?: string;
-  nextCrawlIn: any; // Can be TimeSpan string, object, or number from backend
-  crawlIntervalHours: number;
-  crawlIncrementalMode: boolean;
-  isConnected: boolean;
-  isLoggedOn: boolean;
-}
-
 const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   isAuthenticated,
   mockMode,
@@ -61,7 +40,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [signalRConnected, setSignalRConnected] = useState(false);
-  const [depotProcessing, setDepotProcessing] = useState<PicsProgress | null>(null);
   const [confirmModal, setConfirmModal] = useState<
     | {
         title: string;
@@ -71,17 +49,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
     | null
   >(null);
-  const [changeGapWarning, setChangeGapWarning] = useState<{
-    show: boolean;
-    changeGap: number;
-    estimatedApps: number;
-  } | null>(null);
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalRConnection = useRef<signalR.HubConnection | null>(null);
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
-  const depotPollingInterval = useRef<NodeJS.Timeout | null>(null);
   const onBackgroundOperationRef = useRef(onBackgroundOperation);
   const mockModeRef = useRef(mockMode);
 
@@ -162,7 +134,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     restoreLogProcessing();
     setupSignalR();
-    startDepotPolling();
 
     return () => {
       if (pollingInterval.current) {
@@ -170,9 +141,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       }
       if (reconnectTimeout.current) {
         clearTimeout(reconnectTimeout.current);
-      }
-      if (depotPollingInterval.current) {
-        clearInterval(depotPollingInterval.current);
       }
       if (signalRConnection.current) {
         signalRConnection.current.stop();
@@ -655,105 +623,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     });
   };
 
-  const startDepotPolling = () => {
-    const checkDepotStatus = async () => {
-      try {
-        const response = await fetch('/api/gameinfo/steamkit/progress');
-        if (response.ok) {
-          const data: PicsProgress = await response.json();
-          setDepotProcessing(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch depot status:', error);
-      }
-    };
-
-    checkDepotStatus();
-    depotPollingInterval.current = setInterval(checkDepotStatus, 3000);
-  };
-
-  const executePostProcessDepotMappings = async () => {
-    if (!isAuthenticated) {
-      onError?.('Authentication required');
-      return;
-    }
-
-    setActionLoading(true);
-    try {
-      // Check if JSON file exists and needs to be imported to database
-      const picsStatus = await ApiService.getPicsStatus();
-      const hasJsonFile = picsStatus?.jsonFile?.exists === true;
-      const hasDatabaseMappings = (picsStatus?.database?.totalMappings || 0) > 1000;
-
-      // Import JSON to database if needed (JSON exists but database is empty)
-      if (hasJsonFile && !hasDatabaseMappings) {
-        console.log('[Management] Importing JSON file to database before scan');
-        await fetch('/api/gameinfo/import-pics-data', {
-          method: 'POST',
-          headers: ApiService.getHeaders()
-        });
-        onSuccess?.('Imported depot mappings to database - depot count will update after scan completes');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      // Use the scan mode from dropdown (incremental or full)
-      const useIncrementalScan = depotProcessing?.crawlIncrementalMode ?? true;
-      await ApiService.triggerSteamKitRebuild(useIncrementalScan);
-      const scanType = useIncrementalScan ? 'Incremental' : 'Full';
-      onSuccess?.(`${scanType} depot scan started - mappings will be applied when complete`);
-      setTimeout(() => onDataRefresh?.(), 2000);
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to process depot mappings');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleDownloadFromGitHub = async () => {
-    setChangeGapWarning(null);
-    setActionLoading(true);
-
-    try {
-      await ApiService.downloadPrecreatedDepotData();
-      onSuccess?.('Pre-created depot data downloaded and imported successfully');
-      setTimeout(() => onDataRefresh?.(), 2000);
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to download from GitHub');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handlePostProcessDepotMappings = async () => {
-    // Check for change gap if incremental mode is selected
-    if (depotProcessing?.crawlIncrementalMode) {
-      try {
-        const viability = await ApiService.checkIncrementalViability();
-
-        if (viability.willTriggerFullScan) {
-          // Show warning modal if change gap is too large
-          setChangeGapWarning({
-            show: true,
-            changeGap: viability.changeGap,
-            estimatedApps: viability.estimatedAppsToScan
-          });
-          return;
-        }
-      } catch (err) {
-        console.error('Failed to check incremental viability:', err);
-        // If check fails, proceed with normal flow
-      }
-    }
-
-    // Show normal confirmation modal
-    const scanMode = depotProcessing?.crawlIncrementalMode ? 'incremental' : 'full';
-    setConfirmModal({
-      title: 'Run Depot Scan & Apply',
-      message: `Run ${scanMode} PICS scan and apply mappings? This will ${depotProcessing?.crawlIncrementalMode ? 'update only apps that changed since the last scan' : 're-scan all Steam apps'}, then apply all mappings to downloads.`,
-      confirmLabel: 'Scan & Apply',
-      onConfirm: () => executePostProcessDepotMappings()
-    });
-  };
 
   const handleConfirmAction = async () => {
     if (!confirmModal) {
@@ -763,77 +632,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     const { onConfirm } = confirmModal;
     setConfirmModal(null);
     await onConfirm();
-  };
-
-  const formatNextRun = () => {
-    // Check if actually running first
-    if (depotProcessing?.isRunning) {
-      return 'Running now';
-    }
-
-    // Use backend data
-    if (depotProcessing?.nextCrawlIn !== undefined && depotProcessing?.nextCrawlIn !== null) {
-      // Handle TimeSpan object from backend (has hours, minutes, seconds, etc.)
-      let totalSeconds: number;
-
-      if (typeof depotProcessing.nextCrawlIn === 'object' && depotProcessing.nextCrawlIn.totalSeconds !== undefined) {
-        // Backend sends TimeSpan with totalSeconds property
-        totalSeconds = depotProcessing.nextCrawlIn.totalSeconds;
-      } else if (typeof depotProcessing.nextCrawlIn === 'object' && depotProcessing.nextCrawlIn.totalHours !== undefined) {
-        // Fallback: convert totalHours to seconds
-        totalSeconds = depotProcessing.nextCrawlIn.totalHours * 3600;
-      } else if (typeof depotProcessing.nextCrawlIn === 'string') {
-        // Parse TimeSpan string format "HH:MM:SS" or "D.HH:MM:SS"
-        const parts = depotProcessing.nextCrawlIn.split(':');
-        if (parts.length >= 3) {
-          const dayHourPart = parts[0].split('.');
-          let hours = 0;
-          let days = 0;
-
-          if (dayHourPart.length === 2) {
-            // Format: "D.HH:MM:SS"
-            days = parseInt(dayHourPart[0]) || 0;
-            hours = parseInt(dayHourPart[1]) || 0;
-          } else {
-            // Format: "HH:MM:SS"
-            hours = parseInt(parts[0]) || 0;
-          }
-
-          const minutes = parseInt(parts[1]) || 0;
-          const seconds = parseInt(parts[2]) || 0;
-          totalSeconds = (days * 86400) + (hours * 3600) + (minutes * 60) + seconds;
-        } else {
-          return 'Loading...';
-        }
-      } else if (typeof depotProcessing.nextCrawlIn === 'number') {
-        // Direct number - assume it's already in seconds
-        totalSeconds = depotProcessing.nextCrawlIn;
-      } else {
-        return 'Loading...';
-      }
-
-      if (!isFinite(totalSeconds) || isNaN(totalSeconds)) return 'Loading...';
-
-      // If time is negative or zero but not running, show "Due now"
-      if (totalSeconds <= 0) {
-        return 'Due now';
-      }
-
-      // Convert seconds to hours and minutes for display
-      const totalHours = totalSeconds / 3600;
-
-      if (totalHours > 24) {
-        const days = Math.floor(totalHours / 24);
-        const hours = Math.floor(totalHours % 24);
-        return hours > 0 ? `${days}d ${hours}h` : `${days} days`;
-      }
-      const hours = Math.floor(totalHours);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-    }
-
-    // Fallback when backend data not yet loaded
-    return 'Loading...';
   };
 
   return (
@@ -855,7 +653,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               disabled={
                 actionLoading ||
                 isProcessingLogs ||
-                depotProcessing?.isRunning ||
                 mockMode ||
                 logProcessingOp.loading ||
                 !isAuthenticated
@@ -872,7 +669,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               disabled={
                 actionLoading ||
                 isProcessingLogs ||
-                depotProcessing?.isRunning ||
                 mockMode ||
                 logProcessingOp.loading ||
                 !isAuthenticated
@@ -885,21 +681,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           </div>
         </div>
 
-        {depotProcessing?.isRunning && (
-          <div
-            className="mt-4 p-3 rounded-lg border"
-            style={{
-              backgroundColor: 'var(--theme-info-bg)',
-              borderColor: 'var(--theme-info)',
-              color: 'var(--theme-info-text)'
-            }}
-          >
-            <p className="text-xs">
-              <strong>Depot Processing Active:</strong> Log processing is disabled while Steam PICS depot mapping is running.
-              Progress: {Math.round(depotProcessing.progressPercent)}% ({depotProcessing.processedBatches}/{depotProcessing.totalBatches} batches)
-            </p>
-          </div>
-        )}
 
         <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
           <p className="text-xs text-themed-muted leading-relaxed">
@@ -915,158 +696,16 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       </Card>
 
       {/* Depot Mapping Section */}
-      <Card>
-        <div className="flex items-center space-x-2 mb-4">
-          <Database className="w-5 h-5 text-themed-primary" />
-          <h3 className="text-lg font-semibold text-themed-primary">Depot Mapping</h3>
-        </div>
-
-        <p className="text-themed-secondary mb-4">
-          Automatically identifies Steam games from depot IDs in download history
-        </p>
-
-        {/* Schedule Status */}
-        <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-4 h-4 text-themed-primary" />
-                <span className="text-sm font-medium text-themed-secondary">Automatic Schedule</span>
-              </div>
-              <div className="text-xs text-themed-muted space-y-1">
-                <div className="flex items-center gap-2">
-                  <span style={{ opacity: 0.6 }}>Runs every:</span>
-                  <span className="font-medium text-themed-primary">
-                    {depotProcessing?.crawlIntervalHours
-                      ? `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`
-                      : 'Loading...'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ opacity: 0.6 }}>Scan mode:</span>
-                  <span className="font-medium text-themed-primary">
-                    {depotProcessing?.crawlIncrementalMode !== undefined
-                      ? depotProcessing.crawlIncrementalMode ? 'Incremental' : 'Full'
-                      : 'Loading...'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ opacity: 0.6 }}>Next run:</span>
-                  <span className="font-medium text-themed-primary">{formatNextRun()}</span>
-                </div>
-                {depotProcessing?.lastCrawlTime && (
-                  <div className="flex items-center gap-2">
-                    <span style={{ opacity: 0.6 }}>Last run:</span>
-                    <span className="font-medium text-themed-primary">
-                      {new Date(depotProcessing.lastCrawlTime).toLocaleString()}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 min-w-[120px]">
-              <EnhancedDropdown
-                options={[
-                  { value: '1', label: 'Every hour' },
-                  { value: '6', label: 'Every 6 hours' },
-                  { value: '12', label: 'Every 12 hours' },
-                  { value: '24', label: 'Every 24 hours' },
-                  { value: '48', label: 'Every 2 days' },
-                  { value: '168', label: 'Weekly' }
-                ]}
-                value={String(depotProcessing?.crawlIntervalHours || 1)}
-                onChange={async (value) => {
-                  const newInterval = Number(value);
-                  try {
-                    await fetch('/api/gameinfo/steamkit/interval', {
-                      method: 'POST',
-                      headers: {
-                        ...ApiService.getHeaders(),
-                        'Content-Type': 'application/json'
-                      },
-                      body: JSON.stringify(newInterval)
-                    });
-
-                    // Immediately fetch updated status to show new next run time
-                    const response = await fetch('/api/gameinfo/steamkit/progress');
-                    if (response.ok) {
-                      const data: PicsProgress = await response.json();
-                      setDepotProcessing(data);
-                    }
-                  } catch (error) {
-                    console.error('Failed to update crawl interval:', error);
-                  }
-                }}
-                disabled={!isAuthenticated || mockMode}
-                className="w-full"
-              />
-              <EnhancedDropdown
-                options={[
-                  { value: 'true', label: 'Incremental' },
-                  { value: 'false', label: 'Full scan' }
-                ]}
-                value={String(depotProcessing?.crawlIncrementalMode ?? true)}
-                onChange={async (value) => {
-                  const incremental = value === 'true';
-                  try {
-                    await fetch('/api/gameinfo/steamkit/scan-mode', {
-                      method: 'POST',
-                      headers: {
-                        ...ApiService.getHeaders(),
-                        'Content-Type': 'application/json'
-                      },
-                      body: JSON.stringify(incremental)
-                    });
-
-                    // Immediately fetch updated status to show new scan mode
-                    const response = await fetch('/api/gameinfo/steamkit/progress');
-                    if (response.ok) {
-                      const data: PicsProgress = await response.json();
-                      setDepotProcessing(data);
-                    }
-                  } catch (error) {
-                    console.error('Failed to update scan mode:', error);
-                  }
-                }}
-                disabled={!isAuthenticated || mockMode}
-                className="w-full"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex">
-          <Button
-            variant="filled"
-            color="blue"
-            leftSection={<Zap className="w-4 h-4" />}
-            onClick={() => handlePostProcessDepotMappings()}
-            disabled={
-              actionLoading ||
-              isProcessingLogs ||
-              depotProcessing?.isRunning ||
-              mockMode ||
-              !isAuthenticated
-            }
-            fullWidth
-          >
-            Apply Now
-          </Button>
-        </div>
-
-        <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
-          <p className="text-xs text-themed-muted leading-relaxed">
-            <strong>Scan mode dropdown:</strong> Controls whether "Apply Now" and automatic runs use incremental or full scans
-            <br />
-            <strong>Incremental:</strong> Only scans apps that changed since last run (faster, recommended)
-            <br />
-            <strong>Full scan:</strong> Re-scans all Steam apps from scratch (slower, but ensures complete data)
-            <br />
-            <strong>Apply Now:</strong> Runs a scan using the dropdown setting (incremental or full), then applies mappings to all downloads
-          </p>
-        </div>
-      </Card>
+      <DepotMappingManager
+        isAuthenticated={isAuthenticated}
+        mockMode={mockMode}
+        actionLoading={actionLoading}
+        setActionLoading={setActionLoading}
+        isProcessingLogs={isProcessingLogs}
+        onError={onError}
+        onSuccess={onSuccess}
+        onDataRefresh={onDataRefresh}
+      />
 
       <Modal
         opened={confirmModal !== null}
@@ -1154,21 +793,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           )}
         </div>
       </Modal>
-
-      {/* Change Gap Warning Modal */}
-      {changeGapWarning?.show && (
-        <ChangeGapWarningModal
-          changeGap={changeGapWarning.changeGap}
-          estimatedApps={changeGapWarning.estimatedApps}
-          onConfirm={() => {
-            setChangeGapWarning(null);
-            executePostProcessDepotMappings();
-          }}
-          onCancel={() => setChangeGapWarning(null)}
-          onDownloadFromGitHub={handleDownloadFromGitHub}
-          showDownloadOption={true}
-        />
-      )}
     </>
   );
 };

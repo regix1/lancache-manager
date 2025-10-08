@@ -34,14 +34,69 @@ public class GameInfoController : ControllerBase
 
     /// <summary>
     /// Trigger a background Steam PICS crawl to rebuild depot mappings.
+    /// Checks viability first if incremental is requested - returns requiresFullScan flag if gap is too large.
     /// </summary>
     /// <param name="incremental">If true, performs incremental update (only changed apps), otherwise full rebuild</param>
     [HttpPost("steamkit/rebuild")]
     [RequireAuth]
-    public IActionResult TriggerSteamKitRebuild(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
+    public async Task<IActionResult> TriggerSteamKitRebuild(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
         try
         {
+            // If incremental scan requested, check viability first
+            if (incremental)
+            {
+                _logger.LogInformation("Incremental scan requested - checking viability first");
+                var viability = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
+                _logger.LogInformation("Viability check returned: {Viability}", System.Text.Json.JsonSerializer.Serialize(viability));
+
+                // Use dynamic to access anonymous object properties
+                dynamic viabilityDynamic = viability;
+
+                try
+                {
+                    bool willTriggerFullScan = viabilityDynamic.willTriggerFullScan;
+                    _logger.LogInformation("willTriggerFullScan = {WillTrigger}", willTriggerFullScan);
+
+                    if (willTriggerFullScan)
+                    {
+                        // Return info about required full scan WITHOUT starting the scan
+                        uint changeGap = viabilityDynamic.changeGap;
+                        int estimatedApps = viabilityDynamic.estimatedAppsToScan;
+                        string? errorMsg = null;
+
+                        // Check if there was an error during viability check
+                        try
+                        {
+                            errorMsg = viabilityDynamic.error;
+                        }
+                        catch { }
+
+                        _logger.LogInformation("Incremental scan not viable - change gap too large ({ChangeGap}). Returning requiresFullScan flag.", changeGap);
+
+                        return Ok(new
+                        {
+                            started = false,
+                            requiresFullScan = true,
+                            changeGap = changeGap,
+                            estimatedApps = estimatedApps,
+                            message = errorMsg ?? "Change gap is too large for incremental scan. A full scan is required.",
+                            viabilityError = errorMsg
+                        });
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Incremental scan is viable - proceeding with scan");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse viability check result - proceeding with scan");
+                    // If parsing fails, proceed with scan (fail-open for safety)
+                }
+            }
+
+            // Proceed with scan (either full scan requested, or incremental is viable)
             var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental);
 
             if (started)
@@ -53,6 +108,7 @@ public class GameInfoController : ControllerBase
             return Ok(new
             {
                 started,
+                requiresFullScan = false,
                 rebuildInProgress = _steamKit2Service.IsRebuildRunning,
                 ready = _steamKit2Service.IsReady,
                 depotCount = _steamKit2Service.GetDepotMappingCount()
@@ -273,8 +329,16 @@ public class GameInfoController : ControllerBase
 
             _logger.LogInformation($"Saved pre-created depot data to: {localPath}");
 
+            // Clear existing depot mappings before importing (GitHub download is a full replacement)
+            _logger.LogInformation("Clearing existing depot mappings for full replacement");
+            await _picsDataService.ClearDepotMappingsAsync(cancellationToken);
+
             // Import to database
             await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
+
+            // Apply depot mappings to existing downloads
+            _logger.LogInformation("Applying depot mappings to existing downloads");
+            await _steamKit2Service.ManuallyApplyDepotMappings();
 
             // Enable periodic crawls now that we have initial data
             _steamKit2Service.EnablePeriodicCrawls();
