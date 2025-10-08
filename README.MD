@@ -1,4 +1,4 @@
-# LanCache Manager
+# LANCache Manager
 
 Modern monitoring and management interface for LanCache deployments. Keep tabs on downloads, bandwidth savings, and cache performance in real-time.
 
