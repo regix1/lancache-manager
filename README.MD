@@ -179,7 +179,11 @@ Upload themes through Management > Themes. Export any built-in theme to see all 
 
 ## Depot Mappings
 
-The application uses Steam depot mappings from SteamDB to identify games. If a game isn't recognized, you can add custom mappings in Management > Depot Mappings. This is useful for games not in the SteamDB database, private depots, or beta branches.
+The application includes an automatically updated depot mapping file from [lancache-pics](https://github.com/regix1/lancache-pics), which provides comprehensive Steam depot-to-game mappings updated every 2 days via automated scraping. This mapping file is built into the application, so you don't need to download or configure anything.
+
+If a game isn't recognized or you need custom mappings, you can add them manually in Management > Depot Mappings. This is useful for games not yet in the database, private depots, or beta branches.
+
+You can also provide your own depot mapping JSON file if you prefer to maintain custom mappings. The file should follow the lancache-pics format with depot IDs, app IDs, and game names.
 
 After adding new mappings, you can reprocess existing logs to update the game names in your statistics.
 
