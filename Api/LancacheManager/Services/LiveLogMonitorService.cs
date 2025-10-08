@@ -34,6 +34,22 @@ public class LiveLogMonitorService : BackgroundService
         _logFilePath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
     }
 
+    /// <summary>
+    /// Counts lines in a file with proper file sharing to allow other processes to delete/modify the file
+    /// </summary>
+    private long CountLinesWithSharing(string filePath)
+    {
+        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(fileStream);
+
+        long lineCount = 0;
+        while (reader.ReadLine() != null)
+        {
+            lineCount++;
+        }
+        return lineCount;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Wait for app to start up and for initial setup to complete
@@ -53,7 +69,7 @@ public class LiveLogMonitorService : BackgroundService
             var currentPosition = _stateService.GetLogPosition();
             if (currentPosition == 0)
             {
-                var lineCount = File.ReadLines(_logFilePath).LongCount();
+                var lineCount = CountLinesWithSharing(_logFilePath);
                 _stateService.SetLogPosition(lineCount);
                 _logger.LogInformation("Initialized log position to end of file (line {LineCount}) - will only process new entries", lineCount);
             }
@@ -152,7 +168,7 @@ public class LiveLogMonitorService : BackgroundService
                     var lastPosition = _stateService.GetLogPosition();
 
                     // Count total lines in the file to get the current end position
-                    var currentLineCount = File.ReadLines(_logFilePath).LongCount();
+                    var currentLineCount = CountLinesWithSharing(_logFilePath);
 
                     // If stored position is less than current file size, use stored position
                     // Otherwise use current line count (file might have been truncated/rotated)

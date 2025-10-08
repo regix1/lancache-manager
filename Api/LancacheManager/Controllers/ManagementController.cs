@@ -362,7 +362,14 @@ public class ManagementController : ControllerBase
                 });
             }
 
-            var json = await System.IO.File.ReadAllTextAsync(progressPath);
+            // Use FileStream with FileShare.ReadWrite to allow other processes to access the file
+            string json;
+            using (var fileStream = new System.IO.FileStream(progressPath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete))
+            using (var reader = new System.IO.StreamReader(fileStream))
+            {
+                json = await reader.ReadToEndAsync();
+            }
+
             var rustProgress = System.Text.Json.JsonSerializer.Deserialize<RustLogProcessorService.ProgressData>(json);
 
             if (rustProgress == null)

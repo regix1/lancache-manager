@@ -294,16 +294,25 @@ public class CacheManagementService
                     throw new Exception("Failed to start Rust log_manager process");
                 }
 
+                // Read stdout and stderr asynchronously to prevent buffer deadlock
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
                 await process.WaitForExitAsync();
+
+                var output = await outputTask;
+                var error = await errorTask;
 
                 if (process.ExitCode != 0)
                 {
-                    var error = await process.StandardError.ReadToEndAsync();
                     throw new Exception($"Rust log_manager failed with exit code {process.ExitCode}: {error}");
                 }
 
-                var output = await process.StandardOutput.ReadToEndAsync();
                 _logger.LogInformation($"Rust log filtering completed: {output}");
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogDebug($"Rust stderr: {error}");
+                }
             }
         }
         catch (UnauthorizedAccessException)
@@ -362,18 +371,36 @@ public class CacheManagementService
                     throw new Exception("Failed to start Rust log_manager process");
                 }
 
+                // Read stdout and stderr asynchronously to prevent buffer deadlock
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
                 await process.WaitForExitAsync();
+
+                var output = await outputTask;
+                var error = await errorTask;
 
                 if (process.ExitCode != 0)
                 {
-                    var error = await process.StandardError.ReadToEndAsync();
                     throw new Exception($"Rust log_manager failed with exit code {process.ExitCode}: {error}");
+                }
+
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogDebug($"Rust stderr: {error}");
                 }
 
                 // Read results from progress file
                 if (File.Exists(progressFile))
                 {
-                    var json = await File.ReadAllTextAsync(progressFile);
+                    // Use FileStream with FileShare.ReadWrite to allow other processes to access the file
+                    string json;
+                    using (var fileStream = new FileStream(progressFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var reader = new StreamReader(fileStream))
+                    {
+                        json = await reader.ReadToEndAsync();
+                    }
+
                     var options = new JsonSerializerOptions
                     {
                         PropertyNameCaseInsensitive = true

@@ -259,7 +259,14 @@ public class RustDatabaseResetService
                 return null;
             }
 
-            var json = await File.ReadAllTextAsync(progressPath);
+            // Use FileStream with FileShare.ReadWrite to allow other processes to access the file
+            string json;
+            using (var fileStream = new FileStream(progressPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(fileStream))
+            {
+                json = await reader.ReadToEndAsync();
+            }
+
             var options = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true

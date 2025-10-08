@@ -8,6 +8,9 @@ use std::io::{BufRead, BufReader, BufWriter, Write as IoWrite};
 use std::path::Path;
 use std::time::Instant;
 
+#[cfg(windows)]
+use std::os::windows::fs::OpenOptionsExt;
+
 #[derive(Serialize, Clone)]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
@@ -50,8 +53,60 @@ impl ProgressData {
 
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
     let json = serde_json::to_string_pretty(progress)?;
-    fs::write(progress_path, json)?;
+
+    // On Windows with FileShare.Delete, we can't reliably use atomic rename
+    // when C# has the file open. Just write directly with proper sharing.
+    #[cfg(windows)]
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        // Open with sharing flags that allow C# to read while we write
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(0x07) // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+            .open(progress_path)?;
+
+        file.write_all(json.as_bytes())?;
+        file.flush()?;
+    }
+
+    // On Unix, use atomic rename
+    #[cfg(not(windows))]
+    {
+        let temp_path = progress_path.with_extension("json.tmp");
+        fs::write(&temp_path, &json)?;
+        fs::rename(&temp_path, progress_path)?;
+    }
+
     Ok(())
+}
+
+/// Open a file for reading with shared access on Windows
+/// This allows multiple processes to read the file simultaneously
+fn open_file_shared_read(path: &str) -> Result<File> {
+    #[cfg(windows)]
+    {
+        use std::fs::OpenOptions;
+        // On Windows, use FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+        // This allows other processes to read, write, and delete while we're reading
+        const FILE_SHARE_READ: u32 = 0x00000001;
+        const FILE_SHARE_WRITE: u32 = 0x00000002;
+        const FILE_SHARE_DELETE: u32 = 0x00000004;
+
+        OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .open(path)
+            .context("Failed to open log file with shared access")
+    }
+
+    #[cfg(not(windows))]
+    {
+        File::open(path).context("Failed to open log file")
+    }
 }
 
 fn extract_service_from_line(line: &str) -> Option<String> {
@@ -82,10 +137,10 @@ fn extract_service_from_line(line: &str) -> Option<String> {
 
 fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String, u64>> {
     let start_time = Instant::now();
-    println!("Counting services in log file...");
-    println!("Log file: {}", log_path);
+    eprintln!("Counting services in log file...");
+    eprintln!("Log file: {}", log_path);
 
-    let file = File::open(log_path).context("Failed to open log file")?;
+    let file = open_file_shared_read(log_path)?;
     let file_size = file.metadata()?.len();
     let reader = BufReader::with_capacity(1024 * 1024, file); // 1MB buffer
 
@@ -127,13 +182,13 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
     }
 
     let elapsed = start_time.elapsed();
-    println!("\n✓ Service counting completed!");
-    println!("  Lines processed: {}", lines_processed);
-    println!("  Services found: {}", service_counts.len());
-    println!("  Time elapsed: {:.2}s", elapsed.as_secs_f64());
+    eprintln!("\n✓ Service counting completed!");
+    eprintln!("  Lines processed: {}", lines_processed);
+    eprintln!("  Services found: {}", service_counts.len());
+    eprintln!("  Time elapsed: {:.2}s", elapsed.as_secs_f64());
 
     for (service, count) in &service_counts {
-        println!("  {}: {}", service, count);
+        eprintln!("  {}: {}", service, count);
     }
 
     // Final progress with service counts
@@ -157,13 +212,13 @@ fn remove_service_from_logs(
     progress_path: &Path,
 ) -> Result<()> {
     let start_time = Instant::now();
-    println!("Removing {} entries from log file...", service_to_remove);
-    println!("Log file: {}", log_path);
+    eprintln!("Removing {} entries from log file...", service_to_remove);
+    eprintln!("Log file: {}", log_path);
 
     // Create backup
     let backup_path = format!("{}.bak", log_path);
     fs::copy(log_path, &backup_path).context("Failed to create backup")?;
-    println!("Backup created at: {}", backup_path);
+    eprintln!("Backup created at: {}", backup_path);
 
     // Create temp file for filtered output
     let log_dir = Path::new(log_path)
@@ -171,92 +226,98 @@ fn remove_service_from_logs(
         .context("Failed to get log directory")?;
     let temp_path = log_dir.join(format!("access.log.tmp.{}", Utc::now().timestamp()));
 
-    let file = File::open(log_path).context("Failed to open log file")?;
-    let file_size = file.metadata()?.len();
-    let reader = BufReader::with_capacity(1024 * 1024, file);
-
-    let temp_file = File::create(&temp_path).context("Failed to create temp file")?;
-    let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
-
     let mut lines_processed: u64 = 0;
     let mut lines_removed: u64 = 0;
-    let mut bytes_processed: u64 = 0;
-    let mut last_progress_update = Instant::now();
     let service_lower = service_to_remove.to_lowercase();
 
-    // Initial progress
-    let progress = ProgressData::new(
-        true,
-        0.0,
-        "starting".to_string(),
-        format!("Starting removal of {} entries...", service_to_remove),
-        0,
-        Some(0),
-        None,
-    );
-    write_progress(progress_path, &progress)?;
+    // Scope the file operations so handles are closed before deletion
+    {
+        let file = open_file_shared_read(log_path)?;
+        let file_size = file.metadata()?.len();
+        let reader = BufReader::with_capacity(1024 * 1024, file);
 
-    for line_result in reader.lines() {
-        let line = line_result?;
-        bytes_processed += line.len() as u64 + 1;
-        lines_processed += 1;
+        let temp_file = File::create(&temp_path).context("Failed to create temp file")?;
+        let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
 
-        let mut should_remove = false;
+        let mut bytes_processed: u64 = 0;
+        let mut last_progress_update = Instant::now();
 
-        if let Some(line_service) = extract_service_from_line(&line) {
-            // Exact match - remove entries for this service
-            if line_service == service_lower {
-                should_remove = true;
+        // Initial progress
+        let progress = ProgressData::new(
+            true,
+            0.0,
+            "starting".to_string(),
+            format!("Starting removal of {} entries...", service_to_remove),
+            0,
+            Some(0),
+            None,
+        );
+        write_progress(progress_path, &progress)?;
+
+        for line_result in reader.lines() {
+            let line = line_result?;
+            bytes_processed += line.len() as u64 + 1;
+            lines_processed += 1;
+
+            let mut should_remove = false;
+
+            if let Some(line_service) = extract_service_from_line(&line) {
+                // Exact match - remove entries for this service
+                if line_service == service_lower {
+                    should_remove = true;
+                }
             }
-        }
 
-        if !should_remove {
-            writeln!(writer, "{}", line)?;
-        } else {
-            lines_removed += 1;
-            if lines_removed % 10000 == 0 {
-                println!("Removed {} {} entries", lines_removed, service_to_remove);
-            }
-        }
-
-        // Update progress every 500ms
-        if last_progress_update.elapsed().as_millis() > 500 {
-            let percent = if file_size > 0 {
-                (bytes_processed as f64 / file_size as f64) * 100.0
+            if !should_remove {
+                writeln!(writer, "{}", line)?;
             } else {
-                0.0
-            };
+                lines_removed += 1;
+                if lines_removed % 10000 == 0 {
+                    eprintln!("Removed {} {} entries", lines_removed, service_to_remove);
+                }
+            }
 
-            let progress = ProgressData::new(
-                true,
-                percent,
-                "removing".to_string(),
-                format!(
-                    "Removing {} entries... {} of {} lines processed",
-                    service_to_remove, lines_processed, lines_processed
-                ),
-                lines_processed,
-                Some(lines_removed),
-                None,
-            );
-            write_progress(progress_path, &progress)?;
-            last_progress_update = Instant::now();
+            // Update progress every 500ms
+            if last_progress_update.elapsed().as_millis() > 500 {
+                let percent = if file_size > 0 {
+                    (bytes_processed as f64 / file_size as f64) * 100.0
+                } else {
+                    0.0
+                };
+
+                let progress = ProgressData::new(
+                    true,
+                    percent,
+                    "removing".to_string(),
+                    format!(
+                        "Removing {} entries... {} of {} lines processed",
+                        service_to_remove, lines_processed, lines_processed
+                    ),
+                    lines_processed,
+                    Some(lines_removed),
+                    None,
+                );
+                write_progress(progress_path, &progress)?;
+                last_progress_update = Instant::now();
+            }
         }
-    }
 
-    // Flush and close writer
-    writer.flush()?;
-    drop(writer);
+        // Flush and close writer
+        writer.flush()?;
+        drop(writer);
+
+        // reader and file are automatically dropped here when scope ends
+    }
 
     // Replace original with filtered version
     fs::remove_file(log_path).context("Failed to remove original log file")?;
     fs::rename(&temp_path, log_path).context("Failed to rename temp file")?;
 
     let elapsed = start_time.elapsed();
-    println!("\n✓ Log filtering completed!");
-    println!("  Lines processed: {}", lines_processed);
-    println!("  Lines removed: {}", lines_removed);
-    println!("  Time elapsed: {:.2}s", elapsed.as_secs_f64());
+    eprintln!("\n✓ Log filtering completed!");
+    eprintln!("  Lines processed: {}", lines_processed);
+    eprintln!("  Lines removed: {}", lines_removed);
+    eprintln!("  Time elapsed: {:.2}s", elapsed.as_secs_f64());
 
     // Final progress
     let progress = ProgressData::new(
