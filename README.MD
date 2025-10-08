@@ -1,6 +1,6 @@
 # LANCache Manager
 
-A modern web interface for monitoring and managing your LANCache deployment. Track downloads, see what games your clients are pulling, and monitor bandwidth savings in real-time.
+A modern web interface for monitoring and managing your LANCache deployment. Track downloads, identify games, and monitor bandwidth savings in real-time.
 
 ## IMPORTANT: Docker Installation
 
@@ -11,15 +11,9 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 > docker pull ghcr.io/regix1/lancache-manager:latest
 > ```
 >
-> GitHub's package page may show `:dev` in the installation command, but this is because development builds are pushed more frequently. The `:dev` tag contains the latest development code from the main branch and may be unstable.
+> GitHub's package page may show `:dev` in the installation command because dev builds are pushed more frequently. **The `:dev` tag is unstable development code.**
 >
-> **Use `:latest` for production deployments. Use `:dev` only if you want bleeding-edge features and accept potential instability.**
-
-## What It Does
-
-LANCache Manager gives you visibility into your LANCache deployment. It processes your nginx access logs to show you real-time bandwidth statistics, identifies which games are being downloaded, tracks per-client usage, and calculates how much bandwidth you're saving. The web interface is clean and customizable with theme support, and everything runs in a single Docker container.
-
-The log processor is written in Rust for performance - it can process millions of log entries in just a few minutes. It automatically detects your nginx log format, groups downloads into sessions, and identifies Steam games using depot mappings from SteamDB.
+> **Use `:latest` for production. Use `:dev` only for bleeding-edge features.**
 
 ## Screenshots
 
@@ -44,12 +38,10 @@ The log processor is written in Rust for performance - it can process millions o
 
 </div>
 
-## Docker Setup
+## Quick Start
 
 ### Docker Run
 
-Basic setup with minimal configuration:
-
 ```bash
 docker run -d \
   --name lancache-manager \
@@ -60,29 +52,11 @@ docker run -d \
   -e TZ=America/Chicago \
   -e LanCache__LogPath=/logs/access.log \
   -e LanCache__CachePath=/cache \
-  ghcr.io/regix1/lancache-manager:latest
-```
-
-With authenticated metrics endpoint for Prometheus:
-
-```bash
-docker run -d \
-  --name lancache-manager \
-  -p 8080:80 \
-  -v ./data:/data \
-  -v /path/to/lancache/logs:/logs:ro \
-  -v /path/to/lancache/cache:/cache:ro \
-  -e TZ=America/Chicago \
-  -e LanCache__LogPath=/logs/access.log \
-  -e LanCache__CachePath=/cache \
-  -e Security__RequireAuthForMetrics=true \
   ghcr.io/regix1/lancache-manager:latest
 ```
 
 ### Docker Compose
 
-Basic setup:
-
 ```yaml
 services:
   lancache-manager:
@@ -101,82 +75,53 @@ services:
     restart: unless-stopped
 ```
 
-With authenticated metrics:
-
-```yaml
-services:
-  lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
-    container_name: lancache-manager
-    ports:
-      - "8080:80"
-    environment:
-      TZ: America/Chicago
-      LanCache__LogPath: /logs/access.log
-      LanCache__CachePath: /cache
-      Security__RequireAuthForMetrics: "true"
-    volumes:
-      - ./data:/data
-      - /path/to/lancache/logs:/logs:ro
-      - /path/to/lancache/cache:/cache:ro
-    restart: unless-stopped
-```
-
-### Getting Started
-
-After starting the container, visit `http://localhost:8080` and check the logs for your API key:
+Visit **http://localhost:8080** and get your **API key** from the logs:
 
 ```bash
 docker logs lancache-manager | grep "API Key"
 ```
 
-You'll need the API key to access the Management tab where you can process logs, manage depot mappings, customize themes, and configure settings. The API key is also saved to `/data/api_key.txt` in your data volume.
-
-### Volume Permissions
+**API key is also saved to `/data/api_key.txt`**
 
 > [!TIP]
-> The examples above mount `/logs` and `/cache` as read-only (`:ro`) for security. However, if you want to use the cache clearing feature in the Management tab, you'll need to mount `/cache` with read-write permissions by removing `:ro`:
+> **Cache Clearing Permissions**: If you want to clear cache through the Management tab, mount `/cache` as read-write by removing `:ro`:
 >
 > ```yaml
-> volumes:
->   - ./data:/data
->   - /path/to/lancache/logs:/logs:ro  # Read-only is fine for logs
->   - /path/to/lancache/cache:/cache   # Read-write needed for cache clearing
+> - /path/to/lancache/cache:/cache  # Read-write for cache clearing
 > ```
->
-> If you plan to only read statistics and not clear cache, keeping both mounts as read-only is recommended.
 
 ## Configuration
 
-The application uses environment variables for configuration. Only a few are required:
-
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LanCache__LogPath` | Path to your nginx access.log file | `/logs/access.log` |
-| `LanCache__CachePath` | Path to your cache directory (for size monitoring) | `/cache` |
-| `TZ` | Your timezone for accurate timestamps | `UTC` |
-| `Security__RequireAuthForMetrics` | Require API key for the `/metrics` endpoint | `false` |
-| `Security__EnableAuthentication` | Enable authentication for the Management tab | `true` |
+| **`LanCache__LogPath`** | Path to nginx access.log | `/logs/access.log` |
+| **`LanCache__CachePath`** | Cache directory path | `/cache` |
+| **`TZ`** | Timezone | `UTC` |
+| `Security__RequireAuthForMetrics` | Require API key for `/metrics` | `false` |
+| `Security__EnableAuthentication` | Enable Management tab auth | `true` |
 
-The `/data` volume persists your database, API key, and custom themes across container restarts. The `/logs` and `/cache` mounts should be read-only.
+**Required volumes:**
+- **`/data`** - Database, API key, themes (persistent)
+- **`/logs`** - LANCache nginx logs (read-only)
+- `/cache` - Cache directory (optional, read-only unless clearing cache)
 
 ## Features
 
-**Dashboard** - See bandwidth usage, cache hit rates, top games, and service breakdown at a glance. Filter by time period to analyze usage patterns.
+**Dashboard** - Bandwidth usage, cache hit rates, top games, service breakdown
 
-**Downloads** - View detailed download sessions with game names, file sizes, client IPs, and download speeds. Sessions are automatically grouped by client activity.
+**Downloads** - Detailed sessions with game names, sizes, client IPs, speeds
 
-**Clients** - Track which devices are using your cache and how much bandwidth each one is consuming.
+**Clients** - Per-device usage tracking
 
-**Management** - Process logs manually or let the automatic processor run periodically. Clear cache for specific services, reset the database, manage custom depot mappings, and upload custom themes. Everything requires API key authentication.
+**Management** - Process logs, clear cache, manage depot mappings, upload themes (requires **API key**)
 
-**Themes** - Choose from built-in themes or create your own using TOML format. Export any theme, modify it, and upload it back. Toggle between rounded and sharp corners.
+**Themes** - Built-in themes or create custom TOML themes with 100+ color variables
 
-**API & Metrics** - REST API for programmatic access and a `/metrics` endpoint in Prometheus format for Grafana dashboards.
+**API** - REST endpoints and **`/metrics`** for Prometheus
 
 ## Custom Themes
 
-Themes are TOML files with color variables. Here's a minimal example:
+Upload TOML files through **Management > Themes**:
 
 ```toml
 [meta]
@@ -190,27 +135,25 @@ bgPrimary = "#111827"
 textPrimary = "#ffffff"
 ```
 
-Upload themes through Management > Themes. Export any built-in theme to see all available color variables (there are over 100 for complete customization).
+Export any built-in theme to see all available variables.
 
 ## Depot Mappings
 
-The application includes an automatically updated depot mapping file from [lancache-pics](https://github.com/regix1/lancache-pics), which provides comprehensive Steam depot-to-game mappings updated every 2 days via automated scraping. This mapping file is built into the application, so you don't need to download or configure anything.
+Includes auto-updated mappings from **[lancache-pics](https://github.com/regix1/lancache-pics)** (updated every 2 days). No setup required.
 
-If a game isn't recognized or you need custom mappings, you can add them manually in Management > Depot Mappings. This is useful for games not yet in the database, private depots, or beta branches.
+Add custom mappings in **Management > Depot Mappings** for unrecognized games, private depots, or beta branches.
 
-You can also provide your own depot mapping JSON file if you prefer to maintain custom mappings. The file should follow the lancache-pics format with depot IDs, app IDs, and game names.
-
-After adding new mappings, you can reprocess existing logs to update the game names in your statistics.
+You can provide your own JSON file following the lancache-pics format.
 
 ## API Examples
 
-All stats endpoints are public. Management endpoints require the `X-Api-Key` header.
+Stats endpoints are **public**. Management endpoints require **`X-Api-Key` header**.
 
 ```bash
-# Get dashboard stats
+# Dashboard stats
 curl http://localhost:8080/api/stats/dashboard?period=24h
 
-# Get top games
+# Top games
 curl http://localhost:8080/api/stats/top-games?limit=10
 
 # Process logs (requires API key)
@@ -221,29 +164,26 @@ curl -X POST -H "X-Api-Key: your-key" \
 curl http://localhost:8080/metrics
 ```
 
-To require authentication for the `/metrics` endpoint, set `Security__RequireAuthForMetrics=true`.
+Set **`Security__RequireAuthForMetrics=true`** to protect the `/metrics` endpoint.
 
 ## Building from Source
 
-Requires .NET 8 SDK, Node.js 20+, and Rust 1.75+.
+**Requirements:** .NET 8 SDK, Node.js 20+, Rust 1.75+
 
 ```bash
-# Clone and build Rust processor
 git clone https://github.com/regix1/lancache-manager.git
 cd lancache-manager/rust-processor
 cargo build --release
 
-# Build frontend
 cd ../Web
 npm install
 npm run dev  # http://localhost:3000
 
-# Build and run backend (in another terminal)
 cd ../Api/LancacheManager
 dotnet run  # http://localhost:5000
 ```
 
-For Docker builds:
+**Docker build:**
 
 ```bash
 docker buildx build \
@@ -255,16 +195,16 @@ docker buildx build \
 
 ## Troubleshooting
 
-**Logs not processing?** Check that the log path is correct in Management > Settings and that the log file is readable (verify volume mount permissions).
+**Logs not processing?** Check log path in **Management > Settings** and verify volume mount permissions.
 
-**Games not identified?** Add custom depot mappings in Management > Depot Mappings, then reprocess logs.
+**Games not identified?** Add custom mappings in **Management > Depot Mappings**, then reprocess logs.
 
-**Lost API key?** Check `/data/api_key.txt` in your data volume, or view container logs: `docker logs lancache-manager | grep "API Key"`. If you can't find it, delete `api_key.txt` and restart the container to generate a new one.
-
-## Contributing
-
-Contributions are welcome. Open issues for bugs or feature requests, submit PRs for fixes or enhancements, and share custom themes in discussions.
+**Lost API key?** Check **`/data/api_key.txt`** or run:
+```bash
+docker logs lancache-manager | grep "API Key"
+```
+Delete `api_key.txt` and restart to generate a new one.
 
 ## License
 
-MIT License - free for personal and commercial use.
+MIT License
