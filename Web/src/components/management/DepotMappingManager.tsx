@@ -324,7 +324,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   { value: '48', label: 'Every 2 days' },
                   { value: '168', label: 'Weekly' }
                 ]}
-                value={String(depotProcessing?.crawlIntervalHours || 1)}
+                value={String(depotProcessing?.crawlIntervalHours ?? 1)}
                 onChange={async (value) => {
                   const newInterval = Number(value);
                   try {
