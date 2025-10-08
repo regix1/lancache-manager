@@ -132,10 +132,16 @@ const GrafanaEndpoints: React.FC = () => {
 
       <div className="mt-2">
         <Alert color="green">
-          <p className="text-sm">
-            <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for real-time monitoring.
-            Works with both Prometheus and JSON datasource plugins.
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm">
+              <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for real-time monitoring.
+              Works with both Prometheus and JSON datasource plugins.
+            </p>
+            <p className="text-xs opacity-75">
+              All dashboard stat card metrics are available: cache capacity, usage ratio, hit/miss bytes,
+              hit ratio, active downloads, active clients, and per-service counters.
+            </p>
+          </div>
         </Alert>
       </div>
     </Card>

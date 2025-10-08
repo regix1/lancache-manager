@@ -25,6 +25,13 @@ public class LancacheMetricsService
     private long _totalDownloads;
     private long _totalBytesServed;
 
+    // New metrics for cache effectiveness
+    private long _cacheCapacityBytes;
+    private long _cacheUsageRatioBits; // Store as long bits for thread-safety
+    private long _cacheHitBytesTotal;
+    private long _cacheMissBytesTotal;
+    private long _cacheHitRatioBits; // Store as long bits for thread-safety
+
     public LancacheMetricsService(IServiceScopeFactory scopeFactory, ILogger<LancacheMetricsService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -94,6 +101,42 @@ public class LancacheMetricsService
             description: "Total bytes served (all time)"
         );
 
+        // New observable gauges for cache effectiveness
+        _meter.CreateObservableGauge(
+            "lancache_cache_capacity_bytes",
+            () => _cacheCapacityBytes,
+            unit: "bytes",
+            description: "Total cache storage capacity"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_cache_usage_ratio",
+            () => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _cacheUsageRatioBits)),
+            unit: "ratio",
+            description: "Cache usage as ratio (0-1)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_cache_hit_bytes_total",
+            () => _cacheHitBytesTotal,
+            unit: "bytes",
+            description: "Total cache hit bytes (bandwidth saved)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_cache_miss_bytes_total",
+            () => _cacheMissBytesTotal,
+            unit: "bytes",
+            description: "Total cache miss bytes (added to cache)"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_cache_hit_ratio",
+            () => BitConverter.Int64BitsToDouble(Interlocked.Read(ref _cacheHitRatioBits)),
+            unit: "ratio",
+            description: "Cache hit ratio (0-1)"
+        );
+
         // Start background task to update gauges
         Task.Run(async () => await UpdateGaugesAsync());
     }
@@ -160,6 +203,7 @@ public class LancacheMetricsService
 
                 using var scope = _scopeFactory.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var cacheService = scope.ServiceProvider.GetRequiredService<CacheManagementService>();
 
                 // Get total downloads count
                 var totalDownloads = await context.Downloads.CountAsync();
@@ -185,9 +229,34 @@ public class LancacheMetricsService
                     .CountAsync();
                 Interlocked.Exchange(ref _activeClients, activeClientsCount);
 
+                // Get cache info for capacity and usage
+                var cacheInfo = cacheService.GetCacheInfo();
+                Interlocked.Exchange(ref _cacheCapacityBytes, cacheInfo.TotalCacheSize);
+
+                // Calculate usage ratio (0-1, following Prometheus conventions)
+                var usageRatio = cacheInfo.TotalCacheSize > 0
+                    ? (double)cacheInfo.UsedCacheSize / cacheInfo.TotalCacheSize
+                    : 0;
+                Interlocked.Exchange(ref _cacheUsageRatioBits, BitConverter.DoubleToInt64Bits(usageRatio));
+
+                // Get cache effectiveness metrics
+                var totalHitBytes = await context.Downloads.SumAsync(d => (long?)d.CacheHitBytes) ?? 0;
+                var totalMissBytes = await context.Downloads.SumAsync(d => (long?)d.CacheMissBytes) ?? 0;
+                Interlocked.Exchange(ref _cacheHitBytesTotal, totalHitBytes);
+                Interlocked.Exchange(ref _cacheMissBytesTotal, totalMissBytes);
+
+                // Calculate hit ratio (0-1, following Prometheus conventions)
+                var totalBytesForRatio = totalHitBytes + totalMissBytes;
+                var hitRatio = totalBytesForRatio > 0
+                    ? (double)totalHitBytes / totalBytesForRatio
+                    : 0;
+                Interlocked.Exchange(ref _cacheHitRatioBits, BitConverter.DoubleToInt64Bits(hitRatio));
+
                 _logger.LogDebug(
-                    "Updated metrics: downloads={Downloads}, bytes={Bytes}, active={Active}, clients={Clients}",
-                    totalDownloads, totalBytes, activeCount, activeClientsCount
+                    "Updated metrics: downloads={Downloads}, bytes={Bytes}, active={Active}, clients={Clients}, " +
+                    "capacity={Capacity}, hitRatio={HitRatio}, hitBytes={HitBytes}, missBytes={MissBytes}",
+                    totalDownloads, totalBytes, activeCount, activeClientsCount,
+                    cacheInfo.TotalCacheSize, hitRatio, totalHitBytes, totalMissBytes
                 );
             }
             catch (Exception ex)

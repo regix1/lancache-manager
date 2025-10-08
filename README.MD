@@ -126,6 +126,186 @@ docker logs lancache-manager | grep "API Key"
 
 **API** - REST endpoints and **`/metrics`** for Prometheus
 
+## Grafana & Prometheus Integration
+
+LANCache Manager exports Prometheus-compatible metrics at the `/metrics` endpoint. All dashboard stat card metrics are available for Grafana visualization.
+
+### Available Metrics
+
+**Cache Statistics:**
+- `lancache_cache_capacity_bytes` - Total cache storage capacity
+- `lancache_cache_size_bytes` - Current used cache size
+- `lancache_cache_usage_ratio` - Cache usage (0-1)
+
+**Traffic & Performance:**
+- `lancache_cache_hit_bytes_total` - Bandwidth saved (cache hits)
+- `lancache_cache_miss_bytes_total` - Data added to cache (cache misses)
+- `lancache_total_bytes_served` - Total data served
+- `lancache_cache_hit_ratio` - Cache effectiveness (0-1)
+
+**Activity:**
+- `lancache_active_downloads` - Downloads in progress
+- `lancache_active_clients` - Active client IPs
+- `lancache_total_downloads` - Total downloads in database
+
+**Counters (with `service` label):**
+- `lancache_downloads_total` - Downloads per service
+- `lancache_downloads_by_service` - Downloads by service
+- `lancache_bytes_served_total` - Bytes served
+- `lancache_bytes_served_by_service` - Bytes per service
+
+### Setup Without Authentication (Default)
+
+**1. Configure Prometheus**
+
+Add this to your `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: 'lancache-manager'
+    static_configs:
+      - targets: ['lancache-manager:80']
+    scrape_interval: 30s
+    metrics_path: /metrics
+```
+
+**2. Docker Compose Example**
+
+```yaml
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    ports:
+      - "8080:80"
+    environment:
+      Security__RequireAuthForMetrics: "false"  # Public metrics (default)
+    volumes:
+      - ./data:/data
+      - /path/to/lancache/logs:/logs:ro
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
+volumes:
+  prometheus-data:
+  grafana-data:
+```
+
+### Setup With Authentication (Secure)
+
+**1. Enable Metrics Authentication**
+
+```yaml
+services:
+  lancache-manager:
+    environment:
+      Security__RequireAuthForMetrics: "true"  # Require API key
+```
+
+**2. Get Your API Key**
+
+```bash
+docker logs lancache-manager | grep "API Key"
+# Or read from file:
+cat ./data/api_key.txt
+```
+
+**3. Configure Prometheus with Bearer Token**
+
+```yaml
+scrape_configs:
+  - job_name: 'lancache-manager'
+    static_configs:
+      - targets: ['lancache-manager:80']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials: 'your-api-key-here'
+```
+
+**Alternative: Use X-Api-Key Header**
+
+```yaml
+scrape_configs:
+  - job_name: 'lancache-manager'
+    static_configs:
+      - targets: ['lancache-manager:80']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    params:
+      headers:
+        - X-Api-Key: 'your-api-key-here'
+```
+
+### Grafana Dashboard Examples
+
+**Cache Hit Ratio (Percentage)**
+```promql
+lancache_cache_hit_ratio * 100
+```
+
+**Bandwidth Saved (Last 24h)**
+```promql
+increase(lancache_cache_hit_bytes_total[24h])
+```
+
+**Cache Usage (GB)**
+```promql
+lancache_cache_size_bytes / 1024 / 1024 / 1024
+```
+
+**Top Services by Bandwidth**
+```promql
+topk(5, rate(lancache_bytes_served_by_service[1h]))
+```
+
+**Active Downloads**
+```promql
+lancache_active_downloads
+```
+
+### Testing Metrics
+
+**Without Auth:**
+```bash
+curl http://localhost:8080/metrics
+```
+
+**With Auth:**
+```bash
+curl -H "X-Api-Key: your-key-here" http://localhost:8080/metrics
+# Or with Bearer token:
+curl -H "Authorization: Bearer your-key-here" http://localhost:8080/metrics
+```
+
+**Expected Output:**
+```
+# HELP lancache_cache_hit_ratio Cache hit ratio (0-1)
+# TYPE lancache_cache_hit_ratio gauge
+lancache_cache_hit_ratio 0.847
+
+# HELP lancache_cache_hit_bytes_total Total cache hit bytes (bandwidth saved)
+# TYPE lancache_cache_hit_bytes_total gauge
+lancache_cache_hit_bytes_total 157286400000
+```
+
 ## Custom Themes
 
 Upload TOML files through **Management > Themes**:
