@@ -156,8 +156,6 @@ LANCache Manager exports Prometheus-compatible metrics at the `/metrics` endpoin
 
 ### Setup Without Authentication (Default)
 
-**1. Configure Prometheus**
-
 Add this to your `prometheus.yml`:
 
 ```yaml
@@ -167,44 +165,6 @@ scrape_configs:
       - targets: ['lancache-manager:80']
     scrape_interval: 30s
     metrics_path: /metrics
-```
-
-**2. Docker Compose Example**
-
-```yaml
-services:
-  lancache-manager:
-    image: ghcr.io/regix1/lancache-manager:latest
-    ports:
-      - "8080:80"
-    environment:
-      Security__RequireAuthForMetrics: "false"  # Public metrics (default)
-    volumes:
-      - ./data:/data
-      - /path/to/lancache/logs:/logs:ro
-
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    volumes:
-      - grafana-data:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-
-volumes:
-  prometheus-data:
-  grafana-data:
 ```
 
 ### Setup With Authentication (Secure)
