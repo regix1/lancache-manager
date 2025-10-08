@@ -4,15 +4,16 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 
 ## IMPORTANT: Docker Installation
 
-**Always use the `latest` tag for stable releases:**
-
-```bash
-docker pull ghcr.io/regix1/lancache-manager:latest
-```
-
-GitHub's package page may show `:dev` in the installation command, but this is because development builds are pushed more frequently. The `:dev` tag contains the latest development code from the main branch and may be unstable.
-
-**Use `:latest` for production deployments. Use `:dev` only if you want bleeding-edge features and accept potential instability.**
+> [!IMPORTANT]
+> **Always use the `latest` tag for stable releases:**
+>
+> ```bash
+> docker pull ghcr.io/regix1/lancache-manager:latest
+> ```
+>
+> GitHub's package page may show `:dev` in the installation command, but this is because development builds are pushed more frequently. The `:dev` tag contains the latest development code from the main branch and may be unstable.
+>
+> **Use `:latest` for production deployments. Use `:dev` only if you want bleeding-edge features and accept potential instability.**
 
 ## What It Does
 
