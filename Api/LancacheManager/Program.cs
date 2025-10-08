@@ -309,6 +309,10 @@ using (var scope = app.Services.CreateScope())
         var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
         await statsCache.RefreshFromDatabase(dbContext);
 
+        // Initialize metrics service to start background metric collection
+        var metricsService = scope.ServiceProvider.GetRequiredService<LancacheMetricsService>();
+        logger.LogInformation("LancacheMetricsService initialized");
+
         // Log depot count for diagnostics
         try
         {
