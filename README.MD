@@ -112,20 +112,6 @@ docker logs lancache-manager | grep "API Key"
 
 **API key is also saved to `/data/api_key.txt`**
 
-## Features
-
-**Dashboard** - Bandwidth usage, cache hit rates, top games, service breakdown
-
-**Downloads** - Detailed sessions with game names, sizes, client IPs, speeds
-
-**Clients** - Per-device usage tracking
-
-**Management** - Process logs, clear cache, manage depot mappings, upload themes (requires **API key**)
-
-**Themes** - Built-in themes or create custom TOML themes with 100+ color variables
-
-**API** - REST endpoints and **`/metrics`** for Prometheus
-
 ## Grafana & Prometheus Integration
 
 LANCache Manager exports Prometheus-compatible metrics at the `/metrics` endpoint. All dashboard stat card metrics are available for Grafana visualization.
