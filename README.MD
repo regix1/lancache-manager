@@ -40,7 +40,7 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 
 ## Quick Start
 
-### Docker Run
+### Basic Docker Run
 
 ```bash
 docker run -d \
@@ -55,7 +55,7 @@ docker run -d \
   ghcr.io/regix1/lancache-manager:latest
 ```
 
-### Docker Compose
+### Complete Example with All Options
 
 ```yaml
 services:
@@ -65,12 +65,44 @@ services:
     ports:
       - "8080:80"
     environment:
+      # Timezone (default: UTC)
       TZ: America/Chicago
+
+      # Required: Path to LANCache nginx access.log
       LanCache__LogPath: /logs/access.log
+
+      # Required: Path to LANCache cache directory
       LanCache__CachePath: /cache
+
+      # Optional: Start reading logs from end (default: true)
+      # Set to false to process entire log on first run
+      LanCache__StartFromEndOfLog: "true"
+
+      # Optional: Require API key for /metrics endpoint (default: false)
+      # Enable this if you want to protect Prometheus metrics
+      Security__RequireAuthForMetrics: "false"
+
+      # Optional: Enable authentication for Management tab (default: true)
+      # Set to false to disable authentication (not recommended)
+      Security__EnableAuthentication: "true"
+
+      # Optional: Custom path for API key file (default: /data/api_key.txt)
+      # Security__ApiKeyPath: /data/custom_api_key.txt
+
+      # Optional: Custom path for device registrations (default: /data/devices)
+      # Security__DevicesPath: /data/custom_devices
+
+      # Optional: Custom database path (default: data/lancache.db)
+      # ConnectionStrings__DefaultConnection: "Data Source=/data/custom.db"
     volumes:
+      # Required: Persistent data (database, API key, themes)
       - ./data:/data
+
+      # Required: LANCache logs (read-only for security)
       - /path/to/lancache/logs:/logs:ro
+
+      # Optional: Cache directory for size monitoring
+      # Use read-write if you want cache clearing functionality
       - /path/to/lancache/cache:/cache:ro
     restart: unless-stopped
 ```
@@ -82,28 +114,6 @@ docker logs lancache-manager | grep "API Key"
 ```
 
 **API key is also saved to `/data/api_key.txt`**
-
-> [!TIP]
-> **Cache Clearing Permissions**: If you want to clear cache through the Management tab, mount `/cache` as read-write by removing `:ro`:
->
-> ```yaml
-> - /path/to/lancache/cache:/cache  # Read-write for cache clearing
-> ```
-
-## Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| **`LanCache__LogPath`** | Path to nginx access.log | `/logs/access.log` |
-| **`LanCache__CachePath`** | Cache directory path | `/cache` |
-| **`TZ`** | Timezone | `UTC` |
-| `Security__RequireAuthForMetrics` | Require API key for `/metrics` | `false` |
-| `Security__EnableAuthentication` | Enable Management tab auth | `true` |
-
-**Required volumes:**
-- **`/data`** - Database, API key, themes (persistent)
-- **`/logs`** - LANCache nginx logs (read-only)
-- `/cache` - Cache directory (optional, read-only unless clearing cache)
 
 ## Features
 
