@@ -240,6 +240,13 @@ public class SteamKit2Service : IHostedService, IDisposable
         // Don't auto-start any crawls - user must explicitly trigger via UI
         // This prevents unwanted background processing during initialization
 
+        // Don't set up timer if interval is 0 (disabled)
+        if (_crawlInterval.TotalHours == 0)
+        {
+            _logger.LogInformation("Periodic crawls are disabled (interval = 0)");
+            return;
+        }
+
         // Set up the periodic timer for subsequent crawls
         _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
         _logger.LogInformation($"Scheduled incremental PICS updates every {_crawlInterval.TotalHours} hour(s)");
@@ -1228,19 +1235,36 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             // Save to state for persistence across restarts
             _stateService.SetCrawlIntervalHours(value);
-            _logger.LogInformation("Saved crawl interval to state: {Hours} hour(s)", value);
 
-            // Reset the last crawl time to now so the countdown starts fresh with the new interval
-            _lastCrawlTime = DateTime.UtcNow;
-            _stateService.SetLastPicsCrawl(_lastCrawlTime);
-            _logger.LogInformation("Reset last crawl time to now due to interval change");
-
-            // Restart the timer with new interval if it's running
-            if (_periodicTimer != null)
+            if (value == 0)
             {
-                _periodicTimer?.Dispose();
-                _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
-                _logger.LogInformation($"Updated crawl interval to {value} hour(s)");
+                // Disable periodic crawls
+                _logger.LogInformation("Automatic crawl schedule disabled");
+
+                // Stop and dispose the timer
+                if (_periodicTimer != null)
+                {
+                    _periodicTimer?.Dispose();
+                    _periodicTimer = null;
+                    _logger.LogInformation("Stopped periodic crawl timer");
+                }
+            }
+            else
+            {
+                _logger.LogInformation("Saved crawl interval to state: {Hours} hour(s)", value);
+
+                // Reset the last crawl time to now so the countdown starts fresh with the new interval
+                _lastCrawlTime = DateTime.UtcNow;
+                _stateService.SetLastPicsCrawl(_lastCrawlTime);
+                _logger.LogInformation("Reset last crawl time to now due to interval change");
+
+                // Restart the timer with new interval if it's running
+                if (_periodicTimer != null)
+                {
+                    _periodicTimer?.Dispose();
+                    _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
+                    _logger.LogInformation($"Updated crawl interval to {value} hour(s)");
+                }
             }
         }
     }

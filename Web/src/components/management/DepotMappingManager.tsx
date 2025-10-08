@@ -278,28 +278,36 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Runs every:</span>
                   <span className="font-medium text-themed-primary">
-                    {depotProcessing?.crawlIntervalHours
-                      ? `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`
+                    {depotProcessing?.crawlIntervalHours !== undefined
+                      ? depotProcessing.crawlIntervalHours === 0
+                        ? 'Disabled'
+                        : `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`
                       : 'Loading...'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Scan mode:</span>
                   <span className="font-medium text-themed-primary">
-                    {depotProcessing?.crawlIncrementalMode !== undefined
-                      ? depotProcessing.crawlIncrementalMode ? 'Incremental' : 'Full'
-                      : 'Loading...'}
+                    {depotProcessing?.crawlIntervalHours === 0
+                      ? 'Disabled'
+                      : depotProcessing?.crawlIncrementalMode !== undefined
+                        ? depotProcessing.crawlIncrementalMode ? 'Incremental' : 'Full'
+                        : 'Loading...'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Next run:</span>
-                  <span className="font-medium text-themed-primary">{formatNextRun()}</span>
+                  <span className="font-medium text-themed-primary">
+                    {depotProcessing?.crawlIntervalHours === 0 ? 'Disabled' : formatNextRun()}
+                  </span>
                 </div>
                 {depotProcessing?.lastCrawlTime && (
                   <div className="flex items-center gap-2">
                     <span style={{ opacity: 0.6 }}>Last run:</span>
                     <span className="font-medium text-themed-primary">
-                      {new Date(depotProcessing.lastCrawlTime).toLocaleString()}
+                      {depotProcessing.crawlIntervalHours === 0
+                        ? 'Disabled'
+                        : new Date(depotProcessing.lastCrawlTime).toLocaleString()}
                     </span>
                   </div>
                 )}
@@ -308,6 +316,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             <div className="flex flex-col gap-2 min-w-[120px]">
               <EnhancedDropdown
                 options={[
+                  { value: '0', label: 'Disabled' },
                   { value: '1', label: 'Every hour' },
                   { value: '6', label: 'Every 6 hours' },
                   { value: '12', label: 'Every 12 hours' },
@@ -367,7 +376,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     console.error('Failed to update scan mode:', error);
                   }
                 }}
-                disabled={!isAuthenticated || mockMode}
+                disabled={!isAuthenticated || mockMode || depotProcessing?.crawlIntervalHours === 0}
                 className="w-full"
               />
             </div>

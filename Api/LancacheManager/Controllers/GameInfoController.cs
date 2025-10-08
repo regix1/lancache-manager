@@ -169,18 +169,27 @@ public class GameInfoController : ControllerBase
     {
         try
         {
-            if (intervalHours < 0.1 || intervalHours > 168) // Min 6 minutes, max 1 week
+            // Allow 0 (disabled), or between 0.1 and 168 hours
+            if (intervalHours < 0 || (intervalHours > 0 && intervalHours < 0.1) || intervalHours > 168)
             {
-                return BadRequest(new { error = "Interval must be between 0.1 and 168 hours" });
+                return BadRequest(new { error = "Interval must be 0 (disabled) or between 0.1 and 168 hours" });
             }
 
             _steamKit2Service.CrawlIntervalHours = intervalHours;
-            _logger.LogInformation("Crawl interval updated to {IntervalHours} hours", intervalHours);
+
+            if (intervalHours == 0)
+            {
+                _logger.LogInformation("Automatic crawl schedule disabled");
+            }
+            else
+            {
+                _logger.LogInformation("Crawl interval updated to {IntervalHours} hours", intervalHours);
+            }
 
             return Ok(new
             {
                 intervalHours = _steamKit2Service.CrawlIntervalHours,
-                message = $"Crawl interval updated to {intervalHours} hour(s)"
+                message = intervalHours == 0 ? "Automatic schedule disabled" : $"Crawl interval updated to {intervalHours} hour(s)"
             });
         }
         catch (Exception ex)
