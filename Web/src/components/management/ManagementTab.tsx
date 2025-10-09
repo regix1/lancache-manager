@@ -418,20 +418,29 @@ const LogFileManager: React.FC<{
       }
 
       await serviceRemovalOp.clear();
-      setActiveServiceRemoval(null);
 
-      // Reload config to show updated service counts
-      try {
-        const [configData, counts] = await Promise.all([
-          ApiService.getConfig(),
-          ApiService.getServiceLogCounts()
-        ]);
-        setConfig(configData);
-        setServiceCounts(counts);
-        onDataRefresh?.();
-      } catch (err) {
-        console.error('Failed to reload config:', err);
-      }
+      // Wait a bit longer before refreshing to give Linux time for Rust binary to finish
+      setTimeout(async () => {
+        setActiveServiceRemoval(null);
+
+        try {
+          const [configData, counts] = await Promise.all([
+            ApiService.getConfig(),
+            ApiService.getServiceLogCounts()
+          ]);
+          setConfig(configData);
+
+          // Only update counts if we got valid data (non-empty)
+          // This prevents clearing the UI on Linux when the API temporarily returns empty
+          if (counts && Object.keys(counts).length > 0) {
+            setServiceCounts(counts);
+          }
+
+          onDataRefresh?.();
+        } catch (err) {
+          console.error('Failed to reload config:', err);
+        }
+      }, 3000); // 3 second delay for Linux systems
     } catch (err: any) {
       await serviceRemovalOp.clear();
       setActiveServiceRemoval(null);
