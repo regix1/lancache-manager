@@ -135,41 +135,38 @@ fn ensure_directory_exists(dir_path: &Path) -> Result<()> {
 
 fn delete_directory_full(
     dir_path: &Path,
-    files_counter: &AtomicU64,
+    _files_counter: &AtomicU64,
 ) -> Result<()> {
     if !dir_path.exists() {
         return Ok(());
     }
 
-    // Fast path: remove the entire directory tree in a single syscall and recreate it.
+    // Remove the entire directory tree in a single syscall and recreate it.
     match fs::remove_dir_all(dir_path) {
         Ok(_) => {
             ensure_directory_exists(dir_path)?;
-            return Ok(());
+            Ok(())
         }
         Err(err) if err.kind() == ErrorKind::NotFound => {
+            // Directory doesn't exist, just recreate it
             ensure_directory_exists(dir_path)?;
-            return Ok(());
+            Ok(())
         }
         Err(err) => {
-            eprintln!(
-                "Fast delete failed for {}: {}. Falling back to iterative removal.",
-                dir_path.display(),
-                err
-            );
-
-            // If the directory vanished despite the error, recreate it and exit early.
+            // If the directory vanished despite the error, recreate it and return success
             if !dir_path.exists() {
                 ensure_directory_exists(dir_path)?;
                 return Ok(());
             }
+
+            // Otherwise, fail with a clear error message
+            anyhow::bail!(
+                "Bulk removal failed for {}: {}. Please switch to 'Preserve Structure' or 'Rsync' mode.",
+                dir_path.display(),
+                err
+            );
         }
     }
-
-    // Fallback: reuse the recursive remover so we still clear as much as possible.
-    delete_directory_contents(dir_path, files_counter)?;
-
-    Ok(())
 }
 
 fn delete_directory_rsync(
