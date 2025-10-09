@@ -919,73 +919,73 @@ export const colorGroups: ColorGroup[] = [
       },
       {
         key: 'iconBgBlue',
-        label: 'Blue Icon Background',
-        description: 'Blue icon container',
-        affects: ['Database icons', 'Info icons'],
+        label: 'Database Icon (Total Cache)',
+        description: 'Background for database/storage icons',
+        affects: ['Total Cache card icon', 'Database indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgGreen',
-        label: 'Green Icon Background',
-        description: 'Green icon container',
-        affects: ['Success icons', 'Online status'],
+        label: 'Hard Drive Icon (Used Space)',
+        description: 'Background for hard drive/storage icons',
+        affects: ['Used Space card icon', 'Storage indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgEmerald',
-        label: 'Emerald Icon Background',
-        description: 'Emerald icon container',
-        affects: ['Trending icons', 'Growth indicators'],
+        label: 'Trending Icon (Bandwidth Saved)',
+        description: 'Background for trending/growth icons',
+        affects: ['Bandwidth Saved card icon', 'Growth indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgPurple',
-        label: 'Purple Icon Background',
-        description: 'Purple icon container',
-        affects: ['Special features', 'Premium indicators'],
+        label: 'Zap Icon (Added to Cache)',
+        description: 'Background for lightning/zap icons',
+        affects: ['Added to Cache card icon', 'Speed indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgIndigo',
-        label: 'Indigo Icon Background',
-        description: 'Indigo icon container',
-        affects: ['Server icons', 'System indicators'],
+        label: 'Server Icon (Total Served)',
+        description: 'Background for server icons',
+        affects: ['Total Served card icon', 'Server indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgOrange',
-        label: 'Orange Icon Background',
-        description: 'Orange icon container',
-        affects: ['Download icons', 'Activity indicators'],
+        label: 'Download Icon (Active Downloads)',
+        description: 'Background for download icons',
+        affects: ['Active Downloads card icon', 'Download indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgYellow',
-        label: 'Yellow Icon Background',
-        description: 'Yellow icon container',
-        affects: ['Warning icons', 'Client indicators'],
+        label: 'Users Icon (Active Clients)',
+        description: 'Background for users/people icons',
+        affects: ['Active Clients card icon', 'Client indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgCyan',
-        label: 'Cyan Icon Background',
-        description: 'Cyan icon container',
-        affects: ['Activity icons', 'Performance indicators'],
+        label: 'Activity Icon (Cache Hit Ratio)',
+        description: 'Background for activity/performance icons',
+        affects: ['Cache Hit Ratio card icon', 'Performance indicators'],
         supportsAlpha: true,
         pages: ['dashboard']
       },
       {
         key: 'iconBgRed',
-        label: 'Red Icon Background',
-        description: 'Red icon container',
-        affects: ['Error icons', 'Critical indicators'],
+        label: 'Error Icon (Critical States)',
+        description: 'Background for error/critical icons',
+        affects: ['Error indicators', 'Critical state icons'],
         supportsAlpha: true,
         pages: ['dashboard']
       }

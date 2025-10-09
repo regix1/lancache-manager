@@ -156,8 +156,6 @@ public class LancacheMetricsService
                 _bytesServedTotal.Add(bytes);
                 _bytesServedByService.Add(bytes, new KeyValuePair<string, object?>("service", service));
             }
-
-            _logger.LogDebug("Recorded download: service={Service}, bytes={Bytes}", service, bytes);
         }
         catch (Exception ex)
         {
@@ -251,13 +249,6 @@ public class LancacheMetricsService
                     ? (double)totalHitBytes / totalBytesForRatio
                     : 0;
                 Interlocked.Exchange(ref _cacheHitRatioBits, BitConverter.DoubleToInt64Bits(hitRatio));
-
-                _logger.LogDebug(
-                    "Updated metrics: downloads={Downloads}, bytes={Bytes}, active={Active}, clients={Clients}, " +
-                    "capacity={Capacity}, hitRatio={HitRatio}, hitBytes={HitBytes}, missBytes={MissBytes}",
-                    totalDownloads, totalBytes, activeCount, activeClientsCount,
-                    cacheInfo.TotalCacheSize, hitRatio, totalHitBytes, totalMissBytes
-                );
             }
             catch (Exception ex)
             {
