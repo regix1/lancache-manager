@@ -340,7 +340,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         </div>
 
         {/* Delete Mode Configuration */}
-        <div className="mt-4 pt-4 border-t border-themed-tertiary">
+        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="flex-1">
               <p className="text-themed-secondary font-medium">Deletion Method</p>
@@ -387,7 +387,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         </div>
 
         {/* Thread Count Configuration */}
-        <div className="mt-4 pt-4 border-t border-themed-tertiary">
+        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex-1">
               <p className="text-themed-secondary font-medium">Cache Clearing Threads</p>

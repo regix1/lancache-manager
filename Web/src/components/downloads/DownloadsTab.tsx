@@ -36,7 +36,8 @@ const STORAGE_KEYS = {
   HIDE_UNKNOWN_GAMES: 'lancache_downloads_hide_unknown',
   VIEW_MODE: 'lancache_downloads_view_mode',
   SORT_ORDER: 'lancache_downloads_sort_order',
-  AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode'
+  AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode',
+  FULL_HEIGHT_BANNERS: 'lancache_downloads_full_height_banners'
 };
 
 // View modes
@@ -100,6 +101,7 @@ const DownloadsTab: React.FC = () => {
     viewMode: (localStorage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode,
     sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service',
     aestheticMode: localStorage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
+    fullHeightBanners: localStorage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
     groupByFrequency: localStorage.getItem('lancache_downloads_group_by_frequency') !== 'false'
   }));
 
@@ -115,6 +117,7 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
     localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
     localStorage.setItem(STORAGE_KEYS.AESTHETIC_MODE, settings.aestheticMode.toString());
+    localStorage.setItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS, settings.fullHeightBanners.toString());
     localStorage.setItem('lancache_downloads_group_by_frequency', settings.groupByFrequency.toString());
   }, [settings]);
 
@@ -948,6 +951,14 @@ const DownloadsTab: React.FC = () => {
               />
 
               <Checkbox
+                checked={settings.fullHeightBanners}
+                onChange={(e) =>
+                  setSettings({ ...settings, fullHeightBanners: e.target.checked })
+                }
+                label="Full-height game banners"
+              />
+
+              <Checkbox
                 checked={settings.groupByFrequency}
                 onChange={(e) =>
                   setSettings({ ...settings, groupByFrequency: e.target.checked })
@@ -1050,6 +1061,7 @@ const DownloadsTab: React.FC = () => {
                 expandedItem={expandedItem}
                 onItemClick={handleItemClick}
                 aestheticMode={settings.aestheticMode}
+                fullHeightBanners={settings.fullHeightBanners}
                 groupByFrequency={settings.groupByFrequency}
               />
             )}

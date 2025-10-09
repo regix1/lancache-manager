@@ -13,6 +13,63 @@ const SteamIcon: React.FC<{ size?: number; className?: string; style?: React.CSS
   </svg>
 );
 
+const WsusIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({ size = 24, className = '', style = {} }) => {
+  const gradientId = React.useId();
+
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      className={className}
+      style={style}
+      enableBackground="new 0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="-0.1" x2="25.632" y1="5.358" y2="17.357">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.2" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <g>
+        <path d="m12 11h11v-10l-11 1z" fill="currentColor" />
+        <path d="m10 11v-8.8181763l-9 .8181763v8z" fill="currentColor" />
+        <path d="m12 2v.25l11-1v-.25z" fill="#fff" opacity={0.2} />
+        <path d="m12 10.75h11v.25h-11z" opacity={0.1} />
+        <path d="m1 3v.25l9-.8181763v-.25z" fill="#fff" opacity={0.2} />
+        <path d="m1 10.75h9v.25h-9z" opacity={0.1} />
+        <path d="m12 13h11v10l-11-1z" fill="currentColor" />
+        <path d="m10 13v8.8181763l-9-.8181763v-8z" fill="currentColor" />
+        <path d="m12 22v-.25l11 1v.25z" opacity={0.1} />
+        <path d="m12 13h11v.25h-11z" fill="#fff" opacity={0.2} />
+        <path d="m1 21v-.25l9 .8181763v.25z" opacity={0.1} />
+        <path d="m1 13h9v.25h-9z" fill="#fff" opacity={0.2} />
+        <path
+          d="m12 2v9h11v-10zm-11 9h9v-8.8181763l-9 .8181763zm11 11 11 1v-10h-11zm-11-1 9 .8181763v-8.8181763h-9z"
+          fill={`url(#${gradientId})`}
+        />
+      </g>
+    </svg>
+  );
+};
+
+const UnknownServiceIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({ size = 48, className = '', style = {} }) => (
+  <svg
+    viewBox="0 0 512 512"
+    width={size}
+    height={size}
+    className={className}
+    style={style}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <g fill="var(--theme-text-muted)">
+      <path d="m256.004 382.75c-23.99 0-43.438-19.448-43.438-43.438v-18.425c0-42.876 26.999-81.228 67.185-95.436 30.227-10.688 49.705-40.581 47.364-72.693-2.564-35.163-31.033-63.417-66.222-65.721-37.221-2.459-70.382 24.422-75.507 61.148-.458 3.283-.69 6.648-.69 10.001 0 23.99-19.448 43.438-43.438 43.438s-43.438-19.448-43.438-43.438c0-7.354.513-14.758 1.524-22.006 11.38-81.566 84.834-141.243 167.224-135.835 78.216 5.122 141.496 67.93 147.194 146.096 5.178 71.044-38.02 137.215-105.051 160.917-5.544 1.96-9.269 7.397-9.269 13.529v18.425c0 23.99-19.448 43.438-43.438 43.438z" />
+      <path d="m256.004 512c-23.99 0-43.438-19.448-43.438-43.438v-.36c0-23.99 19.448-43.438 43.438-43.438s43.438 19.448 43.438 43.438v.36c0 23.99-19.448 43.438-43.438 43.438z" />
+    </g>
+  </svg>
+);
+
 const API_BASE = '/api';
 
 const getServiceBadgeStyles = (service: string): { backgroundColor: string; color: string } => {
@@ -80,10 +137,11 @@ interface NormalViewProps {
   onItemClick: (id: string) => void;
   sectionLabels?: NormalViewSectionLabels;
   aestheticMode?: boolean;
+  fullHeightBanners?: boolean;
   groupByFrequency?: boolean;
 }
 
-const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false, groupByFrequency = true }) => {
+const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false, fullHeightBanners = false, groupByFrequency = true }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
 
@@ -118,136 +176,176 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
     const isExpanded = expandedItem === group.id;
     const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
     const primaryDownload = group.downloads[0];
+    const serviceLower = group.service.toLowerCase();
+    const isSteam = serviceLower === 'steam';
+    const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
+    const isOtherService = !isSteam && !isWsus;
+    const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
+    const primaryName = primaryDownload?.gameName ?? '';
+    const isGenericSteamTitle =
+      primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
     const showGameImage =
-      group.type === 'game' &&
-      group.service.toLowerCase() === 'steam' &&
-      primaryDownload?.gameAppId &&
-      primaryDownload?.gameName &&
-      primaryDownload.gameName !== 'Unknown Steam Game' &&
-      !primaryDownload.gameName.match(/^Steam App \d+$/);
-    const storeLink = showGameImage && primaryDownload?.gameAppId
+      group.type === 'game' && isSteam && Boolean(steamAppId) && !!primaryName && !isGenericSteamTitle;
+    const storeLink = primaryDownload?.gameAppId
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
       : null;
+    const shouldRenderBanner = !aestheticMode && (isSteam || isWsus || isOtherService);
+    const hasSteamArtwork =
+      showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
+    const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
+    const placeholderIconColor = isSteam
+      ? 'var(--theme-steam)'
+      : isWsus
+      ? 'var(--theme-wsus)'
+      : 'var(--theme-text-secondary)';
+    const placeholderIconSize = fullHeightBanners ? 80 : 72;
+    const bannerWrapperClasses = fullHeightBanners
+      ? 'w-full h-[130px] sm:w-[280px] sm:h-[130px]'
+      : 'w-full h-[130px] sm:w-[280px] sm:h-[130px] sm:self-start';
 
-    return (
-      <div
-        key={group.id}
-        className="rounded-xl border bg-[var(--theme-bg-secondary)] overflow-hidden"
-        style={{
-          borderColor: isExpanded ? 'var(--theme-card-outline)' : 'var(--theme-border-primary)',
-          boxShadow: isExpanded
-            ? '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 2px var(--theme-card-ring)'
-            : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-          transition: 'border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-          WebkitTapHighlightColor: 'transparent',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => onItemClick(group.id)}
-          className="w-full text-left no-click-outline focus:outline-none focus:ring-0 focus:border-transparent focus-visible:outline-none focus-visible:ring-0 active:outline-none active:ring-0"
-          style={{
-            WebkitTapHighlightColor: 'transparent',
-            outline: 'none !important',
-            boxShadow: 'none !important'
-          }}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-stretch">
-            {showGameImage && primaryDownload?.gameAppId && (
-              <div className="flex-shrink-0 overflow-hidden w-full sm:w-auto">
-                {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
-                  <div
-                    className="w-full sm:w-[280px] h-[130px] flex items-center justify-center"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                    }}
-                  >
-                    <SteamIcon
-                      size={80}
-                      style={{ color: 'var(--theme-steam)', opacity: 0.5 }}
-                    />
-                  </div>
-                ) : (
-                  <img
-                    src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
-                    alt={primaryDownload.gameName || group.name}
-                    className="w-full sm:w-[280px] h-[130px] object-cover transition-transform duration-300 hover:scale-105"
-                    loading="lazy"
-                    onError={() => handleImageError(String(primaryDownload.gameAppId))}
-                  />
-                )}
-              </div>
+    let bannerContent: React.ReactNode | null = null;
+
+    if (shouldRenderBanner) {
+      if (hasSteamArtwork && steamAppId) {
+        bannerContent = (
+          <img
+            src={`${API_BASE}/gameimages/${steamAppId}/header/`}
+            alt={primaryName || group.name}
+            className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+            loading="lazy"
+            onError={() => handleImageError(steamAppId)}
+          />
+        );
+      } else if (isSteam || isWsus) {
+        bannerContent = (
+          <div
+            className={`flex h-full w-full flex-col items-center justify-center px-4 text-center ${placeholderBaseClasses}`}
+          >
+            {isSteam ? (
+              <SteamIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            ) : isWsus ? (
+              <WsusIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            ) : (
+              <UnknownServiceIcon size={placeholderIconSize + 12} style={{ color: placeholderIconColor, opacity: 0.75 }} />
             )}
-            <div className="flex-1 p-4 sm:p-5">
-              <div className="flex items-start gap-3 sm:gap-4">
-                <ChevronRight
-                  size={18}
-                  className={`mt-0.5 sm:mt-1 text-[var(--theme-primary)] transition-all duration-300 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
-                  style={{ opacity: isExpanded ? 1 : 0.6 }}
-                />
-                <div className="flex-1 min-w-0">
-                  {/* Title Row */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs font-extrabold rounded-md shadow-sm"
-                        style={getServiceBadgeStyles(group.service)}
-                      >
-                        {group.service.toUpperCase()}
-                      </span>
-                      {group.count > 1 && (
-                        <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]">
-                          {group.count}× downloads
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-lg sm:text-xl font-bold text-[var(--theme-text-primary)] truncate flex-1">
-                      {group.name}
-                    </h3>
-                  </div>
+          </div>
+        );
+      }
+    }
 
-                  {/* Stats Grid - Better aligned */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 sm:gap-y-2">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Total Downloaded</span>
-                      <span className="text-sm sm:text-base font-bold text-[var(--theme-text-primary)]">
-                        {formatBytes(group.totalBytes)}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Clients</span>
-                      <span className="text-sm sm:text-base font-bold text-[var(--theme-text-primary)]">
-                        {group.clientsSet.size}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Cache Saved</span>
-                      <span className="text-sm sm:text-base font-bold text-[var(--theme-success-text)]">
-                        {formatBytes(group.cacheHitBytes)}
-                      </span>
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Last Active</span>
-                      <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5">
-                        <Clock size={12} className="sm:hidden" />
-                        <Clock size={14} className="hidden sm:block" />
-                        {formatRelativeTime(group.lastSeen)}
-                      </span>
-                    </div>
-                    {hitPercent > 0 && (
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-xs sm:text-sm text-themed-muted font-medium min-w-[70px] sm:min-w-[80px]">Efficiency</span>
-                        <span className="text-xs sm:text-sm font-bold cache-hit inline-flex items-center gap-1.5">
-                          {formatPercent(hitPercent)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+    const cardContent = (
+      <div className={`flex flex-col ${fullHeightBanners ? 'sm:flex-row sm:items-stretch' : 'sm:flex-row'}`}>
+        {bannerContent && (
+          <div
+            className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}
+          >
+            {bannerContent}
+          </div>
+        )}
+        <div
+          className={`flex-1 ${
+            fullHeightBanners
+              ? 'px-3 pt-3 pb-1 sm:px-3 sm:pt-3 sm:pb-2'
+              : 'px-4 pt-4 pb-2 sm:px-5 sm:pt-5 sm:pb-3'
+          }`}
+        >
+          <div className="flex items-start gap-3 sm:gap-4">
+            <ChevronRight
+              size={18}
+              className={`mt-0.5 sm:mt-1 text-[var(--theme-primary)] transition-all duration-300 flex-shrink-0 ${isExpanded ? 'rotate-90' : ''}`}
+              style={{ opacity: isExpanded ? 1 : 0.6 }}
+            />
+            <div className="flex-1 min-w-0">
+              {/* Title Row */}
+              <div className={`flex flex-col sm:flex-row sm:items-center gap-2 ${fullHeightBanners ? 'sm:gap-2 mb-1.5 sm:mb-2' : 'sm:gap-3 mb-2 sm:mb-3'}`}>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-extrabold rounded-md shadow-sm`}
+                    style={getServiceBadgeStyles(group.service)}
+                  >
+                    {group.service.toUpperCase()}
+                  </span>
+                  {group.count > 1 && (
+                    <span className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]`}>
+                      {group.count}× downloads
+                    </span>
+                  )}
+                </div>
+                <h3 className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate flex-1`}>
+                  {group.name}
+                </h3>
+              </div>
+
+              {/* Stats Grid - Better aligned */}
+              <div className={`grid grid-cols-1 sm:grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-8 gap-y-1.5 sm:gap-y-2'}`}>
+                <div className="flex items-baseline gap-2">
+                  <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Total Downloaded</span>
+                  <span className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}>
+                    {formatBytes(group.totalBytes)}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Clients</span>
+                  <span className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}>
+                    {group.clientsSet.size}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Cache Saved</span>
+                  <span className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-success-text)]`}>
+                    {formatBytes(group.cacheHitBytes)}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Last Active</span>
+                  <span className={`text-xs ${fullHeightBanners ? '' : 'sm:text-sm'} font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5`}>
+                    <Clock size={12} className={fullHeightBanners ? '' : 'sm:hidden'} />
+                    {!fullHeightBanners && <Clock size={14} className="hidden sm:block" />}
+                    {formatRelativeTime(group.lastSeen)}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Efficiency</span>
+                  <span
+                    className={`text-xs ${fullHeightBanners ? '' : 'sm:text-sm'} font-bold inline-flex items-center gap-1.5 ${
+                      hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
+                    }`}
+                  >
+                    {hitPercent > 0 ? formatPercent(hitPercent) : 'N/A'}
+                  </span>
                 </div>
               </div>
             </div>
           </div>
-        </button>
+        </div>
+      </div>
+    );
+
+    return (
+      <div
+        className={`rounded-lg border overflow-hidden shadow-sm transition-all duration-300 ${
+          isExpanded ? 'ring-2' : 'hover:shadow-md'
+        }`}
+        style={{
+          borderColor: isExpanded ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+          ringColor: 'var(--theme-primary)'
+        }}
+      >
+        {fullHeightBanners ? (
+          <div
+            onClick={() => onItemClick(group.id)}
+            className="w-full text-left cursor-pointer bg-[var(--theme-bg-secondary)] transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)]/30"
+          >
+            {cardContent}
+          </div>
+        ) : (
+          <button
+            onClick={() => onItemClick(group.id)}
+            className="w-full text-left transition-all duration-300 hover:bg-[var(--theme-bg-tertiary)]/30 bg-[var(--theme-bg-secondary)]"
+          >
+            {cardContent}
+          </button>
+        )}
 
         {isExpanded && (
           <div
