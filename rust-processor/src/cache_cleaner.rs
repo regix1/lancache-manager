@@ -129,33 +129,26 @@ fn delete_directory_contents(
 
 fn delete_directory_full(
     dir_path: &Path,
-    files_counter: &AtomicU64,
+    _files_counter: &AtomicU64,
 ) -> Result<()> {
     if !dir_path.exists() {
         return Ok(());
     }
 
-    // Count files first (approximate - faster to just count entries)
-    fn count_entries(dir: &Path, counter: &AtomicU64) -> Result<()> {
-        if dir.is_dir() {
-            for entry_result in fs::read_dir(dir)? {
-                let entry = entry_result?;
-                let path = entry.path();
-                if path.is_dir() {
-                    count_entries(&path, counter)?;
-                } else {
-                    counter.fetch_add(1, Ordering::Relaxed);
-                }
-            }
+    // Just delete everything - NO counting for maximum speed!
+    // Trade-off: file count won't be accurate, but deletion is MUCH faster
+    for entry_result in fs::read_dir(dir_path)? {
+        let entry = entry_result?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            // Bulk remove entire subdirectory tree - FAST!
+            let _ = fs::remove_dir_all(&path);
+        } else {
+            // Remove file
+            let _ = fs::remove_file(&path);
         }
-        Ok(())
     }
-
-    // Count files in this directory tree
-    let _ = count_entries(dir_path, files_counter);
-
-    // Now just nuke the entire directory tree
-    let _ = fs::remove_dir_all(dir_path);
 
     Ok(())
 }
@@ -267,6 +260,10 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
+        // Increment counter BEFORE processing so percentage updates immediately
+        let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
+        eprintln!("Processing directory {} ({}/{})", dir_name, processed, total_dirs);
+
         let result = if use_full_delete {
             delete_directory_full(dir, &total_files_deleted)
         } else {
@@ -275,12 +272,10 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 
         match result {
             Ok(()) => {
-                let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
                 eprintln!("Completed directory {} ({}/{})", dir_name, processed, total_dirs);
             }
             Err(e) => {
                 eprintln!("Warning: Failed to clear directory {}: {}", dir_name, e);
-                dirs_processed.fetch_add(1, Ordering::Relaxed);
             }
         }
         });
@@ -288,17 +283,6 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 
     // Wait for monitor thread to finish
     let _ = monitor_handle.join();
-
-    // If using full delete mode, recreate the hex directory structure
-    if use_full_delete {
-        eprintln!("Recreating cache directory structure...");
-        for i in 0..256 {
-            let dir_name = format!("{:02x}", i);
-            let dir_path = cache_dir.join(&dir_name);
-            let _ = fs::create_dir(&dir_path);
-        }
-        eprintln!("Cache structure recreated (256 directories)");
-    }
 
     let final_dirs = dirs_processed.load(Ordering::Relaxed);
     let final_bytes = total_bytes_deleted.load(Ordering::Relaxed);

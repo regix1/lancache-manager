@@ -58,6 +58,15 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     loadDeleteMode();
     loadCpuCount();
     restoreCacheOperation();
+
+    // Poll CPU count every 30 seconds to detect VM/container changes
+    const cpuPollInterval = setInterval(() => {
+      loadCpuCount();
+    }, 30000);
+
+    return () => {
+      clearInterval(cpuPollInterval);
+    };
   }, []);
 
   const loadConfig = async () => {
@@ -324,7 +333,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             <div className="flex-1">
               <p className="text-themed-secondary font-medium">Deletion Mode</p>
               <p className="text-xs text-themed-muted mt-1">
-                {deleteMode === 'full' ? 'Delete everything (faster, recreates structure)' : 'Keep directory structure (slower)'}
+                {deleteMode === 'full'
+                  ? 'Bulk delete (faster, no file count)'
+                  : 'Delete files individually (slower, shows file count)'}
               </p>
             </div>
             <div className="flex items-center gap-2">
