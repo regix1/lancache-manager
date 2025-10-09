@@ -433,6 +433,13 @@ public class CacheManagementService
         }
         catch (Exception ex)
         {
+            // If the log file doesn't exist, return empty counts instead of throwing
+            if (ex.Message.Contains("No such file or directory") || ex.Message.Contains("os error 2"))
+            {
+                _logger.LogWarning($"Log file not accessible: {_logPath}. Returning empty service counts.");
+                return counts;
+            }
+
             _logger.LogError(ex, "Error counting service logs with Rust binary");
             throw;
         }
@@ -476,7 +483,7 @@ public class CacheManagementService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting services from logs");
-            throw;
+            return new List<string>();
         }
     }
 }
