@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use rayon::prelude::*;
+use rayon::ThreadPoolBuilder;
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -176,8 +177,19 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
     );
     write_progress(progress_path, &progress)?;
 
-    // Process directories in parallel using rayon
-    hex_dirs.par_iter().for_each(|dir| {
+    // Create a thread pool with limited parallelism to prevent OOM in Docker containers
+    // Use 4 threads max to balance performance and memory usage
+    let num_threads = std::cmp::min(4, num_cpus::get());
+    eprintln!("Using {} threads for parallel processing", num_threads);
+
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(num_threads)
+        .build()
+        .expect("Failed to build thread pool");
+
+    // Process directories in parallel using rayon with limited thread pool
+    pool.install(|| {
+        hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
         match delete_directory_contents(dir) {
@@ -218,6 +230,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
                 dirs_processed.fetch_add(1, Ordering::Relaxed);
             }
         }
+        });
     });
 
     let final_dirs = dirs_processed.load(Ordering::Relaxed);
