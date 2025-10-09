@@ -117,11 +117,11 @@ public class CacheClearingService : IHostedService
         try
         {
             _logger.LogInformation($"Executing cache clear operation {operation.Id}");
-            
+
             operation.Status = ClearStatus.Preparing;
-            operation.StatusMessage = "Analyzing cache structure...";
+            operation.StatusMessage = "Starting Rust cache cleaner...";
             await NotifyProgress(operation);
-            
+
             if (!Directory.Exists(_cachePath))
             {
                 operation.Status = ClearStatus.Failed;
@@ -132,149 +132,170 @@ public class CacheClearingService : IHostedService
                 return;
             }
 
-            // Get all hex directories (00-ff)
-            var hexDirs = Directory.GetDirectories(_cachePath)
-                .Where(d => {
-                    var name = Path.GetFileName(d);
-                    return name.Length == 2 && IsHex(name);
-                })
-                .OrderBy(d => d)
-                .ToList();
+            // Use Rust binary for fast cache clearing
+            var dataDir = _pathResolver.GetDataDirectory();
+            if (!Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+            }
 
-            if (hexDirs.Count == 0)
+            var progressFile = Path.Combine(dataDir, $"cache_clear_progress_{operation.Id}.json");
+            var rustBinaryPath = _pathResolver.GetRustCacheCleanerPath();
+
+            if (!File.Exists(rustBinaryPath))
             {
                 operation.Status = ClearStatus.Failed;
-                operation.Error = "No cache directories found";
+                operation.Error = $"Rust cache_cleaner binary not found at {rustBinaryPath}";
                 operation.EndTime = DateTime.UtcNow;
                 await NotifyProgress(operation);
                 SaveOperationToState(operation);
                 return;
             }
 
-            operation.TotalDirectories = hexDirs.Count;
-            _logger.LogInformation($"Found {hexDirs.Count} cache directories to clear");
+            _logger.LogInformation($"Using Rust cache cleaner: {rustBinaryPath}");
 
-            // Try to get cache size estimation
-            operation.StatusMessage = "Estimating cache size (this may take a moment for large caches)...";
-            await NotifyProgress(operation);
-            
-            long estimatedSize = await EstimateCacheSizeQuick();
-            operation.TotalBytesToDelete = estimatedSize;
-            
-            _logger.LogInformation($"Cache size: {FormatBytes(estimatedSize)}");
-            
-            // Start clearing
             operation.Status = ClearStatus.Running;
-            operation.StatusMessage = "Starting cache deletion...";
             await NotifyProgress(operation);
             SaveOperationToState(operation);
-            
-            // Track progress
-            long totalBytesDeleted = 0;
-            int dirsProcessed = 0;
-            var startTime = DateTime.UtcNow;
-            
-            // Process directories
-            foreach (var dir in hexDirs)
+
+            var startInfo = new ProcessStartInfo
             {
-                if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
+                FileName = rustBinaryPath,
+                Arguments = $"\"{_cachePath}\" \"{progressFile}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
                 {
-                    operation.Status = ClearStatus.Cancelled;
-                    operation.StatusMessage = $"Cancelled - Cleared {FormatBytes(totalBytesDeleted)}";
-                    operation.EndTime = DateTime.UtcNow;
-                    await NotifyProgress(operation);
-                    SaveOperationToState(operation);
-                    return;
+                    throw new Exception("Failed to start Rust cache_cleaner process");
                 }
-                
-                var dirName = Path.GetFileName(dir);
-                _logger.LogDebug($"Processing directory {dirName} ({dirsProcessed + 1}/{hexDirs.Count})");
-                
-                // Get size of this directory before deleting
-                long dirSize = 0;
-                try
+
+                // Poll the progress file while the process runs
+                var pollTask = Task.Run(async () =>
                 {
-                    dirSize = await GetDirectorySizeQuick(dir);
-                    _logger.LogDebug($"Directory {dirName} size: {FormatBytes(dirSize)}");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, $"Failed to get size of directory {dirName}");
-                }
-                
-                // Delete the directory contents
-                bool success = await DeleteDirectoryContents(dir);
-                
-                if (success)
-                {
-                    totalBytesDeleted += dirSize;
-                    operation.BytesDeleted = totalBytesDeleted;
-                    _logger.LogDebug($"Successfully cleared directory {dirName}, total cleared: {FormatBytes(totalBytesDeleted)}");
-                }
-                else
-                {
-                    _logger.LogWarning($"Failed to fully clear directory {dirName}");
-                }
-                
-                dirsProcessed++;
-                operation.DirectoriesProcessed = dirsProcessed;
-                
-                // Calculate percentage
-                if (operation.TotalBytesToDelete > 0 && totalBytesDeleted > 0)
-                {
-                    // Use bytes for percentage if we have actual data
-                    operation.PercentComplete = Math.Min(100, (totalBytesDeleted * 100.0) / operation.TotalBytesToDelete);
-                }
-                else
-                {
-                    // Fall back to directory count
-                    operation.PercentComplete = (dirsProcessed * 100.0) / hexDirs.Count;
-                }
-                
-                // Update status message with progress
-                var elapsed = DateTime.UtcNow - startTime;
-                var rate = totalBytesDeleted / Math.Max(1, elapsed.TotalSeconds);
-                
-                operation.StatusMessage = $"Clearing directory {dirName} ({dirsProcessed}/{hexDirs.Count}) - {FormatBytes(totalBytesDeleted)} cleared";
-                
-                if (rate > 0 && operation.TotalBytesToDelete > totalBytesDeleted)
-                {
-                    var remainingBytes = operation.TotalBytesToDelete - totalBytesDeleted;
-                    var remainingSeconds = remainingBytes / rate;
-                    var remainingTime = TimeSpan.FromSeconds(remainingSeconds);
-                    
-                    if (remainingTime.TotalMinutes < 60)
+                    while (!process.HasExited)
                     {
-                        operation.StatusMessage += $" - ~{remainingTime.Minutes}m remaining";
+                        await Task.Delay(500);
+
+                        if (operation.CancellationTokenSource?.Token.IsCancellationRequested == true)
+                        {
+                            process.Kill();
+                            operation.Status = ClearStatus.Cancelled;
+                            operation.StatusMessage = "Cancelled by user";
+                            operation.EndTime = DateTime.UtcNow;
+                            await NotifyProgress(operation);
+                            SaveOperationToState(operation);
+                            return;
+                        }
+
+                        if (File.Exists(progressFile))
+                        {
+                            try
+                            {
+                                string json;
+                                using (var fileStream = new FileStream(progressFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                                using (var reader = new StreamReader(fileStream))
+                                {
+                                    json = await reader.ReadToEndAsync();
+                                }
+
+                                var progressData = System.Text.Json.JsonSerializer.Deserialize<RustCacheProgress>(json, new System.Text.Json.JsonSerializerOptions
+                                {
+                                    PropertyNameCaseInsensitive = true
+                                });
+
+                                if (progressData != null)
+                                {
+                                    operation.DirectoriesProcessed = progressData.DirectoriesProcessed;
+                                    operation.TotalDirectories = progressData.TotalDirectories;
+                                    operation.BytesDeleted = (long)progressData.BytesDeleted;
+                                    operation.PercentComplete = progressData.PercentComplete;
+                                    operation.StatusMessage = progressData.Message;
+
+                                    await NotifyProgress(operation);
+
+                                    if (operation.DirectoriesProcessed % 10 == 0)
+                                    {
+                                        SaveOperationToState(operation);
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogDebug(ex, "Failed to read progress file");
+                            }
+                        }
                     }
-                    else
-                    {
-                        operation.StatusMessage += $" - ~{remainingTime.Hours}h {remainingTime.Minutes}m remaining";
-                    }
+                });
+
+                // Read output asynchronously
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                await process.WaitForExitAsync();
+                await pollTask;
+
+                var output = await outputTask;
+                var error = await errorTask;
+
+                if (process.ExitCode != 0)
+                {
+                    throw new Exception($"Rust cache_cleaner failed with exit code {process.ExitCode}: {error}");
                 }
-                
-                // Send update every directory or every 2% progress
+
+                _logger.LogInformation($"Rust cache cleaner output: {output}");
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogDebug($"Rust stderr: {error}");
+                }
+
+                // Read final progress
+                if (File.Exists(progressFile))
+                {
+                    try
+                    {
+                        string json = await File.ReadAllTextAsync(progressFile);
+                        var progressData = System.Text.Json.JsonSerializer.Deserialize<RustCacheProgress>(json, new System.Text.Json.JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                        if (progressData != null)
+                        {
+                            operation.BytesDeleted = (long)progressData.BytesDeleted;
+                            operation.DirectoriesProcessed = progressData.DirectoriesProcessed;
+                            operation.TotalDirectories = progressData.TotalDirectories;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to read final progress");
+                    }
+
+                    // Clean up progress file
+                    try
+                    {
+                        File.Delete(progressFile);
+                    }
+                    catch { }
+                }
+
+                operation.Status = ClearStatus.Completed;
+                operation.StatusMessage = $"Successfully cleared {FormatBytes(operation.BytesDeleted)} from {operation.DirectoriesProcessed} directories";
+                operation.EndTime = DateTime.UtcNow;
+                operation.PercentComplete = 100;
+
+                var duration = operation.EndTime.Value - operation.StartTime;
+                _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds - Cleared {FormatBytes(operation.BytesDeleted)}");
+
                 await NotifyProgress(operation);
-                
-                // Save state every 10 directories
-                if (dirsProcessed % 10 == 0)
-                {
-                    SaveOperationToState(operation);
-                }
+                SaveOperationToState(operation);
             }
-            
-            // Final update
-            operation.Status = ClearStatus.Completed;
-            operation.StatusMessage = $"Successfully cleared {FormatBytes(totalBytesDeleted)} from {dirsProcessed} directories";
-            operation.EndTime = DateTime.UtcNow;
-            operation.BytesDeleted = totalBytesDeleted;
-            operation.PercentComplete = 100;
-            
-            var duration = operation.EndTime.Value - operation.StartTime;
-            _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds - Cleared {FormatBytes(totalBytesDeleted)}");
-            
-            await NotifyProgress(operation);
-            SaveOperationToState(operation);
         }
         catch (Exception ex)
         {
@@ -288,407 +309,17 @@ public class CacheClearingService : IHostedService
         }
     }
 
-    private async Task<long> EstimateCacheSizeQuick()
+    // Helper class for deserializing Rust progress data
+    private class RustCacheProgress
     {
-        try
-        {
-            // First, try to get the used space from df for the mount point
-            // This is instant and accurate
-            _logger.LogInformation($"Getting cache size for {_cachePath}");
-            
-            using var dfProcess = new Process();
-            dfProcess.StartInfo = new ProcessStartInfo
-            {
-                FileName = "df",
-                Arguments = "-B1 " + _cachePath, // Size in bytes
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            dfProcess.Start();
-            string dfOutput = await dfProcess.StandardOutput.ReadToEndAsync();
-            await dfProcess.WaitForExitAsync();
-            
-            if (dfProcess.ExitCode == 0 && !string.IsNullOrEmpty(dfOutput))
-            {
-                var lines = dfOutput.Split('\n');
-                if (lines.Length > 1)
-                {
-                    // Parse the second line (first is header)
-                    var parts = lines[1].Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length >= 3 && long.TryParse(parts[2], out var usedBytes))
-                    {
-                        _logger.LogInformation($"Cache mount point shows {FormatBytes(usedBytes)} used");
-                        
-                        // If this is a shared mount, we need to calculate just the cache portion
-                        // Try a quick du with larger timeout for more accuracy
-                        return await GetActualCacheSize(usedBytes);
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get size from df");
-        }
-        
-        // Fallback: Try du with longer timeout
-        try
-        {
-            _logger.LogInformation("Trying du command to estimate size...");
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "timeout",
-                Arguments = $"30 du -sb {_cachePath}", // 30 second timeout for large caches
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            process.Start();
-            
-            // Start reading output asynchronously
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            
-            // Wait for completion or timeout
-            if (await Task.Run(() => process.WaitForExit(30000)))
-            {
-                string output = await outputTask;
-                if (!string.IsNullOrEmpty(output))
-                {
-                    var parts = output.Split('\t');
-                    if (parts.Length > 0 && long.TryParse(parts[0], out var size))
-                    {
-                        _logger.LogInformation($"du reported cache size: {FormatBytes(size)}");
-                        return size;
-                    }
-                }
-            }
-            else
-            {
-                _logger.LogWarning("du command timed out after 30 seconds");
-                process.Kill();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get cache size with du");
-        }
-        
-        // Last resort: sample-based estimation
-        try
-        {
-            _logger.LogInformation("Using sampling to estimate cache size...");
-            var hexDirs = Directory.GetDirectories(_cachePath)
-                .Where(d => Path.GetFileName(d).Length == 2)
-                .ToList();
-            
-            if (hexDirs.Any())
-            {
-                long totalSampleSize = 0;
-                int totalSampleFiles = 0;
-                int dirsToSample = Math.Min(5, hexDirs.Count); // Sample up to 5 directories
-                
-                for (int i = 0; i < dirsToSample; i++)
-                {
-                    var dir = hexDirs[i];
-                    try
-                    {
-                        // Use du for each sample directory (faster than counting files)
-                        using var process = new Process();
-                        process.StartInfo = new ProcessStartInfo
-                        {
-                            FileName = "timeout",
-                            Arguments = $"5 du -sb {dir}",
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true,
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        };
-                        
-                        process.Start();
-                        string output = await process.StandardOutput.ReadToEndAsync();
-                        await process.WaitForExitAsync();
-                        
-                        if (process.ExitCode == 0 && !string.IsNullOrEmpty(output))
-                        {
-                            var parts = output.Split('\t');
-                            if (parts.Length > 0 && long.TryParse(parts[0], out var dirSize))
-                            {
-                                totalSampleSize += dirSize;
-                                totalSampleFiles++;
-                            }
-                        }
-                    }
-                    catch { }
-                }
-                
-                if (totalSampleFiles > 0)
-                {
-                    var avgDirSize = totalSampleSize / totalSampleFiles;
-                    var estimatedTotal = avgDirSize * hexDirs.Count;
-                    _logger.LogInformation($"Estimated cache size from sampling: {FormatBytes(estimatedTotal)}");
-                    return estimatedTotal;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to estimate cache size from sampling");
-        }
-        
-        // Absolute fallback: 500GB estimate (more realistic for a cache)
-        _logger.LogWarning("Using fallback cache size estimate of 500GB");
-        return 500L * 1024 * 1024 * 1024;
-    }
-
-    private async Task<long> GetActualCacheSize(long mountUsedBytes)
-    {
-        try
-        {
-            // Quick check if the entire mount is the cache
-            // Try to run du with a timeout to see if we can get actual cache size
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "timeout",
-                Arguments = $"15 du -sb {_cachePath}", // 15 second timeout
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            process.Start();
-            
-            // Check periodically if process completed
-            for (int i = 0; i < 15; i++)
-            {
-                if (process.HasExited)
-                {
-                    string output = await process.StandardOutput.ReadToEndAsync();
-                    if (!string.IsNullOrEmpty(output))
-                    {
-                        var parts = output.Split('\t');
-                        if (parts.Length > 0 && long.TryParse(parts[0], out var size))
-                        {
-                            _logger.LogInformation($"Actual cache size: {FormatBytes(size)}");
-                            return size;
-                        }
-                    }
-                    break;
-                }
-                await Task.Delay(1000);
-            }
-            
-            if (!process.HasExited)
-            {
-                process.Kill();
-                _logger.LogWarning("du timed out, using mount size as estimate");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get actual cache size");
-        }
-        
-        // Assume most of the mount is cache
-        return mountUsedBytes;
-    }
-
-    private async Task<long> GetDirectorySizeQuick(string directory)
-    {
-        var dirName = Path.GetFileName(directory);
-        
-        try
-        {
-            // Try to use du for quick size
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "timeout",
-                Arguments = $"3 du -sb '{directory}'", // 3 second timeout per directory
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            process.Start();
-            string output = await process.StandardOutput.ReadToEndAsync();
-            bool completed = await Task.Run(() => process.WaitForExit(3000));
-            
-            if (completed && process.ExitCode == 0 && !string.IsNullOrEmpty(output))
-            {
-                var parts = output.Split('\t');
-                if (parts.Length > 0 && long.TryParse(parts[0], out var size))
-                {
-                    _logger.LogTrace($"Directory {dirName} size from du: {FormatBytes(size)}");
-                    return size;
-                }
-            }
-            
-            if (!completed)
-            {
-                process.Kill();
-                _logger.LogTrace($"du timed out for directory {dirName}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogTrace($"du failed for directory {dirName}: {ex.Message}");
-        }
-        
-        // Fallback: count files manually but quickly
-        try
-        {
-            long totalSize = 0;
-            int fileCount = 0;
-            
-            // Use EnumerateFiles for better performance
-            var files = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories);
-            
-            foreach (var file in files)
-            {
-                try
-                {
-                    var fi = new FileInfo(file);
-                    totalSize += fi.Length;
-                    fileCount++;
-                    
-                    // Stop sampling after 1000 files and extrapolate
-                    if (fileCount >= 1000)
-                    {
-                        // Count remaining files quickly without getting size
-                        var totalFiles = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Length;
-                        if (totalFiles > fileCount)
-                        {
-                            var avgSize = totalSize / fileCount;
-                            totalSize = avgSize * totalFiles;
-                            _logger.LogTrace($"Directory {dirName}: sampled {fileCount} files, extrapolated to {totalFiles} files = {FormatBytes(totalSize)}");
-                        }
-                        break;
-                    }
-                }
-                catch { }
-            }
-            
-            _logger.LogTrace($"Directory {dirName} size from file count: {FormatBytes(totalSize)} ({fileCount} files checked)");
-            return totalSize;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, $"Failed to get size for directory {dirName}");
-            // Return a default estimate based on typical cache directory size
-            return 5L * 1024 * 1024 * 1024; // 5GB default per directory
-        }
-    }
-
-    private async Task<bool> DeleteDirectoryContents(string directory)
-    {
-        try
-        {
-            var dirName = Path.GetFileName(directory);
-            _logger.LogDebug($"Starting deletion of directory {dirName}");
-            
-            // Use rm -rf with sudo if needed (for permission issues)
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"rm -rf '{directory}'/* 2>/dev/null || sudo rm -rf '{directory}'/* 2>/dev/null\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            process.Start();
-            
-            // Wait for up to 120 seconds per directory (increased timeout)
-            bool completed = await Task.Run(() => process.WaitForExit(120000));
-            
-            if (!completed)
-            {
-                _logger.LogWarning($"Delete operation timed out for directory {dirName}, killing process");
-                process.Kill();
-                
-                // Try forceful deletion
-                return await ForceDeleteDirectory(directory);
-            }
-            
-            var error = await process.StandardError.ReadToEndAsync();
-            if (!string.IsNullOrEmpty(error))
-            {
-                _logger.LogWarning($"Deletion warnings for {dirName}: {error}");
-            }
-            
-            // Verify deletion was successful
-            var remainingFiles = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Length;
-            if (remainingFiles == 0)
-            {
-                _logger.LogDebug($"Successfully deleted all contents of directory {dirName}");
-                return true;
-            }
-            else
-            {
-                _logger.LogWarning($"Directory {dirName} still has {remainingFiles} files after deletion attempt");
-                return await ForceDeleteDirectory(directory);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Failed to delete directory {directory}");
-            return false;
-        }
-    }
-
-    private async Task<bool> ForceDeleteDirectory(string directory)
-    {
-        try
-        {
-            var dirName = Path.GetFileName(directory);
-            _logger.LogWarning($"Attempting force deletion for directory {dirName}");
-            
-            // Try with ionice to reduce I/O impact
-            using var process = new Process();
-            process.StartInfo = new ProcessStartInfo
-            {
-                FileName = "/bin/bash",
-                Arguments = $"-c \"ionice -c3 find '{directory}' -type f -delete && find '{directory}' -type d -empty -delete\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            
-            process.Start();
-            await process.WaitForExitAsync();
-            
-            // Final verification
-            var remainingFiles = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Length;
-            var success = remainingFiles == 0;
-            
-            if (success)
-            {
-                _logger.LogInformation($"Force deletion successful for directory {dirName}");
-            }
-            else
-            {
-                _logger.LogError($"Force deletion failed for directory {dirName}, {remainingFiles} files remain");
-            }
-            
-            return success;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Force deletion failed for {directory}");
-            return false;
-        }
+        public bool IsProcessing { get; set; }
+        public double PercentComplete { get; set; }
+        public string Status { get; set; } = "";
+        public string Message { get; set; } = "";
+        public int DirectoriesProcessed { get; set; }
+        public int TotalDirectories { get; set; }
+        public ulong BytesDeleted { get; set; }
+        public ulong FilesDeleted { get; set; }
     }
 
     private bool IsHex(string value)

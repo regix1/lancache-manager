@@ -419,10 +419,8 @@ const LogFileManager: React.FC<{
 
       await serviceRemovalOp.clear();
 
-      // Wait a bit longer before refreshing to give Linux time for Rust binary to finish
-      setTimeout(async () => {
-        setActiveServiceRemoval(null);
-
+      // Poll for updated counts until we get valid data (for Linux systems where Rust binary may take time)
+      const pollForUpdates = async (attempts = 0, maxAttempts = 20) => {
         try {
           const [configData, counts] = await Promise.all([
             ApiService.getConfig(),
@@ -430,17 +428,32 @@ const LogFileManager: React.FC<{
           ]);
           setConfig(configData);
 
-          // Only update counts if we got valid data (non-empty)
-          // This prevents clearing the UI on Linux when the API temporarily returns empty
+          // If we got valid data (non-empty), update and stop polling
           if (counts && Object.keys(counts).length > 0) {
             setServiceCounts(counts);
+            setActiveServiceRemoval(null);
+            onDataRefresh?.();
+            return;
           }
 
-          onDataRefresh?.();
+          // If we've tried enough times, give up and clear the loading state
+          if (attempts >= maxAttempts) {
+            console.warn('Max polling attempts reached, clearing loading state');
+            setActiveServiceRemoval(null);
+            onDataRefresh?.();
+            return;
+          }
+
+          // Wait 2 seconds and try again
+          setTimeout(() => pollForUpdates(attempts + 1, maxAttempts), 2000);
         } catch (err) {
           console.error('Failed to reload config:', err);
+          setActiveServiceRemoval(null);
         }
-      }, 3000); // 3 second delay for Linux systems
+      };
+
+      // Start polling after a brief delay
+      setTimeout(() => pollForUpdates(), 1000);
     } catch (err: any) {
       await serviceRemovalOp.clear();
       setActiveServiceRemoval(null);
@@ -811,28 +824,16 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         {/* Cache Clearing Background Operation */}
         {backgroundOperations.cacheClearing && (
           <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin" />}>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex-1">
-                <p className="font-medium">Cache clearing in progress...</p>
-                {backgroundOperations.cacheClearing.bytesDeleted > 0 && (
-                  <p className="text-sm mt-1 opacity-75">
-                    {formatBytes(backgroundOperations.cacheClearing.bytesDeleted)} cleared
-                  </p>
-                )}
+            <div>
+              <p className="font-medium">Cache clearing in progress...</p>
+              {backgroundOperations.cacheClearing.bytesDeleted > 0 && (
                 <p className="text-sm mt-1 opacity-75">
-                  {(backgroundOperations.cacheClearing.progress || 0).toFixed(0)}% complete
+                  {formatBytes(backgroundOperations.cacheClearing.bytesDeleted)} cleared
                 </p>
-              </div>
-              <Button
-                variant="filled"
-                color="blue"
-                size="sm"
-                leftSection={<Eye className="w-4 h-4" />}
-                onClick={backgroundOperations.cacheClearing.showModal}
-                className="w-full sm:w-auto"
-              >
-                View Details
-              </Button>
+              )}
+              <p className="text-sm mt-1 opacity-75">
+                {(backgroundOperations.cacheClearing.progress || 0).toFixed(0)}% complete
+              </p>
             </div>
           </Alert>
         )}

@@ -55,4 +55,9 @@ public interface IPathResolver
     /// Gets the path to the Rust log manager executable
     /// </summary>
     string GetRustLogManagerPath();
+
+    /// <summary>
+    /// Gets the path to the Rust cache cleaner executable
+    /// </summary>
+    string GetRustCacheCleanerPath();
 }

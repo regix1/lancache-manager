@@ -21,6 +21,7 @@ RUN cargo build --release && \
     cp target/release/lancache_processor /build/output/ && \
     cp target/release/database_reset /build/output/ && \
     cp target/release/log_manager /build/output/ && \
+    cp target/release/cache_cleaner /build/output/ && \
     chmod +x /build/output/*
 
 # Stage 2: Build Frontend

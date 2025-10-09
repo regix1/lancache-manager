@@ -15,6 +15,10 @@ path = "src/database_reset.rs"
 name = "log_manager"
 path = "src/log_manager.rs"
 
+[[bin]]
+name = "cache_cleaner"
+path = "src/cache_cleaner.rs"
+
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 regex = "1.10"

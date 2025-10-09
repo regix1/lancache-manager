@@ -35,6 +35,9 @@ public class WindowsPathResolver : IPathResolver
     public string GetRustLogManagerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "log_manager.exe");
 
+    public string GetRustCacheCleanerPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_cleaner.exe");
+
     /// <summary>
     /// Resolves a relative path to an absolute path based on the operating system
     /// </summary>
