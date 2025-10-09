@@ -70,45 +70,60 @@ public class StatsController : ControllerBase
     {
         try
         {
-            List<ServiceStats> stats;
-
             // If no filtering, use cached service method
             if (!startTime.HasValue && !endTime.HasValue && (string.IsNullOrEmpty(since) || since == "all"))
             {
-                stats = await _statsService.GetServiceStatsAsync();
+                var cachedStats = await _statsService.GetServiceStatsAsync();
+                return Ok(cachedStats);
+            }
+
+            // With filtering, calculate from Downloads table for accurate time-sliced stats
+            DateTime startDate;
+            DateTime endDate;
+
+            if (startTime.HasValue || endTime.HasValue)
+            {
+                // Use provided Unix timestamps
+                startDate = startTime.HasValue
+                    ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
+                    : DateTime.MinValue;
+                endDate = endTime.HasValue
+                    ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
+                    : DateTime.UtcNow;
+            }
+            else if (!string.IsNullOrEmpty(since) && since != "all")
+            {
+                // Parse time period string
+                var cutoffTime = ParseTimePeriod(since);
+                startDate = cutoffTime ?? DateTime.UtcNow.AddHours(-24);
+                endDate = DateTime.UtcNow;
             }
             else
             {
-                // With filtering, query database directly
-                var query = _context.ServiceStats.AsNoTracking();
-
-                if (startTime.HasValue || endTime.HasValue)
-                {
-                    // Database stores dates in UTC, so filter with UTC
-                    var startDate = startTime.HasValue
-                        ? DateTimeOffset.FromUnixTimeSeconds(startTime.Value).UtcDateTime
-                        : DateTime.MinValue;
-                    var endDate = endTime.HasValue
-                        ? DateTimeOffset.FromUnixTimeSeconds(endTime.Value).UtcDateTime
-                        : DateTime.UtcNow;
-
-                    query = query.Where(s => s.LastActivityUtc >= startDate && s.LastActivityUtc <= endDate);
-                }
-                else if (!string.IsNullOrEmpty(since) && since != "all")
-                {
-                    var cutoffTime = ParseTimePeriod(since);
-                    if (cutoffTime.HasValue)
-                    {
-                        query = query.Where(s => s.LastActivityUtc >= cutoffTime.Value);
-                    }
-                }
-
-                stats = await query
-                    .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
-                    .ToListAsync();
+                // Fallback
+                startDate = DateTime.MinValue;
+                endDate = DateTime.UtcNow;
             }
 
-            return Ok(stats);
+            // Query downloads within the time range and aggregate by service
+            var serviceStats = await _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                .GroupBy(d => d.Service)
+                .Select(g => new ServiceStats
+                {
+                    Service = g.Key,
+                    TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                    // TotalBytes and CacheHitPercent are computed properties
+                    TotalDownloads = g.Count(),
+                    LastActivityUtc = g.Max(d => d.StartTimeUtc),
+                    LastActivityLocal = g.Max(d => d.StartTimeLocal)
+                })
+                .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
+                .ToListAsync();
+
+            return Ok(serviceStats);
         }
         catch (Exception ex)
         {

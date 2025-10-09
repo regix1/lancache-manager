@@ -103,17 +103,45 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     // Backend now groups chunks by game, so we just need to display them
     // No frontend grouping needed - backend handles grouping via GameAppId + ClientIp
     const groupedActiveDownloads = useMemo(() => {
+      // Filter out unknown/unmapped games from active downloads
+      const filtered = activeDownloads.filter(download => {
+        // For Steam downloads, check if game name is valid
+        if (download.service.toLowerCase() === 'steam') {
+          // Filter out downloads without a game name
+          if (!download.gameName) {
+            return false;
+          }
+
+          const trimmedName = download.gameName.trim();
+          const gameNameLower = trimmedName.toLowerCase();
+
+          // Filter out "Unknown Steam Game" or any variation with "unknown"
+          if (gameNameLower.includes('unknown')) {
+            return false;
+          }
+
+          // Filter out unmapped Steam apps (e.g., "Steam App 12345")
+          if (/^steam app \d+$/i.test(trimmedName)) {
+            return false;
+          }
+        }
+
+        // Keep all non-Steam downloads and valid Steam downloads
+        return true;
+      });
+
       // Backend already grouped by game, just sort and limit
-      const sorted = [...activeDownloads].sort((a, b) =>
+      const sorted = [...filtered].sort((a, b) =>
         new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime()
       );
       return sorted.slice(0, 10);
     }, [activeDownloads]);
 
     // Count total active downloads (backend already grouped by game)
+    // Use the filtered count to show only valid downloads
     const activeDownloadCount = useMemo(() => {
-      return activeDownloads.length;
-    }, [activeDownloads]);
+      return groupedActiveDownloads.length;
+    }, [groupedActiveDownloads]);
 
     const getTimeRangeLabel = useMemo(() => {
       const labels: Record<string, string> = {

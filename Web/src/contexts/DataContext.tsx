@@ -496,8 +496,13 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           .build();
 
         connection.on('DownloadsRefresh', () => {
-          // Immediately fetch fresh fast data when downloads are updated
+          // Immediately fetch fresh data when downloads are updated
+          // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)
           fetchFastData();
+          // Also fetch service stats so the chart updates in real-time
+          fetchSlowData();
+          // And client stats for the top clients table
+          fetchMediumData();
         });
 
         await connection.start();

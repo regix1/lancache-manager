@@ -553,8 +553,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
     </Card>
   );
 }, (prevProps, nextProps) => {
-  // Only re-render if serviceStats actually changed
-  return JSON.stringify(prevProps.serviceStats) === JSON.stringify(nextProps.serviceStats);
+  // Re-render if timeRange changed or serviceStats data changed
+  return prevProps.timeRange === nextProps.timeRange &&
+         JSON.stringify(prevProps.serviceStats) === JSON.stringify(nextProps.serviceStats);
 });
 
 EnhancedServiceChart.displayName = 'EnhancedServiceChart';
