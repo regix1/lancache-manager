@@ -218,6 +218,7 @@ public class CacheClearingService : IHostedService
                                     operation.DirectoriesProcessed = progressData.DirectoriesProcessed;
                                     operation.TotalDirectories = progressData.TotalDirectories;
                                     operation.BytesDeleted = (long)progressData.BytesDeleted;
+                                    operation.FilesDeleted = (long)progressData.FilesDeleted;
                                     operation.PercentComplete = progressData.PercentComplete;
                                     operation.StatusMessage = progressData.Message;
 
@@ -296,6 +297,7 @@ public class CacheClearingService : IHostedService
                         if (progressData != null)
                         {
                             operation.BytesDeleted = (long)progressData.BytesDeleted;
+                            operation.FilesDeleted = (long)progressData.FilesDeleted;
                             operation.DirectoriesProcessed = progressData.DirectoriesProcessed;
                             operation.TotalDirectories = progressData.TotalDirectories;
                         }
@@ -378,14 +380,15 @@ public class CacheClearingService : IHostedService
                 DirectoriesProcessed = operation.DirectoriesProcessed,
                 TotalDirectories = operation.TotalDirectories,
                 BytesDeleted = operation.BytesDeleted,
+                FilesDeleted = operation.FilesDeleted,
                 TotalBytesToDelete = operation.TotalBytesToDelete,
                 Errors = operation.Errors,
                 Error = operation.Error,
                 PercentComplete = operation.PercentComplete
             };
-            
+
             await _hubContext.Clients.All.SendAsync("CacheClearProgress", progress);
-            
+
             _logger.LogDebug($"Progress: {progress.PercentComplete:F1}% - {operation.StatusMessage}");
         }
         catch (Exception ex)
@@ -521,13 +524,14 @@ public class CacheClearingService : IHostedService
                 DirectoriesProcessed = operation.DirectoriesProcessed,
                 TotalDirectories = operation.TotalDirectories,
                 BytesDeleted = operation.BytesDeleted,
+                FilesDeleted = operation.FilesDeleted,
                 TotalBytesToDelete = operation.TotalBytesToDelete,
                 Errors = operation.Errors,
                 Error = operation.Error,
                 PercentComplete = operation.PercentComplete
             };
         }
-        
+
         return null;
     }
 
@@ -544,6 +548,7 @@ public class CacheClearingService : IHostedService
             DirectoriesProcessed = op.DirectoriesProcessed,
             TotalDirectories = op.TotalDirectories,
             BytesDeleted = op.BytesDeleted,
+            FilesDeleted = op.FilesDeleted,
             TotalBytesToDelete = op.TotalBytesToDelete,
             Errors = op.Errors,
             Error = op.Error,
@@ -616,10 +621,11 @@ public class CacheClearOperation
     public int TotalDirectories { get; set; }
     public int DirectoriesProcessed { get; set; }
     public long BytesDeleted { get; set; }
+    public long FilesDeleted { get; set; }
     public long TotalBytesToDelete { get; set; }
     public int Errors { get; set; }
     public double PercentComplete { get; set; }
-    
+
     [JsonIgnore]
     public CancellationTokenSource? CancellationTokenSource { get; set; }
 }
@@ -644,6 +650,7 @@ public class CacheClearProgress
     public int DirectoriesProcessed { get; set; }
     public int TotalDirectories { get; set; }
     public long BytesDeleted { get; set; }
+    public long FilesDeleted { get; set; }
     public long TotalBytesToDelete { get; set; }
     public int Errors { get; set; }
     public string? Error { get; set; }

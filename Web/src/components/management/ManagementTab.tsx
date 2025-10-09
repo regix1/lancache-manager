@@ -826,9 +826,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
               <div className="flex-1">
                 <p className="font-medium">Cache clearing in progress...</p>
-                {backgroundOperations.cacheClearing.bytesDeleted > 0 && (
+                {backgroundOperations.cacheClearing.filesDeleted > 0 && (
                   <p className="text-sm mt-1 opacity-75">
-                    {formatBytes(backgroundOperations.cacheClearing.bytesDeleted)} cleared
+                    {(backgroundOperations.cacheClearing.filesDeleted || 0).toLocaleString()} files deleted
                   </p>
                 )}
                 <p className="text-sm mt-1 opacity-75">

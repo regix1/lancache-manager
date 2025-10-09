@@ -193,6 +193,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     if (isActive && onBackgroundOperationRef.current) {
       onBackgroundOperationRef.current({
         bytesDeleted: cacheClearProgress.bytesDeleted || 0,
+        filesDeleted: cacheClearProgress.filesDeleted || 0,
         progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
         cancel: handleCancelCacheClear
       });
