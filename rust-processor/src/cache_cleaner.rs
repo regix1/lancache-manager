@@ -7,7 +7,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 #[cfg(windows)]
@@ -90,36 +90,48 @@ fn is_hex(value: &str) -> bool {
     value.len() == 2 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn delete_directory_contents(dir_path: &Path) -> Result<(u64, u64)> {
+fn delete_directory_contents(
+    dir_path: &Path,
+    bytes_counter: &AtomicU64,
+    files_counter: &AtomicU64,
+) -> Result<()> {
     if !dir_path.exists() {
-        return Ok((0, 0));
+        return Ok(());
     }
 
-    // Use remove_dir_all for fast parallel deletion (no size calculation beforehand)
-    // We track stats during deletion instead of before
-    let mut total_bytes = 0u64;
-    let mut total_files = 0u64;
+    // Simple recursive deletion - memory efficient
+    fn delete_recursive(
+        dir: &Path,
+        bytes_counter: &AtomicU64,
+        files_counter: &AtomicU64,
+    ) -> Result<()> {
+        if dir.is_dir() {
+            for entry_result in fs::read_dir(dir)? {
+                let entry = entry_result?;
+                let path = entry.path();
 
-    // Walk through entries and delete them
-    for entry_result in fs::read_dir(dir_path)? {
-        let entry = entry_result?;
-        let path = entry.path();
+                if path.is_dir() {
+                    delete_recursive(&path, bytes_counter, files_counter)?;
+                    // Try to remove the empty directory
+                    let _ = fs::remove_dir(&path);
+                } else {
+                    // Get file size before deleting
+                    if let Ok(metadata) = entry.metadata() {
+                        bytes_counter.fetch_add(metadata.len(), Ordering::Relaxed);
+                    }
+                    files_counter.fetch_add(1, Ordering::Relaxed);
 
-        if path.is_dir() {
-            // For directories, use fast parallel deletion
-            remove_dir_all::remove_dir_all(&path)?;
-            total_files += 1; // Count as 1 for progress
-        } else {
-            // For files, get size before deleting
-            if let Ok(metadata) = entry.metadata() {
-                total_bytes += metadata.len();
+                    // Delete the file
+                    let _ = fs::remove_file(&path);
+                }
             }
-            total_files += 1;
-            fs::remove_file(&path)?;
         }
+        Ok(())
     }
 
-    Ok((total_bytes, total_files))
+    delete_recursive(dir_path, bytes_counter, files_counter)?;
+
+    Ok(())
 }
 
 fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
@@ -155,7 +167,6 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
     let dirs_processed = Arc::new(AtomicUsize::new(0));
     let total_bytes_deleted = Arc::new(AtomicU64::new(0));
     let total_files_deleted = Arc::new(AtomicU64::new(0));
-    let last_progress_update = Arc::new(Mutex::new(Instant::now()));
 
     // Initial progress
     let progress = ProgressData::new(
@@ -180,43 +191,58 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
         .build()
         .expect("Failed to build thread pool");
 
+    // Clone Arc references for progress monitoring thread
+    let bytes_for_monitor = Arc::clone(&total_bytes_deleted);
+    let files_for_monitor = Arc::clone(&total_files_deleted);
+    let dirs_for_monitor = Arc::clone(&dirs_processed);
+    let progress_path_clone = progress_path.to_path_buf();
+
+    // Start a background thread to update progress regularly
+    let monitor_handle = std::thread::spawn(move || {
+        let mut last_update = Instant::now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+
+            let processed = dirs_for_monitor.load(Ordering::Relaxed);
+            let bytes = bytes_for_monitor.load(Ordering::Relaxed);
+            let files = files_for_monitor.load(Ordering::Relaxed);
+
+            if processed >= total_dirs {
+                break; // All done
+            }
+
+            if last_update.elapsed().as_millis() > 500 {
+                let percent = (processed as f64 / total_dirs as f64) * 100.0;
+
+                let progress = ProgressData::new(
+                    true,
+                    percent,
+                    "running".to_string(),
+                    format!("Clearing cache ({}/{})", processed, total_dirs),
+                    processed,
+                    total_dirs,
+                    bytes,
+                    files,
+                );
+
+                if let Err(e) = write_progress(&progress_path_clone, &progress) {
+                    eprintln!("Warning: Failed to write progress: {}", e);
+                }
+
+                last_update = Instant::now();
+            }
+        }
+    });
+
     // Process directories in parallel using rayon with limited thread pool
     pool.install(|| {
         hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
-        match delete_directory_contents(dir) {
-            Ok((bytes, files)) => {
-                total_bytes_deleted.fetch_add(bytes, Ordering::Relaxed);
-                total_files_deleted.fetch_add(files, Ordering::Relaxed);
-
+        match delete_directory_contents(dir, &total_bytes_deleted, &total_files_deleted) {
+            Ok(()) => {
                 let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
-
-                // Update progress every 500ms
-                if let Ok(mut last_update) = last_progress_update.try_lock() {
-                    if last_update.elapsed().as_millis() > 500 {
-                        let percent = (processed as f64 / total_dirs as f64) * 100.0;
-                        let bytes = total_bytes_deleted.load(Ordering::Relaxed);
-                        let files = total_files_deleted.load(Ordering::Relaxed);
-
-                        let progress = ProgressData::new(
-                            true,
-                            percent,
-                            "running".to_string(),
-                            format!("Clearing directory {} ({}/{})", dir_name, processed, total_dirs),
-                            processed,
-                            total_dirs,
-                            bytes,
-                            files,
-                        );
-
-                        if let Err(e) = write_progress(progress_path, &progress) {
-                            eprintln!("Warning: Failed to write progress: {}", e);
-                        }
-
-                        *last_update = Instant::now();
-                    }
-                }
+                eprintln!("Completed directory {} ({}/{})", dir_name, processed, total_dirs);
             }
             Err(e) => {
                 eprintln!("Warning: Failed to clear directory {}: {}", dir_name, e);
@@ -225,6 +251,9 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
         }
         });
     });
+
+    // Wait for monitor thread to finish
+    let _ = monitor_handle.join();
 
     let final_dirs = dirs_processed.load(Ordering::Relaxed);
     let final_bytes = total_bytes_deleted.load(Ordering::Relaxed);

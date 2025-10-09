@@ -29,7 +29,6 @@ chrono-tz = "0.10"
 anyhow = "1.0"
 rayon = "1.8"
 num_cpus = "1.16"
-remove_dir_all = { version = "0.8", features = ["parallel"] }
 
 [profile.release]
 opt-level = 3
