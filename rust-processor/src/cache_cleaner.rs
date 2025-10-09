@@ -90,7 +90,7 @@ fn is_hex(value: &str) -> bool {
     value.len() == 2 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn delete_directory_contents(dir_path: &Path) -> Result<(u64, u64)> {
+fn calculate_directory_size(dir_path: &Path) -> Result<(u64, u64)> {
     let mut total_bytes = 0u64;
     let mut total_files = 0u64;
 
@@ -98,7 +98,7 @@ fn delete_directory_contents(dir_path: &Path) -> Result<(u64, u64)> {
         return Ok((0, 0));
     }
 
-    // Walk through the directory and delete all files
+    // Recursively count files and bytes
     fn visit_dirs(dir: &Path, bytes: &mut u64, files: &mut u64) -> Result<()> {
         if dir.is_dir() {
             for entry_result in fs::read_dir(dir)? {
@@ -107,17 +107,11 @@ fn delete_directory_contents(dir_path: &Path) -> Result<(u64, u64)> {
 
                 if path.is_dir() {
                     visit_dirs(&path, bytes, files)?;
-                    // Try to remove the empty directory
-                    let _ = fs::remove_dir(&path);
                 } else {
-                    // Get file size before deleting
                     if let Ok(metadata) = entry.metadata() {
                         *bytes += metadata.len();
                     }
                     *files += 1;
-
-                    // Delete the file
-                    fs::remove_file(&path)?;
                 }
             }
         }
@@ -125,6 +119,20 @@ fn delete_directory_contents(dir_path: &Path) -> Result<(u64, u64)> {
     }
 
     visit_dirs(dir_path, &mut total_bytes, &mut total_files)?;
+
+    Ok((total_bytes, total_files))
+}
+
+fn delete_directory_contents(dir_path: &Path) -> Result<(u64, u64)> {
+    if !dir_path.exists() {
+        return Ok((0, 0));
+    }
+
+    // Calculate size before deletion (for progress reporting)
+    let (total_bytes, total_files) = calculate_directory_size(dir_path)?;
+
+    // Use remove_dir_all for fast parallel deletion
+    remove_dir_all::remove_dir_contents(dir_path)?;
 
     Ok((total_bytes, total_files))
 }
