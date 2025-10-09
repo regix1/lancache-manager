@@ -519,6 +519,47 @@ class ApiService {
       throw error;
     }
   }
+
+  // Get cache clearing delete mode
+  static async getCacheDeleteMode(): Promise<{ deleteMode: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/delete-mode`, {
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse<{ deleteMode: string }>(res);
+    } catch (error) {
+      console.error('getCacheDeleteMode error:', error);
+      throw error;
+    }
+  }
+
+  // Set cache clearing delete mode (requires auth)
+  static async setCacheDeleteMode(deleteMode: string): Promise<{ message: string; deleteMode: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/delete-mode`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ deleteMode })
+      });
+      return await this.handleResponse<{ message: string; deleteMode: string }>(res);
+    } catch (error) {
+      console.error('setCacheDeleteMode error:', error);
+      throw error;
+    }
+  }
+
+  // Get system CPU count
+  static async getSystemCpuCount(): Promise<{ cpuCount: number }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/system/cpu-count`, {
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse<{ cpuCount: number }>(res);
+    } catch (error) {
+      console.error('getSystemCpuCount error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

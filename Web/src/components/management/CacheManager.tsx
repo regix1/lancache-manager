@@ -38,6 +38,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   });
   const [threadCount, setThreadCount] = useState(4);
   const [threadCountLoading, setThreadCountLoading] = useState(false);
+  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full'>('preserve');
+  const [deleteModeLoading, setDeleteModeLoading] = useState(false);
+  const [cpuCount, setCpuCount] = useState(16); // Default max, will be updated
 
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
 
@@ -52,6 +55,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   useEffect(() => {
     loadConfig();
     loadThreadCount();
+    loadDeleteMode();
+    loadCpuCount();
     restoreCacheOperation();
   }, []);
 
@@ -76,8 +81,26 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
+  const loadDeleteMode = async () => {
+    try {
+      const data = await ApiService.getCacheDeleteMode();
+      setDeleteMode(data.deleteMode as 'preserve' | 'full');
+    } catch (err) {
+      console.error('Failed to load delete mode:', err);
+    }
+  };
+
+  const loadCpuCount = async () => {
+    try {
+      const data = await ApiService.getSystemCpuCount();
+      setCpuCount(data.cpuCount);
+    } catch (err) {
+      console.error('Failed to load CPU count:', err);
+    }
+  };
+
   const handleThreadCountChange = async (newThreadCount: number) => {
-    if (newThreadCount < 1 || newThreadCount > 16) return;
+    if (newThreadCount < 1 || newThreadCount > cpuCount) return;
 
     setThreadCountLoading(true);
     try {
@@ -89,6 +112,21 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       onError?.(err?.message || 'Failed to update thread count');
     } finally {
       setThreadCountLoading(false);
+    }
+  };
+
+  const handleDeleteModeChange = async (newMode: 'preserve' | 'full') => {
+    setDeleteModeLoading(true);
+    try {
+      await ApiService.setCacheDeleteMode(newMode);
+      setDeleteMode(newMode);
+      const modeDesc = newMode === 'full' ? 'Full deletion (faster)' : 'Preserve structure';
+      onSuccess?.(`Delete mode set to: ${modeDesc}`);
+    } catch (err: any) {
+      console.error('Failed to update delete mode:', err);
+      onError?.(err?.message || 'Failed to update delete mode');
+    } finally {
+      setDeleteModeLoading(false);
     }
   };
 
@@ -280,13 +318,45 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           </Button>
         </div>
 
+        {/* Delete Mode Configuration */}
+        <div className="mt-4 pt-4 border-t border-themed-tertiary">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex-1">
+              <p className="text-themed-secondary font-medium">Deletion Mode</p>
+              <p className="text-xs text-themed-muted mt-1">
+                {deleteMode === 'full' ? 'Delete everything (faster, recreates structure)' : 'Keep directory structure (slower)'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={deleteMode === 'preserve' ? 'filled' : 'default'}
+                color={deleteMode === 'preserve' ? 'blue' : undefined}
+                onClick={() => handleDeleteModeChange('preserve')}
+                disabled={deleteModeLoading || mockMode || authMode !== 'authenticated'}
+              >
+                Preserve
+              </Button>
+              <Button
+                size="sm"
+                variant={deleteMode === 'full' ? 'filled' : 'default'}
+                color={deleteMode === 'full' ? 'green' : undefined}
+                onClick={() => handleDeleteModeChange('full')}
+                disabled={deleteModeLoading || mockMode || authMode !== 'authenticated'}
+              >
+                Full (Faster)
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {/* Thread Count Configuration */}
         <div className="mt-4 pt-4 border-t border-themed-tertiary">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex-1">
               <p className="text-themed-secondary font-medium">Cache Clearing Threads</p>
               <p className="text-xs text-themed-muted mt-1">
-                Higher values = faster clearing (uses more CPU/RAM)
+                Higher values = faster (max: {cpuCount} CPU{cpuCount > 1 ? 's' : ''})
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -300,12 +370,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               </Button>
               <div className="min-w-[60px] text-center">
                 <span className="text-lg font-semibold text-themed-primary">{threadCount}</span>
+                <span className="text-xs text-themed-muted">/{cpuCount}</span>
               </div>
               <Button
                 size="sm"
                 variant="default"
                 onClick={() => handleThreadCountChange(threadCount + 1)}
-                disabled={threadCount >= 16 || threadCountLoading || mockMode || authMode !== 'authenticated'}
+                disabled={threadCount >= cpuCount || threadCountLoading || mockMode || authMode !== 'authenticated'}
               >
                 +
               </Button>

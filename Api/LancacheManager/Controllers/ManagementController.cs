@@ -522,6 +522,64 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpGet("cache/delete-mode")]
+    public IActionResult GetCacheDeleteMode()
+    {
+        try
+        {
+            var deleteMode = _cacheClearingService.GetDeleteMode();
+            return Ok(new { deleteMode });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting cache clear delete mode");
+            return StatusCode(500, new { error = "Failed to get delete mode", details = ex.Message });
+        }
+    }
+
+    [HttpPost("cache/delete-mode")]
+    [RequireAuth]
+    public IActionResult SetCacheDeleteMode([FromBody] SetDeleteModeRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(request.DeleteMode) ||
+                (request.DeleteMode != "preserve" && request.DeleteMode != "full"))
+            {
+                return BadRequest(new { error = "Delete mode must be 'preserve' or 'full'" });
+            }
+
+            _cacheClearingService.SetDeleteMode(request.DeleteMode);
+            _logger.LogInformation("Cache clear delete mode updated to {DeleteMode}", request.DeleteMode);
+
+            return Ok(new
+            {
+                message = "Delete mode updated successfully",
+                deleteMode = request.DeleteMode
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting cache clear delete mode");
+            return StatusCode(500, new { error = "Failed to set delete mode", details = ex.Message });
+        }
+    }
+
+    [HttpGet("system/cpu-count")]
+    public IActionResult GetSystemCpuCount()
+    {
+        try
+        {
+            var cpuCount = _cacheClearingService.GetSystemCpuCount();
+            return Ok(new { cpuCount });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting system CPU count");
+            return StatusCode(500, new { error = "Failed to get CPU count", details = ex.Message });
+        }
+    }
+
     [HttpGet("config")]
     public async Task<IActionResult> GetConfig()
     {
@@ -660,4 +718,10 @@ public class RemoveServiceRequest
 public class SetThreadCountRequest
 {
     public int ThreadCount { get; set; }
+}
+
+// Request model for setting delete mode
+public class SetDeleteModeRequest
+{
+    public string DeleteMode { get; set; } = string.Empty;
 }

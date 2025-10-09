@@ -17,6 +17,7 @@ public class CacheClearingService : IHostedService
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
     private int _threadCount;
+    private string _deleteMode;
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
@@ -33,6 +34,7 @@ public class CacheClearingService : IHostedService
 
         // Read thread count from configuration (default to 4)
         _threadCount = configuration.GetValue<int>("CacheClear:ThreadCount", 4);
+        _deleteMode = configuration.GetValue<string>("CacheClear:DeleteMode", "preserve") ?? "preserve";
 
         // Determine cache path - check most likely locations first
         var possiblePaths = new List<string> { _pathResolver.GetCacheDirectory() };
@@ -165,7 +167,7 @@ public class CacheClearingService : IHostedService
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
-                Arguments = $"\"{_cachePath}\" \"{progressFile}\" {_threadCount}",
+                Arguments = $"\"{_cachePath}\" \"{progressFile}\" {_threadCount} {_deleteMode}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -591,6 +593,27 @@ public class CacheClearingService : IHostedService
     public int GetThreadCount()
     {
         return _threadCount;
+    }
+
+    public void SetDeleteMode(string deleteMode)
+    {
+        if (deleteMode != "preserve" && deleteMode != "full")
+        {
+            throw new ArgumentException("Delete mode must be 'preserve' or 'full'", nameof(deleteMode));
+        }
+
+        _deleteMode = deleteMode;
+        _logger.LogInformation($"Cache clear delete mode updated to {deleteMode}");
+    }
+
+    public string GetDeleteMode()
+    {
+        return _deleteMode;
+    }
+
+    public int GetSystemCpuCount()
+    {
+        return Environment.ProcessorCount;
     }
 
     private void CleanupOldOperations(object? state)

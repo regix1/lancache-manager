@@ -127,10 +127,44 @@ fn delete_directory_contents(
     Ok(())
 }
 
-fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize) -> Result<()> {
+fn delete_directory_full(
+    dir_path: &Path,
+    files_counter: &AtomicU64,
+) -> Result<()> {
+    if !dir_path.exists() {
+        return Ok(());
+    }
+
+    // Count files first (approximate - faster to just count entries)
+    fn count_entries(dir: &Path, counter: &AtomicU64) -> Result<()> {
+        if dir.is_dir() {
+            for entry_result in fs::read_dir(dir)? {
+                let entry = entry_result?;
+                let path = entry.path();
+                if path.is_dir() {
+                    count_entries(&path, counter)?;
+                } else {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    // Count files in this directory tree
+    let _ = count_entries(dir_path, files_counter);
+
+    // Now just nuke the entire directory tree
+    let _ = fs::remove_dir_all(dir_path);
+
+    Ok(())
+}
+
+fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str) -> Result<()> {
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
     eprintln!("Cache path: {}", cache_path);
+    eprintln!("Deletion mode: {}", delete_mode);
 
     let cache_dir = Path::new(cache_path);
     if !cache_dir.exists() {
@@ -227,11 +261,19 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize) -> R
     });
 
     // Process directories in parallel using rayon with limited thread pool
+    let use_full_delete = delete_mode == "full";
+
     pool.install(|| {
         hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
-        match delete_directory_contents(dir, &total_files_deleted) {
+        let result = if use_full_delete {
+            delete_directory_full(dir, &total_files_deleted)
+        } else {
+            delete_directory_contents(dir, &total_files_deleted)
+        };
+
+        match result {
             Ok(()) => {
                 let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
                 eprintln!("Completed directory {} ({}/{})", dir_name, processed, total_dirs);
@@ -246,6 +288,17 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize) -> R
 
     // Wait for monitor thread to finish
     let _ = monitor_handle.join();
+
+    // If using full delete mode, recreate the hex directory structure
+    if use_full_delete {
+        eprintln!("Recreating cache directory structure...");
+        for i in 0..256 {
+            let dir_name = format!("{:02x}", i);
+            let dir_path = cache_dir.join(&dir_name);
+            let _ = fs::create_dir(&dir_path);
+        }
+        eprintln!("Cache structure recreated (256 directories)");
+    }
 
     let final_dirs = dirs_processed.load(Ordering::Relaxed);
     let final_bytes = total_bytes_deleted.load(Ordering::Relaxed);
@@ -283,24 +336,31 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize) -> R
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 3 || args.len() > 4 {
+    if args.len() < 3 || args.len() > 5 {
         eprintln!("Usage:");
-        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [thread_count]");
+        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [thread_count] [delete_mode]");
         eprintln!("\nExample:");
-        eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json 4");
-        eprintln!("\nIf thread_count is not specified, defaults to 4.");
+        eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json 4 preserve");
+        eprintln!("\nOptions:");
+        eprintln!("  thread_count: Number of threads (default: 4)");
+        eprintln!("  delete_mode: 'preserve' (keep dirs, delete files) or 'full' (delete everything, faster) (default: preserve)");
         std::process::exit(1);
     }
 
     let cache_path = &args[1];
     let progress_path = Path::new(&args[2]);
-    let thread_count = if args.len() == 4 {
+    let thread_count = if args.len() >= 4 {
         args[3].parse::<usize>().unwrap_or(4)
     } else {
         4
     };
+    let delete_mode = if args.len() >= 5 {
+        &args[4]
+    } else {
+        "preserve"
+    };
 
-    match clear_cache(cache_path, progress_path, thread_count) {
+    match clear_cache(cache_path, progress_path, thread_count, delete_mode) {
         Ok(_) => {
             std::process::exit(0);
         }
