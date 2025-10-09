@@ -175,7 +175,8 @@ public class CacheClearingService : IHostedService
                     throw new Exception("Failed to start Rust cache_cleaner process");
                 }
 
-                // Track last logged time for console output
+                // Track last logged values for console output
+                var lastLoggedDirs = 0;
                 var lastLogTime = DateTime.UtcNow;
 
                 // Poll the progress file while the process runs
@@ -224,15 +225,18 @@ public class CacheClearingService : IHostedService
 
                                     // Log progress to console when:
                                     // 1. Every 5 directories, OR
-                                    // 2. Every 3 seconds
+                                    // 2. Every 30 seconds (if stuck on same directory)
                                     var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
+                                    var dirsChanged = operation.DirectoriesProcessed != lastLoggedDirs;
                                     var shouldLog =
-                                        (operation.DirectoriesProcessed > 0 && operation.DirectoriesProcessed % 5 == 0) ||
-                                        timeSinceLastLog.TotalSeconds >= 3;
+                                        (dirsChanged && operation.DirectoriesProcessed % 5 == 0) ||
+                                        (dirsChanged && timeSinceLastLog.TotalSeconds >= 3) ||
+                                        (!dirsChanged && timeSinceLastLog.TotalSeconds >= 30);
 
                                     if (shouldLog)
                                     {
                                         _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared");
+                                        lastLoggedDirs = operation.DirectoriesProcessed;
                                         lastLogTime = DateTime.UtcNow;
                                     }
 
