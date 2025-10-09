@@ -1,10 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
 use rayon::prelude::*;
 use serde::Serialize;
 use std::env;
-use std::fs::{self, File};
-use std::io::Write as IoWrite;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

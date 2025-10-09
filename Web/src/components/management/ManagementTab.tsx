@@ -823,16 +823,30 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         {/* Cache Clearing Background Operation */}
         {backgroundOperations.cacheClearing && (
           <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin" />}>
-            <div>
-              <p className="font-medium">Cache clearing in progress...</p>
-              {backgroundOperations.cacheClearing.bytesDeleted > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="flex-1">
+                <p className="font-medium">Cache clearing in progress...</p>
+                {backgroundOperations.cacheClearing.bytesDeleted > 0 && (
+                  <p className="text-sm mt-1 opacity-75">
+                    {formatBytes(backgroundOperations.cacheClearing.bytesDeleted)} cleared
+                  </p>
+                )}
                 <p className="text-sm mt-1 opacity-75">
-                  {formatBytes(backgroundOperations.cacheClearing.bytesDeleted)} cleared
+                  {(backgroundOperations.cacheClearing.progress || 0).toFixed(0)}% complete
                 </p>
+              </div>
+              {backgroundOperations.cacheClearing.cancel && (
+                <Button
+                  variant="filled"
+                  color="red"
+                  size="sm"
+                  leftSection={<StopCircle className="w-4 h-4" />}
+                  onClick={backgroundOperations.cacheClearing.cancel}
+                  className="w-full sm:w-auto"
+                >
+                  Cancel
+                </Button>
               )}
-              <p className="text-sm mt-1 opacity-75">
-                {(backgroundOperations.cacheClearing.progress || 0).toFixed(0)}% complete
-              </p>
             </div>
           </Alert>
         )}

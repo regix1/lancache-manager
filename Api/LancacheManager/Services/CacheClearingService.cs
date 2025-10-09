@@ -377,17 +377,35 @@ public class CacheClearingService : IHostedService
                 // Keep all operations from last 24 hours for status queries
                 if (op.StartTime > DateTime.UtcNow.AddHours(-24))
                 {
+                    var status = Enum.Parse<ClearStatus>(op.Status);
+
+                    // If operation was running when service stopped, mark it as failed
+                    // (We can't resume Rust processes after restart)
+                    if (status == ClearStatus.Preparing || status == ClearStatus.Running)
+                    {
+                        status = ClearStatus.Failed;
+                        op.Error = "Operation interrupted by service restart";
+                        op.EndTime = DateTime.UtcNow;
+                        _logger.LogWarning($"Cache clear operation {op.Id} was interrupted by restart, marking as failed");
+                    }
+
                     var cacheClearOp = new CacheClearOperation
                     {
                         Id = op.Id,
                         StartTime = op.StartTime,
                         EndTime = op.EndTime,
-                        Status = Enum.Parse<ClearStatus>(op.Status),
-                        StatusMessage = op.Message,
+                        Status = status,
+                        StatusMessage = op.Error ?? op.Message,
                         Error = op.Error,
                         PercentComplete = op.Progress
                     };
                     _operations[op.Id] = cacheClearOp;
+
+                    // Update state if we modified it
+                    if (status == ClearStatus.Failed && op.Status != "Failed")
+                    {
+                        SaveOperationToState(cacheClearOp);
+                    }
                 }
             }
 

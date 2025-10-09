@@ -64,6 +64,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_manager.exe</Link>
     </None>
+    <None Include="..\..\rust-processor\target\release\cache_cleaner.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_cleaner.exe</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(SkipRustBuild)' != 'true'">
@@ -79,6 +83,10 @@
     <None Include="..\..\rust-processor\bin\win-x64\log_manager.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_manager.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\cache_cleaner.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_cleaner.exe</Link>
     </None>
   </ItemGroup>
 
@@ -96,6 +104,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_manager</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_cleaner">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_cleaner</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And '$(SkipRustBuild)' != 'true'">
@@ -112,6 +124,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\log_manager</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_cleaner">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_cleaner</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
@@ -127,6 +143,10 @@
     <None Include="../../rust-processor/target/release/log_manager">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/log_manager</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/cache_cleaner">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/cache_cleaner</Link>
     </None>
   </ItemGroup>
 
