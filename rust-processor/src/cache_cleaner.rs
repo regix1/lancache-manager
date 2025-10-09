@@ -172,6 +172,58 @@ fn delete_directory_full(
     Ok(())
 }
 
+fn delete_directory_rsync(
+    dir_path: &Path,
+    _files_counter: &AtomicU64,
+) -> Result<()> {
+    if !dir_path.exists() {
+        return Ok(());
+    }
+
+    // Create temporary empty directory
+    let temp_empty = dir_path.with_file_name(format!(
+        ".empty_{}",
+        dir_path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp")
+    ));
+
+    // Ensure temp dir exists and is empty
+    let _ = fs::remove_dir_all(&temp_empty);
+    fs::create_dir(&temp_empty)?;
+
+    // Use rsync to delete contents by syncing with empty directory
+    let output = std::process::Command::new("rsync")
+        .arg("-a")
+        .arg("--delete")
+        .arg("--inplace")
+        .arg(format!("{}/", temp_empty.display()))
+        .arg(format!("{}/", dir_path.display()))
+        .output();
+
+    // Clean up temp directory
+    let _ = fs::remove_dir_all(&temp_empty);
+
+    match output {
+        Ok(result) => {
+            if !result.status.success() {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                anyhow::bail!(
+                    "rsync failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
+                    dir_path.display(),
+                    stderr
+                );
+            }
+            Ok(())
+        }
+        Err(e) => {
+            anyhow::bail!(
+                "rsync command not available or failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
+                dir_path.display(),
+                e
+            );
+        }
+    }
+}
+
 fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str) -> Result<()> {
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
@@ -273,8 +325,6 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     });
 
     // Process directories in parallel using rayon with limited thread pool
-    let use_full_delete = delete_mode == "full";
-
     pool.install(|| {
         hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
@@ -283,10 +333,10 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
         eprintln!("Processing directory {} ({}/{})", dir_name, processed, total_dirs);
 
-        let result = if use_full_delete {
-            delete_directory_full(dir, &total_files_deleted)
-        } else {
-            delete_directory_contents(dir, &total_files_deleted)
+        let result = match delete_mode {
+            "full" => delete_directory_full(dir, &total_files_deleted),
+            "rsync" => delete_directory_rsync(dir, &total_files_deleted),
+            _ => delete_directory_contents(dir, &total_files_deleted),
         };
 
         match result {
@@ -346,7 +396,10 @@ fn main() {
         eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json 4 preserve");
         eprintln!("\nOptions:");
         eprintln!("  thread_count: Number of threads (default: 4)");
-        eprintln!("  delete_mode: 'preserve' (keep dirs, delete files) or 'full' (delete everything, faster) (default: preserve)");
+        eprintln!("  delete_mode: Deletion method (default: preserve)");
+        eprintln!("    - 'preserve': Delete files individually, preserve directory structure, shows file count");
+        eprintln!("    - 'full': Bulk directory removal, removes and recreates directories");
+        eprintln!("    - 'rsync': Use rsync --delete method, optimized for network storage (Linux only)");
         std::process::exit(1);
     }
 

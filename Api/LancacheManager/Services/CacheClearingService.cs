@@ -597,9 +597,9 @@ public class CacheClearingService : IHostedService
 
     public void SetDeleteMode(string deleteMode)
     {
-        if (deleteMode != "preserve" && deleteMode != "full")
+        if (deleteMode != "preserve" && deleteMode != "full" && deleteMode != "rsync")
         {
-            throw new ArgumentException("Delete mode must be 'preserve' or 'full'", nameof(deleteMode));
+            throw new ArgumentException("Delete mode must be 'preserve', 'full', or 'rsync'", nameof(deleteMode));
         }
 
         _deleteMode = deleteMode;
@@ -614,6 +614,39 @@ public class CacheClearingService : IHostedService
     public int GetSystemCpuCount()
     {
         return Environment.ProcessorCount;
+    }
+
+    public bool IsRsyncAvailable()
+    {
+        // Rsync only available on Linux (check using existing IPathResolver detection)
+        if (_pathResolver is not LinuxPathResolver)
+        {
+            return false;
+        }
+
+        try
+        {
+            // Check if rsync command exists
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "which",
+                Arguments = "rsync",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process == null) return false;
+
+            process.WaitForExit();
+            return process.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void CleanupOldOperations(object? state)

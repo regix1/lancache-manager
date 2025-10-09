@@ -38,9 +38,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   });
   const [threadCount, setThreadCount] = useState(4);
   const [threadCountLoading, setThreadCountLoading] = useState(false);
-  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full'>('preserve');
+  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>('preserve');
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [cpuCount, setCpuCount] = useState(16); // Default max, will be updated
+  const [rsyncAvailable, setRsyncAvailable] = useState(false);
 
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
 
@@ -57,6 +58,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     loadThreadCount();
     loadDeleteMode();
     loadCpuCount();
+    loadRsyncAvailability();
     restoreCacheOperation();
 
     // Poll CPU count every 30 seconds to detect VM/container changes
@@ -108,6 +110,16 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
+  const loadRsyncAvailability = async () => {
+    try {
+      const data = await ApiService.isRsyncAvailable();
+      setRsyncAvailable(data.available);
+    } catch (err) {
+      console.error('Failed to check rsync availability:', err);
+      setRsyncAvailable(false);
+    }
+  };
+
   const handleThreadCountChange = async (newThreadCount: number) => {
     if (newThreadCount < 1 || newThreadCount > cpuCount) return;
 
@@ -124,12 +136,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
-  const handleDeleteModeChange = async (newMode: 'preserve' | 'full') => {
+  const handleDeleteModeChange = async (newMode: 'preserve' | 'full' | 'rsync') => {
     setDeleteModeLoading(true);
     try {
       await ApiService.setCacheDeleteMode(newMode);
       setDeleteMode(newMode);
-      const modeDesc = newMode === 'full' ? 'Full deletion (faster)' : 'Preserve structure';
+      const modeDesc = newMode === 'rsync' ? 'Rsync deletion' : newMode === 'full' ? 'Bulk directory removal' : 'Preserve structure';
       onSuccess?.(`Delete mode set to: ${modeDesc}`);
     } catch (err: any) {
       console.error('Failed to update delete mode:', err);
@@ -329,34 +341,47 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
         {/* Delete Mode Configuration */}
         <div className="mt-4 pt-4 border-t border-themed-tertiary">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="flex-1">
-              <p className="text-themed-secondary font-medium">Deletion Mode</p>
+              <p className="text-themed-secondary font-medium">Deletion Method</p>
               <p className="text-xs text-themed-muted mt-1">
-                {deleteMode === 'full'
-                  ? 'Bulk delete (faster, no file count)'
-                  : 'Delete files individually (slower, shows file count)'}
+                {deleteMode === 'rsync'
+                  ? 'Uses rsync --delete to sync with empty directory (optimized for network storage)'
+                  : deleteMode === 'full'
+                  ? 'Bulk directory removal - removes and recreates directories (no file count)'
+                  : 'Delete files individually - preserves directory structure (shows file count)'}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 size="sm"
                 variant={deleteMode === 'preserve' ? 'filled' : 'default'}
                 color={deleteMode === 'preserve' ? 'blue' : undefined}
                 onClick={() => handleDeleteModeChange('preserve')}
-                disabled={deleteModeLoading || mockMode || authMode !== 'authenticated'}
+                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
-                Preserve
+                Preserve Structure
               </Button>
               <Button
                 size="sm"
                 variant={deleteMode === 'full' ? 'filled' : 'default'}
                 color={deleteMode === 'full' ? 'green' : undefined}
                 onClick={() => handleDeleteModeChange('full')}
-                disabled={deleteModeLoading || mockMode || authMode !== 'authenticated'}
+                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
-                Full (Faster)
+                Bulk Removal
               </Button>
+              {rsyncAvailable && (
+                <Button
+                  size="sm"
+                  variant={deleteMode === 'rsync' ? 'filled' : 'default'}
+                  color={deleteMode === 'rsync' ? 'purple' : undefined}
+                  onClick={() => handleDeleteModeChange('rsync')}
+                  disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
+                >
+                  Rsync
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -375,7 +400,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 size="sm"
                 variant="default"
                 onClick={() => handleThreadCountChange(threadCount - 1)}
-                disabled={threadCount <= 1 || threadCountLoading || mockMode || authMode !== 'authenticated'}
+                disabled={threadCount <= 1 || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
                 -
               </Button>
@@ -387,7 +412,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 size="sm"
                 variant="default"
                 onClick={() => handleThreadCountChange(threadCount + 1)}
-                disabled={threadCount >= cpuCount || threadCountLoading || mockMode || authMode !== 'authenticated'}
+                disabled={threadCount >= cpuCount || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
                 +
               </Button>

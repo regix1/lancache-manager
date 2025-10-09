@@ -560,6 +560,19 @@ class ApiService {
       throw error;
     }
   }
+
+  // Check if rsync is available on the system
+  static async isRsyncAvailable(): Promise<{ available: boolean }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/system/rsync-available`, {
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse<{ available: boolean }>(res);
+    } catch (error) {
+      console.error('isRsyncAvailable error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

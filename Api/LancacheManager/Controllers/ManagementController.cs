@@ -544,9 +544,9 @@ public class ManagementController : ControllerBase
         try
         {
             if (string.IsNullOrEmpty(request.DeleteMode) ||
-                (request.DeleteMode != "preserve" && request.DeleteMode != "full"))
+                (request.DeleteMode != "preserve" && request.DeleteMode != "full" && request.DeleteMode != "rsync"))
             {
-                return BadRequest(new { error = "Delete mode must be 'preserve' or 'full'" });
+                return BadRequest(new { error = "Delete mode must be 'preserve', 'full', or 'rsync'" });
             }
 
             _cacheClearingService.SetDeleteMode(request.DeleteMode);
@@ -577,6 +577,21 @@ public class ManagementController : ControllerBase
         {
             _logger.LogError(ex, "Error getting system CPU count");
             return StatusCode(500, new { error = "Failed to get CPU count", details = ex.Message });
+        }
+    }
+
+    [HttpGet("system/rsync-available")]
+    public IActionResult GetRsyncAvailable()
+    {
+        try
+        {
+            var available = _cacheClearingService.IsRsyncAvailable();
+            return Ok(new { available });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking rsync availability");
+            return StatusCode(500, new { error = "Failed to check rsync availability", details = ex.Message });
         }
     }
 
