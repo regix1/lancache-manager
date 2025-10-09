@@ -175,6 +175,9 @@ public class CacheClearingService : IHostedService
                     throw new Exception("Failed to start Rust cache_cleaner process");
                 }
 
+                // Track last logged time for console output
+                var lastLogTime = DateTime.UtcNow;
+
                 // Poll the progress file while the process runs
                 var pollTask = Task.Run(async () =>
                 {
@@ -219,13 +222,18 @@ public class CacheClearingService : IHostedService
 
                                     await NotifyProgress(operation);
 
-                                    // Log progress to console every 5%
-                                    var percentRounded = Math.Floor(operation.PercentComplete / 5) * 5;
-                                    var lastPercentKey = $"lastPercent_{operation.Id}";
-                                    if (!operation.StatusMessage.Contains("lastPercent") &&
-                                        (operation.DirectoriesProcessed == 1 || operation.DirectoriesProcessed % 5 == 0))
+                                    // Log progress to console when:
+                                    // 1. Every 5 directories, OR
+                                    // 2. Every 3 seconds
+                                    var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
+                                    var shouldLog =
+                                        (operation.DirectoriesProcessed > 0 && operation.DirectoriesProcessed % 5 == 0) ||
+                                        timeSinceLastLog.TotalSeconds >= 3;
+
+                                    if (shouldLog)
                                     {
-                                        _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {FormatBytes(operation.BytesDeleted)} cleared from {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories");
+                                        _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared");
+                                        lastLogTime = DateTime.UtcNow;
                                     }
 
                                     if (operation.DirectoriesProcessed % 10 == 0)
@@ -251,6 +259,13 @@ public class CacheClearingService : IHostedService
 
                 var output = await outputTask;
                 var error = await errorTask;
+
+                // Exit code 137 = SIGKILL (from cancellation) - don't treat as error
+                if (process.ExitCode == 137 && operation.Status == ClearStatus.Cancelled)
+                {
+                    _logger.LogInformation("Cache clear cancelled by user");
+                    return; // Already handled by cancellation logic
+                }
 
                 if (process.ExitCode != 0)
                 {
@@ -295,12 +310,12 @@ public class CacheClearingService : IHostedService
                 }
 
                 operation.Status = ClearStatus.Completed;
-                operation.StatusMessage = $"Successfully cleared {FormatBytes(operation.BytesDeleted)} from {operation.DirectoriesProcessed} directories";
+                operation.StatusMessage = $"Successfully cleared {operation.DirectoriesProcessed} cache directories";
                 operation.EndTime = DateTime.UtcNow;
                 operation.PercentComplete = 100;
 
                 var duration = operation.EndTime.Value - operation.StartTime;
-                _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds - Cleared {FormatBytes(operation.BytesDeleted)}");
+                _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds - Cleared {operation.DirectoriesProcessed} directories");
 
                 await NotifyProgress(operation);
                 SaveOperationToState(operation);

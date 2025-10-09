@@ -92,17 +92,15 @@ fn is_hex(value: &str) -> bool {
 
 fn delete_directory_contents(
     dir_path: &Path,
-    bytes_counter: &AtomicU64,
     files_counter: &AtomicU64,
 ) -> Result<()> {
     if !dir_path.exists() {
         return Ok(());
     }
 
-    // Simple recursive deletion - memory efficient
+    // Fast recursive deletion - NO metadata reads for speed
     fn delete_recursive(
         dir: &Path,
-        bytes_counter: &AtomicU64,
         files_counter: &AtomicU64,
     ) -> Result<()> {
         if dir.is_dir() {
@@ -111,17 +109,12 @@ fn delete_directory_contents(
                 let path = entry.path();
 
                 if path.is_dir() {
-                    delete_recursive(&path, bytes_counter, files_counter)?;
+                    delete_recursive(&path, files_counter)?;
                     // Try to remove the empty directory
                     let _ = fs::remove_dir(&path);
                 } else {
-                    // Get file size before deleting
-                    if let Ok(metadata) = entry.metadata() {
-                        bytes_counter.fetch_add(metadata.len(), Ordering::Relaxed);
-                    }
+                    // Just count and delete - NO metadata read for speed
                     files_counter.fetch_add(1, Ordering::Relaxed);
-
-                    // Delete the file
                     let _ = fs::remove_file(&path);
                 }
             }
@@ -129,7 +122,7 @@ fn delete_directory_contents(
         Ok(())
     }
 
-    delete_recursive(dir_path, bytes_counter, files_counter)?;
+    delete_recursive(dir_path, files_counter)?;
 
     Ok(())
 }
@@ -239,7 +232,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
         hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
-        match delete_directory_contents(dir, &total_bytes_deleted, &total_files_deleted) {
+        match delete_directory_contents(dir, &total_files_deleted) {
             Ok(()) => {
                 let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
                 eprintln!("Completed directory {} ({}/{})", dir_name, processed, total_dirs);
