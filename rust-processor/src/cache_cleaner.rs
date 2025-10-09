@@ -5,6 +5,7 @@ use rayon::ThreadPoolBuilder;
 use serde::Serialize;
 use std::env;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -127,28 +128,46 @@ fn delete_directory_contents(
     Ok(())
 }
 
+fn ensure_directory_exists(dir_path: &Path) -> Result<()> {
+    fs::create_dir_all(dir_path)?;
+    Ok(())
+}
+
 fn delete_directory_full(
     dir_path: &Path,
-    _files_counter: &AtomicU64,
+    files_counter: &AtomicU64,
 ) -> Result<()> {
     if !dir_path.exists() {
         return Ok(());
     }
 
-    // Just delete everything - NO counting for maximum speed!
-    // Trade-off: file count won't be accurate, but deletion is MUCH faster
-    for entry_result in fs::read_dir(dir_path)? {
-        let entry = entry_result?;
-        let path = entry.path();
+    // Fast path: remove the entire directory tree in a single syscall and recreate it.
+    match fs::remove_dir_all(dir_path) {
+        Ok(_) => {
+            ensure_directory_exists(dir_path)?;
+            return Ok(());
+        }
+        Err(err) if err.kind() == ErrorKind::NotFound => {
+            ensure_directory_exists(dir_path)?;
+            return Ok(());
+        }
+        Err(err) => {
+            eprintln!(
+                "Fast delete failed for {}: {}. Falling back to iterative removal.",
+                dir_path.display(),
+                err
+            );
 
-        if path.is_dir() {
-            // Bulk remove entire subdirectory tree - FAST!
-            let _ = fs::remove_dir_all(&path);
-        } else {
-            // Remove file
-            let _ = fs::remove_file(&path);
+            // If the directory vanished despite the error, recreate it and exit early.
+            if !dir_path.exists() {
+                ensure_directory_exists(dir_path)?;
+                return Ok(());
+            }
         }
     }
+
+    // Fallback: reuse the recursive remover so we still clear as much as possible.
+    delete_directory_contents(dir_path, files_counter)?;
 
     Ok(())
 }
