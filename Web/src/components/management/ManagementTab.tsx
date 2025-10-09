@@ -15,7 +15,6 @@ import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import operationStateService from '@services/operationState.service';
-import { formatBytes } from '@utils/formatters';
 
 // Import manager components
 import AuthenticationManager from './AuthenticationManager';
