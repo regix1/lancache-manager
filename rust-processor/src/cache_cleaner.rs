@@ -90,49 +90,34 @@ fn is_hex(value: &str) -> bool {
     value.len() == 2 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn calculate_directory_size(dir_path: &Path) -> Result<(u64, u64)> {
-    let mut total_bytes = 0u64;
-    let mut total_files = 0u64;
-
-    if !dir_path.exists() {
-        return Ok((0, 0));
-    }
-
-    // Recursively count files and bytes
-    fn visit_dirs(dir: &Path, bytes: &mut u64, files: &mut u64) -> Result<()> {
-        if dir.is_dir() {
-            for entry_result in fs::read_dir(dir)? {
-                let entry = entry_result?;
-                let path = entry.path();
-
-                if path.is_dir() {
-                    visit_dirs(&path, bytes, files)?;
-                } else {
-                    if let Ok(metadata) = entry.metadata() {
-                        *bytes += metadata.len();
-                    }
-                    *files += 1;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    visit_dirs(dir_path, &mut total_bytes, &mut total_files)?;
-
-    Ok((total_bytes, total_files))
-}
-
 fn delete_directory_contents(dir_path: &Path) -> Result<(u64, u64)> {
     if !dir_path.exists() {
         return Ok((0, 0));
     }
 
-    // Calculate size before deletion (for progress reporting)
-    let (total_bytes, total_files) = calculate_directory_size(dir_path)?;
+    // Use remove_dir_all for fast parallel deletion (no size calculation beforehand)
+    // We track stats during deletion instead of before
+    let mut total_bytes = 0u64;
+    let mut total_files = 0u64;
 
-    // Use remove_dir_all for fast parallel deletion
-    remove_dir_all::remove_dir_contents(dir_path)?;
+    // Walk through entries and delete them
+    for entry_result in fs::read_dir(dir_path)? {
+        let entry = entry_result?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            // For directories, use fast parallel deletion
+            remove_dir_all::remove_dir_all(&path)?;
+            total_files += 1; // Count as 1 for progress
+        } else {
+            // For files, get size before deleting
+            if let Ok(metadata) = entry.metadata() {
+                total_bytes += metadata.len();
+            }
+            total_files += 1;
+            fs::remove_file(&path)?;
+        }
+    }
 
     Ok((total_bytes, total_files))
 }

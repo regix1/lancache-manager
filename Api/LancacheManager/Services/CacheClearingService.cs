@@ -219,6 +219,15 @@ public class CacheClearingService : IHostedService
 
                                     await NotifyProgress(operation);
 
+                                    // Log progress to console every 5%
+                                    var percentRounded = Math.Floor(operation.PercentComplete / 5) * 5;
+                                    var lastPercentKey = $"lastPercent_{operation.Id}";
+                                    if (!operation.StatusMessage.Contains("lastPercent") &&
+                                        (operation.DirectoriesProcessed == 1 || operation.DirectoriesProcessed % 5 == 0))
+                                    {
+                                        _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {FormatBytes(operation.BytesDeleted)} cleared from {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories");
+                                    }
+
                                     if (operation.DirectoriesProcessed % 10 == 0)
                                     {
                                         SaveOperationToState(operation);
@@ -370,7 +379,7 @@ public class CacheClearingService : IHostedService
     {
         try
         {
-            var operations = _stateService.GetCacheClearOperations();
+            var operations = _stateService.GetCacheClearOperations().ToList();
 
             foreach (var op in operations)
             {
