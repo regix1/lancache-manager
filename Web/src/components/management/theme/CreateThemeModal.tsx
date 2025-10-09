@@ -343,7 +343,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             <div className="flex items-center gap-4">
               <Checkbox
                 checked={newTheme.isDark}
-                onChange={(e) => setNewTheme({ ...newTheme, isDark: e.target.checked })}
+                onChange={(e) => loadPresetColors(e.target.checked ? 'dark' : 'light')}
                 variant="rounded"
                 label="Dark Theme"
               />
