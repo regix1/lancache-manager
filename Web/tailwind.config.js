@@ -20,7 +20,16 @@ export default {
       animation: {
         'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
+      ringWidth: {
+        DEFAULT: '0px',
+      },
+      ringOffsetWidth: {
+        DEFAULT: '0px',
+      },
     },
   },
   plugins: [],
+  corePlugins: {
+    // Keep ring utilities available but set defaults to 0
+  },
 }

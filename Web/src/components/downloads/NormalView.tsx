@@ -1,74 +1,10 @@
 import React from 'react';
 import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
+import { SteamIcon } from '@components/ui/SteamIcon';
+import { WsusIcon } from '@components/ui/WsusIcon';
+import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import type { Download, DownloadGroup } from '../../types';
-
-const SteamIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({ size = 24, className = '', style = {} }) => (
-  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width={size} height={size} className={className} style={style}>
-    <g fill="currentColor">
-      <circle cx="15.5" cy="9.5" r="2.5"></circle>
-      <path d="m8.67 18.34a1.49 1.49 0 0 1 -1.67-.21.5.5 0 0 0 -.66.75 2.5 2.5 0 1 0 2-4.35.49.49 0 0 0 -.56.43.5.5 0 0 0 .43.56 1.5 1.5 0 0 1 .47 2.83z"></path>
-      <path d="m12 0a12 12 0 0 0 -12 11.5.5.5 0 0 0 .14.37.5.5 0 0 0 .26.13c.34.11 3 1.26 4.55 2a.51.51 0 0 0 .52-.07 3.84 3.84 0 0 1 2.86-.93.5.5 0 0 0 .45-.19l2.11-2.76a.5.5 0 0 0 .1-.35c0-.08 0-.15 0-.22a4.5 4.5 0 1 1 4.81 4.52.5.5 0 0 0 -.28.11l-3.35 2.75a.5.5 0 0 0 -.18.36 4 4 0 0 1 -3.99 3.78 3.94 3.94 0 0 1 -3.84-2.93.5.5 0 0 0 -.26-.32l-1.9-.93a.5.5 0 0 0 -.67.68 12 12 0 1 0 10.67-17.5z"></path>
-    </g>
-  </svg>
-);
-
-const WsusIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({ size = 24, className = '', style = {} }) => {
-  const gradientId = React.useId();
-
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      className={className}
-      style={style}
-      enableBackground="new 0 0 24 24"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <defs>
-        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="-0.1" x2="25.632" y1="5.358" y2="17.357">
-          <stop offset="0" stopColor="#fff" stopOpacity="0.2" />
-          <stop offset="1" stopColor="#fff" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <g>
-        <path d="m12 11h11v-10l-11 1z" fill="currentColor" />
-        <path d="m10 11v-8.8181763l-9 .8181763v8z" fill="currentColor" />
-        <path d="m12 2v.25l11-1v-.25z" fill="#fff" opacity={0.2} />
-        <path d="m12 10.75h11v.25h-11z" opacity={0.1} />
-        <path d="m1 3v.25l9-.8181763v-.25z" fill="#fff" opacity={0.2} />
-        <path d="m1 10.75h9v.25h-9z" opacity={0.1} />
-        <path d="m12 13h11v10l-11-1z" fill="currentColor" />
-        <path d="m10 13v8.8181763l-9-.8181763v-8z" fill="currentColor" />
-        <path d="m12 22v-.25l11 1v.25z" opacity={0.1} />
-        <path d="m12 13h11v.25h-11z" fill="#fff" opacity={0.2} />
-        <path d="m1 21v-.25l9 .8181763v.25z" opacity={0.1} />
-        <path d="m1 13h9v.25h-9z" fill="#fff" opacity={0.2} />
-        <path
-          d="m12 2v9h11v-10zm-11 9h9v-8.8181763l-9 .8181763zm11 11 11 1v-10h-11zm-11-1 9 .8181763v-8.8181763h-9z"
-          fill={`url(#${gradientId})`}
-        />
-      </g>
-    </svg>
-  );
-};
-
-const UnknownServiceIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({ size = 48, className = '', style = {} }) => (
-  <svg
-    viewBox="0 0 512 512"
-    width={size}
-    height={size}
-    className={className}
-    style={style}
-    xmlns="http://www.w3.org/2000/svg"
-  >
-    <g fill="var(--theme-text-muted)">
-      <path d="m256.004 382.75c-23.99 0-43.438-19.448-43.438-43.438v-18.425c0-42.876 26.999-81.228 67.185-95.436 30.227-10.688 49.705-40.581 47.364-72.693-2.564-35.163-31.033-63.417-66.222-65.721-37.221-2.459-70.382 24.422-75.507 61.148-.458 3.283-.69 6.648-.69 10.001 0 23.99-19.448 43.438-43.438 43.438s-43.438-19.448-43.438-43.438c0-7.354.513-14.758 1.524-22.006 11.38-81.566 84.834-141.243 167.224-135.835 78.216 5.122 141.496 67.93 147.194 146.096 5.178 71.044-38.02 137.215-105.051 160.917-5.544 1.96-9.269 7.397-9.269 13.529v18.425c0 23.99-19.448 43.438-43.438 43.438z" />
-      <path d="m256.004 512c-23.99 0-43.438-19.448-43.438-43.438v-.36c0-23.99 19.448-43.438 43.438-43.438s43.438 19.448 43.438 43.438v.36c0 23.99-19.448 43.438-43.438 43.438z" />
-    </g>
-  </svg>
-);
 
 const API_BASE = '/api';
 
@@ -216,7 +152,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
             onError={() => handleImageError(steamAppId)}
           />
         );
-      } else if (isSteam || isWsus) {
+      } else {
         bannerContent = (
           <div
             className={`flex h-full w-full flex-col items-center justify-center px-4 text-center ${placeholderBaseClasses}`}
