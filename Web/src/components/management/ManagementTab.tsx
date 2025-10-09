@@ -418,21 +418,20 @@ const LogFileManager: React.FC<{
       }
 
       await serviceRemovalOp.clear();
-      setTimeout(async () => {
-        setActiveServiceRemoval(null);
-        // Reload config without showing loading state
-        try {
-          const [configData, counts] = await Promise.all([
-            ApiService.getConfig(),
-            ApiService.getServiceLogCounts()
-          ]);
-          setConfig(configData);
-          setServiceCounts(counts);
-        } catch (err) {
-          console.error('Failed to reload config:', err);
-        }
+      setActiveServiceRemoval(null);
+
+      // Reload config to show updated service counts
+      try {
+        const [configData, counts] = await Promise.all([
+          ApiService.getConfig(),
+          ApiService.getServiceLogCounts()
+        ]);
+        setConfig(configData);
+        setServiceCounts(counts);
         onDataRefresh?.();
-      }, 2000);
+      } catch (err) {
+        console.error('Failed to reload config:', err);
+      }
     } catch (err: any) {
       await serviceRemovalOp.clear();
       setActiveServiceRemoval(null);
