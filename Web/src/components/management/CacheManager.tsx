@@ -36,6 +36,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     services: [],
     timezone: 'UTC'
   });
+  const [threadCount, setThreadCount] = useState(4);
+  const [threadCountLoading, setThreadCountLoading] = useState(false);
 
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
 
@@ -49,6 +51,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   useEffect(() => {
     loadConfig();
+    loadThreadCount();
     restoreCacheOperation();
   }, []);
 
@@ -61,6 +64,31 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       console.error('Failed to load config:', err);
     } finally {
       setIsLoadingConfig(false);
+    }
+  };
+
+  const loadThreadCount = async () => {
+    try {
+      const data = await ApiService.getCacheThreadCount();
+      setThreadCount(data.threadCount);
+    } catch (err) {
+      console.error('Failed to load thread count:', err);
+    }
+  };
+
+  const handleThreadCountChange = async (newThreadCount: number) => {
+    if (newThreadCount < 1 || newThreadCount > 16) return;
+
+    setThreadCountLoading(true);
+    try {
+      await ApiService.setCacheThreadCount(newThreadCount);
+      setThreadCount(newThreadCount);
+      onSuccess?.(`Cache clearing will now use ${newThreadCount} thread${newThreadCount > 1 ? 's' : ''}`);
+    } catch (err: any) {
+      console.error('Failed to update thread count:', err);
+      onError?.(err?.message || 'Failed to update thread count');
+    } finally {
+      setThreadCountLoading(false);
     }
   };
 
@@ -250,6 +278,39 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           >
             {isCacheClearingActive ? 'Clearing...' : 'Clear Cache'}
           </Button>
+        </div>
+
+        {/* Thread Count Configuration */}
+        <div className="mt-4 pt-4 border-t border-themed-tertiary">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex-1">
+              <p className="text-themed-secondary font-medium">Cache Clearing Threads</p>
+              <p className="text-xs text-themed-muted mt-1">
+                Higher values = faster clearing (uses more CPU/RAM)
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => handleThreadCountChange(threadCount - 1)}
+                disabled={threadCount <= 1 || threadCountLoading || mockMode || authMode !== 'authenticated'}
+              >
+                -
+              </Button>
+              <div className="min-w-[60px] text-center">
+                <span className="text-lg font-semibold text-themed-primary">{threadCount}</span>
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => handleThreadCountChange(threadCount + 1)}
+                disabled={threadCount >= 16 || threadCountLoading || mockMode || authMode !== 'authenticated'}
+              >
+                +
+              </Button>
+            </div>
+          </div>
         </div>
       </Card>
 

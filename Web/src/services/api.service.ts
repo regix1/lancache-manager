@@ -491,6 +491,34 @@ class ApiService {
       throw error;
     }
   }
+
+  // Get cache clearing thread count
+  static async getCacheThreadCount(): Promise<{ threadCount: number }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/thread-count`, {
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse<{ threadCount: number }>(res);
+    } catch (error) {
+      console.error('getCacheThreadCount error:', error);
+      throw error;
+    }
+  }
+
+  // Set cache clearing thread count (requires auth)
+  static async setCacheThreadCount(threadCount: number): Promise<{ message: string; threadCount: number }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/thread-count`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ threadCount })
+      });
+      return await this.handleResponse<{ message: string; threadCount: number }>(res);
+    } catch (error) {
+      console.error('setCacheThreadCount error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

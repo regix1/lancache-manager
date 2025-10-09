@@ -16,6 +16,7 @@ public class CacheClearingService : IHostedService
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
+    private int _threadCount;
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
@@ -29,6 +30,9 @@ public class CacheClearingService : IHostedService
         _configuration = configuration;
         _pathResolver = pathResolver;
         _stateService = stateService;
+
+        // Read thread count from configuration (default to 4)
+        _threadCount = configuration.GetValue<int>("CacheClear:ThreadCount", 4);
 
         // Determine cache path - check most likely locations first
         var possiblePaths = new List<string> { _pathResolver.GetCacheDirectory() };
@@ -161,7 +165,7 @@ public class CacheClearingService : IHostedService
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
-                Arguments = $"\"{_cachePath}\" \"{progressFile}\"",
+                Arguments = $"\"{_cachePath}\" \"{progressFile}\" {_threadCount}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -561,16 +565,32 @@ public class CacheClearingService : IHostedService
         if (_operations.TryGetValue(operationId, out var operation))
         {
             _logger.LogInformation($"Cancelling cache clear operation {operationId}");
-            
+
             operation.CancellationTokenSource?.Cancel();
-            
+
             // Don't immediately mark as cancelled - let the operation handle it
             // This prevents race conditions
-            
+
             return true;
         }
-        
+
         return false;
+    }
+
+    public void SetThreadCount(int threadCount)
+    {
+        if (threadCount < 1 || threadCount > 16)
+        {
+            throw new ArgumentException("Thread count must be between 1 and 16", nameof(threadCount));
+        }
+
+        _threadCount = threadCount;
+        _logger.LogInformation($"Cache clear thread count updated to {threadCount}");
+    }
+
+    public int GetThreadCount()
+    {
+        return _threadCount;
     }
 
     private void CleanupOldOperations(object? state)

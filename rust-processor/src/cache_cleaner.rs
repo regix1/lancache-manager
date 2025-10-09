@@ -127,7 +127,7 @@ fn delete_directory_contents(
     Ok(())
 }
 
-fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
+fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize) -> Result<()> {
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
     eprintln!("Cache path: {}", cache_path);
@@ -174,9 +174,8 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
     );
     write_progress(progress_path, &progress)?;
 
-    // Create a thread pool with limited parallelism to prevent OOM in Docker containers
-    // Use 4 threads max to balance performance and memory usage
-    let num_threads = std::cmp::min(4, num_cpus::get());
+    // Use configured thread count (clamped to reasonable values)
+    let num_threads = std::cmp::max(1, std::cmp::min(thread_count, num_cpus::get()));
     eprintln!("Using {} threads for parallel processing", num_threads);
 
     let pool = ThreadPoolBuilder::new()
@@ -284,18 +283,24 @@ fn clear_cache(cache_path: &str, progress_path: &Path) -> Result<()> {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 3 {
+    if args.len() < 3 || args.len() > 4 {
         eprintln!("Usage:");
-        eprintln!("  cache_cleaner <cache_path> <progress_json_path>");
+        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [thread_count]");
         eprintln!("\nExample:");
-        eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json");
+        eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json 4");
+        eprintln!("\nIf thread_count is not specified, defaults to 4.");
         std::process::exit(1);
     }
 
     let cache_path = &args[1];
     let progress_path = Path::new(&args[2]);
+    let thread_count = if args.len() == 4 {
+        args[3].parse::<usize>().unwrap_or(4)
+    } else {
+        4
+    };
 
-    match clear_cache(cache_path, progress_path) {
+    match clear_cache(cache_path, progress_path, thread_count) {
         Ok(_) => {
             std::process::exit(0);
         }

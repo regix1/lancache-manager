@@ -480,6 +480,48 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpGet("cache/thread-count")]
+    public IActionResult GetCacheThreadCount()
+    {
+        try
+        {
+            var threadCount = _cacheClearingService.GetThreadCount();
+            return Ok(new { threadCount });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting cache clear thread count");
+            return StatusCode(500, new { error = "Failed to get thread count", details = ex.Message });
+        }
+    }
+
+    [HttpPost("cache/thread-count")]
+    [RequireAuth]
+    public IActionResult SetCacheThreadCount([FromBody] SetThreadCountRequest request)
+    {
+        try
+        {
+            if (request.ThreadCount < 1 || request.ThreadCount > 16)
+            {
+                return BadRequest(new { error = "Thread count must be between 1 and 16" });
+            }
+
+            _cacheClearingService.SetThreadCount(request.ThreadCount);
+            _logger.LogInformation("Cache clear thread count updated to {ThreadCount}", request.ThreadCount);
+
+            return Ok(new
+            {
+                message = "Thread count updated successfully",
+                threadCount = request.ThreadCount
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting cache clear thread count");
+            return StatusCode(500, new { error = "Failed to set thread count", details = ex.Message });
+        }
+    }
+
     [HttpGet("config")]
     public async Task<IActionResult> GetConfig()
     {
@@ -612,4 +654,10 @@ public class ManagementController : ControllerBase
 public class RemoveServiceRequest
 {
     public string Service { get; set; } = string.Empty;
+}
+
+// Request model for setting thread count
+public class SetThreadCountRequest
+{
+    public int ThreadCount { get; set; }
 }
