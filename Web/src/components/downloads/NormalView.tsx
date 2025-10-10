@@ -263,8 +263,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
           isExpanded ? 'ring-2' : 'hover:shadow-md'
         }`}
         style={{
-          borderColor: isExpanded ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
-          ringColor: 'var(--theme-primary)'
+          borderColor: isExpanded ? 'var(--theme-primary)' : 'var(--theme-border-primary)'
         }}
       >
         {fullHeightBanners ? (
