@@ -232,6 +232,11 @@ const DownloadsTab: React.FC = () => {
 
     if (settings.hideUnknownGames) {
       filtered = filtered.filter((d) => {
+        // Always show active downloads, even if they're unknown (they may not be mapped yet)
+        if (d.isActive) {
+          return true;
+        }
+
         // Non-Steam services (like wsus, epic, etc.) don't use game names, so don't filter them
         const serviceLower = d.service.toLowerCase();
         if (serviceLower !== 'steam') {
