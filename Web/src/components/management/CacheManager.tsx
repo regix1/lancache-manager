@@ -348,7 +348,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 {deleteMode === 'rsync'
                   ? 'Uses rsync --delete to sync with empty directory (optimized for network storage)'
                   : deleteMode === 'full'
-                  ? 'Bulk directory removal - removes and recreates directories (no file count)'
+                  ? 'Bulk directory removal - removes entire directories at once (no file count)'
                   : 'Delete files individually - preserves directory structure (shows file count)'}
               </p>
             </div>

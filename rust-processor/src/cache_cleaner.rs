@@ -141,21 +141,16 @@ fn delete_directory_full(
         return Ok(());
     }
 
-    // Remove the entire directory tree in a single syscall and recreate it.
+    // Remove the entire directory tree in a single syscall. No need to recreate.
     match fs::remove_dir_all(dir_path) {
-        Ok(_) => {
-            ensure_directory_exists(dir_path)?;
-            Ok(())
-        }
+        Ok(_) => Ok(()),
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            // Directory doesn't exist, just recreate it
-            ensure_directory_exists(dir_path)?;
+            // Directory doesn't exist, that's fine
             Ok(())
         }
         Err(err) => {
-            // If the directory vanished despite the error, recreate it and return success
+            // If the directory vanished despite the error, return success
             if !dir_path.exists() {
-                ensure_directory_exists(dir_path)?;
                 return Ok(());
             }
 
@@ -395,7 +390,7 @@ fn main() {
         eprintln!("  thread_count: Number of threads (default: 4)");
         eprintln!("  delete_mode: Deletion method (default: preserve)");
         eprintln!("    - 'preserve': Delete files individually, preserve directory structure, shows file count");
-        eprintln!("    - 'full': Bulk directory removal, removes and recreates directories");
+        eprintln!("    - 'full': Bulk directory removal, removes entire directories at once");
         eprintln!("    - 'rsync': Use rsync --delete method, optimized for network storage (Linux only)");
         std::process::exit(1);
     }
