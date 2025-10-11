@@ -159,6 +159,75 @@ fn delete_directory_full(
     }
 }
 
+#[cfg(target_os = "linux")]
+fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
+    use std::process::Command;
+    use std::sync::OnceLock;
+
+    if !dir_path.exists() {
+        return Ok(());
+    }
+
+    static EMPTY_TEMPLATE: OnceLock<PathBuf> = OnceLock::new();
+
+    let empty_dir = EMPTY_TEMPLATE.get_or_try_init(|| -> Result<PathBuf> {
+        let mut path = env::temp_dir();
+        path.push(format!(".lancache-empty-{}", std::process::id()));
+
+        if path.exists() {
+            fs::remove_dir_all(&path)?;
+        }
+        fs::create_dir(&path)?;
+        Ok(path)
+    })?;
+
+    let output = Command::new("rsync")
+        .arg("--recursive")
+        .arg("--delete")
+        .arg("--delete-before")
+        .arg("--ignore-existing")
+        .arg("--inplace")
+        .arg("--whole-file")
+        .arg("--no-compress")
+        .arg("--omit-dir-times")
+        .arg("--numeric-ids")
+        .arg("--prune-empty-dirs")
+        .arg("--force")
+        .arg("--stats")
+        .arg("--human-readable=0")
+        .arg(format!("{}/", empty_dir.display()))
+        .arg(format!("{}/", dir_path.display()))
+        .output();
+
+    match output {
+        Ok(result) => {
+            if !result.status.success() {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                anyhow::bail!(
+                    "rsync failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
+                    dir_path.display(),
+                    stderr
+                );
+            }
+
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            if let Some(deleted) = parse_rsync_deleted_files(&stdout) {
+                files_counter.fetch_add(deleted, Ordering::Relaxed);
+            }
+
+            Ok(())
+        }
+        Err(e) => {
+            anyhow::bail!(
+                "rsync command not available or failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
+                dir_path.display(),
+                e
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
 fn delete_directory_rsync(
     dir_path: &Path,
     _files_counter: &AtomicU64,
@@ -167,17 +236,14 @@ fn delete_directory_rsync(
         return Ok(());
     }
 
-    // Create temporary empty directory
     let temp_empty = dir_path.with_file_name(format!(
         ".empty_{}",
         dir_path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp")
     ));
 
-    // Ensure temp dir exists and is empty
     let _ = fs::remove_dir_all(&temp_empty);
     fs::create_dir(&temp_empty)?;
 
-    // Use rsync to delete contents by syncing with empty directory
     let output = std::process::Command::new("rsync")
         .arg("-a")
         .arg("--delete")
@@ -186,7 +252,6 @@ fn delete_directory_rsync(
         .arg(format!("{}/", dir_path.display()))
         .output();
 
-    // Clean up temp directory
     let _ = fs::remove_dir_all(&temp_empty);
 
     match output {
@@ -209,6 +274,20 @@ fn delete_directory_rsync(
             );
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_rsync_deleted_files(stats: &str) -> Option<u64> {
+    for line in stats.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("Number of deleted files:") {
+            let value_part = rest.split_whitespace().next()?;
+            if let Ok(value) = value_part.parse::<u64>() {
+                return Some(value);
+            }
+        }
+    }
+    None
 }
 
 fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str) -> Result<()> {
