@@ -8,7 +8,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "linux")]
 use std::sync::OnceLock;
@@ -358,6 +358,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let dirs_processed = Arc::new(AtomicUsize::new(0));
     let total_bytes_deleted = Arc::new(AtomicU64::new(0));
     let total_files_deleted = Arc::new(AtomicU64::new(0));
+    let active_dirs = Arc::new(Mutex::new(Vec::<String>::new()));
 
     // Initial progress
     let progress = ProgressData::new(
@@ -372,9 +373,19 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     );
     write_progress(progress_path, &progress)?;
 
-    // Use configured thread count (clamped to reasonable values)
-    let num_threads = std::cmp::max(1, std::cmp::min(thread_count, num_cpus::get()));
-    eprintln!("Using {} threads for parallel processing", num_threads);
+    // Use configured thread count
+    // For network-bound operations (NAS), allow more threads than CPUs
+    // For local operations, cap at CPU count for efficiency
+    let cpu_count = num_cpus::get();
+    let max_threads = if thread_count > cpu_count * 2 {
+        // If user specified way more than CPUs, they're probably on network storage
+        thread_count
+    } else {
+        // Otherwise cap at 2x CPU count for safety
+        std::cmp::min(thread_count, cpu_count * 2)
+    };
+    let num_threads = std::cmp::max(1, max_threads);
+    eprintln!("Using {} threads for parallel processing (CPUs: {})", num_threads, cpu_count);
 
     let pool = ThreadPoolBuilder::new()
         .num_threads(num_threads)
@@ -385,6 +396,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let bytes_for_monitor = Arc::clone(&total_bytes_deleted);
     let files_for_monitor = Arc::clone(&total_files_deleted);
     let dirs_for_monitor = Arc::clone(&dirs_processed);
+    let active_for_monitor = Arc::clone(&active_dirs);
     let progress_path_clone = progress_path.to_path_buf();
     let cache_dir_for_monitor = cache_dir.to_path_buf();
 
@@ -411,11 +423,26 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
             if last_update.elapsed().as_millis() > 500 {
                 let percent = (processed as f64 / total_dirs as f64) * 100.0;
 
+                // Get snapshot of active directories
+                let active_snapshot = if let Ok(active) = active_for_monitor.lock() {
+                    active.clone()
+                } else {
+                    Vec::new()
+                };
+                let active_count = active_snapshot.len();
+
+                // Log active directories if any
+                if active_count > 0 {
+                    eprintln!("Active: {} directories being processed: [{}]",
+                             active_count,
+                             active_snapshot.join(", "));
+                }
+
                 let progress = ProgressData::new(
                     true,
                     percent,
                     "running".to_string(),
-                    format!("Clearing cache ({}/{})", processed, total_dirs),
+                    format!("Clearing cache ({}/{}) - {} active", processed, total_dirs, active_count),
                     processed,
                     total_dirs,
                     bytes,
@@ -432,9 +459,16 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     });
 
     // Process directories in parallel using rayon with limited thread pool
+    let active_for_workers = Arc::clone(&active_dirs);
     pool.install(|| {
         hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+        let dir_name_str = dir_name.to_string();
+
+        // Add to active list
+        if let Ok(mut active) = active_for_workers.lock() {
+            active.push(dir_name_str.clone());
+        }
 
         eprintln!("Processing directory {}", dir_name);
 
@@ -443,6 +477,11 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
             "rsync" => delete_directory_rsync(dir, &total_files_deleted),
             _ => delete_directory_contents(dir, &total_files_deleted),
         };
+
+        // Remove from active list
+        if let Ok(mut active) = active_for_workers.lock() {
+            active.retain(|d| d != &dir_name_str);
+        }
 
         match result {
             Ok(()) => {
@@ -514,8 +553,11 @@ fn main() {
         eprintln!("  cache_cleaner <cache_path> <progress_json_path> [thread_count] [delete_mode]");
         eprintln!("\nExample:");
         eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json 4 preserve");
+        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json 16 full  # For NAS");
         eprintln!("\nOptions:");
         eprintln!("  thread_count: Number of threads (default: 4)");
+        eprintln!("                For NAS/network storage, use 8-16 threads to saturate network");
+        eprintln!("                For local storage, use 4-8 threads");
         eprintln!("  delete_mode: Deletion method (default: preserve)");
         eprintln!("    - 'preserve': Delete files individually, preserve directory structure, shows file count");
         eprintln!("    - 'full': Bulk directory removal, removes entire directories at once");
