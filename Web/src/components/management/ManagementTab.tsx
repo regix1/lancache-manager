@@ -418,7 +418,7 @@ const LogFileManager: React.FC<{
 
       await serviceRemovalOp.clear();
 
-      // Poll for updated counts until we get valid data (for Linux systems where Rust binary may take time)
+      // Poll for updated counts until the target service disappears (rust process is async on Linux)
       const pollForUpdates = async (attempts = 0, maxAttempts = 20) => {
         try {
           const [configData, counts] = await Promise.all([
@@ -426,16 +426,15 @@ const LogFileManager: React.FC<{
             ApiService.getServiceLogCounts()
           ]);
           setConfig(configData);
+          setServiceCounts(counts);
 
-          // If we got valid data (non-empty), update and stop polling
-          if (counts && Object.keys(counts).length > 0) {
-            setServiceCounts(counts);
+          const remaining = counts?.[serviceName] ?? 0;
+          if (remaining <= 0) {
             setActiveServiceRemoval(null);
             onDataRefresh?.();
             return;
           }
 
-          // If we've tried enough times, give up and clear the loading state
           if (attempts >= maxAttempts) {
             console.warn('Max polling attempts reached, clearing loading state');
             setActiveServiceRemoval(null);
@@ -443,7 +442,6 @@ const LogFileManager: React.FC<{
             return;
           }
 
-          // Wait 2 seconds and try again
           setTimeout(() => pollForUpdates(attempts + 1, maxAttempts), 2000);
         } catch (err) {
           console.error('Failed to reload config:', err);

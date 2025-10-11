@@ -324,16 +324,34 @@ public class CacheManagementService
                         json = await reader.ReadToEndAsync();
                     }
 
-                    var options = new JsonSerializerOptions
+                    if (string.IsNullOrWhiteSpace(json))
                     {
-                        PropertyNameCaseInsensitive = true
-                    };
-                    var progressData = JsonSerializer.Deserialize<LogCountProgressData>(json, options);
+                        _logger.LogWarning("Rust progress file contained no data while counting logs. Path: {ProgressFile}", progressFile);
+                        return counts;
+                    }
 
-                    if (progressData?.ServiceCounts != null)
+                    try
                     {
-                        counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-                        _logger.LogInformation($"Rust log counting completed: Found {counts.Count} services");
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        };
+                        var progressData = JsonSerializer.Deserialize<LogCountProgressData>(json, options);
+
+                        if (progressData?.ServiceCounts != null)
+                        {
+                            counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+                            _logger.LogInformation($"Rust log counting completed: Found {counts.Count} services");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Rust progress file did not include service counts. Path: {ProgressFile}", progressFile);
+                        }
+                    }
+                    catch (JsonException jsonEx)
+                    {
+                        _logger.LogWarning(jsonEx, "Rust progress file contained invalid JSON. Path: {ProgressFile}", progressFile);
+                        return counts;
                     }
                 }
             }
