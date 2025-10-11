@@ -224,14 +224,13 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
                 eprintln!("Warning: Could not parse deleted file count from rsync stats for {}", dir_path.display());
             }
 
-            // If directory still contains entries (e.g., rsync couldn't remove them), fallback
+            // Check if directory still contains entries (e.g., rsync couldn't remove them)
             if let Ok(mut entries) = fs::read_dir(dir_path) {
                 if entries.next().is_some() {
-                    eprintln!(
-                        "rsync left residual entries in {}. Falling back to direct deletion.",
+                    anyhow::bail!(
+                        "rsync failed to completely clear {}. Directory still contains files. Please try again or switch to a different deletion mode.",
                         dir_path.display()
                     );
-                    delete_directory_contents(dir_path, files_counter)?;
                 }
             }
 
