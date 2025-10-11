@@ -193,10 +193,8 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
     };
 
     let output = Command::new("rsync")
-        .arg("--archive")
+        .arg("-a")
         .arg("--delete")
-        .arg("--delete-before")
-        .arg("--force")
         .arg("--stats")
         .arg(format!("{}/", empty_dir.display()))
         .arg(format!("{}/", dir_path.display()))
@@ -438,9 +436,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         hex_dirs.par_iter().for_each(|dir| {
         let dir_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
-        // Increment counter BEFORE processing so percentage updates immediately
-        let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
-        eprintln!("Processing directory {} ({}/{})", dir_name, processed, total_dirs);
+        eprintln!("Processing directory {}", dir_name);
 
         let result = match delete_mode {
             "full" => delete_directory_full(dir, &total_files_deleted),
@@ -450,10 +446,14 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 
         match result {
             Ok(()) => {
+                // Increment counter AFTER processing completes
+                let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
                 eprintln!("Completed directory {} ({}/{})", dir_name, processed, total_dirs);
             }
             Err(e) => {
-                eprintln!("Warning: Failed to clear directory {}: {}", dir_name, e);
+                // Still increment on error so we don't get stuck
+                let processed = dirs_processed.fetch_add(1, Ordering::Relaxed) + 1;
+                eprintln!("Warning: Failed to clear directory {} ({}/{}): {}", dir_name, processed, total_dirs, e);
             }
         }
         });
