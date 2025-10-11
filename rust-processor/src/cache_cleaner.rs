@@ -9,6 +9,9 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 use std::time::Instant;
 
 #[cfg(windows)]
@@ -162,7 +165,6 @@ fn delete_directory_full(
 #[cfg(target_os = "linux")]
 fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<()> {
     use std::process::Command;
-    use std::sync::OnceLock;
 
     if !dir_path.exists() {
         return Ok(());
@@ -170,16 +172,22 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
 
     static EMPTY_TEMPLATE: OnceLock<PathBuf> = OnceLock::new();
 
-    let empty_dir = EMPTY_TEMPLATE.get_or_try_init(|| -> Result<PathBuf> {
-        let mut path = env::temp_dir();
-        path.push(format!(".lancache-empty-{}", std::process::id()));
+    let empty_dir = match EMPTY_TEMPLATE.get() {
+        Some(path) => path,
+        None => {
+            let mut path = env::temp_dir();
+            path.push(format!(".lancache-empty-{}", std::process::id()));
 
-        if path.exists() {
-            fs::remove_dir_all(&path)?;
+            if path.exists() {
+                fs::remove_dir_all(&path)?;
+            }
+            fs::create_dir(&path)?;
+
+            // Ignore error if another thread set it first.
+            let _ = EMPTY_TEMPLATE.set(path);
+            EMPTY_TEMPLATE.get().expect("empty template directory should be set")
         }
-        fs::create_dir(&path)?;
-        Ok(path)
-    })?;
+    };
 
     let output = Command::new("rsync")
         .arg("--recursive")
