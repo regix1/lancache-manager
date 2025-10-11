@@ -17,6 +17,9 @@ use std::time::Instant;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+
 #[derive(Serialize)]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
@@ -223,6 +226,17 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
                 files_counter.fetch_add(deleted, Ordering::Relaxed);
             }
 
+            // If directory still contains entries (e.g., rsync couldn't remove them), fallback
+            if let Ok(mut entries) = fs::read_dir(dir_path) {
+                if entries.next().is_some() {
+                    eprintln!(
+                        "rsync left residual entries in {}. Falling back to direct deletion.",
+                        dir_path.display()
+                    );
+                    delete_directory_contents(dir_path, files_counter)?;
+                }
+            }
+
             Ok(())
         }
         Err(e) => {
@@ -298,6 +312,26 @@ fn parse_rsync_deleted_files(stats: &str) -> Option<u64> {
     None
 }
 
+#[cfg(unix)]
+fn get_available_bytes(path: &Path) -> Result<u64> {
+    use std::ffi::CString;
+    use std::mem::MaybeUninit;
+
+    let c_path = CString::new(path.as_os_str().as_bytes())?;
+    let mut stat: MaybeUninit<libc::statvfs> = MaybeUninit::uninit();
+    let res = unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) };
+    if res != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let stat = unsafe { stat.assume_init() };
+    Ok(stat.f_bavail as u64 * stat.f_frsize as u64)
+}
+
+#[cfg(not(unix))]
+fn get_available_bytes(_path: &Path) -> Result<u64> {
+    Ok(0)
+}
+
 fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, delete_mode: &str) -> Result<()> {
     let start_time = Instant::now();
     eprintln!("Starting cache clear operation...");
@@ -327,6 +361,8 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 
     let total_dirs = hex_dirs.len();
     eprintln!("Found {} cache directories to clear", total_dirs);
+
+    let initial_available = get_available_bytes(cache_dir).unwrap_or(0);
 
     // Atomic counters for progress tracking
     let dirs_processed = Arc::new(AtomicUsize::new(0));
@@ -360,6 +396,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let files_for_monitor = Arc::clone(&total_files_deleted);
     let dirs_for_monitor = Arc::clone(&dirs_processed);
     let progress_path_clone = progress_path.to_path_buf();
+    let cache_dir_for_monitor = cache_dir.to_path_buf();
 
     // Start a background thread to update progress regularly
     let monitor_handle = std::thread::spawn(move || {
@@ -368,6 +405,12 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
             std::thread::sleep(std::time::Duration::from_millis(500));
 
             let processed = dirs_for_monitor.load(Ordering::Relaxed);
+            if let Ok(current_available) = get_available_bytes(&cache_dir_for_monitor) {
+                if current_available >= initial_available {
+                    let freed = current_available - initial_available;
+                    bytes_for_monitor.store(freed, Ordering::Relaxed);
+                }
+            }
             let bytes = bytes_for_monitor.load(Ordering::Relaxed);
             let files = files_for_monitor.load(Ordering::Relaxed);
 
@@ -428,7 +471,18 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let _ = monitor_handle.join();
 
     let final_dirs = dirs_processed.load(Ordering::Relaxed);
-    let final_bytes = total_bytes_deleted.load(Ordering::Relaxed);
+    let final_bytes = get_available_bytes(cache_dir)
+        .ok()
+        .and_then(|current| {
+            if current >= initial_available {
+                Some(current - initial_available)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| total_bytes_deleted.load(Ordering::Relaxed));
+
+    total_bytes_deleted.store(final_bytes, Ordering::Relaxed);
     let final_files = total_files_deleted.load(Ordering::Relaxed);
     let elapsed = start_time.elapsed();
 
