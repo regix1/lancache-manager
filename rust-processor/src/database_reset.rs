@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize)]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
     is_processing: bool,

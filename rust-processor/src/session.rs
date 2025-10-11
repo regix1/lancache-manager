@@ -2,20 +2,20 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub struct SessionTracker {
+pub(crate) struct SessionTracker {
     sessions: HashMap<String, NaiveDateTime>,
     gap_timeout: Duration,
 }
 
 impl SessionTracker {
-    pub fn new(gap_timeout: Duration) -> Self {
+    pub(crate) fn new(gap_timeout: Duration) -> Self {
         Self {
             sessions: HashMap::new(),
             gap_timeout,
         }
     }
 
-    pub fn should_create_new_session(
+    pub(crate) fn should_create_new_session(
         &self,
         session_key: &str,
         current_timestamp: NaiveDateTime,
@@ -28,7 +28,7 @@ impl SessionTracker {
         }
     }
 
-    pub fn update_session(&mut self, session_key: &str, timestamp: NaiveDateTime) {
+    pub(crate) fn update_session(&mut self, session_key: &str, timestamp: NaiveDateTime) {
         self.sessions.insert(session_key.to_string(), timestamp);
     }
 }

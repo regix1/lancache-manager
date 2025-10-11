@@ -3,14 +3,14 @@ use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
 
-pub struct LogParser {
+pub(crate) struct LogParser {
     main_regex: Regex,
     depot_regex: Regex,
     local_tz: Tz,
 }
 
 impl LogParser {
-    pub fn new(local_tz: Tz) -> Self {
+    pub(crate) fn new(local_tz: Tz) -> Self {
         // Updated regex to match the actual format:
         // [service] ip / - - - [timestamp] "METHOD URL HTTP/version" status bytes "referer" "user-agent" "cache-status" "upstream" "other"
         let main_regex = Regex::new(
@@ -26,7 +26,7 @@ impl LogParser {
         }
     }
 
-    pub fn parse_line(&self, line: &str) -> Option<LogEntry> {
+    pub(crate) fn parse_line(&self, line: &str) -> Option<LogEntry> {
         let captures = self.main_regex.captures(line)?;
 
         let service = captures

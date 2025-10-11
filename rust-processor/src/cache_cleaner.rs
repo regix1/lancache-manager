@@ -14,7 +14,7 @@ use std::time::Instant;
 #[cfg(windows)]
 use std::os::windows::fs::OpenOptionsExt;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize)]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
     is_processing: bool,
@@ -229,7 +229,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         .filter(|path| {
             path.is_dir() && path.file_name()
                 .and_then(|n| n.to_str())
-                .map(|n| is_hex(n))
+                .map(is_hex)
                 .unwrap_or(false)
         })
         .collect();
