@@ -179,6 +179,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const lastFastFetchTime = useRef<number>(0);
   const lastMediumFetchTime = useRef<number>(0);
   const lastSlowFetchTime = useRef<number>(0);
+  const lastSignalRRefreshTime = useRef<number>(0);
   const isEffectActive = useRef<boolean>(true);
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
@@ -464,7 +465,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const getCurrentRefreshInterval = () => {
     if (isProcessingLogs) return 3000; // 3 seconds when processing
-    return 5000; // 5 seconds for fast data (cards + downloads)
+    return 10000; // 10 seconds for fast data (cards + downloads) - balanced for performance and UI responsiveness
   };
 
   const getMediumRefreshInterval = () => {
@@ -496,7 +497,19 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           .build();
 
         connection.on('DownloadsRefresh', () => {
-          // Immediately fetch fresh data when downloads are updated
+          // Debounce SignalR updates to prevent rapid refreshes that interfere with UI interactions
+          const now = Date.now();
+          const timeSinceLastRefresh = now - lastSignalRRefreshTime.current;
+
+          // Only allow SignalR updates once every 3 seconds
+          if (timeSinceLastRefresh < 3000) {
+            console.log('[DataContext] SignalR refresh debounced (too soon)');
+            return;
+          }
+
+          lastSignalRRefreshTime.current = now;
+
+          // Fetch fresh data when downloads are updated
           // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)
           fetchFastData();
           // Also fetch service stats so the chart updates in real-time
