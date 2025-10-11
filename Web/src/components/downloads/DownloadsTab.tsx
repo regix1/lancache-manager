@@ -86,6 +86,7 @@ const DownloadsTab: React.FC = () => {
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const contentRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   const [settings, setSettings] = useState(() => ({
     showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
@@ -554,6 +555,31 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settings.selectedService, settings.selectedClient, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode, settings.itemsPerPage]);
 
+  // Click outside handler to close settings dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+
+      // Check if click is on settings button or its children
+      const isSettingsButton = target.closest('[data-settings-button="true"]');
+
+      // Check if click is inside settings dropdown
+      const isInsideDropdown = settingsRef.current && settingsRef.current.contains(target);
+
+      // Close dropdown if click is outside both the button and dropdown
+      if (settingsOpened && !isSettingsButton && !isInsideDropdown) {
+        setSettingsOpened(false);
+      }
+    };
+
+    if (settingsOpened) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [settingsOpened]);
+
   // Handle page changes with smooth scroll
   const handlePageChange = (newPage: number) => {
     if (newPage === currentPage) return;
@@ -676,6 +702,7 @@ const DownloadsTab: React.FC = () => {
               onClick={() => setSettingsOpened(!settingsOpened)}
               className="p-1.5 rounded hover:bg-themed-hover transition-colors"
               title="Settings"
+              data-settings-button="true"
             >
               <Settings size={18} />
             </button>
@@ -904,6 +931,7 @@ const DownloadsTab: React.FC = () => {
                 onClick={() => setSettingsOpened(!settingsOpened)}
                 className="p-2 rounded hover:bg-themed-hover transition-colors"
                 title="Settings"
+                data-settings-button="true"
               >
                 <Settings size={18} />
               </button>
@@ -911,68 +939,70 @@ const DownloadsTab: React.FC = () => {
           </div>
         </div>
 
-        {settingsOpened && (
-          <>
-            <div className="border-t my-3 animate-fade-in" style={{ borderColor: 'var(--theme-border-secondary)' }} />
-            <div className="space-y-2 animate-slide-in-top">
-              <Checkbox
-                checked={settings.showZeroBytes}
-                onChange={(e) =>
-                  setSettings({ ...settings, showZeroBytes: e.target.checked })
-                }
-                label="Show metadata (0 bytes)"
-              />
+        <div ref={settingsRef}>
+          {settingsOpened && (
+            <>
+              <div className="border-t my-3 animate-fade-in" style={{ borderColor: 'var(--theme-border-secondary)' }} />
+              <div className="space-y-2 animate-slide-in-top">
+                <Checkbox
+                  checked={settings.showZeroBytes}
+                  onChange={(e) =>
+                    setSettings({ ...settings, showZeroBytes: e.target.checked })
+                  }
+                  label="Show metadata (0 bytes)"
+                />
 
-              <Checkbox
-                checked={settings.showSmallFiles}
-                onChange={(e) =>
-                  setSettings({ ...settings, showSmallFiles: e.target.checked })
-                }
-                label="Show small files (< 1MB)"
-              />
+                <Checkbox
+                  checked={settings.showSmallFiles}
+                  onChange={(e) =>
+                    setSettings({ ...settings, showSmallFiles: e.target.checked })
+                  }
+                  label="Show small files (< 1MB)"
+                />
 
-              <Checkbox
-                checked={settings.hideLocalhost}
-                onChange={(e) =>
-                  setSettings({ ...settings, hideLocalhost: e.target.checked })
-                }
-                label="Hide localhost (127.0.0.1)"
-              />
+                <Checkbox
+                  checked={settings.hideLocalhost}
+                  onChange={(e) =>
+                    setSettings({ ...settings, hideLocalhost: e.target.checked })
+                  }
+                  label="Hide localhost (127.0.0.1)"
+                />
 
-              <Checkbox
-                checked={settings.hideUnknownGames}
-                onChange={(e) =>
-                  setSettings({ ...settings, hideUnknownGames: e.target.checked })
-                }
-                label="Hide unknown games"
-              />
+                <Checkbox
+                  checked={settings.hideUnknownGames}
+                  onChange={(e) =>
+                    setSettings({ ...settings, hideUnknownGames: e.target.checked })
+                  }
+                  label="Hide unknown games"
+                />
 
-              <Checkbox
-                checked={settings.aestheticMode}
-                onChange={(e) =>
-                  setSettings({ ...settings, aestheticMode: e.target.checked })
-                }
-                label="Aesthetic mode"
-              />
+                <Checkbox
+                  checked={settings.aestheticMode}
+                  onChange={(e) =>
+                    setSettings({ ...settings, aestheticMode: e.target.checked })
+                  }
+                  label="Aesthetic mode"
+                />
 
-              <Checkbox
-                checked={settings.fullHeightBanners}
-                onChange={(e) =>
-                  setSettings({ ...settings, fullHeightBanners: e.target.checked })
-                }
-                label="Full-height game banners"
-              />
+                <Checkbox
+                  checked={settings.fullHeightBanners}
+                  onChange={(e) =>
+                    setSettings({ ...settings, fullHeightBanners: e.target.checked })
+                  }
+                  label="Full-height game banners"
+                />
 
-              <Checkbox
-                checked={settings.groupByFrequency}
-                onChange={(e) =>
-                  setSettings({ ...settings, groupByFrequency: e.target.checked })
-                }
-                label="Group downloads by frequency"
-              />
-            </div>
-          </>
-        )}
+                <Checkbox
+                  checked={settings.groupByFrequency}
+                  onChange={(e) =>
+                    setSettings({ ...settings, groupByFrequency: e.target.checked })
+                  }
+                  label="Group downloads by frequency"
+                />
+              </div>
+            </>
+          )}
+        </div>
       </Card>
 
       {/* Stats */}
