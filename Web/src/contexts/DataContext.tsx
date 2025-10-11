@@ -502,12 +502,13 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           .build();
 
         connection.on('DownloadsRefresh', () => {
-          // Debounce SignalR updates to prevent rapid refreshes that interfere with UI interactions
+          // Debounce SignalR updates based on user's polling rate preference
           const now = Date.now();
           const timeSinceLastRefresh = now - lastSignalRRefreshTime.current;
 
-          // Only allow SignalR updates once every 3 seconds
-          if (timeSinceLastRefresh < 3000) {
+          // Use the current polling rate as the minimum time between SignalR updates
+          const pollingInterval = getPollingInterval();
+          if (timeSinceLastRefresh < pollingInterval) {
             console.log('[DataContext] SignalR refresh debounced (too soon)');
             return;
           }
