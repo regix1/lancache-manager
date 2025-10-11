@@ -36,6 +36,10 @@ struct ProgressData {
     bytes_deleted: u64,
     #[serde(rename = "filesDeleted")]
     files_deleted: u64,
+    #[serde(rename = "activeDirectories")]
+    active_directories: Vec<String>,
+    #[serde(rename = "activeCount")]
+    active_count: usize,
     timestamp: String,
 }
 
@@ -49,7 +53,9 @@ impl ProgressData {
         total_directories: usize,
         bytes_deleted: u64,
         files_deleted: u64,
+        active_directories: Vec<String>,
     ) -> Self {
+        let active_count = active_directories.len();
         Self {
             is_processing,
             percent_complete,
@@ -59,6 +65,8 @@ impl ProgressData {
             total_directories,
             bytes_deleted,
             files_deleted,
+            active_directories,
+            active_count,
             timestamp: Utc::now().to_rfc3339(),
         }
     }
@@ -370,6 +378,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         total_dirs,
         0,
         0,
+        Vec::new(),
     );
     write_progress(progress_path, &progress)?;
 
@@ -447,6 +456,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
                     total_dirs,
                     bytes,
                     files,
+                    active_snapshot,
                 );
 
                 if let Err(e) = write_progress(&progress_path_clone, &progress) {
@@ -539,6 +549,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         total_dirs,
         final_bytes,
         final_files,
+        Vec::new(),
     );
     write_progress(progress_path, &progress)?;
 
@@ -593,6 +604,7 @@ fn main() {
                 0,
                 0,
                 0,
+                Vec::new(),
             );
             let _ = write_progress(progress_path, &error_progress);
             std::process::exit(1);

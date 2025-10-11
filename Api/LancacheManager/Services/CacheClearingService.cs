@@ -241,7 +241,10 @@ public class CacheClearingService : IHostedService
 
                                     if (shouldLog)
                                     {
-                                        _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared");
+                                        var activeInfo = progressData.ActiveCount > 0
+                                            ? $" | Active: {progressData.ActiveCount} [{string.Join(", ", progressData.ActiveDirectories)}]"
+                                            : "";
+                                        _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared{activeInfo}");
                                         lastLoggedDirs = operation.DirectoriesProcessed;
                                         lastLogTime = DateTime.UtcNow;
                                     }
@@ -355,6 +358,8 @@ public class CacheClearingService : IHostedService
         public int TotalDirectories { get; set; }
         public ulong BytesDeleted { get; set; }
         public ulong FilesDeleted { get; set; }
+        public List<string> ActiveDirectories { get; set; } = new();
+        public int ActiveCount { get; set; }
     }
 
     private bool IsHex(string value)
