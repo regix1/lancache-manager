@@ -10,14 +10,12 @@ namespace LancacheManager.Controllers;
 [Route("api/[controller]")]
 public class DownloadsController : ControllerBase
 {
-    private readonly DatabaseService _dbService;
     private readonly AppDbContext _context;
     private readonly StatsService _statsService;
     private readonly ILogger<DownloadsController> _logger;
 
-    public DownloadsController(DatabaseService dbService, AppDbContext context, StatsService statsService, ILogger<DownloadsController> logger)
+    public DownloadsController(AppDbContext context, StatsService statsService, ILogger<DownloadsController> logger)
     {
-        _dbService = dbService;
         _context = context;
         _statsService = statsService;
         _logger = logger;

@@ -21,7 +21,6 @@ public class SteamService : IHostedService, IDisposable
     // Caches for performance
     private readonly ConcurrentDictionary<uint, GameInfo> _gameCache = new();
     private readonly ConcurrentDictionary<uint, uint> _depotToAppCache = new();
-    private readonly ConcurrentDictionary<uint, SteamAppInfo> _appInfoCache = new();
 
     // Steam API data
     private Dictionary<uint, SteamAppInfo> _steamApps = new();
@@ -537,7 +536,6 @@ public class SteamService : IHostedService, IDisposable
     {
         _gameCache.Clear();
         _depotToAppCache.Clear();
-        _appInfoCache.Clear();
         _logger.LogInformation("Cleared all Steam service caches");
     }
 

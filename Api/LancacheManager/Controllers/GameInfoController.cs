@@ -12,20 +12,17 @@ namespace LancacheManager.Controllers;
 public class GameInfoController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly SteamService _steamService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly PicsDataService _picsDataService;
     private readonly ILogger<GameInfoController> _logger;
 
     public GameInfoController(
         AppDbContext context,
-        SteamService steamService,
         SteamKit2Service steamKit2Service,
         PicsDataService picsDataService,
         ILogger<GameInfoController> logger)
     {
         _context = context;
-        _steamService = steamService;
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
         _logger = logger;
@@ -78,8 +75,8 @@ public class GameInfoController : ControllerBase
                         {
                             started = false,
                             requiresFullScan = true,
-                            changeGap = changeGap,
-                            estimatedApps = estimatedApps,
+                            changeGap,
+                            estimatedApps,
                             message = errorMsg ?? "Change gap is too large for incremental scan. A full scan is required.",
                             viabilityError = errorMsg
                         });
@@ -248,7 +245,7 @@ public class GameInfoController : ControllerBase
                     lastUpdated = picsData?.Metadata?.LastUpdated,
                     totalMappings = picsData?.Metadata?.TotalMappings ?? 0,
                     nextUpdateDue = picsData?.Metadata?.NextUpdateDue,
-                    needsUpdate = needsUpdate
+                    needsUpdate
                 },
                 database = new
                 {

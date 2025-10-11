@@ -92,10 +92,10 @@ public class ThemeController : ControllerBase
                     themes.Add(new
                     {
                         id = themeId,
-                        name = name,
-                        description = description,
-                        author = author,
-                        version = version,
+                        name,
+                        description,
+                        author,
+                        version,
                         isDefault = systemThemes.Contains(themeId),
                         format = file.EndsWith(".toml") ? "toml" : "json"
                     });

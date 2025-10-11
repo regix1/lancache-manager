@@ -148,7 +148,6 @@ export interface CacheClearStatus {
   percentComplete?: number;
   bytesDeleted?: number;
   filesDeleted?: number;
-  totalBytesToDelete?: number;
   error?: string;
 }
 

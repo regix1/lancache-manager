@@ -358,7 +358,7 @@ public class ManagementController : ControllerBase
                     status = "idle",
                     message = "Not processing",
                     mbProcessed = 0.0,
-                    mbTotal = mbTotal,
+                    mbTotal,
                     entriesProcessed = 0,
                     entriesQueued = 0,
                     linesProcessed = 0
@@ -383,7 +383,7 @@ public class ManagementController : ControllerBase
                     progress = 0,
                     status = "idle",
                     mbProcessed = 0.0,
-                    mbTotal = mbTotal,
+                    mbTotal,
                     entriesProcessed = 0,
                     entriesQueued = 0,
                     linesProcessed = 0
@@ -473,7 +473,7 @@ public class ManagementController : ControllerBase
             return Ok(new
             {
                 hasActive = operations.Any(),
-                operations = operations
+                operations
             });
         }
         catch (Exception ex)

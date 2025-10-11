@@ -1128,74 +1128,6 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Get app IDs from depot ID (always from database for accuracy)
-    /// Returns ALL apps for a depot - caller can filter for owners if needed
-    /// </summary>
-    public IReadOnlyCollection<uint> GetAppIdsForDepot(uint depotId)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            // Return ALL apps for this depot (owner preference happens in calling code)
-            var dbAppIds = context.SteamDepotMappings
-                .Where(m => m.DepotId == depotId)
-                .Select(m => m.AppId)
-                .Distinct()
-                .ToList();
-
-            return dbAppIds;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to query database for depot {DepotId}", depotId);
-            return Array.Empty<uint>();
-        }
-    }
-
-    /// <summary>
-    /// Get single app ID from depot (returns first if multiple)
-    /// </summary>
-    public uint? GetAppIdFromDepot(uint depotId)
-    {
-        var appIds = GetAppIdsForDepot(depotId);
-        return appIds.Any() ? appIds.First() : null;
-    }
-
-    /// <summary>
-    /// Get app ID from depot async
-    /// </summary>
-    public Task<uint?> GetAppIdFromDepotAsync(uint depotId)
-    {
-        return Task.FromResult(GetAppIdFromDepot(depotId));
-    }
-
-    /// <summary>
-    /// Get app name from depot ID (always from database for accuracy)
-    /// </summary>
-    public string? GetAppNameFromDepot(uint depotId)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-            var appName = context.SteamDepotMappings
-                .Where(m => m.DepotId == depotId)
-                .Select(m => m.AppName)
-                .FirstOrDefault();
-
-            return appName;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to query database for depot {DepotId} name", depotId);
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Get current depot mapping count (always from database for accuracy)
     /// </summary>
     public int GetDepotMappingCount()
@@ -1218,31 +1150,6 @@ public class SteamKit2Service : IHostedService, IDisposable
     /// Check if service is ready
     /// </summary>
     public bool IsReady => _isLoggedOn && _steamClient?.IsConnected == true && _depotToAppMappings.Count > 0 && !IsRebuildRunning;
-
-    /// <summary>
-    /// Check if PICS crawl should run based on timing and current state
-    /// </summary>
-    public async Task<bool> ShouldRunPicsCrawlAsync()
-    {
-        // Don't run if already running
-        if (IsRebuildRunning) return false;
-
-        // Check if JSON data needs updating
-        return await _picsDataService.NeedsUpdateAsync();
-    }
-
-    /// <summary>
-    /// Legacy synchronous method for backward compatibility
-    /// </summary>
-    public bool ShouldRunPicsCrawl()
-    {
-        // Don't run if already running
-        if (IsRebuildRunning) return false;
-
-        // Fallback to time-based check
-        var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
-        return _lastCrawlTime == DateTime.MinValue || timeSinceLastCrawl >= _crawlInterval;
-    }
 
     /// <summary>
     /// Get or set the crawl interval in hours

@@ -174,14 +174,6 @@ export const colorGroups: ColorGroup[] = [
         affects: ['Download cards focus outline', 'Interactive card selection'],
         supportsAlpha: true,
         pages: ['downloads']
-      },
-      {
-        key: 'cardRing',
-        label: 'Card Expanded Ring',
-        description: 'Ring/glow around expanded cards',
-        affects: ['Download cards expanded state', 'Active card highlight'],
-        supportsAlpha: true,
-        pages: ['downloads']
       }
     ]
   },
@@ -554,30 +546,6 @@ export const colorGroups: ColorGroup[] = [
     description: 'Data visualization and display elements',
     colors: [
       {
-        key: 'badgeBg',
-        label: 'Badge Background',
-        description: 'Badge and pill backgrounds',
-        affects: ['Status badges', 'Tags', 'Labels'],
-        supportsAlpha: true,
-        pages: []
-      },
-      {
-        key: 'badgeText',
-        label: 'Badge Text',
-        description: 'Badge text color',
-        affects: ['Badge labels', 'Tag text'],
-        supportsAlpha: true,
-        pages: []
-      },
-      {
-        key: 'progressBar',
-        label: 'Progress Bar Fill',
-        description: 'Progress indicator color',
-        affects: ['Progress bars', 'Loading bars', 'Completion indicators'],
-        supportsAlpha: true,
-        pages: []
-      },
-      {
         key: 'progressBg',
         label: 'Progress Track',
         description: 'Progress bar background',
@@ -614,6 +582,38 @@ export const colorGroups: ColorGroup[] = [
         label: 'Chart Quaternary',
         description: 'Fourth chart color',
         affects: ['Fourth data series'],
+        supportsAlpha: true,
+        pages: ['charts']
+      },
+      {
+        key: 'chartColor5',
+        label: 'Chart Color 5',
+        description: 'Fifth chart color',
+        affects: ['Fifth data series'],
+        supportsAlpha: true,
+        pages: ['charts']
+      },
+      {
+        key: 'chartColor6',
+        label: 'Chart Color 6',
+        description: 'Sixth chart color',
+        affects: ['Sixth data series'],
+        supportsAlpha: true,
+        pages: ['charts']
+      },
+      {
+        key: 'chartColor7',
+        label: 'Chart Color 7',
+        description: 'Seventh chart color',
+        affects: ['Seventh data series'],
+        supportsAlpha: true,
+        pages: ['charts']
+      },
+      {
+        key: 'chartColor8',
+        label: 'Chart Color 8',
+        description: 'Eighth chart color',
+        affects: ['Eighth data series'],
         supportsAlpha: true,
         pages: ['charts']
       },

@@ -230,8 +230,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           status: 'Preparing',
           statusMessage: 'Starting cache clear...',
           percentComplete: 0,
-          bytesDeleted: 0,
-          totalBytesToDelete: 0
+          bytesDeleted: 0
         });
         startCacheClearPolling(result.operationId);
       }

@@ -11,10 +11,6 @@ namespace LancacheManager.Services;
 public class LancacheMetricsService
 {
     private readonly Meter _meter;
-    private readonly Counter<long> _downloadsTotal;
-    private readonly Counter<long> _downloadsByService;
-    private readonly Counter<long> _bytesServedTotal;
-    private readonly Counter<long> _bytesServedByService;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<LancacheMetricsService> _logger;
 
@@ -39,31 +35,6 @@ public class LancacheMetricsService
 
         // Create a meter for LanCache metrics
         _meter = new Meter("LancacheManager", "1.0.0");
-
-        // Counters - monotonically increasing values
-        _downloadsTotal = _meter.CreateCounter<long>(
-            "lancache_downloads_total",
-            unit: "downloads",
-            description: "Total number of downloads processed"
-        );
-
-        _downloadsByService = _meter.CreateCounter<long>(
-            "lancache_downloads_by_service",
-            unit: "downloads",
-            description: "Downloads processed per service (steam, epic, etc.)"
-        );
-
-        _bytesServedTotal = _meter.CreateCounter<long>(
-            "lancache_bytes_served_total",
-            unit: "bytes",
-            description: "Total bytes served from cache"
-        );
-
-        _bytesServedByService = _meter.CreateCounter<long>(
-            "lancache_bytes_served_by_service",
-            unit: "bytes",
-            description: "Bytes served per service (steam, epic, etc.)"
-        );
 
         // Observable Gauges - current state values
         _meter.CreateObservableGauge(
@@ -139,52 +110,6 @@ public class LancacheMetricsService
 
         // Start background task to update gauges
         Task.Run(async () => await UpdateGaugesAsync());
-    }
-
-    /// <summary>
-    /// Record a new download
-    /// </summary>
-    public void RecordDownload(string service, long bytes)
-    {
-        try
-        {
-            _downloadsTotal.Add(1);
-            _downloadsByService.Add(1, new KeyValuePair<string, object?>("service", service));
-
-            if (bytes > 0)
-            {
-                _bytesServedTotal.Add(bytes);
-                _bytesServedByService.Add(bytes, new KeyValuePair<string, object?>("service", service));
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to record download metric");
-        }
-    }
-
-    /// <summary>
-    /// Update cache size metric
-    /// </summary>
-    public void UpdateCacheSize(long sizeInBytes)
-    {
-        Interlocked.Exchange(ref _cacheSize, sizeInBytes);
-    }
-
-    /// <summary>
-    /// Update active downloads count
-    /// </summary>
-    public void UpdateActiveDownloads(int count)
-    {
-        Interlocked.Exchange(ref _activeDownloads, count);
-    }
-
-    /// <summary>
-    /// Update active clients count
-    /// </summary>
-    public void UpdateActiveClients(int count)
-    {
-        Interlocked.Exchange(ref _activeClients, count);
     }
 
     /// <summary>

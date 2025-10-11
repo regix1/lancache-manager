@@ -67,7 +67,6 @@ interface ThemeColors {
   cardBg?: string;
   cardBorder?: string;
   cardOutline?: string;
-  cardRing?: string;
   buttonBg?: string;
   buttonHover?: string;
   buttonText?: string;
@@ -85,9 +84,6 @@ interface ThemeColors {
   sliderAccent?: string;
   sliderThumb?: string;
   sliderTrack?: string;
-  badgeBg?: string;
-  badgeText?: string;
-  progressBar?: string;
   progressBg?: string;
 
   // Hit rate specific colors
@@ -343,9 +339,6 @@ class ThemeService {
           sliderAccent: '#3b82f6',
           sliderThumb: '#3b82f6',
           sliderTrack: '#374151',
-          badgeBg: '#3b82f6',
-          badgeText: '#ffffff',
-          progressBar: '#3b82f6',
           progressBg: '#374151',
 
           // Hit rate specific - MUCH PRETTIER COLORS
@@ -501,9 +494,6 @@ class ThemeService {
           sliderAccent: '#3b82f6',
           sliderThumb: '#3b82f6',
           sliderTrack: '#e5e7eb',
-          badgeBg: '#3b82f6',
-          badgeText: '#ffffff',
-          progressBar: '#3b82f6',
           progressBg: '#e5e7eb',
 
           // Hit rate specific - MUCH PRETTIER COLORS
@@ -704,7 +694,6 @@ class ThemeService {
         --theme-card-bg: #1f2937;
         --theme-card-border: #374151;
         --theme-card-outline: #3b82f6;
-        --theme-card-ring: rgba(59, 130, 246, 0.2);
         --theme-button-bg: #3b82f6;
         --theme-button-hover: #2563eb;
         --theme-button-text: #ffffff;
@@ -722,9 +711,6 @@ class ThemeService {
         --theme-slider-accent: #3b82f6;
         --theme-slider-thumb: #3b82f6;
         --theme-slider-track: #374151;
-        --theme-badge-bg: #3b82f6;
-        --theme-badge-text: #ffffff;
-        --theme-progress-bar: #3b82f6;
         --theme-progress-bg: #374151;
         --theme-hit-rate-high-bg: #064e3b;
         --theme-hit-rate-high-text: #34d399;
@@ -853,7 +839,6 @@ class ThemeService {
     if (!colors.inputFocus) colors.inputFocus = colors.primaryColor;
     if (!colors.checkboxFocus) colors.checkboxFocus = colors.primaryColor;
     if (!colors.cardOutline) colors.cardOutline = colors.primaryColor;
-    if (!colors.cardRing) colors.cardRing = colors.primaryColor + '33'; // 20% opacity
 
     // Get border radius settings from theme (already set above)
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
@@ -920,7 +905,6 @@ class ThemeService {
       --theme-card-bg: ${colors.cardBg};
       --theme-card-border: ${colors.cardBorder};
       --theme-card-outline: ${colors.cardOutline};
-      --theme-card-ring: ${colors.cardRing};
       --theme-button-bg: ${colors.buttonBg};
       --theme-button-hover: ${colors.buttonHover};
       --theme-button-text: ${colors.buttonText};
@@ -938,9 +922,6 @@ class ThemeService {
       --theme-slider-accent: ${colors.sliderAccent};
       --theme-slider-thumb: ${colors.sliderThumb};
       --theme-slider-track: ${colors.sliderTrack};
-      --theme-badge-bg: ${colors.badgeBg};
-      --theme-badge-text: ${colors.badgeText};
-      --theme-progress-bar: ${colors.progressBar};
       --theme-progress-bg: ${colors.progressBg};
       
       /* Hit Rate Colors - FIXED WITH PRETTIER COLORS */

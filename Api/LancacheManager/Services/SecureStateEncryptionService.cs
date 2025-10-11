@@ -121,21 +121,4 @@ public class SecureStateEncryptionService
         _logger.LogWarning("Found unencrypted sensitive data in state - will be encrypted with API key protection on next save");
         return ciphertext;
     }
-
-    /// <summary>
-    /// Checks if a value is encrypted (has any encryption prefix)
-    /// </summary>
-    public bool IsEncrypted(string? value)
-    {
-        return !string.IsNullOrEmpty(value) &&
-               (value.StartsWith(EncryptedPrefix) || value.StartsWith(EncryptedPrefixV2));
-    }
-
-    /// <summary>
-    /// Checks if a value is using the latest v2 encryption with API key protection
-    /// </summary>
-    public bool IsV2Encrypted(string? value)
-    {
-        return !string.IsNullOrEmpty(value) && value.StartsWith(EncryptedPrefixV2);
-    }
 }

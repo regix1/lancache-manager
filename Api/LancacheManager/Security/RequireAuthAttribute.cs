@@ -164,7 +164,7 @@ public class AuthenticationMiddleware
                 { 
                     error = "Authentication required",
                     message = "Please provide either X-Api-Key or X-Device-Id header",
-                    path = path
+                    path
                 }));
             return;
         }

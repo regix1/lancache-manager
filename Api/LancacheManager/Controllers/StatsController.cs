@@ -329,7 +329,7 @@ public class StatsController : ControllerBase
                 {
                     hitBytes = totalHitBytes,
                     missBytes = totalMissBytes,
-                    totalBytes = totalBytes,
+                    totalBytes,
                     hitRatio = overallHitRatio,
                     hitPercentage = overallHitRatio * 100,
                     bandwidthSaved = totalHitBytes,
@@ -382,7 +382,7 @@ public class StatsController : ControllerBase
                         duration = period,
                         since = cutoffTime,
                         until = DateTime.UtcNow,
-                        interval = interval
+                        interval
                     },
                     dataPoints = new List<object>(),
                     summary = new
@@ -419,7 +419,7 @@ public class StatsController : ControllerBase
                     timestampEnd = intervalEnd,
                     cacheHits = hitBytes,
                     cacheMisses = missBytes,
-                    totalBytes = totalBytes,
+                    totalBytes,
                     hitRatio = totalBytes > 0 ? (double)hitBytes / totalBytes : 0,
                     downloads = intervalDownloads.Count
                 });
@@ -439,14 +439,14 @@ public class StatsController : ControllerBase
                     duration = period,
                     since = cutoffTime,
                     until = DateTime.UtcNow,
-                    interval = interval,
-                    intervalMinutes = intervalMinutes
+                    interval,
+                    intervalMinutes
                 },
                 dataPoints = dataPoints,
                 summary = new
                 {
-                    totalHitBytes = totalHitBytes,
-                    totalMissBytes = totalMissBytes,
+                    totalHitBytes,
+                    totalMissBytes,
                     totalBytes = totalBytesSum,
                     averageHitRatio = totalBytesSum > 0 
                         ? (double)totalHitBytes / totalBytesSum 
@@ -502,12 +502,12 @@ public class StatsController : ControllerBase
             
             return Ok(new
             {
-                period = period,
+                period,
                 totalBandwidthSaved = totalSaved,
                 totalBandwidthServed = totalServed,
-                savingsRatio = savingsRatio,
+                savingsRatio,
                 savingsPercentage = savingsRatio * 100,
-                byService = byService,
+                byService,
                 calculatedAt = DateTime.UtcNow
             });
         }

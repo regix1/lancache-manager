@@ -258,24 +258,6 @@ public class StateService
         return GetState().OperationStates;
     }
 
-    public void AddOperationState(OperationState operation)
-    {
-        UpdateState(state => state.OperationStates.Add(operation));
-    }
-
-    public void UpdateOperationState(string id, Action<OperationState> updater)
-    {
-        UpdateState(state =>
-        {
-            var operation = state.OperationStates.FirstOrDefault(o => o.Id == id);
-            if (operation != null)
-            {
-                updater(operation);
-                operation.UpdatedAt = DateTime.UtcNow;
-            }
-        });
-    }
-
     public void RemoveOperationState(string id)
     {
         UpdateState(state => state.OperationStates.RemoveAll(o => o.Id == id));

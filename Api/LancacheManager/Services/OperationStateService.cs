@@ -7,15 +7,13 @@ public class OperationStateService : IHostedService
 {
     private readonly ILogger<OperationStateService> _logger;
     private readonly StateService _stateService;
-    private readonly IServiceProvider _serviceProvider;
     private readonly ConcurrentDictionary<string, OperationState> _states = new();
     private Timer? _cleanupTimer;
 
-    public OperationStateService(ILogger<OperationStateService> logger, StateService stateService, IServiceProvider serviceProvider)
+    public OperationStateService(ILogger<OperationStateService> logger, StateService stateService)
     {
         _logger = logger;
         _stateService = stateService;
-        _serviceProvider = serviceProvider;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)

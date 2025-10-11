@@ -11,9 +11,6 @@ public class DatabaseService
     private readonly AppDbContext _context;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ILogger<DatabaseService> _logger;
-    private readonly SteamService _steamService;
-    private readonly SteamKit2Service _steamKit2Service;
-    private readonly PicsDataService _picsDataService;
     private readonly IPathResolver _pathResolver;
     private readonly StatsCache _statsCache;
 
@@ -21,81 +18,14 @@ public class DatabaseService
         AppDbContext context,
         IHubContext<DownloadHub> hubContext,
         ILogger<DatabaseService> logger,
-        SteamService steamService,
-        SteamKit2Service steamKit2Service,
-        PicsDataService picsDataService,
         IPathResolver pathResolver,
         StatsCache statsCache)
     {
         _context = context;
         _hubContext = hubContext;
         _logger = logger;
-        _steamService = steamService;
-        _steamKit2Service = steamKit2Service;
-        _picsDataService = picsDataService;
         _pathResolver = pathResolver;
         _statsCache = statsCache;
-    }
-
-    public async Task<List<Download>> GetLatestDownloads(int count)
-    {
-        try
-        {
-            return await _context.Downloads
-                .OrderByDescending(d => d.StartTimeUtc)
-                .Take(count)
-                .ToListAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting latest downloads");
-            return new List<Download>();
-        }
-    }
-
-    public async Task<List<Download>> GetActiveDownloads()
-    {
-        try
-        {
-            // Only check IsActive flag - cleanup service handles marking old downloads as complete
-            return await _context.Downloads
-                .Where(d => d.IsActive)
-                .OrderByDescending(d => d.StartTimeUtc)
-                .ToListAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting active downloads");
-            return new List<Download>();
-        }
-    }
-
-    public async Task<List<ClientStats>> GetClientStats()
-    {
-        try
-        {
-            var stats = await _context.ClientStats.ToListAsync();
-            return stats.OrderByDescending(c => c.TotalBytes).ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting client stats");
-            return new List<ClientStats>();
-        }
-    }
-
-    public async Task<List<ServiceStats>> GetServiceStats()
-    {
-        try
-        {
-            var stats = await _context.ServiceStats.ToListAsync();
-            return stats.OrderByDescending(s => s.TotalBytes).ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting service stats");
-            return new List<ServiceStats>();
-        }
     }
 
     public async Task ResetDatabase()

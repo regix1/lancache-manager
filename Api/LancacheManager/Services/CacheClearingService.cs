@@ -94,13 +94,12 @@ public class CacheClearingService : IHostedService
         return Task.CompletedTask;
     }
 
-    public async Task<string> StartCacheClearAsync(string? service = null)
+    public async Task<string> StartCacheClearAsync()
     {
         var operationId = Guid.NewGuid().ToString();
         var operation = new CacheClearOperation
         {
             Id = operationId,
-            Service = service,
             StartTime = DateTime.UtcNow,
             Status = ClearStatus.Preparing,
             StatusMessage = "Initializing cache clear...",
@@ -363,14 +362,6 @@ public class CacheClearingService : IHostedService
         return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 
-    private string FormatBytes(long bytes)
-    {
-        if (bytes == 0) return "0 B";
-        var sizes = new[] { "B", "KB", "MB", "GB", "TB" };
-        var i = (int)Math.Floor(Math.Log(bytes) / Math.Log(1024));
-        return $"{bytes / Math.Pow(1024, i):F2} {sizes[i]}";
-    }
-
     private async Task NotifyProgress(CacheClearOperation operation)
     {
         try
@@ -380,15 +371,12 @@ public class CacheClearingService : IHostedService
                 OperationId = operation.Id,
                 Status = operation.Status.ToString(),
                 StatusMessage = operation.StatusMessage,
-                Service = operation.Service,
                 StartTime = operation.StartTime,
                 EndTime = operation.EndTime,
                 DirectoriesProcessed = operation.DirectoriesProcessed,
                 TotalDirectories = operation.TotalDirectories,
                 BytesDeleted = operation.BytesDeleted,
                 FilesDeleted = operation.FilesDeleted,
-                TotalBytesToDelete = operation.TotalBytesToDelete,
-                Errors = operation.Errors,
                 Error = operation.Error,
                 PercentComplete = operation.PercentComplete
             };
@@ -524,15 +512,12 @@ public class CacheClearingService : IHostedService
                 OperationId = operation.Id,
                 Status = operation.Status.ToString(),
                 StatusMessage = operation.StatusMessage,
-                Service = operation.Service,
                 StartTime = operation.StartTime,
                 EndTime = operation.EndTime,
                 DirectoriesProcessed = operation.DirectoriesProcessed,
                 TotalDirectories = operation.TotalDirectories,
                 BytesDeleted = operation.BytesDeleted,
                 FilesDeleted = operation.FilesDeleted,
-                TotalBytesToDelete = operation.TotalBytesToDelete,
-                Errors = operation.Errors,
                 Error = operation.Error,
                 PercentComplete = operation.PercentComplete
             };
@@ -548,15 +533,12 @@ public class CacheClearingService : IHostedService
             OperationId = op.Id,
             Status = op.Status.ToString(),
             StatusMessage = op.StatusMessage,
-            Service = op.Service,
             StartTime = op.StartTime,
             EndTime = op.EndTime,
             DirectoriesProcessed = op.DirectoriesProcessed,
             TotalDirectories = op.TotalDirectories,
             BytesDeleted = op.BytesDeleted,
             FilesDeleted = op.FilesDeleted,
-            TotalBytesToDelete = op.TotalBytesToDelete,
-            Errors = op.Errors,
             Error = op.Error,
             PercentComplete = op.PercentComplete
         }).ToList();
@@ -688,7 +670,6 @@ public class CacheClearingService : IHostedService
 public class CacheClearOperation
 {
     public string Id { get; set; } = string.Empty;
-    public string? Service { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public ClearStatus Status { get; set; }
@@ -698,8 +679,6 @@ public class CacheClearOperation
     public int DirectoriesProcessed { get; set; }
     public long BytesDeleted { get; set; }
     public long FilesDeleted { get; set; }
-    public long TotalBytesToDelete { get; set; }
-    public int Errors { get; set; }
     public double PercentComplete { get; set; }
 
     [JsonIgnore]
@@ -720,15 +699,12 @@ public class CacheClearProgress
     public string OperationId { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string StatusMessage { get; set; } = string.Empty;
-    public string? Service { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public int DirectoriesProcessed { get; set; }
     public int TotalDirectories { get; set; }
     public long BytesDeleted { get; set; }
     public long FilesDeleted { get; set; }
-    public long TotalBytesToDelete { get; set; }
-    public int Errors { get; set; }
     public string? Error { get; set; }
     public double PercentComplete { get; set; }
 }
