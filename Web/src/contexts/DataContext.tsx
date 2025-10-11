@@ -228,8 +228,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
-    // Debounce fast data
-    if (!isInitialLoad.current && (now - lastFastFetchTime.current) < 3000) {
+    // Debounce fast data based on current polling rate (half the interval)
+    const debounceTime = Math.max(500, getPollingInterval() / 2);
+    if (!isInitialLoad.current && (now - lastFastFetchTime.current) < debounceTime) {
       return;
     }
 
@@ -294,8 +295,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
-    // Debounce medium data
-    if (!isInitialLoad.current && (now - lastMediumFetchTime.current) < 10000) {
+    // Debounce medium data based on medium interval (half the interval)
+    const debounceTime = Math.max(1000, getMediumRefreshInterval() / 2);
+    if (!isInitialLoad.current && (now - lastMediumFetchTime.current) < debounceTime) {
       return;
     }
 
@@ -322,8 +324,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
-    // Debounce slow data
-    if (!isInitialLoad.current && (now - lastSlowFetchTime.current) < 20000) {
+    // Debounce slow data based on slow interval (half the interval)
+    const debounceTime = Math.max(2000, getSlowRefreshInterval() / 2);
+    if (!isInitialLoad.current && (now - lastSlowFetchTime.current) < debounceTime) {
       return;
     }
 
