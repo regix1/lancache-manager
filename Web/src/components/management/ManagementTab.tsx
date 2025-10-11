@@ -18,6 +18,7 @@ import operationStateService from '@services/operationState.service';
 
 // Import manager components
 import AuthenticationManager from './AuthenticationManager';
+import SteamLoginManager from './SteamLoginManager';
 import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
@@ -1027,68 +1028,93 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         )}
       </div>
 
-      {/* Mock Mode */}
+      {/* Mock Mode - Always visible */}
       <MockModeManager
         mockMode={mockMode}
         onToggle={() => setMockMode(!mockMode)}
         disabled={false}
       />
 
-      {/* Database Manager */}
-      <DatabaseManager
-        isAuthenticated={isAuthenticated}
-        authMode={authMode}
-        mockMode={mockMode}
-        onError={addError}
-        onSuccess={setSuccess}
-        onDataRefresh={fetchData}
-        onBackgroundOperation={(op) =>
-          setBackgroundOperations((prev) => ({ ...prev, databaseReset: op }))
-        }
-      />
+      {/* Only show management features when fully authenticated */}
+      {authMode === 'authenticated' && (
+        <>
+          {/* Steam Login Manager */}
+          <SteamLoginManager
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={addError}
+            onSuccess={setSuccess}
+          />
 
-      {/* Cache Manager - Pass notification callback */}
-      <CacheManager
-        isAuthenticated={isAuthenticated}
-        authMode={authMode}
-        mockMode={mockMode}
-        onError={addError}
-        onSuccess={setSuccess}
-        onBackgroundOperation={(op) =>
-          setBackgroundOperations((prev) => ({ ...prev, cacheClearing: op }))
-        }
-      />
+          {/* Database Manager */}
+          <DatabaseManager
+            isAuthenticated={isAuthenticated}
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={addError}
+            onSuccess={setSuccess}
+            onDataRefresh={fetchData}
+            onBackgroundOperation={(op) =>
+              setBackgroundOperations((prev) => ({ ...prev, databaseReset: op }))
+            }
+          />
 
-      {/* Log Processing Manager - Pass notification callback */}
-      <LogProcessingManager
-        isAuthenticated={isAuthenticated}
-        mockMode={mockMode}
-        onError={addError}
-        onSuccess={setSuccess}
-        onDataRefresh={fetchData}
-        onBackgroundOperation={(op) =>
-          setBackgroundOperations((prev) => ({ ...prev, logProcessing: op }))
-        }
-      />
+          {/* Cache Manager - Pass notification callback */}
+          <CacheManager
+            isAuthenticated={isAuthenticated}
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={addError}
+            onSuccess={setSuccess}
+            onBackgroundOperation={(op) =>
+              setBackgroundOperations((prev) => ({ ...prev, cacheClearing: op }))
+            }
+          />
 
-      {/* Log File Manager - Pass notification callback */}
-      <LogFileManager
-        isAuthenticated={isAuthenticated}
-        authMode={authMode}
-        mockMode={mockMode}
-        onError={addError}
-        onSuccess={setSuccess}
-        onDataRefresh={fetchData}
-        onBackgroundOperation={(service) =>
-          setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
-        }
-      />
+          {/* Log Processing Manager - Pass notification callback */}
+          <LogProcessingManager
+            isAuthenticated={isAuthenticated}
+            mockMode={mockMode}
+            onError={addError}
+            onSuccess={setSuccess}
+            onDataRefresh={fetchData}
+            onBackgroundOperation={(op) =>
+              setBackgroundOperations((prev) => ({ ...prev, logProcessing: op }))
+            }
+          />
 
-      {/* Grafana Endpoints */}
-      <GrafanaEndpoints />
+          {/* Log File Manager - Pass notification callback */}
+          <LogFileManager
+            isAuthenticated={isAuthenticated}
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={addError}
+            onSuccess={setSuccess}
+            onDataRefresh={fetchData}
+            onBackgroundOperation={(service) =>
+              setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
+            }
+          />
 
-      {/* Theme Manager */}
-      <ThemeManager isAuthenticated={isAuthenticated} />
+          {/* Grafana Endpoints */}
+          <GrafanaEndpoints />
+
+          {/* Theme Manager */}
+          <ThemeManager isAuthenticated={isAuthenticated} />
+        </>
+      )}
+
+      {/* Guest Mode Info */}
+      {authMode === 'guest' && (
+        <Card>
+          <div className="text-center py-8">
+            <p className="text-themed-secondary text-lg mb-2">Guest Mode Active</p>
+            <p className="text-themed-muted text-sm">
+              Management features are disabled in guest mode. Please authenticate to access full functionality.
+            </p>
+          </div>
+        </Card>
+      )}
       </div>
     </>
   );

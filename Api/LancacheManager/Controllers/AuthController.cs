@@ -15,6 +15,7 @@ public class AuthController : ControllerBase
     private readonly ILogger<AuthController> _logger;
     private readonly AppDbContext _dbContext;
     private readonly StateService _stateService;
+    private readonly SteamKit2Service _steamKit2Service;
 
     public AuthController(
         ApiKeyService apiKeyService,
@@ -22,7 +23,8 @@ public class AuthController : ControllerBase
         IConfiguration configuration,
         ILogger<AuthController> logger,
         AppDbContext dbContext,
-        StateService stateService)
+        StateService stateService,
+        SteamKit2Service steamKit2Service)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -30,6 +32,7 @@ public class AuthController : ControllerBase
         _logger = logger;
         _dbContext = dbContext;
         _stateService = stateService;
+        _steamKit2Service = steamKit2Service;
     }
 
     /// <summary>
@@ -232,13 +235,34 @@ public class AuthController : ControllerBase
 
     /// <summary>
     /// Regenerate the API key (requires authentication)
+    /// SECURITY: This will logout all Steam sessions and revoke all device registrations
     /// </summary>
     [HttpPost("regenerate-key")]
     [RequireAuth]
-    public IActionResult RegenerateApiKey()
+    public async Task<IActionResult> RegenerateApiKey()
     {
         try
         {
+            // SECURITY: Logout from Steam first (both in-memory session AND state)
+            // This ensures old encrypted tokens become unreadable AND active session is terminated
+            var steamWasAuthenticated = _stateService.GetSteamAuthMode() == "authenticated";
+            if (steamWasAuthenticated)
+            {
+                _logger.LogInformation("Logging out from Steam (in-memory + state) before API key regeneration for security");
+
+                // Disconnect the active Steam session
+                await _steamKit2Service.LogoutAsync();
+
+                // Clear tokens from state
+                _stateService.UpdateState(state =>
+                {
+                    state.SteamAuth.Mode = "anonymous";
+                    state.SteamAuth.RefreshToken = null;
+                    state.SteamAuth.GuardData = null;
+                    state.SteamAuth.Username = null;
+                });
+            }
+
             var (oldKey, newKey) = _apiKeyService.ForceRegenerateApiKey();
 
             // Display the new key
@@ -248,16 +272,18 @@ public class AuthController : ControllerBase
             var revokedCount = _deviceAuthService.RevokeAllDevices();
 
             _logger.LogWarning(
-                "API key regenerated. Old key prefix: {OldPrefix}, New key prefix: {NewPrefix}. {RevokedCount} device registration(s) revoked.",
+                "API key regenerated. Old key prefix: {OldPrefix}, New key prefix: {NewPrefix}. {RevokedCount} device registration(s) revoked. Steam logout: {SteamLogout}",
                 oldKey[..System.Math.Min(oldKey.Length, 12)],
                 newKey[..System.Math.Min(newKey.Length, 12)],
-                revokedCount);
+                revokedCount,
+                steamWasAuthenticated ? "Yes (in-memory + state)" : "No");
 
-            return Ok(new 
-            { 
+            return Ok(new
+            {
                 success = true,
-                message = $"API key regenerated successfully. {revokedCount} device(s) revoked.",
-                warning = "All users must re-authenticate with the new key. Check container logs for the new key."
+                message = $"API key regenerated successfully. {revokedCount} device(s) revoked." +
+                          (steamWasAuthenticated ? " Steam session terminated and logged out." : ""),
+                warning = "All users must re-authenticate with the new key. Steam re-authentication required. Check container logs for the new key."
             });
         }
         catch (Exception ex)

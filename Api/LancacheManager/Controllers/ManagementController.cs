@@ -17,6 +17,7 @@ public class ManagementController : ControllerBase
     private readonly StateService _stateService;
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustDatabaseResetService _rustDatabaseResetService;
+    private readonly SteamKit2Service _steamKit2Service;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -27,7 +28,8 @@ public class ManagementController : ControllerBase
         IPathResolver pathResolver,
         StateService stateService,
         RustLogProcessorService rustLogProcessorService,
-        RustDatabaseResetService rustDatabaseResetService)
+        RustDatabaseResetService rustDatabaseResetService,
+        SteamKit2Service steamKit2Service)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -38,6 +40,7 @@ public class ManagementController : ControllerBase
         _stateService = stateService;
         _rustLogProcessorService = rustLogProcessorService;
         _rustDatabaseResetService = rustDatabaseResetService;
+        _steamKit2Service = steamKit2Service;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -721,6 +724,160 @@ public class ManagementController : ControllerBase
             return StatusCode(500, new { error = "Failed to cleanup database", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Get current Steam authentication status
+    /// </summary>
+    [HttpGet("steam-auth-status")]
+    public IActionResult GetSteamAuthStatus()
+    {
+        try
+        {
+            var mode = _stateService.GetSteamAuthMode() ?? "anonymous";
+            var username = _stateService.GetSteamUsername();
+            var hasRefreshToken = false;
+
+            try
+            {
+                hasRefreshToken = _stateService.HasSteamRefreshToken();
+            }
+            catch
+            {
+                // If checking refresh token fails, assume no token
+                hasRefreshToken = false;
+            }
+
+            return Ok(new
+            {
+                mode,
+                username = username ?? "",
+                isAuthenticated = hasRefreshToken
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting Steam auth status");
+            // Always return valid JSON, even on error
+            return Ok(new
+            {
+                mode = "anonymous",
+                username = "",
+                isAuthenticated = false
+            });
+        }
+    }
+
+    /// <summary>
+    /// Login to Steam with credentials
+    /// </summary>
+    [HttpPost("steam-auth/login")]
+    [RequireAuth]
+    public async Task<IActionResult> SteamLogin([FromBody] SteamLoginRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("[Steam Login] AutoStartPicsRebuild setting: {AutoStart}", request.AutoStartPicsRebuild);
+
+            if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
+            {
+                return BadRequest(new { error = "Username and password are required" });
+            }
+
+            var result = await _steamKit2Service.AuthenticateAsync(
+                request.Username,
+                request.Password,
+                request.TwoFactorCode,
+                request.EmailCode,
+                request.AllowMobileConfirmation
+            );
+
+            if (result.Success)
+            {
+                // Store auth state
+                _stateService.SetSteamAuthMode("authenticated");
+                _stateService.SetSteamUsername(request.Username);
+
+                // Conditionally trigger full PICS rebuild based on user preference
+                if (request.AutoStartPicsRebuild)
+                {
+                    _logger.LogInformation("[AUTO-START] request.AutoStartPicsRebuild = TRUE - triggering automatic full PICS rebuild");
+                    var started = _steamKit2Service.TryStartRebuild(default, incrementalOnly: false);
+                    _logger.LogInformation("[AUTO-START] TryStartRebuild returned: {Started}", started);
+
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "Authentication successful. Starting PICS rebuild...",
+                        autoStarted = true
+                    });
+                }
+                else
+                {
+                    _logger.LogInformation("[AUTO-START] request.AutoStartPicsRebuild = FALSE - SKIPPING automatic PICS rebuild (manual mode)");
+                    _logger.LogInformation("[AUTO-START] User will need to manually trigger PICS rebuild from UI");
+
+                    return Ok(new
+                    {
+                        success = true,
+                        message = "Authentication successful. You can manually trigger PICS rebuild from Depot Mapping section.",
+                        autoStarted = false
+                    });
+                }
+            }
+            else if (result.RequiresMobileConfirmation)
+            {
+                return Ok(new { requiresMobileConfirmation = true, message = "Check your Steam Mobile App to confirm this login, or enter your 2FA code manually" });
+            }
+            else if (result.RequiresTwoFactor)
+            {
+                return Ok(new { requiresTwoFactor = true, message = "Two-factor authentication required" });
+            }
+            else if (result.RequiresEmailCode)
+            {
+                return Ok(new { requiresEmailCode = true, message = "Email verification code required" });
+            }
+            else
+            {
+                return BadRequest(new { error = result.Message ?? "Authentication failed" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during Steam login");
+            return StatusCode(500, new { error = "Failed to authenticate with Steam", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Logout from Steam and switch to anonymous mode
+    /// </summary>
+    [HttpPost("steam-auth/logout")]
+    [RequireAuth]
+    public async Task<IActionResult> SteamLogout()
+    {
+        try
+        {
+            await _steamKit2Service.LogoutAsync();
+
+            // Clear auth state
+            _stateService.SetSteamAuthMode("anonymous");
+            _stateService.SetSteamUsername(null);
+
+            // Don't rebuild PICS data - preserve existing depot mappings
+            _logger.LogInformation("Switched to anonymous Steam mode, keeping existing depot mappings");
+
+            return Ok(new
+            {
+                success = true,
+                message = "Switched to anonymous mode. Depot mappings preserved."
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during Steam logout");
+            return StatusCode(500, new { error = "Failed to logout from Steam", details = ex.Message });
+        }
+    }
 }
 
 // Request model for removing service
@@ -739,4 +896,15 @@ public class SetThreadCountRequest
 public class SetDeleteModeRequest
 {
     public string DeleteMode { get; set; } = string.Empty;
+}
+
+// Request model for Steam login
+public class SteamLoginRequest
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string? TwoFactorCode { get; set; }
+    public string? EmailCode { get; set; }
+    public bool AllowMobileConfirmation { get; set; }
+    public bool AutoStartPicsRebuild { get; set; } = true; // Default to true for backward compatibility
 }

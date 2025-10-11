@@ -3,6 +3,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Middleware;
 using LancacheManager.Security;
 using LancacheManager.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
@@ -62,6 +63,26 @@ else
 {
     throw new PlatformNotSupportedException($"Unsupported operating system: {OperatingSystemDetector.Description}");
 }
+
+// Configure Data Protection for encrypting sensitive data
+// Keys are stored in the data directory and are machine-specific
+// Get the path resolver to determine key storage location
+var tempProvider = builder.Services.BuildServiceProvider();
+var pathResolver = tempProvider.GetRequiredService<IPathResolver>();
+var keyPath = Path.Combine(pathResolver.GetDataDirectory(), "DataProtection-Keys");
+
+var dataProtection = builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(keyPath));
+
+// On Windows, use DPAPI to encrypt keys at rest
+// On Linux/Docker, keys are protected by filesystem permissions (chmod 700)
+if (OperatingSystemDetector.IsWindows)
+{
+    dataProtection.ProtectKeysWithDpapi();
+}
+
+// Register encryption service for state.json sensitive fields
+builder.Services.AddSingleton<SecureStateEncryptionService>();
 
 // Database configuration (now can use IPathResolver)
 var dbPathInitialized = false;

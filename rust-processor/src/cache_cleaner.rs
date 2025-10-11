@@ -128,11 +128,6 @@ fn delete_directory_contents(
     Ok(())
 }
 
-fn ensure_directory_exists(dir_path: &Path) -> Result<()> {
-    fs::create_dir_all(dir_path)?;
-    Ok(())
-}
-
 fn delete_directory_full(
     dir_path: &Path,
     _files_counter: &AtomicU64,

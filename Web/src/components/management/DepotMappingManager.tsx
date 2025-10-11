@@ -9,6 +9,7 @@ import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal'
 interface DepotMappingManagerProps {
   isAuthenticated: boolean;
   mockMode: boolean;
+  steamAuthMode: 'anonymous' | 'authenticated';
   actionLoading: boolean;
   setActionLoading: (loading: boolean) => void;
   isProcessingLogs: boolean;
@@ -42,6 +43,7 @@ type DepotSource = 'incremental' | 'full' | 'github';
 const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   isAuthenticated,
   mockMode,
+  steamAuthMode,
   actionLoading,
   setActionLoading,
   isProcessingLogs,
@@ -59,6 +61,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   const [operationType, setOperationType] = useState<'downloading' | 'scanning' | null>(null);
   const depotPollingInterval = useRef<NodeJS.Timeout | null>(null);
   const hasShownForcedScanWarning = useRef(false);
+
+  // Auto-switch away from GitHub when Steam auth mode changes to authenticated
+  useEffect(() => {
+    if (steamAuthMode === 'authenticated' && depotSource === 'github') {
+      setDepotSource('incremental');
+    }
+  }, [steamAuthMode, depotSource]);
 
   useEffect(() => {
     if (mockMode) {
@@ -392,13 +401,24 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             options={[
               { value: 'incremental', label: 'Steam (Incremental)' },
               { value: 'full', label: 'Steam (Full Scan)' },
-              { value: 'github', label: 'GitHub (Download)' }
+              {
+                value: 'github',
+                label: steamAuthMode === 'authenticated'
+                  ? 'GitHub (Not available with account login)'
+                  : 'GitHub (Download)',
+                disabled: steamAuthMode === 'authenticated'
+              }
             ]}
             value={depotSource}
             onChange={(value) => setDepotSource(value as DepotSource)}
             disabled={!isAuthenticated || mockMode}
             className="w-full"
           />
+          {steamAuthMode === 'authenticated' && (
+            <p className="text-xs text-themed-muted mt-2">
+              GitHub downloads are disabled when using Steam account login. Switch to anonymous mode to use pre-created depot data.
+            </p>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -432,11 +452,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             <br />
             <strong>Apply Now Source:</strong> Choose data source when clicking "Apply Now" button
             <br />
-            <strong>Steam (Incremental):</strong> Only scans apps that changed since last run (faster, recommended)
+            <strong>Steam (Incremental):</strong> Scans apps that changed since last run. {steamAuthMode === 'authenticated' ? 'Uses your authenticated Steam session.' : 'Uses anonymous Steam access (public games only).'}
             <br />
-            <strong>Steam (Full Scan):</strong> Re-scans all Steam apps from scratch (slower, ensures complete data)
+            <strong>Steam (Full Scan):</strong> Re-scans all Steam apps from scratch. {steamAuthMode === 'authenticated' ? 'Uses your authenticated Steam session to access all games including playtest and restricted titles.' : 'Uses anonymous Steam access (slower, public games only).'}
             <br />
-            <strong>GitHub (Download):</strong> Downloads pre-generated mappings from GitHub (fast, 290k+ depots, full replacement)
+            <strong>GitHub (Download):</strong> {steamAuthMode === 'authenticated' ? 'Not available when using Steam account login - authenticated scans provide more complete data for your library.' : 'Downloads pre-generated mappings from GitHub (fast, 290k+ depots, anonymous data only).'}
           </p>
         </div>
       </Card>

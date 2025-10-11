@@ -1,4 +1,5 @@
 using SteamKit2;
+using SteamKit2.Authentication;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -34,6 +35,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private bool _intentionalDisconnect = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
+    private CancellationTokenSource? _currentRebuildCts;
     private int _rebuildActive;
     private bool _disposed;
 
@@ -366,8 +368,27 @@ public class SteamKit2Service : IHostedService, IDisposable
         // Wait for connected
         await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct);
 
-        _logger.LogInformation("Connected to Steam, logging in anonymously...");
-        _steamUser!.LogOnAnonymous();
+        // Check if we have a saved refresh token for authenticated login
+        var refreshToken = _stateService.GetSteamRefreshToken();
+        var authMode = _stateService.GetSteamAuthMode();
+
+        if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+        {
+            var username = _stateService.GetSteamUsername();
+            _logger.LogInformation("Logging in with saved refresh token for user: {Username}", username);
+
+            _steamUser!.LogOn(new SteamUser.LogOnDetails
+            {
+                Username = username,
+                AccessToken = refreshToken,
+                ShouldRememberPassword = true
+            });
+        }
+        else
+        {
+            _logger.LogInformation("Logging in anonymously...");
+            _steamUser!.LogOnAnonymous();
+        }
 
         // Wait for logged on
         await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(30), ct);
@@ -1474,17 +1495,19 @@ public class SteamKit2Service : IHostedService, IDisposable
         _logger.LogInformation("Starting Steam PICS depot crawl");
         _lastScanWasForced = false; // Reset flag at start of new scan
 
-        CancellationTokenSource linkedCts;
+        // Dispose previous cancellation token source if it exists
+        _currentRebuildCts?.Dispose();
+
         try
         {
-            linkedCts = cancellationToken.CanBeCanceled
+            _currentRebuildCts = cancellationToken.CanBeCanceled
                 ? CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, cancellationToken)
                 : CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
         }
         catch (ObjectDisposedException)
         {
             // Main cancellation token source was disposed, use provided token or none
-            linkedCts = cancellationToken.CanBeCanceled
+            _currentRebuildCts = cancellationToken.CanBeCanceled
                 ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
                 : new CancellationTokenSource();
         }
@@ -1493,7 +1516,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         {
             try
             {
-                await ConnectAndBuildIndexAsync(linkedCts.Token, incrementalOnly).ConfigureAwait(false);
+                await ConnectAndBuildIndexAsync(_currentRebuildCts.Token, incrementalOnly).ConfigureAwait(false);
                 _logger.LogInformation("PICS crawl completed successfully");
             }
             catch (OperationCanceledException)
@@ -1517,7 +1540,9 @@ public class SteamKit2Service : IHostedService, IDisposable
                     await DisconnectFromSteamAsync();
                 }
 
-                linkedCts.Dispose();
+                // Dispose the cancellation token source
+                _currentRebuildCts?.Dispose();
+                _currentRebuildCts = null;
             }
         }
 
@@ -1892,5 +1917,232 @@ public class SteamKit2Service : IHostedService, IDisposable
     {
         _idleDisconnectTimer?.Dispose();
         _idleDisconnectTimer = null;
+    }
+
+    /// <summary>
+    /// Authenticate with Steam using username and password
+    /// </summary>
+    public async Task<AuthenticationResult> AuthenticateAsync(string username, string password, string? twoFactorCode = null, string? emailCode = null, bool allowMobileConfirmation = false)
+    {
+        try
+        {
+            // Connect if not already connected
+            if (_steamClient?.IsConnected != true)
+            {
+                _connectedTcs = new TaskCompletionSource();
+                _steamClient!.Connect();
+                await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
+            }
+
+            // Create authenticator that returns provided codes
+            var authenticator = new WebAuthenticator(twoFactorCode, emailCode, allowMobileConfirmation);
+
+            // Begin authentication session using CredentialsAuthSession
+            var authSession = await _steamClient.Authentication.BeginAuthSessionViaCredentialsAsync(new AuthSessionDetails
+            {
+                Username = username,
+                Password = password,
+                IsPersistentSession = true,
+                Authenticator = authenticator
+            });
+
+            // Poll for result - this may throw if 2FA/email/mobile confirmation is required
+            var pollResponse = default(SteamKit2.Authentication.AuthPollResult);
+            try
+            {
+                pollResponse = await authSession.PollingWaitForResultAsync();
+            }
+            catch (InvalidOperationException)
+            {
+                // Check if we need mobile confirmation
+                if (authenticator.NeedsMobileConfirmation)
+                {
+                    return new AuthenticationResult
+                    {
+                        Success = false,
+                        RequiresMobileConfirmation = true,
+                        Message = "Mobile confirmation required"
+                    };
+                }
+
+                // Check if we need 2FA or email code
+                if (authenticator.NeedsTwoFactor)
+                {
+                    return new AuthenticationResult
+                    {
+                        Success = false,
+                        RequiresTwoFactor = true,
+                        Message = "Two-factor authentication code required"
+                    };
+                }
+
+                if (authenticator.NeedsEmailCode)
+                {
+                    return new AuthenticationResult
+                    {
+                        Success = false,
+                        RequiresEmailCode = true,
+                        Message = "Email verification code required"
+                    };
+                }
+
+                // Re-throw if it's not a 2FA/email code/mobile confirmation request
+                throw;
+            }
+
+            // Store guard data if provided
+            if (pollResponse?.NewGuardData != null)
+            {
+                _stateService.SetSteamGuardData(pollResponse.NewGuardData);
+                _logger.LogInformation("Saved Steam Guard data for future logins");
+            }
+
+            // Store refresh token
+            _stateService.SetSteamRefreshToken(pollResponse.RefreshToken);
+            _logger.LogInformation("Successfully authenticated and saved refresh token");
+
+            // Now login with the refresh token
+            _loggedOnTcs = new TaskCompletionSource();
+            _steamUser!.LogOn(new SteamUser.LogOnDetails
+            {
+                Username = pollResponse.AccountName,
+                AccessToken = pollResponse.RefreshToken,
+                ShouldRememberPassword = true
+            });
+
+            await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
+
+            return new AuthenticationResult
+            {
+                Success = true,
+                Message = "Authentication successful"
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Authentication failed");
+            return new AuthenticationResult
+            {
+                Success = false,
+                Message = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Logout from Steam and clear stored credentials
+    /// </summary>
+    public async Task LogoutAsync()
+    {
+        try
+        {
+            // Cancel any active PICS rebuild
+            if (IsRebuildRunning && _currentRebuildCts != null)
+            {
+                _logger.LogInformation("Cancelling active PICS rebuild before logout");
+                try
+                {
+                    _currentRebuildCts.Cancel();
+
+                    // Wait briefly for cancellation to complete
+                    if (_currentBuildTask != null)
+                    {
+                        await Task.WhenAny(_currentBuildTask, Task.Delay(3000));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error cancelling rebuild during logout");
+                }
+            }
+
+            // Clear stored tokens
+            _stateService.SetSteamRefreshToken(null);
+            _stateService.SetSteamGuardData(null);
+
+            // Disconnect from Steam
+            _intentionalDisconnect = true;
+            await DisconnectFromSteamAsync();
+
+            _logger.LogInformation("Logged out from Steam and cleared credentials");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during logout");
+        }
+    }
+
+    /// <summary>
+    /// Simple authenticator for web-based authentication
+    /// </summary>
+    private class WebAuthenticator : IAuthenticator
+    {
+        private readonly string? _twoFactorCode;
+        private readonly string? _emailCode;
+        private readonly bool _allowMobileConfirmation;
+
+        public bool NeedsTwoFactor { get; private set; }
+        public bool NeedsEmailCode { get; private set; }
+        public bool NeedsMobileConfirmation { get; private set; }
+
+        public WebAuthenticator(string? twoFactorCode, string? emailCode, bool allowMobileConfirmation = false)
+        {
+            _twoFactorCode = twoFactorCode;
+            _emailCode = emailCode;
+            _allowMobileConfirmation = allowMobileConfirmation;
+        }
+
+        public Task<string> GetDeviceCodeAsync(bool previousCodeWasIncorrect)
+        {
+            NeedsTwoFactor = true;
+            if (!string.IsNullOrEmpty(_twoFactorCode))
+            {
+                return Task.FromResult(_twoFactorCode);
+            }
+            throw new InvalidOperationException("Two-factor code required");
+        }
+
+        public Task<string> GetEmailCodeAsync(string email, bool previousCodeWasIncorrect)
+        {
+            NeedsEmailCode = true;
+            if (!string.IsNullOrEmpty(_emailCode))
+            {
+                return Task.FromResult(_emailCode);
+            }
+            throw new InvalidOperationException("Email code required");
+        }
+
+        public Task<bool> AcceptDeviceConfirmationAsync()
+        {
+            // If user provided a 2FA code, don't wait for mobile confirmation
+            // Return false so SteamKit2 will call GetDeviceCodeAsync instead
+            if (!string.IsNullOrEmpty(_twoFactorCode))
+            {
+                return Task.FromResult(false);
+            }
+
+            // If mobile confirmation is not allowed and no code provided, throw error
+            if (!_allowMobileConfirmation)
+            {
+                NeedsMobileConfirmation = true;
+                throw new InvalidOperationException("Mobile confirmation required");
+            }
+
+            // Return true to tell SteamKit2 to wait for the user to confirm via Steam Mobile App
+            // This enables the mobile push notification flow
+            return Task.FromResult(true);
+        }
+    }
+
+    /// <summary>
+    /// Authentication result
+    /// </summary>
+    public class AuthenticationResult
+    {
+        public bool Success { get; set; }
+        public bool RequiresTwoFactor { get; set; }
+        public bool RequiresEmailCode { get; set; }
+        public bool RequiresMobileConfirmation { get; set; }
+        public string? Message { get; set; }
     }
 }

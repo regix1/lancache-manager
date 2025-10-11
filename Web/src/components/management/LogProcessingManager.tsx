@@ -20,6 +20,12 @@ interface LogProcessingManagerProps {
   onBackgroundOperation?: (operation: any) => void;
 }
 
+interface SteamAuthState {
+  mode: 'anonymous' | 'authenticated';
+  username?: string;
+  isAuthenticated: boolean;
+}
+
 interface ProcessingUIStatus {
   message: string;
   detailMessage?: string;
@@ -40,6 +46,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [signalRConnected, setSignalRConnected] = useState(false);
+  const [steamAuthMode, setSteamAuthMode] = useState<'anonymous' | 'authenticated'>('anonymous');
   const [confirmModal, setConfirmModal] = useState<
     | {
         title: string;
@@ -62,6 +69,30 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     onBackgroundOperationRef.current = onBackgroundOperation;
     mockModeRef.current = mockMode;
   }, [onBackgroundOperation, mockMode]);
+
+  // Load Steam auth status
+  useEffect(() => {
+    const loadSteamAuthState = async () => {
+      try {
+        const response = await fetch('/api/management/steam-auth-status', {
+          headers: ApiService.getHeaders()
+        });
+        if (response.ok) {
+          const state: SteamAuthState = await response.json();
+          setSteamAuthMode(state.mode);
+        }
+      } catch (err) {
+        console.error('Failed to load Steam auth state:', err);
+      }
+    };
+
+    if (!mockMode) {
+      loadSteamAuthState();
+      // Poll for changes every 10 seconds
+      const interval = setInterval(loadSteamAuthState, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [mockMode]);
 
   // Report processing status to parent
   useEffect(() => {
@@ -699,6 +730,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       <DepotMappingManager
         isAuthenticated={isAuthenticated}
         mockMode={mockMode}
+        steamAuthMode={steamAuthMode}
         actionLoading={actionLoading}
         setActionLoading={setActionLoading}
         isProcessingLogs={isProcessingLogs}

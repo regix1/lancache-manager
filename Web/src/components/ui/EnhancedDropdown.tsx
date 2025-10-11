@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react';
 export interface DropdownOption {
   value: string;
   label: string;
+  disabled?: boolean;
 }
 
 interface EnhancedDropdownProps {
@@ -148,8 +149,13 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => handleSelect(option.value)}
-                  className={`w-full px-4 py-2 text-left text-sm hover:bg-[var(--theme-bg-tertiary)] transition-colors truncate ${
+                  onClick={() => !option.disabled && handleSelect(option.value)}
+                  disabled={option.disabled}
+                  className={`w-full px-4 py-2 text-left text-sm transition-colors truncate ${
+                    option.disabled
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'hover:bg-[var(--theme-bg-tertiary)]'
+                  } ${
                     option.value === value
                       ? 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]'
                       : 'text-[var(--theme-text-secondary)]'

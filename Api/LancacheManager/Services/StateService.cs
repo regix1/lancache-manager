@@ -10,15 +10,20 @@ public class StateService
 {
     private readonly ILogger<StateService> _logger;
     private readonly IPathResolver _pathResolver;
+    private readonly SecureStateEncryptionService _encryption;
     private readonly string _stateFilePath;
     private readonly object _lock = new object();
     private AppState? _cachedState;
     private int _consecutiveFailures = 0;
 
-    public StateService(ILogger<StateService> logger, IPathResolver pathResolver)
+    public StateService(
+        ILogger<StateService> logger,
+        IPathResolver pathResolver,
+        SecureStateEncryptionService encryption)
     {
         _logger = logger;
         _pathResolver = pathResolver;
+        _encryption = encryption;
         _stateFilePath = Path.Combine(_pathResolver.GetDataDirectory(), "state.json");
     }
 
@@ -36,6 +41,36 @@ public class StateService
         public bool HasDataLoaded { get; set; } = false;
         public DateTime? LastDataLoadTime { get; set; }
         public int LastDataMappingCount { get; set; } = 0;
+        public SteamAuthState SteamAuth { get; set; } = new();
+    }
+
+    public class SteamAuthState
+    {
+        public string Mode { get; set; } = "anonymous"; // "anonymous" or "authenticated"
+        public string? Username { get; set; }
+        public string? RefreshToken { get; set; } // Decrypted in memory, encrypted in storage
+        public string? GuardData { get; set; } // Decrypted in memory, encrypted in storage
+        public DateTime? LastAuthenticated { get; set; }
+    }
+
+    /// <summary>
+    /// Internal class used for JSON serialization with encrypted fields
+    /// </summary>
+    private class PersistedState
+    {
+        public LogProcessingState LogProcessing { get; set; } = new();
+        public DepotProcessingState DepotProcessing { get; set; } = new();
+        public List<CacheClearOperation> CacheClearOperations { get; set; } = new();
+        public List<OperationState> OperationStates { get; set; } = new();
+        public bool SetupCompleted { get; set; } = false;
+        public DateTime? LastPicsCrawl { get; set; }
+        public double CrawlIntervalHours { get; set; } = 1.0;
+        public bool CrawlIncrementalMode { get; set; } = true;
+        public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
+        public bool HasDataLoaded { get; set; } = false;
+        public DateTime? LastDataLoadTime { get; set; }
+        public int LastDataMappingCount { get; set; } = 0;
+        public SteamAuthState SteamAuth { get; set; } = new(); // Contains encrypted tokens
     }
 
     public class LogProcessingState
@@ -83,7 +118,7 @@ public class StateService
     }
 
     /// <summary>
-    /// Gets the current application state
+    /// Gets the current application state (with decrypted sensitive fields)
     /// </summary>
     public AppState GetState()
     {
@@ -99,7 +134,10 @@ public class StateService
                 if (File.Exists(_stateFilePath))
                 {
                     var json = File.ReadAllText(_stateFilePath);
-                    _cachedState = JsonSerializer.Deserialize<AppState>(json) ?? new AppState();
+                    var persisted = JsonSerializer.Deserialize<PersistedState>(json) ?? new PersistedState();
+
+                    // Convert persisted state to app state, decrypting sensitive fields
+                    _cachedState = ConvertFromPersistedState(persisted);
                     CleanupStaleOperations(_cachedState);
                 }
                 else
@@ -120,7 +158,7 @@ public class StateService
     }
 
     /// <summary>
-    /// Saves the application state
+    /// Saves the application state (encrypts sensitive fields before storage)
     /// </summary>
     public void SaveState(AppState state)
     {
@@ -135,7 +173,11 @@ public class StateService
             try
             {
                 state.LastUpdated = DateTime.UtcNow;
-                var json = JsonSerializer.Serialize(state, new JsonSerializerOptions { WriteIndented = true });
+
+                // Convert to persisted state with encrypted sensitive fields
+                var persisted = ConvertToPersistedState(state);
+
+                var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });
 
                 // Write to temp file first then move (atomic operation)
                 var tempFile = _stateFilePath + ".tmp";
@@ -152,7 +194,7 @@ public class StateService
 
                 _cachedState = state;
                 _consecutiveFailures = 0; // Reset on success
-                _logger.LogTrace("State saved successfully with position: {Position}", state.LogProcessing.Position);
+                _logger.LogTrace("State saved successfully with encrypted sensitive data");
             }
             catch (Exception ex)
             {
@@ -393,8 +435,71 @@ public class StateService
     }
 
     /// <summary>
-    /// Cleans up legacy files after successful migration
+    /// Converts persisted state (with encrypted fields) to app state (with decrypted fields)
     /// </summary>
+    private AppState ConvertFromPersistedState(PersistedState persisted)
+    {
+        var state = new AppState
+        {
+            LogProcessing = persisted.LogProcessing,
+            DepotProcessing = persisted.DepotProcessing,
+            CacheClearOperations = persisted.CacheClearOperations,
+            OperationStates = persisted.OperationStates,
+            SetupCompleted = persisted.SetupCompleted,
+            LastPicsCrawl = persisted.LastPicsCrawl,
+            CrawlIntervalHours = persisted.CrawlIntervalHours,
+            CrawlIncrementalMode = persisted.CrawlIncrementalMode,
+            LastUpdated = persisted.LastUpdated,
+            HasDataLoaded = persisted.HasDataLoaded,
+            LastDataLoadTime = persisted.LastDataLoadTime,
+            LastDataMappingCount = persisted.LastDataMappingCount,
+            SteamAuth = new SteamAuthState
+            {
+                Mode = persisted.SteamAuth.Mode,
+                Username = persisted.SteamAuth.Username,
+                // Decrypt sensitive fields
+                RefreshToken = _encryption.Decrypt(persisted.SteamAuth.RefreshToken),
+                GuardData = _encryption.Decrypt(persisted.SteamAuth.GuardData),
+                LastAuthenticated = persisted.SteamAuth.LastAuthenticated
+            }
+        };
+
+        return state;
+    }
+
+    /// <summary>
+    /// Converts app state (with decrypted fields) to persisted state (with encrypted fields)
+    /// </summary>
+    private PersistedState ConvertToPersistedState(AppState state)
+    {
+        var persisted = new PersistedState
+        {
+            LogProcessing = state.LogProcessing,
+            DepotProcessing = state.DepotProcessing,
+            CacheClearOperations = state.CacheClearOperations,
+            OperationStates = state.OperationStates,
+            SetupCompleted = state.SetupCompleted,
+            LastPicsCrawl = state.LastPicsCrawl,
+            CrawlIntervalHours = state.CrawlIntervalHours,
+            CrawlIncrementalMode = state.CrawlIncrementalMode,
+            LastUpdated = state.LastUpdated,
+            HasDataLoaded = state.HasDataLoaded,
+            LastDataLoadTime = state.LastDataLoadTime,
+            LastDataMappingCount = state.LastDataMappingCount,
+            SteamAuth = new SteamAuthState
+            {
+                Mode = state.SteamAuth.Mode,
+                Username = state.SteamAuth.Username,
+                // Encrypt sensitive fields
+                RefreshToken = _encryption.Encrypt(state.SteamAuth.RefreshToken),
+                GuardData = _encryption.Encrypt(state.SteamAuth.GuardData),
+                LastAuthenticated = state.SteamAuth.LastAuthenticated
+            }
+        };
+
+        return persisted;
+    }
+
     /// <summary>
     /// Cleans up stale operations that were left in processing state
     /// </summary>
@@ -416,5 +521,58 @@ public class StateService
             SaveState(state);
             _logger.LogInformation("Cleaned up {Count} stale operations", staleOperations.Count);
         }
+    }
+
+    // Steam Authentication Methods
+    public string? GetSteamAuthMode()
+    {
+        return GetState().SteamAuth.Mode;
+    }
+
+    public void SetSteamAuthMode(string mode)
+    {
+        UpdateState(state => state.SteamAuth.Mode = mode);
+    }
+
+    public string? GetSteamUsername()
+    {
+        return GetState().SteamAuth.Username;
+    }
+
+    public void SetSteamUsername(string? username)
+    {
+        UpdateState(state => state.SteamAuth.Username = username);
+    }
+
+    public string? GetSteamRefreshToken()
+    {
+        return GetState().SteamAuth.RefreshToken;
+    }
+
+    public void SetSteamRefreshToken(string? token)
+    {
+        UpdateState(state =>
+        {
+            state.SteamAuth.RefreshToken = token;
+            if (token != null)
+            {
+                state.SteamAuth.LastAuthenticated = DateTime.UtcNow;
+            }
+        });
+    }
+
+    public bool HasSteamRefreshToken()
+    {
+        return !string.IsNullOrEmpty(GetState().SteamAuth.RefreshToken);
+    }
+
+    public string? GetSteamGuardData()
+    {
+        return GetState().SteamAuth.GuardData;
+    }
+
+    public void SetSteamGuardData(string? guardData)
+    {
+        UpdateState(state => state.SteamAuth.GuardData = guardData);
     }
 }

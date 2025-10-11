@@ -384,6 +384,10 @@ class AuthService {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
+    // Clear device ID so a new one is generated on next request
+    // This handles API key regeneration scenarios where all devices are revoked
+    localStorage.removeItem('lancache_device_id');
+    this.deviceId = this.getOrCreateDeviceId();
   }
 
   clearAuth(): void {
