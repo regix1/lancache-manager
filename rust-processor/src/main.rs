@@ -484,19 +484,13 @@ impl Processor {
 
         // Find or create download session
         let download_id = if should_create_new {
-            // Mark old session as inactive if exists for this specific depot
-            // Only mark inactive if depot matches or if there's no depot tracking
-            if let Some(depot_id) = primary_depot_id {
-                tx.execute(
-                    "UPDATE Downloads SET IsActive = 0 WHERE ClientIp = ? AND Service = ? AND DepotId = ? AND IsActive = 1",
-                    params![client_ip, service, depot_id],
-                )?;
-            } else {
-                tx.execute(
-                    "UPDATE Downloads SET IsActive = 0 WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1",
-                    params![client_ip, service],
-                )?;
-            }
+            // Mark ALL old active sessions as inactive for this client/service
+            // This immediately marks previous games as complete when a new game starts
+            // Fixes the issue where old games stay active until the 30-second cleanup timeout
+            tx.execute(
+                "UPDATE Downloads SET IsActive = 0 WHERE ClientIp = ? AND Service = ? AND IsActive = 1",
+                params![client_ip, service],
+            )?;
 
             // Create new download session with depot mapping
             // Don't generate image URL here - let C# DatabaseService fetch it from Steam API
