@@ -464,8 +464,8 @@ public class PicsDataService
                 var key = $"{mapping.DepotId}_{mapping.AppId}";
                 if (existingMappings.TryGetValue(key, out var existing))
                 {
-                    // Update existing mapping if JSON data is newer
-                    if (mapping.DiscoveredAt > existing.DiscoveredAt && existing.Source != "SteamKit2-PICS")
+                    // Update existing mapping if JSON data is newer, or if both are from PICS (to handle auth mode changes)
+                    if (mapping.DiscoveredAt > existing.DiscoveredAt || (existing.Source == "SteamKit2-PICS" && mapping.Source == "SteamKit2-PICS"))
                     {
                         existing.AppName = mapping.AppName;
                         existing.Source = GetCombinedSource(existing.Source, mapping.Source);
