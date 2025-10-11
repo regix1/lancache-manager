@@ -1,6 +1,7 @@
 import React, { useState, Suspense, lazy, useEffect } from 'react';
 import { DataProvider, useData } from '@contexts/DataContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
+import { PollingRateProvider } from '@contexts/PollingRateContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -491,11 +492,13 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ErrorBoundary>
-      <TimeFilterProvider>
-        <DataProvider>
-          <AppContent />
-        </DataProvider>
-      </TimeFilterProvider>
+      <PollingRateProvider>
+        <TimeFilterProvider>
+          <DataProvider>
+            <AppContent />
+          </DataProvider>
+        </TimeFilterProvider>
+      </PollingRateProvider>
     </ErrorBoundary>
   );
 };

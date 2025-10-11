@@ -1,5 +1,6 @@
 import React from 'react';
 import TimeFilter from '../common/TimeFilter';
+import PollingRateSelector from '../common/PollingRateSelector';
 import { Tooltip } from '../common/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useData } from '@contexts/DataContext';
@@ -124,6 +125,7 @@ const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <PollingRateSelector disabled={mockMode} />
             <TimeFilter disabled={mockMode} />
           </div>
         </div>

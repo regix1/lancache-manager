@@ -10,6 +10,7 @@ import * as signalR from '@microsoft/signalr';
 import ApiService from '@services/api.service';
 import MockDataService from '@/test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
+import { usePollingRate } from './PollingRateContext';
 import { SIGNALR_BASE } from '@utils/constants';
 
 interface CacheInfo {
@@ -135,6 +136,7 @@ interface DataProviderProps {
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
+  const { getPollingInterval, pollingRate } = usePollingRate();
 
   // Keep refs updated whenever they change
   useEffect(() => {
@@ -465,7 +467,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const getCurrentRefreshInterval = () => {
     if (isProcessingLogs) return 3000; // 3 seconds when processing
-    return 10000; // 10 seconds for fast data (cards + downloads) - balanced for performance and UI responsiveness
+    return getPollingInterval(); // Use user-configured polling rate from context
   };
 
   const getMediumRefreshInterval = () => {
@@ -573,7 +575,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     }
 
     return () => {
-      // Only clear intervals when switching modes, not on other dependency changes
+      // Clear intervals when switching modes or changing polling rate
       isEffectActive.current = false;
 
       if (fastIntervalRef.current) {
@@ -592,7 +594,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         abortControllerRef.current.abort();
       }
     };
-  }, [mockMode]); // Only depend on mockMode to avoid clearing mock intervals
+  }, [mockMode, pollingRate]); // Re-create intervals when polling rate changes
 
   // Handle time range changes - refetch data when time range changes
   useEffect(() => {
