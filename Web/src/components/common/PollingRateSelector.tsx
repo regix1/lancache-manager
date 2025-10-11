@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Gauge, ChevronDown } from 'lucide-react';
 import { usePollingRate } from '@contexts/PollingRateContext';
-import { POLLING_RATES, type PollingRate } from '@utils/constants';
+import { type PollingRate } from '@utils/constants';
 import { Tooltip } from './Tooltip';
 
 interface PollingRateSelectorProps {
