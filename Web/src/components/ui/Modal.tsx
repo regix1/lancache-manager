@@ -90,7 +90,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
         }}
       >
         {title && (
-          <div className="flex items-center justify-between p-6 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+          <div className="flex items-center justify-between p-6 border-b border-themed-secondary">
             <div className="text-lg font-semibold text-themed-primary">{title}</div>
             <button
               onClick={onClose}

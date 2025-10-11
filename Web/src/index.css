@@ -930,6 +930,18 @@
     background-color: var(--theme-bg-hover);
   }
 
+  .border-themed-primary {
+    border-color: var(--theme-border-primary);
+  }
+
+  .border-themed-secondary {
+    border-color: var(--theme-border-secondary);
+  }
+
+  .border-themed-focus {
+    border-color: var(--theme-border-focus);
+  }
+
   /* Badge Base Class */
   .themed-badge {
     @apply text-xs px-2 py-1 rounded font-medium;

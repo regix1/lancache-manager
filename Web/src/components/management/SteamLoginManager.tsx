@@ -276,28 +276,32 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         </div>
 
         {/* Auto-start PICS on login */}
-        <div className="mt-3 flex gap-2 items-center">
-          <Button
-            size="sm"
-            variant={autoStartPics ? 'filled' : 'default'}
-            color={autoStartPics ? 'blue' : undefined}
-            onClick={() => handleAutoStartPicsChange(true)}
-            disabled={loading || mockMode}
-          >
-            Automatic
-          </Button>
-          <Button
-            size="sm"
-            variant={!autoStartPics ? 'filled' : 'default'}
-            color={!autoStartPics ? 'blue' : undefined}
-            onClick={() => handleAutoStartPicsChange(false)}
-            disabled={loading || mockMode}
-          >
-            Manual
-          </Button>
-          <span className="text-xs text-themed-muted">
+        <div className="mt-4 pt-4 border-t border-themed-secondary">
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant={autoStartPics ? 'filled' : 'default'}
+              color={autoStartPics ? 'blue' : undefined}
+              onClick={() => handleAutoStartPicsChange(true)}
+              disabled={loading || mockMode}
+            >
+              Automatic
+            </Button>
+            <Button
+              size="sm"
+              variant={!autoStartPics ? 'filled' : 'default'}
+              color={!autoStartPics ? 'blue' : undefined}
+              onClick={() => handleAutoStartPicsChange(false)}
+              disabled={loading || mockMode}
+            >
+              Manual
+            </Button>
+          </div>
+          <span className="text-xs text-themed-muted text-right">
             {autoStartPics ? 'Auto-start depot mapping after login' : 'Manually trigger depot mapping after login'}
           </span>
+        </div>
         </div>
 
         {steamAuthMode === 'authenticated' && (
