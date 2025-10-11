@@ -193,19 +193,11 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
     };
 
     let output = Command::new("rsync")
-        .arg("--recursive")
+        .arg("--archive")
         .arg("--delete")
         .arg("--delete-before")
-        .arg("--ignore-existing")
-        .arg("--inplace")
-        .arg("--whole-file")
-        .arg("--no-compress")
-        .arg("--omit-dir-times")
-        .arg("--numeric-ids")
-        .arg("--prune-empty-dirs")
         .arg("--force")
         .arg("--stats")
-        .arg("--human-readable=0")
         .arg(format!("{}/", empty_dir.display()))
         .arg(format!("{}/", dir_path.display()))
         .output();
@@ -214,6 +206,7 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
         Ok(result) => {
             if !result.status.success() {
                 let stderr = String::from_utf8_lossy(&result.stderr);
+                eprintln!("rsync stderr for {}: {}", dir_path.display(), stderr);
                 anyhow::bail!(
                     "rsync failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
                     dir_path.display(),
@@ -222,8 +215,13 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
             }
 
             let stdout = String::from_utf8_lossy(&result.stdout);
+            eprintln!("rsync stats for {}:\n{}", dir_path.display(), stdout);
+
             if let Some(deleted) = parse_rsync_deleted_files(&stdout) {
+                eprintln!("Parsed {} deleted files from rsync stats", deleted);
                 files_counter.fetch_add(deleted, Ordering::Relaxed);
+            } else {
+                eprintln!("Warning: Could not parse deleted file count from rsync stats for {}", dir_path.display());
             }
 
             // If directory still contains entries (e.g., rsync couldn't remove them), fallback
@@ -251,64 +249,59 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
 
 #[cfg(not(target_os = "linux"))]
 fn delete_directory_rsync(
-    dir_path: &Path,
+    _dir_path: &Path,
     _files_counter: &AtomicU64,
 ) -> Result<()> {
-    if !dir_path.exists() {
-        return Ok(());
-    }
-
-    let temp_empty = dir_path.with_file_name(format!(
-        ".empty_{}",
-        dir_path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp")
-    ));
-
-    let _ = fs::remove_dir_all(&temp_empty);
-    fs::create_dir(&temp_empty)?;
-
-    let output = std::process::Command::new("rsync")
-        .arg("-a")
-        .arg("--delete")
-        .arg("--inplace")
-        .arg(format!("{}/", temp_empty.display()))
-        .arg(format!("{}/", dir_path.display()))
-        .output();
-
-    let _ = fs::remove_dir_all(&temp_empty);
-
-    match output {
-        Ok(result) => {
-            if !result.status.success() {
-                let stderr = String::from_utf8_lossy(&result.stderr);
-                anyhow::bail!(
-                    "rsync failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
-                    dir_path.display(),
-                    stderr
-                );
-            }
-            Ok(())
-        }
-        Err(e) => {
-            anyhow::bail!(
-                "rsync command not available or failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
-                dir_path.display(),
-                e
-            );
-        }
-    }
+    anyhow::bail!(
+        "Rsync mode is only supported on Linux. Please switch to 'Preserve Structure' or 'Bulk Removal' mode."
+    );
 }
 
 #[cfg(target_os = "linux")]
 fn parse_rsync_deleted_files(stats: &str) -> Option<u64> {
+    eprintln!("Parsing rsync stats for deleted files...");
+
     for line in stats.lines() {
         let trimmed = line.trim();
+        eprintln!("  Checking line: {}", trimmed);
+
+        // Try multiple formats that rsync might use
         if let Some(rest) = trimmed.strip_prefix("Number of deleted files:") {
-            let value_part = rest.split_whitespace().next()?;
-            if let Ok(value) = value_part.parse::<u64>() {
+            let value_part = rest.trim().split_whitespace().next()?;
+            eprintln!("  Found 'Number of deleted files:' with value: {}", value_part);
+            if let Ok(value) = value_part.replace(",", "").parse::<u64>() {
                 return Some(value);
             }
         }
+
+        // Alternative format: "deleted: 12345"
+        if trimmed.to_lowercase().starts_with("deleted:") || trimmed.to_lowercase().contains("files deleted:") {
+            eprintln!("  Found alternative deleted format: {}", trimmed);
+            for word in trimmed.split_whitespace() {
+                if let Ok(value) = word.replace(",", "").parse::<u64>() {
+                    return Some(value);
+                }
+            }
+        }
+
+        // Try to find patterns like "Number of files: 0 (reg: 0, dir: 0, link: 0)"
+        // and "Number of deleted files: X"
+        if trimmed.contains("deleted") && trimmed.contains(":") {
+            eprintln!("  Line contains 'deleted' and ':': {}", trimmed);
+            // Extract numbers from the line
+            for part in trimmed.split(&[':', ',', '(', ')'][..]) {
+                let part = part.trim();
+                if let Ok(value) = part.replace(",", "").parse::<u64>() {
+                    if value > 0 {
+                        eprintln!("  Found potential deleted count: {}", value);
+                        return Some(value);
+                    }
+                }
+            }
+        }
     }
+
+    eprintln!("  No deleted file count found in stats");
     None
 }
 

@@ -221,6 +221,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "chrono-tz",
+ "libc",
  "num_cpus",
  "rayon",
  "regex",
