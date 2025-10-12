@@ -37,7 +37,8 @@ const STORAGE_KEYS = {
   VIEW_MODE: 'lancache_downloads_view_mode',
   SORT_ORDER: 'lancache_downloads_sort_order',
   AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode',
-  FULL_HEIGHT_BANNERS: 'lancache_downloads_full_height_banners'
+  FULL_HEIGHT_BANNERS: 'lancache_downloads_full_height_banners',
+  ENABLE_SCROLL_INTO_VIEW: 'lancache_downloads_scroll_into_view'
 };
 
 // View modes
@@ -103,7 +104,8 @@ const DownloadsTab: React.FC = () => {
     sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service',
     aestheticMode: localStorage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
     fullHeightBanners: localStorage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
-    groupByFrequency: localStorage.getItem('lancache_downloads_group_by_frequency') !== 'false'
+    groupByFrequency: localStorage.getItem('lancache_downloads_group_by_frequency') !== 'false',
+    enableScrollIntoView: localStorage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false'
   }));
 
   // Effect to save settings to localStorage
@@ -120,6 +122,7 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.AESTHETIC_MODE, settings.aestheticMode.toString());
     localStorage.setItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS, settings.fullHeightBanners.toString());
     localStorage.setItem('lancache_downloads_group_by_frequency', settings.groupByFrequency.toString());
+    localStorage.setItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW, settings.enableScrollIntoView.toString());
   }, [settings]);
 
   // Always fetch unlimited downloads from API to ensure we have all for grouping
@@ -999,6 +1002,14 @@ const DownloadsTab: React.FC = () => {
                   }
                   label="Group downloads by frequency"
                 />
+
+                <Checkbox
+                  checked={settings.enableScrollIntoView}
+                  onChange={(e) =>
+                    setSettings({ ...settings, enableScrollIntoView: e.target.checked })
+                  }
+                  label="Enable scroll-into-view on expand"
+                />
               </div>
             </>
           )}
@@ -1083,6 +1094,7 @@ const DownloadsTab: React.FC = () => {
                 onItemClick={handleItemClick}
                 aestheticMode={settings.aestheticMode}
                 groupByFrequency={settings.groupByFrequency}
+                enableScrollIntoView={settings.enableScrollIntoView}
               />
             )}
           </div>
@@ -1098,6 +1110,7 @@ const DownloadsTab: React.FC = () => {
                 aestheticMode={settings.aestheticMode}
                 fullHeightBanners={settings.fullHeightBanners}
                 groupByFrequency={settings.groupByFrequency}
+                enableScrollIntoView={settings.enableScrollIntoView}
               />
             )}
           </div>
