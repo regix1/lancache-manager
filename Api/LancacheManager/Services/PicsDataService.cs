@@ -200,21 +200,29 @@ public class PicsDataService
                     DiscoveredAt = DateTime.UtcNow
                 };
 
-                if (existingData.DepotMappings.ContainsKey(depotKey))
+                if (existingData.DepotMappings?.ContainsKey(depotKey) == true)
                 {
                     existingData.DepotMappings[depotKey] = newMapping;
                     updatedCount++;
                 }
                 else
                 {
+                    if (existingData.DepotMappings == null)
+                    {
+                        existingData.DepotMappings = new Dictionary<string, PicsDepotMapping>();
+                    }
                     existingData.DepotMappings[depotKey] = newMapping;
                     newCount++;
                 }
             }
 
             // Update metadata
+            if (existingData.Metadata == null)
+            {
+                existingData.Metadata = new PicsMetadata();
+            }
             existingData.Metadata.LastUpdated = DateTime.UtcNow;
-            existingData.Metadata.TotalMappings = existingData.DepotMappings.Sum(kvp => kvp.Value.AppIds.Count);
+            existingData.Metadata.TotalMappings = existingData.DepotMappings?.Sum(kvp => kvp.Value.AppIds?.Count ?? 0) ?? 0;
             existingData.Metadata.NextUpdateDue = DateTime.UtcNow.AddHours(24);
             existingData.Metadata.LastChangeNumber = lastChangeNumber;
 
@@ -258,14 +266,14 @@ public class PicsDataService
     /// <summary>
     /// Load PICS depot mappings from JSON file
     /// </summary>
-    public async Task<PicsJsonData?> LoadPicsDataFromJsonAsync()
+    public Task<PicsJsonData?> LoadPicsDataFromJsonAsync()
     {
         try
         {
             if (!File.Exists(_picsJsonFile))
             {
                 _logger.LogDebug("PICS JSON file not found: {FilePath}", _picsJsonFile);
-                return null;
+                return Task.FromResult<PicsJsonData?>(null);
             }
 
             string jsonContent;
@@ -277,7 +285,7 @@ public class PicsDataService
             if (string.IsNullOrWhiteSpace(jsonContent))
             {
                 _logger.LogWarning("PICS JSON file is empty");
-                return null;
+                return Task.FromResult<PicsJsonData?>(null);
             }
 
             var jsonOptions = new JsonSerializerOptions
@@ -298,12 +306,12 @@ public class PicsDataService
                 }
             }
 
-            return picsData;
+            return Task.FromResult(picsData);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading PICS data from JSON file");
-            return null;
+            return Task.FromResult<PicsJsonData?>(null);
         }
     }
 

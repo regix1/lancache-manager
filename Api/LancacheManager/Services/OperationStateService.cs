@@ -502,7 +502,7 @@ public class OperationStateService : IHostedService
     /// <summary>
     /// Starts the log processing services to resume interrupted log processing
     /// </summary>
-    private async Task StartLogProcessingServices()
+    private Task StartLogProcessingServices()
     {
         try
         {
@@ -514,6 +514,8 @@ public class OperationStateService : IHostedService
         {
             _logger.LogError(ex, "Failed to start log processing services for resume operation");
         }
+
+        return Task.CompletedTask;
     }
 }
 

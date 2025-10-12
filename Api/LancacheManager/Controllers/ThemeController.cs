@@ -83,10 +83,10 @@ public class ThemeController : ControllerBase
                         using var doc = JsonDocument.Parse(content);
                         var root = doc.RootElement;
 
-                        name = root.TryGetProperty("name", out var n) ? n.GetString() : themeId;
-                        description = root.TryGetProperty("description", out var d) ? d.GetString() : "";
-                        author = root.TryGetProperty("author", out var a) ? a.GetString() : "Unknown";
-                        version = root.TryGetProperty("version", out var v) ? v.GetString() : "1.0.0";
+                        name = root.TryGetProperty("name", out var n) ? n.GetString() ?? themeId : themeId;
+                        description = root.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
+                        author = root.TryGetProperty("author", out var a) ? a.GetString() ?? "Unknown" : "Unknown";
+                        version = root.TryGetProperty("version", out var v) ? v.GetString() ?? "1.0.0" : "1.0.0";
                     }
 
                     themes.Add(new
@@ -215,7 +215,7 @@ public class ThemeController : ControllerBase
                 }
 
                 // Generate safe filename
-                var themeName = root.GetProperty("name").GetString();
+                var themeName = root.GetProperty("name").GetString() ?? "custom-theme";
                 themeId = Regex.Replace(themeName, @"[^a-zA-Z0-9-_]", "-").ToLower();
                 themeId = themeId.Substring(0, Math.Min(themeId.Length, 50));
 

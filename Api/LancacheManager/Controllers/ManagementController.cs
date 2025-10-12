@@ -275,19 +275,19 @@ public class ManagementController : ControllerBase
 
     [HttpPost("process-all-logs")]
     [RequireAuth]
-    public async Task<IActionResult> ProcessAllLogs()
+    public Task<IActionResult> ProcessAllLogs()
     {
         try
         {
             if (_rustLogProcessorService.IsProcessing)
             {
-                return BadRequest(new { error = "Log processing is already running" });
+                return Task.FromResult<IActionResult>(BadRequest(new { error = "Log processing is already running" }));
             }
 
             var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
             if (!System.IO.File.Exists(logPath))
             {
-                return NotFound(new { error = $"Log file not found at: {logPath}" });
+                return Task.FromResult<IActionResult>(NotFound(new { error = $"Log file not found at: {logPath}" }));
             }
 
             var fileInfo = new FileInfo(logPath);
@@ -301,13 +301,13 @@ public class ManagementController : ControllerBase
                 _logger.LogInformation("Starting rust log processing from beginning of file");
                 _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, 0));
 
-                return Ok(new
+                return Task.FromResult<IActionResult>(Ok(new
                 {
                     message = "Log processing started with rust service from beginning of file",
                     logSizeMB = sizeMB,
                     startPosition = 0,
                     status = "started"
-                });
+                }));
             }
             else
             {
@@ -315,19 +315,19 @@ public class ManagementController : ControllerBase
                 _logger.LogInformation("Starting rust log processing (stored position: {Position}, rust will process from beginning with duplicate detection)", startPosition);
                 _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, 0));
 
-                return Ok(new
+                return Task.FromResult<IActionResult>(Ok(new
                 {
                     message = "Log processing started with rust service (will skip existing entries)",
                     logSizeMB = sizeMB,
                     startPosition = 0,
                     status = "started"
-                });
+                }));
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting log processor");
-            return StatusCode(500, new { error = "Failed to start log processor", details = ex.Message });
+            return Task.FromResult<IActionResult>(StatusCode(500, new { error = "Failed to start log processor", details = ex.Message }));
         }
     }
 

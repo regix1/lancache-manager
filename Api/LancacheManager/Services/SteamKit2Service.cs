@@ -262,7 +262,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
 
         // Use configured scan mode for automatic scheduled scans
-        _ = Task.Run(async () =>
+        _ = Task.Run(() =>
         {
             if (!IsRebuildRunning)
             {
@@ -1605,7 +1605,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                     uint? appId = download.GameAppId; // Use existing appId if available
 
                     // If no AppId yet, use owner ID from PICS data
-                    if (!appId.HasValue)
+                    if (!appId.HasValue && download.DepotId.HasValue)
                     {
                         // First, check in-memory owner mapping from PICS scan
                         if (_depotOwners.TryGetValue(download.DepotId.Value, out var ownerId))
@@ -1902,6 +1902,12 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 _stateService.SetSteamGuardData(pollResponse.NewGuardData);
                 _logger.LogInformation("Saved Steam Guard data for future logins");
+            }
+
+            // Ensure pollResponse is not null
+            if (pollResponse == null)
+            {
+                throw new InvalidOperationException("Authentication failed - no poll response received");
             }
 
             // Store refresh token

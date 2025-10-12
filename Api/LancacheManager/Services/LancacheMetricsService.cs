@@ -15,7 +15,6 @@ public class LancacheMetricsService
     private readonly ILogger<LancacheMetricsService> _logger;
 
     // Observables for gauges (values that can go up and down)
-    private long _cacheSize;
     private int _activeDownloads;
     private int _activeClients;
     private long _totalDownloads;
@@ -23,6 +22,7 @@ public class LancacheMetricsService
 
     // New metrics for cache effectiveness
     private long _cacheCapacityBytes;
+    private long _cacheUsedBytes;
     private long _cacheUsageRatioBits; // Store as long bits for thread-safety
     private long _cacheHitBytesTotal;
     private long _cacheMissBytesTotal;
@@ -39,9 +39,9 @@ public class LancacheMetricsService
         // Observable Gauges - current state values
         _meter.CreateObservableGauge(
             "lancache_cache_size_bytes",
-            () => _cacheSize,
+            () => _cacheUsedBytes,
             unit: "bytes",
-            description: "Current cache size in bytes"
+            description: "Current cache used size in bytes"
         );
 
         _meter.CreateObservableGauge(
@@ -155,6 +155,7 @@ public class LancacheMetricsService
                 // Get cache info for capacity and usage
                 var cacheInfo = cacheService.GetCacheInfo();
                 Interlocked.Exchange(ref _cacheCapacityBytes, cacheInfo.TotalCacheSize);
+                Interlocked.Exchange(ref _cacheUsedBytes, cacheInfo.UsedCacheSize);
 
                 // Calculate usage ratio (0-1, following Prometheus conventions)
                 var usageRatio = cacheInfo.TotalCacheSize > 0

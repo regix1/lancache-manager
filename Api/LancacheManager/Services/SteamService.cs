@@ -202,11 +202,12 @@ public class SteamService : IHostedService, IDisposable
         }
     }
 
-    private async Task RefreshDepotMappingsAsync()
+    private Task RefreshDepotMappingsAsync()
     {
         // For now, we'll rely on database stored mappings and real-time depot extraction
         // In a full implementation, this would query Steam's depot information
         _logger.LogInformation("Depot mappings refresh completed (using database and real-time extraction)");
+        return Task.CompletedTask;
     }
 
     /// <summary>

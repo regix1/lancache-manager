@@ -94,7 +94,7 @@ public class CacheClearingService : IHostedService
         return Task.CompletedTask;
     }
 
-    public async Task<string> StartCacheClearAsync()
+    public Task<string> StartCacheClearAsync()
     {
         var operationId = Guid.NewGuid().ToString();
         var operation = new CacheClearOperation
@@ -113,8 +113,8 @@ public class CacheClearingService : IHostedService
         
         // Start the clear operation on a background thread
         _ = Task.Run(async () => await ExecuteCacheClear(operation), operation.CancellationTokenSource.Token);
-        
-        return operationId;
+
+        return Task.FromResult(operationId);
     }
 
     private async Task ExecuteCacheClear(CacheClearOperation operation)

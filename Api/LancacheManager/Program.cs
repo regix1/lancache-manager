@@ -66,17 +66,17 @@ else
 
 // Configure Data Protection for encrypting sensitive data
 // Keys are stored in the data directory and are machine-specific
-// Get the path resolver to determine key storage location
-var tempProvider = builder.Services.BuildServiceProvider();
-var pathResolver = tempProvider.GetRequiredService<IPathResolver>();
-var keyPath = Path.Combine(pathResolver.GetDataDirectory(), "DataProtection-Keys");
+// Determine path based on OS without creating service provider
+var dataProtectionKeyPath = OperatingSystemDetector.IsWindows
+    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LancacheManager", "DataProtection-Keys")
+    : Path.Combine("/data", "DataProtection-Keys");
 
 var dataProtection = builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo(keyPath));
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyPath));
 
 // On Windows, use DPAPI to encrypt keys at rest
 // On Linux/Docker, keys are protected by filesystem permissions (chmod 700)
-if (OperatingSystemDetector.IsWindows)
+if (OperatingSystem.IsWindows())
 {
     dataProtection.ProtectKeysWithDpapi();
 }

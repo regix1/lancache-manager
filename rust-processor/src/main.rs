@@ -5,13 +5,16 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+#[cfg(target_os = "windows")]
+use std::fs::OpenOptions;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::OpenOptionsExt;
