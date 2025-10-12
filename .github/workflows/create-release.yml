@@ -7,10 +7,6 @@ on:
         description: 'Version number (e.g., 1.3.0 or 1.3.0.1)'
         required: true
         type: string
-      release_notes:
-        description: 'Release notes (optional - leave empty to use default)'
-        required: false
-        type: string
 
 jobs:
   create-release:
@@ -76,14 +72,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          NOTES="${{ github.event.inputs.release_notes }}"
 
-          # Use custom notes if provided, otherwise use default
-          if [ -z "$NOTES" ]; then
-            NOTES="Release version $VERSION"
+          # Check if RELEASE_NOTES.md exists, otherwise use default notes
+          if [ -f "RELEASE_NOTES.md" ]; then
+            gh release create "v$VERSION" \
+              --title "Release v$VERSION" \
+              --notes-file "RELEASE_NOTES.md" \
+              --latest
+          else
+            gh release create "v$VERSION" \
+              --title "Release v$VERSION" \
+              --notes "Release version $VERSION" \
+              --latest
           fi
 
-          gh release create "v$VERSION" \
-            --title "Release v$VERSION" \
-            --notes "$NOTES" \
-            --latest
+      - name: Delete RELEASE_NOTES.md if it exists
+        run: |
+          if [ -f "RELEASE_NOTES.md" ]; then
+            git rm RELEASE_NOTES.md
+            git commit -m "Remove release notes after v${{ github.event.inputs.version }} release"
+            git push origin main
+          fi
