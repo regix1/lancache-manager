@@ -39,12 +39,18 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
         const status = await ApiService.getProcessingStatus();
         setProgress(status);
 
-        // Check if complete - must have finished processing AND have data
+        // Check if complete - must have finished processing
+        // Handle both empty log files (0 lines = 0% progress) and populated logs (100% progress)
         const isFullyComplete =
-          (!status.isProcessing && status.linesProcessed && status.linesProcessed > 0 &&
-           (status.progress === 100 || status.percentComplete === 100)) ||
-          (!status.isProcessing && status.currentPosition && status.totalSize &&
-           status.currentPosition >= status.totalSize);
+          !status.isProcessing && (
+            // Normal completion: progress reached 100%
+            (status.progress === 100 || status.percentComplete === 100) ||
+            // Empty file completion: 0 total lines and 0 processed (progress will be 0%)
+            (status.totalLines === 0 && status.linesProcessed === 0) ||
+            // Alternative: position-based completion
+            (status.currentPosition !== undefined && status.totalSize !== undefined &&
+             status.currentPosition >= status.totalSize)
+          );
 
         if (isFullyComplete) {
           setComplete(true);
