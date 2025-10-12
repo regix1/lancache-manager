@@ -539,6 +539,43 @@
     color: var(--theme-riot);
   }
 
+  /* Icon Colors - for component icons */
+  .icon-blue {
+    color: var(--theme-icon-blue);
+  }
+
+  .icon-green {
+    color: var(--theme-icon-green);
+  }
+
+  .icon-emerald {
+    color: var(--theme-icon-emerald);
+  }
+
+  .icon-purple {
+    color: var(--theme-icon-purple);
+  }
+
+  .icon-indigo {
+    color: var(--theme-icon-indigo);
+  }
+
+  .icon-orange {
+    color: var(--theme-icon-orange);
+  }
+
+  .icon-yellow {
+    color: var(--theme-icon-yellow);
+  }
+
+  .icon-cyan {
+    color: var(--theme-icon-cyan);
+  }
+
+  .icon-red {
+    color: var(--theme-icon-red);
+  }
+
   /* Status Indicators */
   .status-active {
     background-color: var(--theme-success-bg);
@@ -949,6 +986,29 @@
   /* Badge Base Class */
   .themed-badge {
     @apply text-xs px-2 py-1 rounded font-medium;
+  }
+
+  /* Section Dividers - Subtle dividers between management sections */
+  .section-dividers > *:not(:last-child) {
+    position: relative;
+    padding-bottom: 1.5rem;
+  }
+
+  .section-dividers > *:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    bottom: 0.75rem;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--theme-border-secondary) 10%,
+      var(--theme-border-secondary) 90%,
+      transparent
+    );
+    opacity: 0.8;
   }
 
   /* Responsive Hit Rate Badge Helper */

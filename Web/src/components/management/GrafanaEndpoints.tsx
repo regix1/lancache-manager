@@ -50,7 +50,7 @@ const GrafanaEndpoints: React.FC = () => {
     <Card>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
-          <Link className="w-5 h-5 text-themed-accent" />
+          <Link className="w-5 h-5 icon-indigo" />
           <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
         </div>
         {metricsSecured !== null && (

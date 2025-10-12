@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
+import { Zap, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import * as signalR from '@microsoft/signalr';
@@ -669,7 +669,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     <>
       <Card>
         <div className="flex items-center space-x-2 mb-4">
-          <FileText className="w-5 h-5 cache-hit" />
+          <Zap className="w-5 h-5 icon-purple" />
           <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
         </div>
         <p className="text-themed-muted text-sm mb-4">

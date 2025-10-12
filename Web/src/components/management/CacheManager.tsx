@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { HardDrive, Trash2, AlertTriangle, Loader } from 'lucide-react';
+import { Server, Trash2, AlertTriangle, Loader } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
@@ -296,11 +296,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center space-x-2 mb-4">
-          <HardDrive className="w-5 h-5 text-themed-primary" />
+        <div className="flex items-center gap-2 mb-6">
+          <Server className="w-5 h-5 icon-green flex-shrink-0" />
           <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+
+        {/* Main Cache Path and Clear Button */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div className="flex-1">
             {isLoadingConfig ? (
               <div className="flex items-center gap-2">
@@ -311,7 +313,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               <>
                 <p className="text-themed-secondary">
                   Manage cached game files in{' '}
-                  <code className="bg-themed-tertiary px-2 py-1 rounded">{config.cachePath}</code>
+                  <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">{config.cachePath}</code>
                 </p>
                 <p className="text-xs text-themed-muted mt-1">
                   ⚠️ This deletes ALL cached game files from disk
@@ -338,17 +340,18 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           </Button>
         </div>
 
-        {/* Delete Mode Configuration */}
-        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-            <div className="flex-1">
-              <p className="text-themed-secondary font-medium">Deletion Method</p>
-              <p className="text-xs text-themed-muted mt-1">
+        {/* Configuration Options - Unified Grid Layout */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-themed-tertiary/30">
+          {/* Delete Mode Configuration */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-themed-primary font-medium text-sm mb-1">Deletion Method</p>
+              <p className="text-xs text-themed-muted">
                 {deleteMode === 'rsync'
-                  ? 'Uses rsync --delete to sync with empty directory (optimized for network storage)'
+                  ? 'Rsync with empty directory (network storage)'
                   : deleteMode === 'full'
-                  ? 'Bulk directory removal - removes entire directories at once (no file count)'
-                  : 'Delete files individually - preserves directory structure (shows file count)'}
+                  ? 'Bulk directory removal (faster)'
+                  : 'Individual file deletion (with count)'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -359,7 +362,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 onClick={() => handleDeleteModeChange('preserve')}
                 disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
-                Preserve Structure
+                Preserve
               </Button>
               <Button
                 size="sm"
@@ -368,7 +371,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 onClick={() => handleDeleteModeChange('full')}
                 disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
-                Bulk Removal
+                Bulk
               </Button>
               {rsyncAvailable && (
                 <Button
@@ -383,15 +386,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               )}
             </div>
           </div>
-        </div>
 
-        {/* Thread Count Configuration */}
-        <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex-1">
-              <p className="text-themed-secondary font-medium">Cache Clearing Threads</p>
-              <p className="text-xs text-themed-muted mt-1">
-                Higher values = faster (max: {cpuCount} CPU{cpuCount > 1 ? 's' : ''})
+          {/* Thread Count Configuration */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-themed-primary font-medium text-sm mb-1">Clearing Threads</p>
+              <p className="text-xs text-themed-muted">
+                Higher = faster (max: {cpuCount} CPU{cpuCount > 1 ? 's' : ''})
               </p>
             </div>
             <div className="flex items-center gap-3">

@@ -7,7 +7,11 @@ import {
   FileText,
   CheckCircle,
   StopCircle,
-  AlertTriangle
+  AlertTriangle,
+  Shield,
+  HardDrive,
+  Plug,
+  Settings
 } from 'lucide-react';
 import * as signalR from '@microsoft/signalr';
 import { useData } from '@contexts/DataContext';
@@ -24,6 +28,7 @@ import LogProcessingManager from './LogProcessingManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
 import GrafanaEndpoints from './GrafanaEndpoints';
+import { CollapsibleSection } from './CollapsibleSection';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -214,7 +219,7 @@ const DatabaseManager: React.FC<{
     <>
       <Card>
       <div className="flex items-center gap-2 mb-4">
-        <Database className="w-5 h-5 text-themed-accent flex-shrink-0" />
+        <Database className="w-5 h-5 icon-cyan flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
       </div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -495,7 +500,7 @@ const LogFileManager: React.FC<{
     <>
       <Card>
       <div className="flex items-center gap-2 mb-4">
-        <FileText className="w-5 h-5 text-themed-accent flex-shrink-0" />
+        <FileText className="w-5 h-5 icon-orange flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
       </div>
       <p className="text-themed-muted text-sm mb-4 break-words">
@@ -801,318 +806,315 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
   return (
     <>
-
-
       <div className="space-y-6">
-        {/* Authentication - Always at top */}
-      <AuthenticationManager
-        onAuthChange={setIsAuthenticated}
-        onAuthModeChange={setAuthMode}
-        onError={addError}
-        onSuccess={setSuccess}
-        onApiKeyRegenerated={onApiKeyRegenerated}
-      />
+        {/* All Notifications Consolidated at Top */}
+        <div className="space-y-4">
+          {/* Regular Alerts */}
+          <AlertsManager alerts={alerts} onClearError={clearError} onClearSuccess={clearSuccess} />
 
-      {/* All Notifications Consolidated Here */}
-      <div className="space-y-4">
-        {/* Regular Alerts */}
-        <AlertsManager alerts={alerts} onClearError={clearError} onClearSuccess={clearSuccess} />
-
-        {/* Cache Clearing Background Operation */}
-        {backgroundOperations.cacheClearing && (
-          <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin" />}>
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="flex-1">
-                <p className="font-medium">Cache clearing in progress...</p>
-                {backgroundOperations.cacheClearing.filesDeleted > 0 && (
+          {/* Cache Clearing Background Operation */}
+          {backgroundOperations.cacheClearing && (
+            <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin text-themed-muted" />}>
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="flex-1">
+                  <p className="font-medium">Cache clearing in progress...</p>
+                  {backgroundOperations.cacheClearing.filesDeleted > 0 && (
+                    <p className="text-sm mt-1 opacity-75">
+                      {(backgroundOperations.cacheClearing.filesDeleted || 0).toLocaleString()} files deleted
+                    </p>
+                  )}
                   <p className="text-sm mt-1 opacity-75">
-                    {(backgroundOperations.cacheClearing.filesDeleted || 0).toLocaleString()} files deleted
+                    {(backgroundOperations.cacheClearing.progress || 0).toFixed(0)}% complete
                   </p>
+                </div>
+                {backgroundOperations.cacheClearing.cancel && (
+                  <Button
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                    leftSection={<StopCircle className="w-4 h-4" />}
+                    onClick={backgroundOperations.cacheClearing.cancel}
+                    className="w-full sm:w-auto"
+                  >
+                    Cancel
+                  </Button>
                 )}
-                <p className="text-sm mt-1 opacity-75">
-                  {(backgroundOperations.cacheClearing.progress || 0).toFixed(0)}% complete
-                </p>
               </div>
-              {backgroundOperations.cacheClearing.cancel && (
-                <Button
-                  variant="filled"
-                  color="red"
-                  size="sm"
-                  leftSection={<StopCircle className="w-4 h-4" />}
-                  onClick={backgroundOperations.cacheClearing.cancel}
-                  className="w-full sm:w-auto"
-                >
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </Alert>
-        )}
+            </Alert>
+          )}
 
-        {/* Log Processing Background Operation */}
-        {backgroundOperations.logProcessing && (
-          <div className="relative">
-            {/* Make processing alert more prominent with larger text and progress bar */}
+          {/* Log Processing Background Operation */}
+          {backgroundOperations.logProcessing && (
+            <div className="relative">
+              <Alert
+                color={backgroundOperations.logProcessing.status === 'complete' ? 'green' : 'blue'}
+                icon={
+                  backgroundOperations.logProcessing.status === 'complete' ? (
+                    <CheckCircle className="w-6 h-6" />
+                  ) : (
+                    <Loader className="w-6 h-6 animate-spin text-themed-muted" />
+                  )
+                }
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                  <div className="flex-1">
+                    <p className="font-semibold text-lg break-words">{backgroundOperations.logProcessing.message}</p>
+                    {backgroundOperations.logProcessing.detailMessage && (
+                      <p className="text-sm mt-2 opacity-85 break-words">
+                        {backgroundOperations.logProcessing.detailMessage}
+                      </p>
+                    )}
+                    {backgroundOperations.logProcessing.progress > 0 &&
+                      backgroundOperations.logProcessing.status !== 'complete' && (
+                        <div className="mt-4">
+                          <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
+                            <div
+                              className="progress-bar-info h-4 rounded-full smooth-transition"
+                              style={{
+                                width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
+                              }}
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <span className="text-xs font-bold text-themed-button drop-shadow">
+                                {backgroundOperations.logProcessing.progress.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center mt-2">
+                            <p className="text-sm font-medium">
+                              {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
+                            </p>
+                            {backgroundOperations.logProcessing.estimatedTime && (
+                              <p className="text-sm opacity-75">
+                                {backgroundOperations.logProcessing.estimatedTime} remaining
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                  {backgroundOperations.logProcessing.status !== 'complete' &&
+                    backgroundOperations.logProcessing.onCancel && (
+                      <Button
+                        variant="filled"
+                        color="red"
+                        size="sm"
+                        leftSection={<StopCircle className="w-4 h-4" />}
+                        onClick={backgroundOperations.logProcessing.onCancel}
+                        className="w-full sm:w-auto"
+                      >
+                        Cancel Processing
+                      </Button>
+                    )}
+                </div>
+              </Alert>
+            </div>
+          )}
+
+          {/* Service Removal Background Operation */}
+          {backgroundOperations.serviceRemoval && (
+            <Alert color="orange" icon={<Loader className="w-5 h-5 animate-spin text-themed-muted" />}>
+              <div>
+                <p className="font-medium">
+                  Removing {backgroundOperations.serviceRemoval} entries from logs...
+                </p>
+                <p className="text-sm mt-1">This may take several minutes for large log files</p>
+              </div>
+            </Alert>
+          )}
+
+          {/* Database Reset Background Operation */}
+          {backgroundOperations.databaseReset && (
             <Alert
-              color={backgroundOperations.logProcessing.status === 'complete' ? 'green' : 'blue'}
+              color={backgroundOperations.databaseReset.status === 'complete' ? 'green' : 'blue'}
               icon={
-                backgroundOperations.logProcessing.status === 'complete' ? (
+                backgroundOperations.databaseReset.status === 'complete' ? (
                   <CheckCircle className="w-6 h-6" />
                 ) : (
-                  <Loader className="w-6 h-6 animate-spin" />
+                  <Loader className="w-6 h-6 animate-spin text-themed-muted" />
                 )
               }
             >
-              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="flex flex-col gap-3">
                 <div className="flex-1">
-                  <p className="font-semibold text-lg break-words">{backgroundOperations.logProcessing.message}</p>
-                  {backgroundOperations.logProcessing.detailMessage && (
-                    <p className="text-sm mt-2 opacity-85 break-words">
-                      {backgroundOperations.logProcessing.detailMessage}
-                    </p>
-                  )}
-                  {backgroundOperations.logProcessing.progress > 0 &&
-                    backgroundOperations.logProcessing.status !== 'complete' && (
+                  <p className="font-semibold text-lg break-words">{backgroundOperations.databaseReset.message}</p>
+                  {backgroundOperations.databaseReset.progress > 0 &&
+                    backgroundOperations.databaseReset.status !== 'complete' && (
                       <div className="mt-4">
-                        {/* Larger, more prominent progress bar */}
                         <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
                           <div
                             className="progress-bar-info h-4 rounded-full smooth-transition"
                             style={{
-                              width: `${Math.min(backgroundOperations.logProcessing.progress, 100)}%`
+                              width: `${Math.min(backgroundOperations.databaseReset.progress, 100)}%`
                             }}
                           />
-                          {/* Progress percentage overlay */}
                           <div className="absolute inset-0 flex items-center justify-center">
                             <span className="text-xs font-bold text-themed-button drop-shadow">
-                              {backgroundOperations.logProcessing.progress.toFixed(1)}%
+                              {backgroundOperations.databaseReset.progress.toFixed(1)}%
                             </span>
                           </div>
                         </div>
                         <div className="flex justify-between items-center mt-2">
                           <p className="text-sm font-medium">
-                            {backgroundOperations.logProcessing.progress.toFixed(1)}% complete
+                            {backgroundOperations.databaseReset.progress.toFixed(1)}% complete
                           </p>
-                          {backgroundOperations.logProcessing.estimatedTime && (
-                            <p className="text-sm opacity-75">
-                              {backgroundOperations.logProcessing.estimatedTime} remaining
-                            </p>
-                          )}
                         </div>
                       </div>
                     )}
                 </div>
-                {backgroundOperations.logProcessing.status !== 'complete' &&
-                  backgroundOperations.logProcessing.onCancel && (
-                    <Button
-                      variant="filled"
-                      color="red"
-                      size="sm"
-                      leftSection={<StopCircle className="w-4 h-4" />}
-                      onClick={backgroundOperations.logProcessing.onCancel}
-                      className="w-full sm:w-auto"
-                    >
-                      Cancel Processing
-                    </Button>
-                  )}
               </div>
             </Alert>
-          </div>
-        )}
+          )}
 
-        {/* Service Removal Background Operation */}
-        {backgroundOperations.serviceRemoval && (
-          <Alert color="orange" icon={<Loader className="w-5 h-5 animate-spin" />}>
-            <div>
-              <p className="font-medium">
-                Removing {backgroundOperations.serviceRemoval} entries from logs...
-              </p>
-              <p className="text-sm mt-1">This may take several minutes for large log files</p>
-            </div>
-          </Alert>
-        )}
-
-        {/* Database Reset Background Operation */}
-        {backgroundOperations.databaseReset && (
-          <Alert
-            color={backgroundOperations.databaseReset.status === 'complete' ? 'green' : 'blue'}
-            icon={
-              backgroundOperations.databaseReset.status === 'complete' ? (
-                <CheckCircle className="w-6 h-6" />
-              ) : (
-                <Loader className="w-6 h-6 animate-spin" />
-              )
-            }
-          >
-            <div className="flex flex-col gap-3">
-              <div className="flex-1">
-                <p className="font-semibold text-lg break-words">{backgroundOperations.databaseReset.message}</p>
-                {backgroundOperations.databaseReset.progress > 0 &&
-                  backgroundOperations.databaseReset.status !== 'complete' && (
+          {/* Depot Mapping Background Operation */}
+          {depotMappingProgress && (
+            <Alert
+              color={depotMappingProgress.status === 'complete' ? 'green' : 'orange'}
+              icon={
+                depotMappingProgress.status === 'complete' ? (
+                  <CheckCircle className="w-6 h-6" />
+                ) : (
+                  <Loader className="w-6 h-6 animate-spin text-themed-muted" />
+                )
+              }
+            >
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div className="flex-1">
+                  <p className="font-semibold text-lg break-words">
+                    Depot Mapping: {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads
+                  </p>
+                  <p className="text-sm mt-2 opacity-85 break-words">
+                    {depotMappingProgress.message}
+                    {depotMappingProgress.mappingsApplied !== undefined && (
+                      <span> • {depotMappingProgress.mappingsApplied} mappings applied</span>
+                    )}
+                  </p>
+                  {depotMappingProgress.percentComplete > 0 && depotMappingProgress.isProcessing && (
                     <div className="mt-4">
                       <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
                         <div
-                          className="progress-bar-info h-4 rounded-full smooth-transition"
+                          className="progress-bar-warning h-4 rounded-full smooth-transition"
                           style={{
-                            width: `${Math.min(backgroundOperations.databaseReset.progress, 100)}%`
+                            width: `${Math.min(depotMappingProgress.percentComplete, 100)}%`
                           }}
                         />
                         <div className="absolute inset-0 flex items-center justify-center">
                           <span className="text-xs font-bold text-themed-button drop-shadow">
-                            {backgroundOperations.databaseReset.progress.toFixed(1)}%
+                            {depotMappingProgress.percentComplete.toFixed(1)}%
                           </span>
                         </div>
                       </div>
                       <div className="flex justify-between items-center mt-2">
                         <p className="text-sm font-medium">
-                          {backgroundOperations.databaseReset.progress.toFixed(1)}% complete
+                          {depotMappingProgress.percentComplete.toFixed(1)}% complete
                         </p>
                       </div>
                     </div>
                   )}
+                </div>
               </div>
-            </div>
-          </Alert>
+            </Alert>
+          )}
+        </div>
+
+        {/* Authentication & Access Section - Always Open */}
+        <CollapsibleSection title="Authentication & Access" icon={Shield} alwaysOpen>
+          <AuthenticationManager
+            onAuthChange={setIsAuthenticated}
+            onAuthModeChange={setAuthMode}
+            onError={addError}
+            onSuccess={setSuccess}
+            onApiKeyRegenerated={onApiKeyRegenerated}
+          />
+          <MockModeManager
+            mockMode={mockMode}
+            onToggle={() => setMockMode(!mockMode)}
+            disabled={false}
+          />
+        </CollapsibleSection>
+
+        {/* Only show management features when fully authenticated */}
+        {authMode === 'authenticated' && (
+          <>
+            {/* Integration & Services Section */}
+            <CollapsibleSection title="Integration & Services" icon={Plug}>
+              <SteamLoginManager
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+              />
+
+              <GrafanaEndpoints />
+            </CollapsibleSection>
+
+            {/* Data Management Section - Default Open */}
+            <CollapsibleSection title="Data Management" icon={HardDrive} defaultOpen>
+              <DatabaseManager
+                isAuthenticated={isAuthenticated}
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={fetchData}
+                onBackgroundOperation={(op) =>
+                  setBackgroundOperations((prev) => ({ ...prev, databaseReset: op }))
+                }
+              />
+
+              <CacheManager
+                isAuthenticated={isAuthenticated}
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onBackgroundOperation={(op) =>
+                  setBackgroundOperations((prev) => ({ ...prev, cacheClearing: op }))
+                }
+              />
+
+              <LogProcessingManager
+                isAuthenticated={isAuthenticated}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={fetchData}
+                onBackgroundOperation={(op) =>
+                  setBackgroundOperations((prev) => ({ ...prev, logProcessing: op }))
+                }
+              />
+
+              <LogFileManager
+                isAuthenticated={isAuthenticated}
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={fetchData}
+                onBackgroundOperation={(service) =>
+                  setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
+                }
+              />
+            </CollapsibleSection>
+
+            {/* Preferences Section */}
+            <CollapsibleSection title="Preferences" icon={Settings}>
+              <ThemeManager isAuthenticated={isAuthenticated} />
+            </CollapsibleSection>
+          </>
         )}
 
-        {/* Depot Mapping Background Operation */}
-        {depotMappingProgress && (
-          <Alert
-            color={depotMappingProgress.status === 'complete' ? 'green' : 'orange'}
-            icon={
-              depotMappingProgress.status === 'complete' ? (
-                <CheckCircle className="w-6 h-6" />
-              ) : (
-                <Loader className="w-6 h-6 animate-spin" />
-              )
-            }
-          >
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div className="flex-1">
-                <p className="font-semibold text-lg break-words">
-                  Depot Mapping: {depotMappingProgress.processedMappings} / {depotMappingProgress.totalMappings} downloads
-                </p>
-                <p className="text-sm mt-2 opacity-85 break-words">
-                  {depotMappingProgress.message}
-                  {depotMappingProgress.mappingsApplied !== undefined && (
-                    <span> • {depotMappingProgress.mappingsApplied} mappings applied</span>
-                  )}
-                </p>
-                {depotMappingProgress.percentComplete > 0 && depotMappingProgress.isProcessing && (
-                  <div className="mt-4">
-                    <div className="w-full progress-track rounded-full h-4 relative overflow-hidden shadow-inner">
-                      <div
-                        className="progress-bar-warning h-4 rounded-full smooth-transition"
-                        style={{
-                          width: `${Math.min(depotMappingProgress.percentComplete, 100)}%`
-                        }}
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs font-bold text-themed-button drop-shadow">
-                          {depotMappingProgress.percentComplete.toFixed(1)}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <p className="text-sm font-medium">
-                        {depotMappingProgress.percentComplete.toFixed(1)}% complete
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
+        {/* Guest Mode Info */}
+        {authMode === 'guest' && (
+          <Card>
+            <div className="text-center py-8">
+              <p className="text-themed-secondary text-lg mb-2">Guest Mode Active</p>
+              <p className="text-themed-muted text-sm">
+                Management features are disabled in guest mode. Please authenticate to access full functionality.
+              </p>
             </div>
-          </Alert>
+          </Card>
         )}
-      </div>
-
-      {/* Mock Mode - Always visible */}
-      <MockModeManager
-        mockMode={mockMode}
-        onToggle={() => setMockMode(!mockMode)}
-        disabled={false}
-      />
-
-      {/* Only show management features when fully authenticated */}
-      {authMode === 'authenticated' && (
-        <>
-          {/* Steam Login Manager */}
-          <SteamLoginManager
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={addError}
-            onSuccess={setSuccess}
-          />
-
-          {/* Database Manager */}
-          <DatabaseManager
-            isAuthenticated={isAuthenticated}
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={addError}
-            onSuccess={setSuccess}
-            onDataRefresh={fetchData}
-            onBackgroundOperation={(op) =>
-              setBackgroundOperations((prev) => ({ ...prev, databaseReset: op }))
-            }
-          />
-
-          {/* Cache Manager - Pass notification callback */}
-          <CacheManager
-            isAuthenticated={isAuthenticated}
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={addError}
-            onSuccess={setSuccess}
-            onBackgroundOperation={(op) =>
-              setBackgroundOperations((prev) => ({ ...prev, cacheClearing: op }))
-            }
-          />
-
-          {/* Log Processing Manager - Pass notification callback */}
-          <LogProcessingManager
-            isAuthenticated={isAuthenticated}
-            mockMode={mockMode}
-            onError={addError}
-            onSuccess={setSuccess}
-            onDataRefresh={fetchData}
-            onBackgroundOperation={(op) =>
-              setBackgroundOperations((prev) => ({ ...prev, logProcessing: op }))
-            }
-          />
-
-          {/* Log File Manager - Pass notification callback */}
-          <LogFileManager
-            isAuthenticated={isAuthenticated}
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={addError}
-            onSuccess={setSuccess}
-            onDataRefresh={fetchData}
-            onBackgroundOperation={(service) =>
-              setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
-            }
-          />
-
-          {/* Grafana Endpoints */}
-          <GrafanaEndpoints />
-
-          {/* Theme Manager */}
-          <ThemeManager isAuthenticated={isAuthenticated} />
-        </>
-      )}
-
-      {/* Guest Mode Info */}
-      {authMode === 'guest' && (
-        <Card>
-          <div className="text-center py-8">
-            <p className="text-themed-secondary text-lg mb-2">Guest Mode Active</p>
-            <p className="text-themed-muted text-sm">
-              Management features are disabled in guest mode. Please authenticate to access full functionality.
-            </p>
-          </div>
-        </Card>
-      )}
       </div>
     </>
   );

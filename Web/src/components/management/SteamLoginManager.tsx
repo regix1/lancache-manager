@@ -248,12 +248,13 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center gap-2 mb-4">
-          <Shield className="w-5 h-5 text-themed-accent flex-shrink-0" />
+        <div className="flex items-center gap-2 mb-6">
+          <Key className="w-5 h-5 icon-blue flex-shrink-0" />
           <h3 className="text-lg font-semibold text-themed-primary">Steam PICS Authentication</h3>
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        {/* Main auth mode selector */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div className="flex-1">
             <p className="text-themed-secondary">
               {steamAuthMode === 'authenticated'
@@ -275,35 +276,41 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           </div>
         </div>
 
-        {/* Auto-start PICS on login */}
-        <div className="mt-4 pt-4 border-t border-themed-secondary">
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={autoStartPics ? 'filled' : 'default'}
-              color={autoStartPics ? 'blue' : undefined}
-              onClick={() => handleAutoStartPicsChange(true)}
-              disabled={loading || mockMode}
-            >
-              Automatic
-            </Button>
-            <Button
-              size="sm"
-              variant={!autoStartPics ? 'filled' : 'default'}
-              color={!autoStartPics ? 'blue' : undefined}
-              onClick={() => handleAutoStartPicsChange(false)}
-              disabled={loading || mockMode}
-            >
-              Manual
-            </Button>
+        {/* Configuration section with unified background */}
+        <div className="p-4 rounded-lg bg-themed-tertiary/30">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex-1">
+              <p className="text-themed-primary font-medium text-sm mb-1">
+                Depot Mapping After Login
+              </p>
+              <p className="text-xs text-themed-muted">
+                {autoStartPics ? 'Automatically rebuild depot mappings after login' : 'Manually trigger depot mapping rebuild after login'}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={autoStartPics ? 'filled' : 'default'}
+                color={autoStartPics ? 'blue' : undefined}
+                onClick={() => handleAutoStartPicsChange(true)}
+                disabled={loading || mockMode}
+              >
+                Automatic
+              </Button>
+              <Button
+                size="sm"
+                variant={!autoStartPics ? 'filled' : 'default'}
+                color={!autoStartPics ? 'blue' : undefined}
+                onClick={() => handleAutoStartPicsChange(false)}
+                disabled={loading || mockMode}
+              >
+                Manual
+              </Button>
+            </div>
           </div>
-          <span className="text-xs text-themed-muted text-right">
-            {autoStartPics ? 'Auto-start depot mapping after login' : 'Manually trigger depot mapping after login'}
-          </span>
-        </div>
         </div>
 
+        {/* Authenticated status */}
         {steamAuthMode === 'authenticated' && (
           <div className="mt-4">
             <Alert color="green">

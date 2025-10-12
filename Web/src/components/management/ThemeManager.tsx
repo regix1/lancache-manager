@@ -426,7 +426,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-2">
-            <Palette className="w-5 h-5 text-themed-accent" />
+            <Palette className="w-5 h-5 icon-purple" />
             <h3 className="text-lg font-semibold text-themed-primary">Theme Management</h3>
           </div>
           <div className="flex items-center space-x-2">
@@ -497,7 +497,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 mb-6 border-b" style={{ borderColor: 'var(--theme-border)' }}>
+        <div className="flex gap-2 mb-6 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
           <button
             onClick={() => setActiveTab('themes')}
             className={`px-4 py-2 font-medium transition-colors ${
