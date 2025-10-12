@@ -4,6 +4,7 @@ import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatter
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
+import { Tooltip } from '@components/common/Tooltip';
 import type { Download, DownloadGroup } from '../../types';
 
 const API_BASE = '/api';
@@ -81,12 +82,37 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
+  const holdTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const holdTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors(prev => new Set(prev).add(gameAppId));
   };
+
+  const stopHoldTimer = React.useCallback(() => {
+    if (holdTimeoutRef.current) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    if (holdTimerRef.current) {
+      clearInterval(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
+  const startHoldTimer = React.useCallback(
+    (callback: () => void) => {
+      stopHoldTimer();
+      holdTimeoutRef.current = setTimeout(() => {
+        holdTimerRef.current = setInterval(callback, 150);
+      }, 400);
+    },
+    [stopHoldTimer]
+  );
+
+  React.useEffect(() => () => stopHoldTimer(), [stopHoldTimer]);
 
   const renderDownloadCard = (download: Download) => {
     const totalBytes = download.totalBytes || 0;
@@ -113,6 +139,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
 
   const renderGroupCard = (group: DownloadGroup) => {
     const isExpanded = expandedItem === group.id;
+    const cardRef = React.useRef<HTMLDivElement>(null);
     const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
     const primaryDownload = group.downloads[0];
     const serviceLower = group.service.toLowerCase();
@@ -141,6 +168,14 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
     const bannerWrapperClasses = fullHeightBanners
       ? 'w-full h-[130px] sm:w-[280px] sm:h-[130px]'
       : 'w-full h-[130px] sm:w-[280px] sm:h-[130px] sm:self-start';
+
+    React.useEffect(() => {
+      if (isExpanded && cardRef.current) {
+        setTimeout(() => {
+          cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 100);
+      }
+    }, [isExpanded]);
 
     let bannerContent: React.ReactNode | null = null;
 
@@ -262,6 +297,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
 
     return (
       <div
+        ref={cardRef}
         className={`rounded-lg border overflow-hidden shadow-sm transition-all duration-300 ${
           isExpanded ? 'ring-2' : 'hover:shadow-md'
         }`}
@@ -408,6 +444,35 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                   setGroupPages(prev => ({ ...prev, [group.id]: newPage }));
                 };
 
+                const handlePointerHoldStart = (
+                  event: React.PointerEvent<HTMLButtonElement>,
+                  direction: 'prev' | 'next'
+                ) => {
+                  const isPrevious = direction === 'prev';
+                  if ((isPrevious && currentPage === 1) || (!isPrevious && currentPage === totalPages)) {
+                    return;
+                  }
+
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  startHoldTimer(() => {
+                    setGroupPages(prev => {
+                      const current = prev[group.id] || 1;
+                      const nextPage = isPrevious
+                        ? Math.max(1, current - 1)
+                        : Math.min(totalPages, current + 1);
+                      if (nextPage === current) {
+                        return prev;
+                      }
+                      return { ...prev, [group.id]: nextPage };
+                    });
+                  });
+                };
+
+                const handlePointerHoldEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+                  event.currentTarget.releasePointerCapture?.(event.pointerId);
+                  stopHoldTimer();
+                };
+
                 return (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -419,7 +484,8 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                       {totalPages > 1 && ` • Page ${currentPage}/${totalPages}`}
                     </span>
                   </div>
-                  {/* Group sessions by client IP */}
+                  {/* Group sessions by client IP - with min height to prevent layout shift */}
+                  <div style={{ minHeight: '600px' }}>
                   {Object.entries(
                     paginatedDownloads.reduce((acc, d) => {
                       if (!acc[d.clientIp]) acc[d.clientIp] = [];
@@ -523,39 +589,50 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                       </div>
                     );
                   })}
+                  </div>
 
                   {/* Pagination Controls */}
                   {totalPages > 1 && (
                     <div className="flex items-center justify-center gap-2 pt-3 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                      <button
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          color: 'var(--theme-text-primary)'
-                        }}
-                        title="Previous page"
-                      >
-                        <ChevronLeft size={14} />
-                      </button>
+                      <Tooltip content="Previous page (hold to skip multiple)">
+                        <button
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
+                          onPointerUp={handlePointerHoldEnd}
+                          onPointerCancel={handlePointerHoldEnd}
+                          onLostPointerCapture={stopHoldTimer}
+                          disabled={currentPage === 1}
+                          className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-primary)'
+                          }}
+                        >
+                          <ChevronLeft size={14} />
+                        </button>
+                      </Tooltip>
 
-                      <span className="text-xs text-[var(--theme-text-secondary)] font-medium px-2">
+                      <span className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2" style={{ minWidth: '50px', textAlign: 'center' }}>
                         {currentPage} / {totalPages}
                       </span>
 
-                      <button
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          color: 'var(--theme-text-primary)'
-                        }}
-                        title="Next page"
-                      >
-                        <ChevronRight size={14} />
-                      </button>
+                      <Tooltip content="Next page (hold to skip multiple)">
+                        <button
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
+                          onPointerUp={handlePointerHoldEnd}
+                          onPointerCancel={handlePointerHoldEnd}
+                          onLostPointerCapture={stopHoldTimer}
+                          disabled={currentPage === totalPages}
+                          className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-primary)'
+                          }}
+                        >
+                          <ChevronRight size={14} />
+                        </button>
+                      </Tooltip>
                     </div>
                   )}
                 </div>
