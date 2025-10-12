@@ -390,8 +390,7 @@ const AppContent: React.FC = () => {
   // Skip depot check only for active guest mode, not for users who were guests
   if (!isUpgradingAuth && (checkingAuth || checkingSetupStatus || (checkingDepotStatus && authMode !== 'guest'))) {
     return (
-      <div className="min-h-screen flex items-center justify-center"
-           style={{ backgroundColor: 'var(--theme-bg-primary)' }}>
+      <div className="min-h-screen flex items-center justify-center bg-themed-primary">
         <LoadingSpinner fullScreen={false} message={checkingAuth ? "Checking authentication..." : checkingSetupStatus ? "Checking setup status..." : "Checking depot initialization status..."} />
       </div>
     );

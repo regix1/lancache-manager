@@ -266,8 +266,8 @@ class ThemeService {
 
           // Backgrounds
           bgPrimary: '#111827',
-          bgSecondary: '#1f2937',
-          bgTertiary: '#374151',
+          bgSecondary: '#283649',
+          bgTertiary: '#313e52',
           bgHover: '#4b5563',
 
           // Text
@@ -319,7 +319,7 @@ class ThemeService {
           riotColor: '#f59e0b',
 
           // Components
-          cardBg: '#1f2937',
+          cardBg: '#1e2938',
           cardBorder: '#374151',
           cardOutline: '#3b82f6',
           buttonBg: '#3b82f6',
@@ -650,8 +650,8 @@ class ThemeService {
         --theme-secondary: #8b5cf6;
         --theme-accent: #06b6d4;
         --theme-bg-primary: #111827;
-        --theme-bg-secondary: #1f2937;
-        --theme-bg-tertiary: #374151;
+        --theme-bg-secondary: #283649;
+        --theme-bg-tertiary: #313e52;
         --theme-bg-hover: #4b5563;
         --theme-text-primary: #ffffff;
         --theme-text-secondary: #d1d5db;
@@ -691,7 +691,7 @@ class ThemeService {
         --theme-blizzard: #ef4444;
         --theme-wsus: #06b6d4;
         --theme-riot: #f59e0b;
-        --theme-card-bg: #1f2937;
+        --theme-card-bg: #1e2938;
         --theme-card-border: #374151;
         --theme-card-outline: #3b82f6;
         --theme-button-bg: #3b82f6;
