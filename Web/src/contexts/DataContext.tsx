@@ -142,7 +142,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   useEffect(() => {
     currentTimeRangeRef.current = timeRange;
     getTimeRangeParamsRef.current = getTimeRangeParams;
-  }, [timeRange, getTimeRangeParams]);
+    getPollingIntervalRef.current = getPollingInterval;
+  }, [timeRange, getTimeRangeParams, getPollingInterval]);
   const [mockMode, setMockMode] = useState(false);
 
   // Create a ref to track mock mode for use in callbacks/intervals that might have stale closures
@@ -185,6 +186,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const isEffectActive = useRef<boolean>(true);
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
+  const getPollingIntervalRef = useRef(getPollingInterval);
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -502,18 +504,22 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           .build();
 
         connection.on('DownloadsRefresh', () => {
-          // Debounce SignalR updates based on user's polling rate preference
+          // Respect the user's polling rate preference - don't override their choice
+          // SignalR should not trigger updates; regular intervals handle refreshes
           const now = Date.now();
           const timeSinceLastRefresh = now - lastSignalRRefreshTime.current;
 
-          // Use the current polling rate as the minimum time between SignalR updates
-          const pollingInterval = getPollingInterval();
+          // Use the current polling rate from ref to avoid stale closure
+          const pollingInterval = getPollingIntervalRef.current();
+
+          // Enforce strict debouncing - respect the user's polling interval
           if (timeSinceLastRefresh < pollingInterval) {
-            console.log('[DataContext] SignalR refresh debounced (too soon)');
+            console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${pollingInterval}ms)`);
             return;
           }
 
           lastSignalRRefreshTime.current = now;
+          console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${pollingInterval}ms)`);
 
           // Fetch fresh data when downloads are updated
           // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)
