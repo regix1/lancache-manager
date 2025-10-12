@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, ExternalLink } from 'lucide-react';
+import { ChevronRight, ExternalLink, ChevronLeft } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import type { Download, DownloadGroup } from '../../types';
 
@@ -98,6 +98,9 @@ const CompactView: React.FC<CompactViewProps> = ({
 }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
+  const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
+
+  const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors(prev => new Set(prev).add(gameAppId));
@@ -242,48 +245,94 @@ const CompactView: React.FC<CompactViewProps> = ({
                 )}
               </div>
 
-              <div className="space-y-1">
-                <div className="text-xs text-themed-muted">
-                  {labels.downloadList} ({group.downloads.length > 100
-                    ? `Showing 100 of ${group.downloads.length}`
-                    : group.downloads.length})
-                </div>
-                {group.downloads
-                  .sort((a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime())
-                  .slice(0, 100)
-                  .map((download) => {
-                    const totalBytes = download.totalBytes || 0;
-                    const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+              {(() => {
+                const currentPage = groupPages[group.id] || 1;
+                const sortedDownloads = group.downloads
+                  .sort((a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime());
+                const totalPages = Math.ceil(sortedDownloads.length / SESSIONS_PER_PAGE);
+                const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
+                const endIndex = startIndex + SESSIONS_PER_PAGE;
+                const paginatedDownloads = sortedDownloads.slice(startIndex, endIndex);
 
-                    return (
-                      <div
-                        key={download.id}
-                        className="flex items-center justify-between text-xs py-0.5 hover:bg-[var(--theme-bg-tertiary)]/10 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono text-[var(--theme-text-primary)]">
-                            {download.clientIp}
-                          </span>
-                          <span className="text-themed-muted">
-                            {formatRelativeTime(download.startTimeLocal)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
-                            {formatBytes(totalBytes)}
-                          </span>
-                          {download.cacheHitBytes > 0 ? (
-                            <span className="cache-hit font-medium font-mono text-right min-w-[45px]">
-                              {formatPercent(cachePercent)}
+                const handlePageChange = (newPage: number) => {
+                  setGroupPages(prev => ({ ...prev, [group.id]: newPage }));
+                };
+
+                return (
+                  <div className="space-y-1">
+                    <div className="text-xs text-themed-muted">
+                      {labels.downloadList} ({group.downloads.length} total{totalPages > 1 && ` • Page ${currentPage}/${totalPages}`})
+                    </div>
+                    {paginatedDownloads.map((download) => {
+                      const totalBytes = download.totalBytes || 0;
+                      const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+
+                      return (
+                        <div
+                          key={download.id}
+                          className="flex items-center justify-between text-xs py-0.5 hover:bg-[var(--theme-bg-tertiary)]/10 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-[var(--theme-text-primary)]">
+                              {download.clientIp}
                             </span>
-                          ) : (
-                            <span className="font-medium font-mono text-right min-w-[45px]" style={{ color: 'var(--theme-error-text)' }}>0%</span>
-                          )}
+                            <span className="text-themed-muted">
+                              {formatRelativeTime(download.startTimeLocal)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
+                              {formatBytes(totalBytes)}
+                            </span>
+                            {download.cacheHitBytes > 0 ? (
+                              <span className="cache-hit font-medium font-mono text-right min-w-[45px]">
+                                {formatPercent(cachePercent)}
+                              </span>
+                            ) : (
+                              <span className="font-medium font-mono text-right min-w-[45px]" style={{ color: 'var(--theme-error-text)' }}>0%</span>
+                            )}
+                          </div>
                         </div>
+                      );
+                    })}
+
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-center gap-2 pt-2 mt-2 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                        <button
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          disabled={currentPage === 1}
+                          className="p-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-primary)'
+                          }}
+                          title="Previous page"
+                        >
+                          <ChevronLeft size={12} />
+                        </button>
+
+                        <span className="text-xs text-[var(--theme-text-secondary)] font-medium px-2">
+                          {currentPage} / {totalPages}
+                        </span>
+
+                        <button
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          disabled={currentPage === totalPages}
+                          className="p-1 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-tertiary)',
+                            color: 'var(--theme-text-primary)'
+                          }}
+                          title="Next page"
+                        >
+                          <ChevronRight size={12} />
+                        </button>
                       </div>
-                    );
-                  })}
-              </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
+import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle, ChevronLeft } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
@@ -80,6 +80,9 @@ interface NormalViewProps {
 const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false, fullHeightBanners = false, groupByFrequency = true }) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
+  const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
+
+  const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors(prev => new Set(prev).add(gameAppId));
@@ -394,7 +397,18 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
               </div>
 
               {/* Download Sessions List */}
-              {group.downloads.length > 0 && (
+              {group.downloads.length > 0 && (() => {
+                const currentPage = groupPages[group.id] || 1;
+                const totalPages = Math.ceil(group.downloads.length / SESSIONS_PER_PAGE);
+                const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
+                const endIndex = startIndex + SESSIONS_PER_PAGE;
+                const paginatedDownloads = group.downloads.slice(startIndex, endIndex);
+
+                const handlePageChange = (newPage: number) => {
+                  setGroupPages(prev => ({ ...prev, [group.id]: newPage }));
+                };
+
+                return (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h4 className="text-base font-bold text-[var(--theme-text-primary)]">
@@ -402,11 +416,12 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                     </h4>
                     <span className="text-xs font-semibold bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] px-3 py-1.5 rounded-full">
                       {group.downloads.length} session{group.downloads.length !== 1 ? 's' : ''}
+                      {totalPages > 1 && ` • Page ${currentPage}/${totalPages}`}
                     </span>
                   </div>
                   {/* Group sessions by client IP */}
                   {Object.entries(
-                    group.downloads.reduce((acc, d) => {
+                    paginatedDownloads.reduce((acc, d) => {
                       if (!acc[d.clientIp]) acc[d.clientIp] = [];
                       acc[d.clientIp].push(d);
                       return acc;
@@ -508,8 +523,44 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
                       </div>
                     );
                   })}
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-3 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                      <button
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          color: 'var(--theme-text-primary)'
+                        }}
+                        title="Previous page"
+                      >
+                        <ChevronLeft size={14} />
+                      </button>
+
+                      <span className="text-xs text-[var(--theme-text-secondary)] font-medium px-2">
+                        {currentPage} / {totalPages}
+                      </span>
+
+                      <button
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          color: 'var(--theme-text-primary)'
+                        }}
+                        title="Next page"
+                      >
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         )}
