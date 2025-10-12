@@ -2,7 +2,7 @@ import React from 'react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'filled' | 'subtle' | 'outline' | 'default';
-  color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange';
+  color?: 'blue' | 'green' | 'red' | 'yellow' | 'purple' | 'gray' | 'orange' | 'default';
   size?: 'xs' | 'sm' | 'md' | 'lg';
   loading?: boolean;
   leftSection?: React.ReactNode;
@@ -32,7 +32,8 @@ export const Button: React.FC<ButtonProps> = ({
         yellow: 'action-reset',
         purple: 'themed-button-primary',
         gray: 'bg-themed-hover hover:bg-themed-tertiary text-themed-primary',
-        orange: 'action-reset'
+        orange: 'action-reset',
+        default: 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary'
       };
       return colors[color];
     }

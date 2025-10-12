@@ -24,6 +24,7 @@ import { ThemeCard } from './theme/ThemeCard';
 import CreateThemeModal from './theme/CreateThemeModal';
 import EditThemeModal from './theme/EditThemeModal';
 import { DeleteConfirmModal } from './theme/DeleteConfirmModal';
+import { CommunityThemeImporter } from './theme/CommunityThemeImporter';
 import { colorGroups } from './theme/constants';
 import { Theme, ThemeManagerProps } from './theme/types';
 
@@ -600,6 +601,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   />
                 ))}
               </div>
+            </div>
+
+            {/* Community Themes Section */}
+            <div className="mb-6">
+              <CommunityThemeImporter
+                isAuthenticated={isAuthenticated}
+                onThemeImported={loadThemes}
+                installedThemes={themes}
+              />
             </div>
 
             {/* Upload Custom Theme Section */}

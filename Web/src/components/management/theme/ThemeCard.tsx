@@ -97,16 +97,20 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
 
           {/* Dropdown Menu */}
           {themeActionMenu === currentMenuId && (
-            <div className="absolute right-0 mt-1 w-40 bg-themed-secondary rounded-lg shadow-lg z-10" style={{
-              border: '1px solid var(--theme-border-primary)'
-            }}>
+            <div
+              className="absolute right-0 mt-1 w-40 bg-themed-secondary rounded-lg shadow-lg z-10 animate-fadeIn origin-top-right"
+              style={{
+                border: '1px solid var(--theme-border-primary)',
+                animation: 'dropdownSlide 0.2s ease-out'
+              }}
+            >
               {!isActive && (
                 <button
                   onClick={() => {
                     onApplyTheme(currentMenuId);
                     onMenuToggle(null);
                   }}
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2 transition-colors duration-150"
                 >
                   <Check className="w-3 h-3" />
                   Apply Theme
@@ -128,7 +132,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                     onEdit(theme);
                     onMenuToggle(null);
                   }}
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2"
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2 transition-colors duration-150"
                 >
                   <Edit className="w-3 h-3" />
                   Edit Theme
@@ -152,7 +156,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                       onDelete(currentMenuId, theme.meta.name);
                       onMenuToggle(null);
                     }}
-                    className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors"
+                    className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-all duration-150"
                     style={{
                       color: 'var(--theme-error-text)',
                       backgroundColor: 'transparent'

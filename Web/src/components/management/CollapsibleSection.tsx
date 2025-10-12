@@ -30,7 +30,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     }}>
       <button
         onClick={handleToggle}
-        className={`w-full px-6 py-4 flex items-center justify-between text-left transition-all ${
+        className={`w-full px-6 py-4 flex items-center justify-between text-left transition-all duration-200 ${
           alwaysOpen ? 'cursor-default' : 'hover:bg-themed-tertiary cursor-pointer'
         }`}
         disabled={alwaysOpen}
@@ -41,16 +41,20 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
         </div>
         {!alwaysOpen && (
           isOpen ? (
-            <ChevronDown className="w-5 h-5 text-themed-secondary transition-transform" />
+            <ChevronDown className="w-5 h-5 text-themed-secondary transition-transform duration-200" />
           ) : (
-            <ChevronRight className="w-5 h-5 text-themed-secondary transition-transform" />
+            <ChevronRight className="w-5 h-5 text-themed-secondary transition-transform duration-200" />
           )
         )}
       </button>
       {isOpen && (
-        <div className="px-6 pb-6 pt-4" style={{
-          borderTop: '1px solid var(--theme-border-primary)'
-        }}>
+        <div
+          className="px-6 pb-6 pt-4"
+          style={{
+            borderTop: '1px solid var(--theme-border-primary)',
+            animation: 'expandDown 0.3s ease-out'
+          }}
+        >
           <div className="space-y-6 section-dividers">
             {children}
           </div>

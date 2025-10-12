@@ -340,7 +340,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
               >
                 <button
                   onClick={() => toggleGroup(group.name)}
-                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50"
+                  className="w-full px-4 py-3 flex items-center justify-between hover:bg-opacity-50 transition-all duration-200"
                   style={{
                     backgroundColor: isExpanded ? 'var(--theme-bg-tertiary)' : 'transparent'
                   }}
@@ -363,8 +363,11 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
                 {isExpanded && (
                   <div
-                    className="p-4 themed-card space-y-4"
-                    style={{ borderTop: '1px solid var(--theme-border)' }}
+                    className="p-4 themed-card space-y-4 animate-expandDown"
+                    style={{
+                      borderTop: '1px solid var(--theme-border)',
+                      animation: 'expandDown 0.3s ease-out'
+                    }}
                   >
                     {group.colors.map((color) => (
                       <div key={color.key} className="space-y-2">

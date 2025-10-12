@@ -114,7 +114,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         }}
       >
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={16} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
@@ -128,7 +128,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             borderColor: 'var(--theme-border-primary)',
             maxHeight: '240px',
             overflowY: 'auto',
-            maxWidth: '100vw'
+            maxWidth: '100vw',
+            animation: openUpward ? 'dropdownSlideUp 0.2s ease-out' : 'dropdownSlide 0.2s ease-out'
           }}
         >
           <div className="py-1">
@@ -151,7 +152,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                   type="button"
                   onClick={() => !option.disabled && handleSelect(option.value)}
                   disabled={option.disabled}
-                  className={`w-full px-4 py-2 text-left text-sm transition-colors truncate ${
+                  className={`w-full px-4 py-2 text-left text-sm transition-colors duration-150 truncate ${
                     option.disabled
                       ? 'opacity-40 cursor-not-allowed'
                       : 'hover:bg-[var(--theme-bg-tertiary)]'
