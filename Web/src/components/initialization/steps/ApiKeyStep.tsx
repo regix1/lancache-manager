@@ -62,22 +62,27 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
             {authenticating ? 'Authenticating...' : 'Authenticate'}
           </Button>
 
-          <div className="flex items-center gap-4">
-            <div className="flex-1 h-px bg-themed-border"></div>
-            <span className="text-xs text-themed-muted">OR</span>
-            <div className="flex-1 h-px bg-themed-border"></div>
-          </div>
+          {/* Only show guest mode divider and button if not in apiKeyOnlyMode */}
+          {!apiKeyOnlyMode && (
+            <>
+              <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-themed-border"></div>
+                <span className="text-xs text-themed-muted">OR</span>
+                <div className="flex-1 h-px bg-themed-border"></div>
+              </div>
 
-          <Button
-            variant="default"
-            leftSection={<Eye className="w-4 h-4" />}
-            onClick={onStartGuestMode}
-            disabled={authenticating || checkingDataAvailability || !dataAvailable}
-            fullWidth
-            title={!dataAvailable ? 'No data available. Please authenticate first.' : 'View data for 6 hours'}
-          >
-            {!dataAvailable ? 'Guest Mode (No Data Available)' : 'Continue as Guest (6 hours)'}
-          </Button>
+              <Button
+                variant="default"
+                leftSection={<Eye className="w-4 h-4" />}
+                onClick={onStartGuestMode}
+                disabled={authenticating || checkingDataAvailability || !dataAvailable}
+                fullWidth
+                title={!dataAvailable ? 'No data available. Complete setup first.' : 'View data for 6 hours'}
+              >
+                {!dataAvailable ? 'Guest Mode (No Data Available)' : 'Continue as Guest (6 hours)'}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 

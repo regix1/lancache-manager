@@ -4,6 +4,7 @@ import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import {
   ApiKeyStep,
+  SteamPicsAuthStep,
   DepotInitStep,
   PicsProgressStep,
   LogProcessingStep,
@@ -16,14 +17,15 @@ interface DepotInitializationModalProps {
   apiKeyOnlyMode?: boolean;
 }
 
-type InitStep = 'api-key' | 'depot-init' | 'pics-progress' | 'log-processing' | 'depot-mapping';
+type InitStep = 'api-key' | 'steam-auth' | 'depot-init' | 'pics-progress' | 'log-processing' | 'depot-mapping';
 
 const STEP_INFO: Record<InitStep, { number: number; title: string; total: number }> = {
-  'api-key': { number: 1, title: 'Authentication', total: 5 },
-  'depot-init': { number: 2, title: 'Depot Initialization', total: 5 },
-  'pics-progress': { number: 3, title: 'PICS Data Progress', total: 5 },
-  'log-processing': { number: 4, title: 'Log Processing', total: 5 },
-  'depot-mapping': { number: 5, title: 'Depot Mapping', total: 5 }
+  'api-key': { number: 1, title: 'Authentication', total: 6 },
+  'steam-auth': { number: 2, title: 'Steam PICS Authentication', total: 6 },
+  'depot-init': { number: 3, title: 'Depot Initialization', total: 6 },
+  'pics-progress': { number: 4, title: 'PICS Data Progress', total: 6 },
+  'log-processing': { number: 5, title: 'Log Processing', total: 6 },
+  'depot-mapping': { number: 6, title: 'Depot Mapping', total: 6 }
 };
 
 const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
@@ -103,10 +105,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         console.log('[DepotInit] Found stored step from localStorage:', storedStep);
 
         // Check if initialization state is stale (browser was closed mid-setup)
-        // If user is not authenticated and we're past step 1, it's stale - reset to step 1
-        const authCheck = await authService.checkAuth();
-        if (!authCheck.isAuthenticated && storedStep !== 'api-key') {
-          console.log('[DepotInit] Stale initialization state detected (not authenticated), resetting to step 1');
+        // Only reset if there's NO auth at all (not just a failed auth check)
+        // This prevents resetting on page refresh when API is slow to respond
+        const isAuthenticated = localStorage.getItem('lancache_auth_registered') === 'true';
+        const isGuestMode = localStorage.getItem('lancache_guest_expires') !== null;
+        const hasAuth = isAuthenticated || isGuestMode;
+
+        if (!hasAuth && storedStep !== 'api-key') {
+          console.log('[DepotInit] Stale initialization state detected (no auth), resetting to step 1');
           localStorage.removeItem('initializationCurrentStep');
           localStorage.removeItem('initializationInProgress');
           localStorage.removeItem('initializationMethod');
@@ -122,7 +128,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const storedMethod = localStorage.getItem('initializationMethod');
         const storedInProgress = localStorage.getItem('initializationInProgress');
 
-        if (storedStep === 'depot-init' && storedMethod === 'cloud' && storedInProgress === 'true') {
+        if ((storedStep === 'depot-init' || storedStep === 'steam-auth') && storedMethod === 'cloud' && storedInProgress === 'true') {
           console.log('[DepotInit] Download was in progress, checking completion status...');
           // Check if download actually completed while page was reloading
           const picsStatus = await checkPicsDataStatus();
@@ -150,8 +156,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           }
         }
 
-        // Still need to check PICS data if we're past the depot-init step
-        if (storedStep === 'pics-progress' || storedStep === 'log-processing' || storedStep === 'depot-mapping') {
+        // Still need to check PICS data if we're past the steam-auth step
+        if (storedStep === 'depot-init' || storedStep === 'pics-progress' || storedStep === 'log-processing' || storedStep === 'depot-mapping') {
           checkPicsDataStatus();
         }
         return;
@@ -175,8 +181,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         if (!authCheck.isAuthenticated) {
           setCurrentStep('api-key');
         } else {
-          // Authenticated and setup complete - go to depot init
-          setCurrentStep('depot-init');
+          // Authenticated and setup complete - go to steam auth
+          setCurrentStep('steam-auth');
           checkPicsDataStatus();
         }
       } catch (error) {
@@ -191,13 +197,21 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const response = await fetch('/api/auth/check');
-      if (response.ok) {
-        const data = await response.json();
-        const hasData = data.hasBeenInitialized || data.hasDataLoaded || false;
+      // Check if log processing has been run by checking the setup status
+      // This should have a flag indicating logs have been processed at least once
+      const setupResponse = await fetch('/api/management/setup-status');
+
+      if (setupResponse.ok) {
+        const setupData = await setupResponse.json();
+        // Enable guest mode if setup has been completed or if logs have been processed
+        const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
+        console.log('[DepotInit] Data availability check:', { isSetupCompleted: setupData.isSetupCompleted, hasProcessedLogs: setupData.hasProcessedLogs, hasData });
         setDataAvailable(hasData);
         return hasData;
       }
+
+      setDataAvailable(false);
+      return false;
     } catch (error) {
       console.error('Failed to check data availability:', error);
       setDataAvailable(false);
@@ -250,9 +264,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             return;
           }
 
-          // Move to depot initialization step
+          // Move to steam authentication step
           await checkPicsDataStatus();
-          setCurrentStep('depot-init');
+          setCurrentStep('steam-auth');
         } else {
           setAuthError('Authentication succeeded but verification failed');
         }
@@ -285,7 +299,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       if (setupData.isSetupCompleted) {
         handleInitializationComplete();
       } else {
-        setCurrentStep('depot-init');
+        setCurrentStep('steam-auth');
       }
     }
   };
@@ -450,6 +464,16 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             apiKeyOnlyMode={apiKeyOnlyMode}
             onAuthenticate={handleAuthenticate}
             onStartGuestMode={handleStartGuestMode}
+          />
+        );
+
+      case 'steam-auth':
+        return (
+          <SteamPicsAuthStep
+            onComplete={async () => {
+              await checkPicsDataStatus();
+              setCurrentStep('depot-init');
+            }}
           />
         );
 

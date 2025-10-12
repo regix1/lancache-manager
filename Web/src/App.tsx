@@ -447,12 +447,13 @@ const AppContent: React.FC = () => {
   }
 
   // Show initialization modal if:
-  // 1. Setup has NOT been completed yet, AND
-  // 2. User is authenticated (not guest or expired), AND
-  // 3. Either depot data doesn't exist OR initialization flow is active
-  // This ensures the modal doesn't show again after setup is completed, even if user skipped data steps
-  if (!setupCompleted && authMode === 'authenticated' &&
-      ((!depotInitialized && !isInitializationFlowActive) || isInitializationFlowActive) &&
+  // 1. User is authenticated (not guest or expired), AND
+  // 2. EITHER:
+  //    a) Initialization flow is active (user is mid-setup, even if setup was marked complete after step 3)
+  //    b) Setup is NOT completed AND depot data doesn't exist
+  // This ensures the modal shows for all 6 steps if user is in the flow, even after refreshing
+  if (authMode === 'authenticated' &&
+      (isInitializationFlowActive || (!setupCompleted && !depotInitialized)) &&
       !isUpgradingAuth) {
     // Mark initialization flow as active when showing the modal
     if (!isInitializationFlowActive) {

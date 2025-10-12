@@ -666,9 +666,11 @@ public class ManagementController : ControllerBase
         try
         {
             var isCompleted = _stateService.GetSetupCompleted();
+            var hasProcessedLogs = _stateService.GetHasProcessedLogs();
 
             return Ok(new {
-                isCompleted
+                isCompleted,
+                hasProcessedLogs
             });
         }
         catch (Exception ex)

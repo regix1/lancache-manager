@@ -207,6 +207,9 @@ public class RustLogProcessorService
                 {
                     _stateService.SetLogPosition(finalProgress.LinesParsed);
 
+                    // Mark that logs have been processed at least once to enable guest mode
+                    _stateService.SetHasProcessedLogs(true);
+
                     // Only send SignalR notifications if not in silent mode
                     if (!silentMode)
                     {

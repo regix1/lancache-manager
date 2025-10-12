@@ -165,6 +165,7 @@ export interface ProcessingStatus {
   entriesQueued?: number;
   pendingEntries?: number;
   linesProcessed?: number;
+  totalLines?: number;
   currentPosition?: number;
   totalSize?: number;
 }

@@ -41,6 +41,7 @@ public class StateService
         public bool HasDataLoaded { get; set; } = false;
         public DateTime? LastDataLoadTime { get; set; }
         public int LastDataMappingCount { get; set; } = 0;
+        public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
         public SteamAuthState SteamAuth { get; set; } = new();
     }
 
@@ -70,6 +71,7 @@ public class StateService
         public bool HasDataLoaded { get; set; } = false;
         public DateTime? LastDataLoadTime { get; set; }
         public int LastDataMappingCount { get; set; } = 0;
+        public bool HasProcessedLogs { get; set; } = false;
         public SteamAuthState SteamAuth { get; set; } = new(); // Contains encrypted tokens
     }
 
@@ -293,6 +295,17 @@ public class StateService
         });
     }
 
+    // Has Processed Logs Methods
+    public bool GetHasProcessedLogs()
+    {
+        return GetState().HasProcessedLogs;
+    }
+
+    public void SetHasProcessedLogs(bool processed)
+    {
+        UpdateState(state => state.HasProcessedLogs = processed);
+    }
+
     // Last PICS Crawl Methods
     public DateTime? GetLastPicsCrawl()
     {
@@ -435,6 +448,7 @@ public class StateService
             HasDataLoaded = persisted.HasDataLoaded,
             LastDataLoadTime = persisted.LastDataLoadTime,
             LastDataMappingCount = persisted.LastDataMappingCount,
+            HasProcessedLogs = persisted.HasProcessedLogs,
             SteamAuth = new SteamAuthState
             {
                 Mode = persisted.SteamAuth.Mode,
@@ -468,6 +482,7 @@ public class StateService
             HasDataLoaded = state.HasDataLoaded,
             LastDataLoadTime = state.LastDataLoadTime,
             LastDataMappingCount = state.LastDataMappingCount,
+            HasProcessedLogs = state.HasProcessedLogs,
             SteamAuth = new SteamAuthState
             {
                 Mode = state.SteamAuth.Mode,
