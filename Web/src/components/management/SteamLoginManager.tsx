@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Lock, User, Shield, Loader } from 'lucide-react';
+import { Key, Lock, User, Loader } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -35,7 +35,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   const [waitingForMobileConfirmation, setWaitingForMobileConfirmation] = useState(false);
   const [useManualCode, setUseManualCode] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
-  const [autoStartPics, setAutoStartPics] = useState<boolean>(true);
+  const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
 
   // Form state
   const [username, setUsername] = useState('');

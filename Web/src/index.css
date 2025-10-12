@@ -997,7 +997,7 @@
   .section-dividers > *:not(:last-child)::after {
     content: '';
     position: absolute;
-    bottom: 0.75rem;
+    bottom: 0;
     left: 0;
     right: 0;
     height: 1px;
@@ -1009,6 +1009,8 @@
       transparent
     );
     opacity: 0.8;
+    z-index: 1;
+    pointer-events: none;
   }
 
   /* Responsive Hit Rate Badge Helper */

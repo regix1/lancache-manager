@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -74,11 +75,12 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   if (!isVisible) return null;
 
-  return (
+  const modalContent = (
     <div
-      className={`modal-backdrop fixed inset-0 bg-black flex items-center justify-center z-50 transition-all duration-250 ease-out ${
+      className={`modal-backdrop fixed inset-0 bg-black flex items-center justify-center transition-all duration-250 ease-out ${
         isAnimating ? 'bg-opacity-50' : 'bg-opacity-0'
       }`}
+      style={{ zIndex: 100001 }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -104,4 +106,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       </div>
     </div>
   );
+
+  // Render modal using portal directly to document.body to escape any stacking contexts
+  return createPortal(modalContent, document.body);
 };
