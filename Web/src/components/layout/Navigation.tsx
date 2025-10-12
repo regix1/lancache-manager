@@ -6,7 +6,7 @@ interface NavigationProps {
   setActiveTab: (tab: string) => void;
 }
 
-const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
+const Navigation: React.FC<NavigationProps> = React.memo(({ activeTab, setActiveTab }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const tabs = [
@@ -21,7 +21,7 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
     isActive: boolean;
     onClick: () => void;
     className?: string;
-  }> = ({ tab, isActive, onClick, className = '' }) => {
+  }> = React.memo(({ tab, isActive, onClick, className = '' }) => {
     const Icon = tab.icon;
 
     return (
@@ -55,7 +55,11 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
         )}
       </button>
     );
-  };
+  }, (prevProps, nextProps) => {
+    // Only re-render if isActive state changes for this specific button
+    return prevProps.isActive === nextProps.isActive &&
+           prevProps.tab.id === nextProps.tab.id;
+  });
 
   return (
     <nav
@@ -132,6 +136,11 @@ const Navigation: React.FC<NavigationProps> = ({ activeTab, setActiveTab }) => {
       </div>
     </nav>
   );
-};
+}, (prevProps, nextProps) => {
+  // Only re-render if activeTab changes - prevent re-renders from parent state updates
+  return prevProps.activeTab === nextProps.activeTab;
+});
+
+Navigation.displayName = 'Navigation';
 
 export default Navigation;
