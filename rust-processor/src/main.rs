@@ -55,6 +55,7 @@ struct Processor {
     cancel_flag: Arc<AtomicBool>,
     local_tz: Tz,
     auto_map_depots: bool,
+    last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
 }
 
 impl Processor {
@@ -103,6 +104,7 @@ impl Processor {
             cancel_flag,
             local_tz,
             auto_map_depots,
+            last_logged_percent: AtomicU64::new(0),
         }
     }
 
@@ -345,10 +347,18 @@ impl Processor {
                     let parsed = self.lines_parsed.load(Ordering::Relaxed);
                     let saved = self.entries_saved.load(Ordering::Relaxed);
                     let percent = (parsed as f64 / total_lines as f64) * 100.0;
-                    println!(
-                        "Progress: {}/{} lines ({:.1}%), {} entries saved",
-                        parsed, total_lines, percent, saved
-                    );
+                    let current_percent_bucket = (percent / 5.0).floor() as u64 * 5; // Round down to nearest 5%
+                    let last_logged = self.last_logged_percent.load(Ordering::Relaxed);
+
+                    // Only log when we cross a 5% boundary
+                    if current_percent_bucket > last_logged {
+                        self.last_logged_percent.store(current_percent_bucket, Ordering::Relaxed);
+                        println!(
+                            "Progress: {}/{} lines ({:.1}%), {} entries saved",
+                            parsed, total_lines, percent, saved
+                        );
+                    }
+
                     self.write_progress(
                         "processing",
                         &format!("{} lines parsed, {} entries saved", parsed, saved),

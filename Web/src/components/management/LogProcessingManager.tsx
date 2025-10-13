@@ -115,13 +115,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     return Number.isFinite(numeric) ? numeric : 0;
   };
 
-  const formatProgressDetail = (queued: number, processed: number, lines: number, pending: number) => {
+  const formatProgressDetail = (queued: number, processed: number, totalLines: number, pending: number) => {
     const safeProcessed = Math.max(processed, 0);
-    const safeQueued = Math.max(queued, safeProcessed);
-    const safeLines = Math.max(lines, 0);
-    const safePending = Math.max(pending, safeQueued - safeProcessed, 0);
+    const safeQueued = Math.max(queued, 0);
+    const safeTotalLines = Math.max(totalLines, 0);
+    const safePending = Math.max(pending, 0);
 
-    if (safeQueued === 0 && safeProcessed === 0 && safeLines === 0) {
+    if (safeQueued === 0 && safeProcessed === 0 && safeTotalLines === 0) {
       return '';
     }
 
@@ -129,7 +129,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       return `${safeProcessed.toLocaleString()} saved / ${safeQueued.toLocaleString()} queued (${safePending.toLocaleString()} pending)`;
     }
 
-    return `${safeProcessed.toLocaleString()} entries from ${safeLines.toLocaleString()} lines`;
+    // When complete, show entries saved vs total lines scanned
+    // totalLines = all lines scanned across all log files
+    // processed = valid entries actually saved (excludes duplicates, invalid lines)
+    if (safeProcessed === safeTotalLines) {
+      return `${safeProcessed.toLocaleString()} entries processed`;
+    }
+    return `${safeProcessed.toLocaleString()} entries from ${safeTotalLines.toLocaleString()} total lines`;
   };
 
 
@@ -176,9 +182,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         const queued = parseMetric(status.entriesQueued ?? status.entriesProcessed);
         const processedEntries = parseMetric(status.entriesProcessed);
         const pendingEntries = parseMetric(status.pendingEntries ?? Math.max(queued - processedEntries, 0));
-        const lines = parseMetric(status.linesProcessed);
+        const totalLines = parseMetric(status.totalLines);
         const detailSegments = [
-          formatProgressDetail(queued, processedEntries, lines, pendingEntries),
+          formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
           status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : ''
         ].filter(Boolean);
 
@@ -199,10 +205,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           const queued = parseMetric(status.entriesQueued ?? status.entriesProcessed);
           const processedEntries = parseMetric(status.entriesProcessed);
           const pendingEntries = parseMetric(status.pendingEntries ?? Math.max(queued - processedEntries, 0));
-          const lines = parseMetric(status.linesProcessed);
+          const totalLines = parseMetric(status.totalLines);
           const detailSegments = [
             `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
-            formatProgressDetail(queued, processedEntries, lines, pendingEntries)
+            formatProgressDetail(queued, processedEntries, totalLines, pendingEntries)
           ].filter(Boolean);
 
           setProcessingStatus({
@@ -241,7 +247,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         const queued = parseMetric(progress.entriesQueued ?? progress.entriesProcessed);
         const processedEntries = parseMetric(progress.entriesProcessed);
         const pendingEntries = parseMetric(progress.pendingEntries ?? Math.max(queued - processedEntries, 0));
-        const lines = parseMetric(progress.linesProcessed);
+        const totalLines = parseMetric(progress.totalLines);
 
         // Always set isProcessingLogs to true when we receive progress updates (unless complete)
         if (status !== 'complete') {
@@ -257,7 +263,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             }
             return {
               message: 'Processing Complete!',
-              detailMessage: formatProgressDetail(queued, processedEntries, lines, pendingEntries),
+              detailMessage: formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
               progress: 100,
               status: 'complete'
             };
@@ -266,7 +272,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           if (status === 'finalizing') {
             return {
               message: progress.message || 'Finalizing log processing...',
-              detailMessage: formatProgressDetail(queued, processedEntries, lines, pendingEntries),
+              detailMessage: formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
               progress: currentProgress,
               status: 'finalizing'
             };
@@ -274,7 +280,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
           return {
             message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
-            detailMessage: formatProgressDetail(queued, processedEntries, lines, pendingEntries),
+            detailMessage: formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
             progress: Math.min(99.9, currentProgress), // Cap at 99.9% until truly complete
             status: 'processing'
           };
