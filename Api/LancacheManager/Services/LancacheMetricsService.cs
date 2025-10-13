@@ -23,10 +23,12 @@ public class LancacheMetricsService
     // New metrics for cache effectiveness
     private long _cacheCapacityBytes;
     private long _cacheUsedBytes;
+    private long _cacheFreeBytes;
     private long _cacheUsageRatioBits; // Store as long bits for thread-safety
     private long _cacheHitBytesTotal;
     private long _cacheMissBytesTotal;
     private long _cacheHitRatioBits; // Store as long bits for thread-safety
+    private long _averageDownloadSizeBytes;
 
     public LancacheMetricsService(IServiceScopeFactory scopeFactory, ILogger<LancacheMetricsService> logger)
     {
@@ -110,6 +112,20 @@ public class LancacheMetricsService
             description: "Cache hit ratio (0-1)"
         );
 
+        _meter.CreateObservableGauge(
+            "lancache_cache_free_bytes",
+            () => _cacheFreeBytes,
+            unit: "bytes",
+            description: "Cache free space in bytes"
+        );
+
+        _meter.CreateObservableGauge(
+            "lancache_average_download_size_bytes",
+            () => _averageDownloadSizeBytes,
+            unit: "bytes",
+            description: "Average download size in bytes"
+        );
+
         // Start background task to update gauges
         _logger.LogInformation("Starting background metrics update task");
         Task.Run(async () => await UpdateGaugesAsync());
@@ -172,6 +188,7 @@ public class LancacheMetricsService
                 var cacheInfo = cacheService.GetCacheInfo();
                 Interlocked.Exchange(ref _cacheCapacityBytes, cacheInfo.TotalCacheSize);
                 Interlocked.Exchange(ref _cacheUsedBytes, cacheInfo.UsedCacheSize);
+                Interlocked.Exchange(ref _cacheFreeBytes, cacheInfo.FreeCacheSize);
 
                 // Calculate usage ratio (0-1, following Prometheus conventions)
                 var usageRatio = cacheInfo.TotalCacheSize > 0
@@ -191,6 +208,12 @@ public class LancacheMetricsService
                     ? (double)totalHitBytes / totalBytesForRatio
                     : 0;
                 Interlocked.Exchange(ref _cacheHitRatioBits, BitConverter.DoubleToInt64Bits(hitRatio));
+
+                // Calculate average download size
+                var avgDownloadSize = totalDownloads > 0
+                    ? totalBytes / totalDownloads
+                    : 0;
+                Interlocked.Exchange(ref _averageDownloadSizeBytes, avgDownloadSize);
 
                 // Only log every 20 updates (every 10 minutes) to reduce log noise
                 if (updateCount % 20 == 0)
