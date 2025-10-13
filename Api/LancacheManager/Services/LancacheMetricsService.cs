@@ -33,6 +33,8 @@ public class LancacheMetricsService
         _scopeFactory = scopeFactory;
         _logger = logger;
 
+        _logger.LogInformation("Initializing LancacheMetricsService");
+
         // Create a meter for LanCache metrics
         _meter = new Meter("LancacheManager", "1.0.0");
 
@@ -109,7 +111,10 @@ public class LancacheMetricsService
         );
 
         // Start background task to update gauges
+        _logger.LogInformation("Starting background metrics update task");
         Task.Run(async () => await UpdateGaugesAsync());
+
+        _logger.LogInformation("LancacheMetricsService initialization complete");
     }
 
     /// <summary>
@@ -118,11 +123,22 @@ public class LancacheMetricsService
     /// </summary>
     private async Task UpdateGaugesAsync()
     {
+        _logger.LogInformation("UpdateGaugesAsync background task started");
+
+        // Update metrics immediately on first run, then every 30 seconds
+        bool isFirstRun = true;
+        int updateCount = 0;
+
         while (true)
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(30));
+                if (!isFirstRun)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30));
+                }
+                isFirstRun = false;
+                updateCount++;
 
                 using var scope = _scopeFactory.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -175,10 +191,17 @@ public class LancacheMetricsService
                     ? (double)totalHitBytes / totalBytesForRatio
                     : 0;
                 Interlocked.Exchange(ref _cacheHitRatioBits, BitConverter.DoubleToInt64Bits(hitRatio));
+
+                // Only log every 20 updates (every 10 minutes) to reduce log noise
+                if (updateCount % 20 == 0)
+                {
+                    _logger.LogInformation("Metrics updated - Downloads: {Downloads}, TotalBytes: {Bytes}, ActiveDownloads: {Active}, CacheSize: {CacheSize}",
+                        totalDownloads, totalBytes, activeCount, cacheInfo.UsedCacheSize);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to update gauge metrics");
+                _logger.LogError(ex, "Failed to update gauge metrics - this will cause /metrics to return empty");
             }
         }
     }
