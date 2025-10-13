@@ -113,10 +113,24 @@ public class LiveLogMonitorService : BackgroundService
             return;
         }
 
-        // Check if log file exists
+        // Check if log file exists - if not, skip monitoring (only rotated files exist)
+        // This is normal when logs are rotated and current access.log doesn't exist yet
         if (!File.Exists(_logFilePath))
         {
+            // Only log once per service start to avoid spam
+            if (_lastFileSize == 0)
+            {
+                _logger.LogDebug("Current log file not found: {LogFile}. Will monitor once it's created (rotated logs can still be processed manually)", _logFilePath);
+                _lastFileSize = -1; // Mark as logged
+            }
             return;
+        }
+
+        // Reset size tracker if file reappeared after being missing
+        if (_lastFileSize == -1)
+        {
+            _lastFileSize = 0;
+            _logger.LogInformation("Current log file now exists: {LogFile}. Resuming live monitoring.", _logFilePath);
         }
 
         try

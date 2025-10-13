@@ -1,5 +1,4 @@
 using LancacheManager.Models;
-using LancacheManager.Constants;
 using System.Diagnostics;
 using System.Text.Json;
 
@@ -195,7 +194,7 @@ public class CacheManagementService
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
-                Arguments = $"remove \"{_logPath}\" \"{service}\" \"{progressFile}\"",
+                Arguments = $"remove \"{logDir}\" \"{service}\" \"{progressFile}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -248,9 +247,12 @@ public class CacheManagementService
 
         try
         {
-            if (!File.Exists(_logPath))
+            // Extract log directory - Rust will discover all log files (access.log, .1, .2.gz, etc.)
+            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
+
+            if (!Directory.Exists(logDir))
             {
-                _logger.LogWarning($"Log file not found: {_logPath}");
+                _logger.LogWarning($"Log directory not found: {logDir}");
                 return counts;
             }
 
@@ -280,7 +282,7 @@ public class CacheManagementService
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
-                Arguments = $"count \"{_logPath}\" \"{progressFile}\"",
+                Arguments = $"count \"{logDir}\" \"{progressFile}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,

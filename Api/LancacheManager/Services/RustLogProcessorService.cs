@@ -79,6 +79,12 @@ public class RustLogProcessorService
             var progressPath = Path.Combine(dataDirectory, "rust_progress.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
 
+            // Determine if logFilePath is a directory or file path
+            // If it's already a directory, use it directly; otherwise extract directory from file path
+            var logDirectory = Directory.Exists(logFilePath)
+                ? logFilePath  // It's already a directory
+                : (Path.GetDirectoryName(logFilePath) ?? _pathResolver.GetLogsDirectory());  // Extract from file path
+
             // Delete old progress file
             if (File.Exists(progressPath))
             {
@@ -87,7 +93,7 @@ public class RustLogProcessorService
 
             _logger.LogInformation("Starting Rust log processor");
             _logger.LogInformation($"Database: {dbPath}");
-            _logger.LogInformation($"Log file: {logFilePath}");
+            _logger.LogInformation($"Log directory: {logDirectory}");
             _logger.LogInformation($"Progress file: {progressPath}");
             _logger.LogInformation($"Start position: {startPosition}");
 
@@ -106,12 +112,14 @@ public class RustLogProcessorService
             }
 
             // Start Rust process
+            // Now passing log directory instead of single file path
+            // Rust processor will discover all access.log* files (including .1, .2, .gz, .zst)
             // Pass auto_map_depots flag: 1 for silent mode (live processing), 0 for manual processing
             var autoMapDepots = silentMode ? 1 : 0;
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustExecutablePath,
-                Arguments = $"\"{dbPath}\" \"{logFilePath}\" \"{progressPath}\" {startPosition} {autoMapDepots}",
+                Arguments = $"\"{dbPath}\" \"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -160,11 +168,30 @@ public class RustLogProcessorService
                 }
             });
 
-            // Start progress monitoring task (skip if silent mode)
+            // Send initial progress notification to show UI immediately
             if (!silentMode)
             {
+                await _hubContext.Clients.All.SendAsync("ProcessingProgress", new
+                {
+                    totalLines = 0,
+                    linesParsed = 0,
+                    entriesSaved = 0,
+                    percentComplete = 0.0,
+                    status = "starting",
+                    message = "Starting log processing...",
+                    mbProcessed = 0.0,
+                    mbTotal = 0.0,
+                    entriesProcessed = 0,
+                    linesProcessed = 0,
+                    timestamp = DateTime.UtcNow
+                });
+
+                // Start progress monitoring task
                 _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
             }
+
+            // Track start time for minimum display duration
+            var startTime = DateTime.UtcNow;
 
             // Wait for process to complete
             await _rustProcess.WaitForExitAsync(_cancellationTokenSource.Token);
@@ -236,7 +263,7 @@ public class RustLogProcessorService
                     }
                 }
 
-                // Invalidate cache for new entries
+                // Invalidate cache for new entries (start in background)
                 // For live data (silentMode=true), Rust processor automatically maps depots during processing
                 // but we still need to fetch game images from Steam API
                 // For manual processing (silentMode=false), depot mapping is done separately in step 5
@@ -257,13 +284,37 @@ public class RustLogProcessorService
 
                 if (!silentMode)
                 {
+                    // Ensure minimum display duration of 2 seconds for UI visibility BEFORE sending completion
+                    // This prevents the progress UI from disappearing before users can see it
+                    var elapsed = DateTime.UtcNow - startTime;
+                    var minDisplayDuration = TimeSpan.FromSeconds(2);
+                    _logger.LogInformation("Processing completed in {Elapsed}ms (minimum display duration: {MinDuration}ms)",
+                        elapsed.TotalMilliseconds, minDisplayDuration.TotalMilliseconds);
+
+                    if (elapsed < minDisplayDuration)
+                    {
+                        var remainingDelay = minDisplayDuration - elapsed;
+                        _logger.LogInformation("Delaying completion signal by {Delay}ms for UI visibility",
+                            remainingDelay.TotalMilliseconds);
+                        await Task.Delay(remainingDelay);
+                        _logger.LogInformation("Delay complete, sending completion signal now");
+                    }
+                    else
+                    {
+                        _logger.LogInformation("No delay needed, processing took longer than minimum duration");
+                    }
+
+                    // Calculate final elapsed time after delay
+                    var finalElapsed = DateTime.UtcNow - startTime;
+
+                    // Now send completion signal after the delay
                     await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new
                     {
                         success = true,
                         message = "Log processing completed successfully",
                         entriesProcessed = finalProgress?.EntriesSaved ?? 0,
                         linesProcessed = finalProgress?.LinesParsed ?? 0,
-                        elapsed = 0.0,
+                        elapsed = Math.Round(finalElapsed.TotalMinutes, 1),
                         depotMappingsProcessed = 0,
                         timestamp = DateTime.UtcNow
                     });
@@ -332,7 +383,8 @@ public class RustLogProcessorService
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(1000, cancellationToken); // Poll every second
+                // Poll for progress updates every 500ms (faster polling for better responsiveness)
+                await Task.Delay(500, cancellationToken);
 
                 var progress = await ReadProgressFileAsync(progressPath);
                 if (progress != null)

@@ -6,23 +6,21 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
+use std::io::{BufRead, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-#[cfg(target_os = "windows")]
-use std::fs::OpenOptions;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::fs::OpenOptionsExt;
-
+mod log_discovery;
+mod log_reader;
 mod models;
 mod parser;
 mod session;
 
+use log_discovery::{discover_log_files, LogFile};
+use log_reader::LogFileReader;
 use models::*;
 use parser::LogParser;
 use session::SessionTracker;
@@ -42,31 +40,11 @@ struct Progress {
     timestamp: String,
 }
 
-/// Opens a file for reading with proper sharing on Windows
-/// This allows other processes (like lancache) to continue writing while we read
-fn open_shared_read(path: &Path) -> Result<File> {
-    #[cfg(target_os = "windows")]
-    {
-        // On Windows, use share_mode to allow other processes to read and write
-        // FILE_SHARE_READ (0x01) | FILE_SHARE_WRITE (0x02) = 0x03
-        OpenOptions::new()
-            .read(true)
-            .share_mode(0x03)
-            .open(path)
-            .with_context(|| format!("Failed to open file: {}", path.display()))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // On Unix, File::open already allows sharing
-        File::open(path)
-            .with_context(|| format!("Failed to open file: {}", path.display()))
-    }
-}
 
 struct Processor {
     db_path: PathBuf,
-    log_path: PathBuf,
+    log_dir: PathBuf,
+    log_base_name: String,
     progress_path: PathBuf,
     start_position: u64,
     parser: LogParser,
@@ -82,7 +60,8 @@ struct Processor {
 impl Processor {
     fn new(
         db_path: PathBuf,
-        log_path: PathBuf,
+        log_dir: PathBuf,
+        log_base_name: String,
         progress_path: PathBuf,
         cancel_path: PathBuf,
         start_position: u64,
@@ -112,7 +91,8 @@ impl Processor {
 
         Self {
             db_path,
-            log_path,
+            log_dir,
+            log_base_name,
             progress_path,
             start_position,
             parser: LogParser::new(local_tz),
@@ -144,10 +124,17 @@ impl Processor {
         self.cancel_flag.load(Ordering::Relaxed)
     }
 
-    fn count_lines(&self) -> Result<u64> {
-        let file = open_shared_read(&self.log_path)?;
-        let reader = BufReader::with_capacity(8 * 1024 * 1024, file);
-        Ok(reader.lines().count() as u64)
+    /// Count total lines across all discovered log files
+    fn count_lines_all_files(&self, log_files: &[LogFile]) -> Result<u64> {
+        let mut total = 0u64;
+        for log_file in log_files {
+            let mut reader = LogFileReader::open(&log_file.path)?;
+            // Count lines using BufRead trait
+            let lines = reader.as_buf_read().lines().count() as u64;
+            total += lines;
+            println!("  {} has {} lines", log_file.path.display(), lines);
+        }
+        Ok(total)
     }
 
     fn write_progress(&self, status: &str, message: &str) -> Result<()> {
@@ -203,14 +190,38 @@ impl Processor {
 
     fn process(&mut self) -> Result<()> {
         println!("Starting log processing...");
+        println!("Log directory: {}", self.log_dir.display());
+        println!("Log base name: {}", self.log_base_name);
 
-        // Count total lines
-        println!("Counting lines in log file...");
-        let total_lines = self.count_lines()?;
+        // Discover all log files (access.log, access.log.1, access.log.2.gz, etc.)
+        let log_files = discover_log_files(&self.log_dir, &self.log_base_name)?;
+
+        if log_files.is_empty() {
+            println!("No log files found matching pattern: {}", self.log_base_name);
+            return Ok(());
+        }
+
+        println!("Found {} log file(s):", log_files.len());
+        for log_file in &log_files {
+            let compression_info = if log_file.is_compressed {
+                " (compressed)"
+            } else {
+                ""
+            };
+            let rotation_info = match log_file.rotation_number {
+                Some(num) => format!(" [rotation {}]", num),
+                None => " [current]".to_string(),
+            };
+            println!("  - {}{}{}", log_file.path.display(), rotation_info, compression_info);
+        }
+
+        // Count total lines across all files
+        println!("Counting lines in all log files...");
+        let total_lines = self.count_lines_all_files(&log_files)?;
         self.total_lines.store(total_lines, Ordering::Relaxed);
-        println!("Total lines: {}", total_lines);
+        println!("Total lines across all files: {}", total_lines);
 
-        self.write_progress("counting", &format!("Counted {} lines", total_lines))?;
+        self.write_progress("counting", &format!("Counted {} lines across {} file(s)", total_lines, log_files.len()))?;
 
         // Open database connection
         let mut conn = Connection::open(&self.db_path)?;
@@ -224,30 +235,68 @@ impl Processor {
         // LogEntries table already exists from C# migrations, use it for duplicate detection
         // Index IX_LogEntries_DuplicateCheck on (ClientIp, Service, Timestamp, Url, BytesServed) exists
 
-        // Open log file with shared access (allows lancache to continue writing)
-        let file = open_shared_read(&self.log_path)?;
-        let mut reader = BufReader::with_capacity(8 * 1024 * 1024, file);
+        // Process each log file in order (oldest to newest)
+        let mut lines_to_skip = self.start_position;
 
-        // Skip to start position
-        if self.start_position > 0 {
-            println!("Skipping to position {}", self.start_position);
-            for _ in 0..self.start_position {
-                let mut line = String::new();
-                if reader.read_line(&mut line)? == 0 {
-                    break;
+        for (file_index, log_file) in log_files.iter().enumerate() {
+            println!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+
+            self.process_single_file(&mut conn, log_file, &mut lines_to_skip, total_lines)?;
+
+            // Check for cancellation between files
+            if self.should_cancel() {
+                println!("Cancellation requested between files - stopping processing");
+                self.write_progress("cancelled", "Processing cancelled by user")?;
+                return Err(anyhow::anyhow!("Processing cancelled by user"));
+            }
+        }
+
+        println!("\nAll files processed successfully!");
+        self.write_progress("complete", "Log processing finished")?;
+
+        Ok(())
+    }
+
+    /// Process a single log file
+    fn process_single_file(
+        &mut self,
+        conn: &mut Connection,
+        log_file: &LogFile,
+        lines_to_skip: &mut u64,
+        total_lines: u64,
+    ) -> Result<()> {
+        // Open log file with automatic compression detection
+        let mut reader = LogFileReader::open(&log_file.path)?;
+
+        // Skip lines if we haven't reached the start position yet
+        if *lines_to_skip > 0 {
+            println!("Skipping {} lines in this file to reach start position", lines_to_skip);
+            let mut line = String::new();
+            let mut skipped = 0u64;
+
+            while skipped < *lines_to_skip {
+                line.clear();
+                let bytes_read = reader.read_line(&mut line)?;
+                if bytes_read == 0 {
+                    // Reached EOF before skipping all lines - this file is exhausted
+                    *lines_to_skip -= skipped;
+                    self.lines_parsed.fetch_add(skipped, Ordering::Relaxed);
+                    return Ok(());
                 }
+                skipped += 1;
                 self.lines_parsed.fetch_add(1, Ordering::Relaxed);
             }
+
+            *lines_to_skip = 0; // We've skipped enough, process remaining files normally
         }
 
         let mut batch = Vec::with_capacity(BULK_BATCH_SIZE);
         let mut line_buffer = String::with_capacity(2048);
 
-        println!("Processing log entries...");
-        self.write_progress("processing", "Reading log file...")?;
+        self.write_progress("processing", &format!("Reading {}...", log_file.path.display()))?;
 
         loop {
-            // Check for cancellation (interrupt-driven, checked every iteration for fast response)
+            // Check for cancellation
             if self.should_cancel() {
                 println!("Cancellation requested - stopping processing");
                 self.write_progress("cancelled", "Processing cancelled by user")?;
@@ -260,7 +309,7 @@ impl Processor {
             if bytes_read == 0 {
                 // EOF - process remaining batch
                 if !batch.is_empty() {
-                    self.process_batch(&mut conn, &batch)?;
+                    self.process_batch(conn, &batch)?;
                     batch.clear();
                 }
                 break;
@@ -268,7 +317,7 @@ impl Processor {
 
             self.lines_parsed.fetch_add(1, Ordering::Relaxed);
 
-            // Check for cancellation every CANCEL_CHECK_INTERVAL lines for responsive cancellation
+            // Check for cancellation every CANCEL_CHECK_INTERVAL lines
             if self.lines_parsed.load(Ordering::Relaxed) % CANCEL_CHECK_INTERVAL as u64 == 0 {
                 if self.should_cancel() {
                     println!("Cancellation requested - stopping processing");
@@ -284,14 +333,13 @@ impl Processor {
 
                 // Process batch when it reaches BULK_BATCH_SIZE
                 if batch.len() >= BULK_BATCH_SIZE {
-                    // Check for cancellation before processing batch
                     if self.should_cancel() {
                         println!("Cancellation requested - stopping processing");
                         self.write_progress("cancelled", "Processing cancelled by user")?;
                         return Err(anyhow::anyhow!("Processing cancelled by user"));
                     }
 
-                    self.process_batch(&mut conn, &batch)?;
+                    self.process_batch(conn, &batch)?;
                     batch.clear();
 
                     let parsed = self.lines_parsed.load(Ordering::Relaxed);
@@ -308,9 +356,6 @@ impl Processor {
                 }
             }
         }
-
-        println!("Processing complete!");
-        self.write_progress("complete", "Log processing finished")?;
 
         Ok(())
     }
@@ -735,18 +780,28 @@ fn main() -> Result<()> {
 
     if args.len() < 6 {
         eprintln!(
-            "Usage: {} <db_path> <log_path> <progress_path> <start_position> <auto_map_depots>",
+            "Usage: {} <db_path> <log_dir> <progress_path> <start_position> <auto_map_depots>",
             args[0]
         );
+        eprintln!("  db_path: Path to SQLite database");
+        eprintln!("  log_dir: Directory containing log files (e.g., H:/logs)");
+        eprintln!("  progress_path: Path to progress JSON file");
+        eprintln!("  start_position: Line number to start from (0 for beginning)");
         eprintln!("  auto_map_depots: 1 for live/background processing (auto-map), 0 for manual processing");
+        eprintln!("\nNote: Processor will discover all log files matching 'access.log*' pattern");
+        eprintln!("      including rotated logs (access.log.1, access.log.2, etc.)");
+        eprintln!("      and compressed logs (.gz, .zst)");
         std::process::exit(1);
     }
 
     let db_path = PathBuf::from(&args[1]);
-    let log_path = PathBuf::from(&args[2]);
+    let log_dir = PathBuf::from(&args[2]);
     let progress_path = PathBuf::from(&args[3]);
     let start_position: u64 = args[4].parse().context("Invalid start_position")?;
     let auto_map_depots: bool = args[5].parse::<u8>().context("Invalid auto_map_depots")? == 1;
+
+    // Log file base name (hardcoded for now, could be made configurable)
+    let log_base_name = "access.log".to_string();
 
     // Create cancel marker path in same directory as progress file
     let mut cancel_path = progress_path.clone();
@@ -757,7 +812,15 @@ fn main() -> Result<()> {
         let _ = std::fs::remove_file(&cancel_path);
     }
 
-    let mut processor = Processor::new(db_path, log_path, progress_path, cancel_path, start_position, auto_map_depots);
+    let mut processor = Processor::new(
+        db_path,
+        log_dir,
+        log_base_name,
+        progress_path,
+        cancel_path,
+        start_position,
+        auto_map_depots
+    );
     processor.process()?;
 
     Ok(())

@@ -30,6 +30,8 @@ anyhow = "1.0"
 rayon = "1.8"
 num_cpus = "1.16"
 libc = "0.2"
+flate2 = "1.0"
+zstd = "0.13"
 
 [profile.release]
 opt-level = 3

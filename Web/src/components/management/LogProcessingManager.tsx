@@ -126,22 +126,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
 
     if (safePending > 0) {
-      return (
-        safeProcessed.toLocaleString() +
-        ' saved / ' +
-        safeQueued.toLocaleString() +
-        ' queued (' +
-        safePending.toLocaleString() +
-        ' pending)'
-      );
+      return `${safeProcessed.toLocaleString()} saved / ${safeQueued.toLocaleString()} queued (${safePending.toLocaleString()} pending)`;
     }
 
-    return (
-      safeProcessed.toLocaleString() +
-      ' entries from ' +
-      safeLines.toLocaleString() +
-      ' lines'
-    );
+    return `${safeProcessed.toLocaleString()} entries from ${safeLines.toLocaleString()} lines`;
   };
 
 
@@ -320,7 +308,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           status: 'complete'
         });
 
-        setIsProcessingLogs(false);  // Set to false when complete
+        // Don't set isProcessingLogs to false here - keep modal visible
+        // The timeout below will handle clearing everything after 3 seconds
         await logProcessingOp.clear();
         if (depotMappingsProcessed > 0) {
           onSuccess?.(`Depot mappings applied to ${depotMappingsProcessed.toLocaleString()} downloads.`);
@@ -336,10 +325,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           console.warn('Failed to mark setup as completed:', error);
         }
 
-        // Show completion for 3 seconds instead of 10, then stop completely
+        // Show completion for 3 seconds, then stop completely
         setTimeout(async () => {
           setProcessingStatus(null);
-          setIsProcessingLogs(false);  // Ensure buttons are re-enabled
+          setIsProcessingLogs(false);  // Now set to false to hide modal and re-enable buttons
           onDataRefresh?.();
         }, 3000);
       });

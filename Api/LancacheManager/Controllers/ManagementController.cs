@@ -284,22 +284,34 @@ public class ManagementController : ControllerBase
                 return Task.FromResult<IActionResult>(BadRequest(new { error = "Log processing is already running" }));
             }
 
-            var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
-            if (!System.IO.File.Exists(logPath))
+            var logDir = _pathResolver.GetLogsDirectory();
+            var logPath = Path.Combine(logDir, "access.log");
+
+            // Check if log directory exists and has any log files
+            if (!Directory.Exists(logDir))
             {
-                return Task.FromResult<IActionResult>(NotFound(new { error = $"Log file not found at: {logPath}" }));
+                return Task.FromResult<IActionResult>(NotFound(new { error = $"Log directory not found at: {logDir}" }));
             }
 
-            var fileInfo = new FileInfo(logPath);
-            var sizeMB = fileInfo.Length / (1024.0 * 1024.0);
+            // Check for any log files (access.log, .1, .2, .gz, etc.)
+            var hasLogFiles = Directory.GetFiles(logDir, "access.log*").Any();
+            if (!hasLogFiles)
+            {
+                return Task.FromResult<IActionResult>(NotFound(new { error = $"No log files found in: {logDir}" }));
+            }
+
+            // Calculate total size of all log files for display
+            var allLogFiles = Directory.GetFiles(logDir, "access.log*");
+            var totalBytes = allLogFiles.Sum(f => new FileInfo(f).Length);
+            var sizeMB = totalBytes / (1024.0 * 1024.0);
             var startPosition = _stateService.GetLogPosition();
 
             // If starting from position 0, always use 0 (beginning)
             // If starting from any other position, use that position but rust will start from 0 with duplicate detection
             if (startPosition == 0)
             {
-                _logger.LogInformation("Starting rust log processing from beginning of file");
-                _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, 0));
+                _logger.LogInformation("Starting rust log processing from beginning of all log files");
+                _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logDir, 0));
 
                 return Task.FromResult<IActionResult>(Ok(new
                 {
@@ -313,7 +325,7 @@ public class ManagementController : ControllerBase
             {
                 // User set position to end - start rust from 0 but it will only process new entries via duplicate detection
                 _logger.LogInformation("Starting rust log processing (stored position: {Position}, rust will process from beginning with duplicate detection)", startPosition);
-                _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logPath, 0));
+                _ = Task.Run(async () => await _rustLogProcessorService.StartProcessingAsync(logDir, 0));
 
                 return Task.FromResult<IActionResult>(Ok(new
                 {
@@ -330,11 +342,6 @@ public class ManagementController : ControllerBase
             return Task.FromResult<IActionResult>(StatusCode(500, new { error = "Failed to start log processor", details = ex.Message }));
         }
     }
-
-    // REMOVED: cancel-processing endpoint moved to Program.cs as Minimal API
-    // to avoid database locking issues when Rust process holds database lock
-
-
 
     [HttpGet("processing-status")]
     public async Task<IActionResult> GetProcessingStatus()
