@@ -370,6 +370,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
 
   // Swipe handlers
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchEndX.current = 0; // Reset touchEnd to detect if movement occurred
     touchStartX.current = e.touches[0].clientX;
   }, []);
 
@@ -378,6 +379,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
   }, []);
 
   const handleTouchEnd = useCallback(() => {
+    // Only trigger swipe if there was actual movement (touchEnd was set by touchMove)
+    if (!touchStartX.current || !touchEndX.current) return;
+
     const minSwipeDistance = 50;
     const swipeDistance = touchStartX.current - touchEndX.current;
 

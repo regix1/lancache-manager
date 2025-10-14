@@ -236,6 +236,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
 
     // Swipe handlers for switching between Recent and Active views
     const handleTouchStart = useCallback((e: React.TouchEvent) => {
+      touchEndX.current = 0; // Reset touchEnd to detect if movement occurred
       touchStartX.current = e.touches[0].clientX;
     }, []);
 
@@ -244,6 +245,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     }, []);
 
     const handleTouchEnd = useCallback(() => {
+      // Only trigger swipe if there was actual movement (touchEnd was set by touchMove)
+      if (!touchStartX.current || !touchEndX.current) return;
+
       const minSwipeDistance = 50;
       const swipeDistance = touchStartX.current - touchEndX.current;
 
