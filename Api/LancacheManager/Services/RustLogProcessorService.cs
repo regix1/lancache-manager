@@ -315,7 +315,6 @@ public class RustLogProcessorService
                         entriesProcessed = finalProgress?.EntriesSaved ?? 0,
                         linesProcessed = finalProgress?.LinesParsed ?? 0,
                         elapsed = Math.Round(finalElapsed.TotalMinutes, 1),
-                        depotMappingsProcessed = 0,
                         timestamp = DateTime.UtcNow
                     });
                 }

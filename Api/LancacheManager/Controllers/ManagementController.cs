@@ -414,8 +414,6 @@ public class ManagementController : ControllerBase
                 mbProcessed = Math.Round(mbProcessed, 1),
                 mbTotal = Math.Round(mbTotal, 1),
                 entriesProcessed = rustProgress.EntriesSaved,
-                entriesQueued = rustProgress.EntriesSaved,  // Rust saves directly, no queue
-                pendingEntries = 0, // Rust doesn't have a pending queue
                 linesProcessed = rustProgress.LinesParsed
             });
         }

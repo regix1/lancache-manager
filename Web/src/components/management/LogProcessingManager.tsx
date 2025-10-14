@@ -115,18 +115,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     return Number.isFinite(numeric) ? numeric : 0;
   };
 
-  const formatProgressDetail = (queued: number, processed: number, totalLines: number, pending: number) => {
+  const formatProgressDetail = (processed: number, totalLines: number) => {
     const safeProcessed = Math.max(processed, 0);
-    const safeQueued = Math.max(queued, 0);
     const safeTotalLines = Math.max(totalLines, 0);
-    const safePending = Math.max(pending, 0);
 
-    if (safeQueued === 0 && safeProcessed === 0 && safeTotalLines === 0) {
+    if (safeProcessed === 0 && safeTotalLines === 0) {
       return '';
-    }
-
-    if (safePending > 0) {
-      return `${safeProcessed.toLocaleString()} saved / ${safeQueued.toLocaleString()} queued (${safePending.toLocaleString()} pending)`;
     }
 
     // When complete, show entries saved vs total lines scanned
@@ -179,12 +173,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       const status = await ApiService.getProcessingStatus().catch(() => null);
       if (status?.isProcessing) {
         setIsProcessingLogs(true);
-        const queued = parseMetric(status.entriesQueued ?? status.entriesProcessed);
         const processedEntries = parseMetric(status.entriesProcessed);
-        const pendingEntries = parseMetric(status.pendingEntries ?? Math.max(queued - processedEntries, 0));
         const totalLines = parseMetric(status.totalLines);
         const detailSegments = [
-          formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
+          formatProgressDetail(processedEntries, totalLines),
           status.processingRate ? `Speed: ${status.processingRate.toFixed(1)} MB/s` : ''
         ].filter(Boolean);
 
@@ -202,13 +194,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       } else {
         await logProcessingOp.clear();
         if (status) {
-          const queued = parseMetric(status.entriesQueued ?? status.entriesProcessed);
           const processedEntries = parseMetric(status.entriesProcessed);
-          const pendingEntries = parseMetric(status.pendingEntries ?? Math.max(queued - processedEntries, 0));
           const totalLines = parseMetric(status.totalLines);
           const detailSegments = [
             `Processed ${status.mbTotal?.toFixed(1) || 0} MB`,
-            formatProgressDetail(queued, processedEntries, totalLines, pendingEntries)
+            formatProgressDetail(processedEntries, totalLines)
           ].filter(Boolean);
 
           setProcessingStatus({
@@ -244,9 +234,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         const currentProgress = progress.percentComplete || progress.progress || 0;
         const status = progress.status || 'processing';
 
-        const queued = parseMetric(progress.entriesQueued ?? progress.entriesProcessed);
         const processedEntries = parseMetric(progress.entriesProcessed);
-        const pendingEntries = parseMetric(progress.pendingEntries ?? Math.max(queued - processedEntries, 0));
         const totalLines = parseMetric(progress.totalLines);
 
         // Always set isProcessingLogs to true when we receive progress updates (unless complete)
@@ -263,7 +251,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             }
             return {
               message: 'Processing Complete!',
-              detailMessage: formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
+              detailMessage: formatProgressDetail(processedEntries, totalLines),
               progress: 100,
               status: 'complete'
             };
@@ -272,7 +260,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           if (status === 'finalizing') {
             return {
               message: progress.message || 'Finalizing log processing...',
-              detailMessage: formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
+              detailMessage: formatProgressDetail(processedEntries, totalLines),
               progress: currentProgress,
               status: 'finalizing'
             };
@@ -280,7 +268,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
           return {
             message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
-            detailMessage: formatProgressDetail(queued, processedEntries, totalLines, pendingEntries),
+            detailMessage: formatProgressDetail(processedEntries, totalLines),
             progress: Math.min(99.9, currentProgress), // Cap at 99.9% until truly complete
             status: 'processing'
           };
@@ -291,9 +279,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           mbProcessed: progress.mbProcessed,
           mbTotal: progress.mbTotal,
           entriesProcessed: processedEntries,
-          entriesQueued: queued,
-          pendingEntries,
-          linesProcessed: lines,
+          linesProcessed: totalLines,
           status
         });
       });
@@ -306,10 +292,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           pollingInterval.current = null;
         }
 
-        const depotMappingsProcessed = result.depotMappingsProcessed ?? 0;
         setProcessingStatus({
           message: 'Processing Complete!',
-          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes. Applied ${depotMappingsProcessed.toLocaleString()} depot mappings automatically.`,
+          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes.`,
           progress: 100,
           status: 'complete'
         });
@@ -317,9 +302,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         // Don't set isProcessingLogs to false here - keep modal visible
         // The timeout below will handle clearing everything after 3 seconds
         await logProcessingOp.clear();
-        if (depotMappingsProcessed > 0) {
-          onSuccess?.(`Depot mappings applied to ${depotMappingsProcessed.toLocaleString()} downloads.`);
-        }
 
         // Mark setup as completed (persistent flag for guest mode eligibility)
         try {
