@@ -60,29 +60,33 @@ impl ProgressData {
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
     let json = serde_json::to_string_pretty(progress)?;
 
-    // On Windows with FileShare.Delete, we can't reliably use atomic rename
-    // when C# has the file open. Just write directly with proper sharing.
+    // Use atomic write-and-rename on all platforms to avoid race conditions
+    // where C# reads the file while it's being truncated/written
+    let temp_path = progress_path.with_extension("json.tmp");
+
     #[cfg(windows)]
     {
         use std::fs::OpenOptions;
         use std::io::Write;
 
-        // Open with sharing flags that allow C# to read while we write
+        // Write to temp file with sharing flags
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .share_mode(0x07) // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-            .open(progress_path)?;
+            .open(&temp_path)?;
 
         file.write_all(json.as_bytes())?;
         file.flush()?;
+        drop(file); // Ensure file is closed before rename
+
+        // Atomic rename - Windows allows this when file is opened with FILE_SHARE_DELETE
+        fs::rename(&temp_path, progress_path)?;
     }
 
-    // On Unix, use atomic rename
     #[cfg(not(windows))]
     {
-        let temp_path = progress_path.with_extension("json.tmp");
         fs::write(&temp_path, &json)?;
         fs::rename(&temp_path, progress_path)?;
     }

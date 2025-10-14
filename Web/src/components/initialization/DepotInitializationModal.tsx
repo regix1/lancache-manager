@@ -346,7 +346,21 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
     try {
       console.log('[DepotInit] Triggering full rebuild');
-      await ApiService.triggerSteamKitRebuild(false);
+      const response = await ApiService.triggerSteamKitRebuild(false);
+      console.log('[DepotInit] Backend response:', response);
+
+      // If backend requires full scan but we already requested full, something went wrong
+      if (response.requiresFullScan) {
+        console.error('[DepotInit] Backend still requires full scan even though we requested full scan');
+        setError('Unable to start full scan. Please try again or download from GitHub.');
+        setInitializing(false);
+        setSelectedMethod(null);
+        localStorage.removeItem('initializationInProgress');
+        localStorage.removeItem('initializationMethod');
+        localStorage.removeItem('initializationDownloadStatus');
+        return;
+      }
+
       console.log('[DepotInit] Marking setup completed');
       await markSetupCompleted();
       console.log('[DepotInit] Changing step to pics-progress');
@@ -402,7 +416,32 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       }
 
       console.log('[DepotInit] Triggering incremental rebuild');
-      await ApiService.triggerSteamKitRebuild(true);
+      const response = await ApiService.triggerSteamKitRebuild(true);
+      console.log('[DepotInit] Backend response:', response);
+
+      // Check if backend says full scan is required
+      if (response.requiresFullScan) {
+        console.log('[DepotInit] Backend requires full scan - automatically retrying with full scan');
+        setDownloadStatus(`Change gap too large (${response.changeGap || 'unknown'}). Starting full scan instead...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Retry with full scan
+        const fullScanResponse = await ApiService.triggerSteamKitRebuild(false);
+        console.log('[DepotInit] Full scan response:', fullScanResponse);
+
+        // If full scan also fails, show error
+        if (fullScanResponse.requiresFullScan) {
+          console.error('[DepotInit] Full scan also returned requiresFullScan');
+          setError('Unable to start scan. Please try downloading from GitHub instead.');
+          setInitializing(false);
+          setSelectedMethod(null);
+          setDownloadStatus(null);
+          localStorage.removeItem('initializationInProgress');
+          localStorage.removeItem('initializationMethod');
+          localStorage.removeItem('initializationDownloadStatus');
+          return;
+        }
+      }
 
       console.log('[DepotInit] Marking setup completed');
       await markSetupCompleted();
