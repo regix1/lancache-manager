@@ -403,11 +403,11 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
     <Card padding="none">
       <div
         ref={containerRef}
-        className="p-6 pb-4"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
       >
+      <div className="p-6 pb-4">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center">
             <button
@@ -494,8 +494,12 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
               className="flex justify-center items-center transition-all duration-500 ease-in-out"
               style={{
                 height: `${chartContainerHeight}px`,
-                width: '100%'
+                width: '100%',
+                touchAction: 'pan-y' // Allow vertical scrolling but capture horizontal swipes
               }}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
               <div
                 className="transition-all duration-500 ease-in-out"
@@ -520,7 +524,12 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
             </div>
 
             {chartData.labels.length > 0 && (
-              <div className="mt-4 flex flex-wrap justify-center gap-3">
+              <div
+                className="mt-4 flex flex-wrap justify-center gap-3"
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+              >
                 {chartData.labels.map((label, index) => {
                 const value = chartData.data[index];
                 const total = chartData.data.reduce((a, b) => a + b, 0);
@@ -550,6 +559,9 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
             <div
               className="mt-6 pt-4 border-t"
               style={{ borderColor: 'var(--theme-border-primary)' }}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
             >
               <div className="flex items-start gap-2 mb-3">
                 <Info className="w-4 h-4 text-themed-muted mt-0.5 flex-shrink-0" />
@@ -588,6 +600,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
             <p className="text-themed-muted">No data available</p>
           </div>
         )}
+      </div>
       </div>
     </Card>
   );
