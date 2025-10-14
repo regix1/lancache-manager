@@ -76,8 +76,6 @@ public class OperationStateController : ControllerBase
     {
         try
         {
-            _logger.LogDebug($"PATCH request received for key: {key}");
-            
             var state = _stateService.GetState(key);
             if (state == null)
             {
