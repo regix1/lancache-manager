@@ -14,7 +14,6 @@ import {
 interface DepotInitializationModalProps {
   onInitialized: () => void;
   onAuthChanged?: () => void;
-  apiKeyOnlyMode?: boolean;
 }
 
 type InitStep = 'api-key' | 'steam-auth' | 'depot-init' | 'pics-progress' | 'log-processing' | 'depot-mapping';
@@ -30,8 +29,7 @@ const STEP_INFO: Record<InitStep, { number: number; title: string; total: number
 
 const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   onInitialized,
-  onAuthChanged,
-  apiKeyOnlyMode = false
+  onAuthChanged
 }) => {
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
     // Initialize from localStorage to survive page reloads
@@ -164,11 +162,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       }
 
       try {
-        if (apiKeyOnlyMode) {
-          setCurrentStep('api-key');
-          return;
-        }
-
         const setupResponse = await fetch('/api/management/setup-status');
         const setupData = await setupResponse.json();
 
@@ -192,7 +185,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     };
 
     checkSetupStatus();
-  }, [apiKeyOnlyMode]);
+  }, []);
 
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
@@ -259,11 +252,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         if (authCheck.isAuthenticated) {
           onAuthChanged?.();
 
-          if (apiKeyOnlyMode) {
-            setTimeout(() => handleInitializationComplete(), 1000);
-            return;
-          }
-
           // Move to steam authentication step
           await checkPicsDataStatus();
           setCurrentStep('steam-auth');
@@ -290,17 +278,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     authService.startGuestMode();
     onAuthChanged?.();
 
-    if (apiKeyOnlyMode) {
-      setTimeout(() => handleInitializationComplete(), 1000);
-    } else {
-      const setupResponse = await fetch('/api/management/setup-status');
-      const setupData = await setupResponse.json();
+    const setupResponse = await fetch('/api/management/setup-status');
+    const setupData = await setupResponse.json();
 
-      if (setupData.isSetupCompleted) {
-        handleInitializationComplete();
-      } else {
-        setCurrentStep('steam-auth');
-      }
+    if (setupData.isSetupCompleted) {
+      handleInitializationComplete();
+    } else {
+      setCurrentStep('steam-auth');
     }
   };
 
@@ -461,7 +445,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             authError={authError}
             dataAvailable={dataAvailable}
             checkingDataAvailability={checkingDataAvailability}
-            apiKeyOnlyMode={apiKeyOnlyMode}
             onAuthenticate={handleAuthenticate}
             onStartGuestMode={handleStartGuestMode}
           />
@@ -544,16 +527,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
            }}>
 
         {/* Step Indicator - Top Left */}
-        {!apiKeyOnlyMode && (
-          <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-xs font-semibold"
-               style={{
-                 backgroundColor: 'var(--theme-primary)/10',
-                 color: 'var(--theme-primary)',
-                 border: '1px solid var(--theme-primary)/30'
-               }}>
-            Step {STEP_INFO[currentStep].number} of {STEP_INFO[currentStep].total}
-          </div>
-        )}
+        <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-xs font-semibold"
+             style={{
+               backgroundColor: 'var(--theme-primary)/10',
+               color: 'var(--theme-primary)',
+               border: '1px solid var(--theme-primary)/30'
+             }}>
+          Step {STEP_INFO[currentStep].number} of {STEP_INFO[currentStep].total}
+        </div>
 
         {/* Header */}
         <div className="text-center mb-8">
@@ -562,14 +543,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             <AlertTriangle size={32} style={{ color: 'var(--theme-primary)' }} />
           </div>
           <h1 className="text-3xl font-bold text-themed-primary mb-2">
-            {apiKeyOnlyMode ? 'API Key Regenerated' : 'Welcome to Lancache Manager'}
+            Welcome to Lancache Manager
           </h1>
           <p className="text-lg text-themed-secondary">
-            {apiKeyOnlyMode
-              ? 'Please enter your new API key'
-              : currentStep === 'api-key'
-              ? 'Authentication required'
-              : 'Initial setup'}
+            {currentStep === 'api-key' ? 'Authentication required' : 'Initial setup'}
           </p>
         </div>
 

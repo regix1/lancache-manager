@@ -9,6 +9,7 @@ import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import PicsProgressBar from '@components/common/PicsProgressBar';
 import DepotInitializationModal from '@components/initialization/DepotInitializationModal';
+import AuthenticationModal from '@components/auth/AuthenticationModal';
 import ApiService from '@services/api.service';
 import authService, { AuthMode } from '@services/auth.service';
 import { setServerTimezone } from '@utils/timezone';
@@ -29,14 +30,9 @@ const AppContent: React.FC = () => {
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
-  const [, setWasGuestMode] = useState(false);
-  const [isUpgradingAuth, setIsUpgradingAuth] = useState(false);
-  const [isInitializationFlowActive, setIsInitializationFlowActive] = useState(() => {
-    // Initialize from localStorage to survive page reloads
-    const stored = localStorage.getItem('initializationFlowActive');
-    return stored === 'true';
-  });
+  const [isInitializationFlowActive, setIsInitializationFlowActive] = useState(false);
   const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
+  const [hasProcessedLogs, setHasProcessedLogs] = useState<boolean | null>(null);
   const [checkingSetupStatus, setCheckingSetupStatus] = useState(true);
 
   // Fetch server timezone on mount
@@ -62,26 +58,6 @@ const AppContent: React.FC = () => {
         const authResult = await authService.checkAuth();
         setIsAuthenticated(authResult.isAuthenticated);
         setAuthMode(authResult.authMode);
-
-        // Track if we started in guest mode
-        if (authResult.authMode === 'guest') {
-          setWasGuestMode(true);
-        }
-
-        // Clear stale initialization state if user is not authenticated
-        // This handles the case where user closed browser mid-setup and comes back later
-        if (!authResult.isAuthenticated && authResult.authMode !== 'guest') {
-          const storedStep = localStorage.getItem('initializationCurrentStep');
-          if (storedStep && storedStep !== 'api-key') {
-            console.log('[App] Clearing stale initialization state (not authenticated)');
-            localStorage.removeItem('initializationCurrentStep');
-            localStorage.removeItem('initializationInProgress');
-            localStorage.removeItem('initializationMethod');
-            localStorage.removeItem('initializationDownloadStatus');
-            localStorage.removeItem('initializationFlowActive');
-            setIsInitializationFlowActive(false);
-          }
-        }
       } catch (error) {
         console.error('Failed to check auth status:', error);
         setIsAuthenticated(false);
@@ -100,11 +76,6 @@ const AppContent: React.FC = () => {
       const interval = setInterval(async () => {
         setIsAuthenticated(authService.isAuthenticated);
         setAuthMode(authService.authMode);
-
-        // Track if we're in guest mode
-        if (authService.authMode === 'guest') {
-          setWasGuestMode(true);
-        }
 
         // Re-check auth if in guest mode to get updated time
         if (authService.authMode === 'guest' || authService.authMode === 'expired') {
@@ -125,6 +96,7 @@ const AppContent: React.FC = () => {
     // Skip setup check for guest mode
     if (authMode === 'guest') {
       setSetupCompleted(true);
+      setHasProcessedLogs(true);
       setCheckingSetupStatus(false);
       return;
     }
@@ -134,13 +106,35 @@ const AppContent: React.FC = () => {
         const response = await fetch('/api/management/setup-status');
         if (response.ok) {
           const data = await response.json();
-          setSetupCompleted(data.isCompleted === true);
+          const setupComplete = data.isCompleted === true;
+          const logsProcessed = data.hasProcessedLogs === true;
+
+          setSetupCompleted(setupComplete);
+          setHasProcessedLogs(logsProcessed);
+
+          // If setup is complete OR logs have been processed, clear any stale initialization flow
+          if (setupComplete || logsProcessed) {
+            setIsInitializationFlowActive(false);
+            localStorage.removeItem('initializationFlowActive');
+            localStorage.removeItem('initializationCurrentStep');
+            localStorage.removeItem('initializationInProgress');
+            localStorage.removeItem('initializationMethod');
+            localStorage.removeItem('initializationDownloadStatus');
+          } else {
+            // Only restore initialization flow from localStorage if setup is NOT complete
+            const storedFlow = localStorage.getItem('initializationFlowActive');
+            if (storedFlow === 'true') {
+              setIsInitializationFlowActive(true);
+            }
+          }
         } else {
           setSetupCompleted(false);
+          setHasProcessedLogs(false);
         }
       } catch (error) {
         console.error('Failed to check setup completion status:', error);
         setSetupCompleted(false);
+        setHasProcessedLogs(false);
       } finally {
         setCheckingSetupStatus(false);
       }
@@ -155,8 +149,6 @@ const AppContent: React.FC = () => {
       return; // Don't check depot status until auth check is complete
     }
 
-    // Only skip depot check for guest mode
-    // Don't skip for users who WERE in guest mode - they need to see depot setup after auth
     if (authMode === 'guest') {
       setDepotInitialized(true);
       setCheckingDepotStatus(false);
@@ -170,43 +162,22 @@ const AppContent: React.FC = () => {
         });
         if (response.ok) {
           const data = await response.json();
-          // Consider initialized if we have database mappings or SteamKit2 is ready with depots
           const hasData = (data.database?.totalMappings > 0) ||
                          (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
-
-          // Don't clear initialization flag just because we have some depot data
-          // The user might be in the middle of setup (e.g., on step 4 after completing step 2)
-          // Only clear the flag when initialization actually completes (handled in modal's onInitialized)
-
           setDepotInitialized(hasData);
         } else {
-          // If we can't check status, assume not initialized for safety
-          if (!isInitializationFlowActive) {
-            setDepotInitialized(false);
-          }
+          setDepotInitialized(false);
         }
       } catch (error) {
         console.error('Failed to check depot initialization status:', error);
-        if (!isInitializationFlowActive) {
-          setDepotInitialized(false);
-        }
+        setDepotInitialized(false);
       } finally {
         setCheckingDepotStatus(false);
       }
     };
 
     checkDepotStatus();
-
-    // Also recheck when window regains focus (in case of external changes)
-    const handleFocus = () => {
-      if (depotInitialized !== null && !isInitializationFlowActive) {
-        checkDepotStatus();
-      }
-    };
-
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [checkingAuth, authMode, isInitializationFlowActive]); // Added isInitializationFlowActive to dependencies
+  }, [checkingAuth, authMode]);
 
   const handleDepotInitialized = async () => {
     // Initialization flow is complete
@@ -240,121 +211,25 @@ const AppContent: React.FC = () => {
   };
 
   const handleAuthChanged = async () => {
-    // If upgrading from guest to authenticated
-    const wasGuest = authMode === 'guest';
-    if (wasGuest) {
-      setIsUpgradingAuth(true);
-    }
-
     // Small delay to ensure auth service state is fully updated
     await new Promise(resolve => setTimeout(resolve, 100));
 
     const authResult = await authService.checkAuth();
     setIsAuthenticated(authResult.isAuthenticated);
     setAuthMode(authResult.authMode);
-
-    // Track if we're in guest mode
-    if (authResult.authMode === 'guest') {
-      setWasGuestMode(true);
-    }
-
-    // If we're now authenticated (upgraded from guest), we need to check depot status
-    if (authResult.isAuthenticated && wasGuest) {
-      // Reset depot initialized state so the check will run
-      setDepotInitialized(null);
-      setCheckingDepotStatus(true);
-
-      // Force check depot status now (but respect initialization flow)
-      try {
-        const response = await fetch('/api/gameinfo/pics-status', {
-          headers: ApiService.getHeaders()
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const hasData = (data.database?.totalMappings > 0) ||
-                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
-
-          // Only update if we're not in the middle of initialization flow
-          if (!isInitializationFlowActive) {
-            setDepotInitialized(hasData);
-          }
-        } else {
-          if (!isInitializationFlowActive) {
-            setDepotInitialized(false);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to check depot initialization status:', error);
-        if (!isInitializationFlowActive) {
-          setDepotInitialized(false);
-        }
-      } finally {
-        setCheckingDepotStatus(false);
-      }
-    }
-
-    // Clear upgrading flag
-    setIsUpgradingAuth(false);
   };
 
   const handleApiKeyRegenerated = () => {
     // Set authentication to false and show the API key regeneration modal
     setIsAuthenticated(false);
     setShowApiKeyRegenerationModal(true);
-
-    // If user was in guest mode, reset the wasGuestMode flag so they go through depot initialization
-    if (authMode === 'guest') {
-      setWasGuestMode(false);
-      setDepotInitialized(null);
-      setCheckingDepotStatus(true);
-    }
   };
 
   const handleApiKeyRegenerationCompleted = async () => {
     // Close the regeneration modal and update authentication status
     setShowApiKeyRegenerationModal(false);
     setIsAuthenticated(authService.isAuthenticated);
-
-    // Check setup status after API key regeneration
-    if (authService.isAuthenticated) {
-      // Check if setup was already completed
-      setCheckingSetupStatus(true);
-      try {
-        const setupResponse = await fetch('/api/management/setup-status');
-        if (setupResponse.ok) {
-          const setupData = await setupResponse.json();
-          setSetupCompleted(setupData.isCompleted === true);
-        } else {
-          setSetupCompleted(false);
-        }
-      } catch (error) {
-        console.error('Failed to check setup status:', error);
-        setSetupCompleted(false);
-      } finally {
-        setCheckingSetupStatus(false);
-      }
-
-      // Check if depot needs initialization after authentication
-      setCheckingDepotStatus(true);
-      try {
-        const response = await fetch('/api/gameinfo/pics-status', {
-          headers: ApiService.getHeaders()
-        });
-        if (response.ok) {
-          const data = await response.json();
-          const hasData = (data.database?.totalMappings > 0) ||
-                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
-          setDepotInitialized(hasData);
-        } else {
-          setDepotInitialized(false);
-        }
-      } catch (error) {
-        console.error('Failed to check depot initialization status:', error);
-        setDepotInitialized(false);
-      } finally {
-        setCheckingDepotStatus(false);
-      }
-    }
+    setAuthMode(authService.authMode);
   };
 
   const renderContent = () => {
@@ -386,12 +261,11 @@ const AppContent: React.FC = () => {
     );
   };
 
-  // Show loading while checking auth, setup status, or depot status
-  // Skip depot check only for active guest mode, not for users who were guests
-  if (!isUpgradingAuth && (checkingAuth || checkingSetupStatus || (checkingDepotStatus && authMode !== 'guest'))) {
+  // Show loading while checking initial status
+  if (checkingAuth || checkingSetupStatus || (checkingDepotStatus && authMode !== 'guest')) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-themed-primary">
-        <LoadingSpinner fullScreen={false} message={checkingAuth ? "Checking authentication..." : checkingSetupStatus ? "Checking setup status..." : "Checking depot initialization status..."} />
+        <LoadingSpinner fullScreen={false} message={checkingAuth ? "Checking authentication..." : checkingSetupStatus ? "Checking setup status..." : "Checking depot status..."} />
       </div>
     );
   }
@@ -400,10 +274,12 @@ const AppContent: React.FC = () => {
   if (showApiKeyRegenerationModal) {
     return (
       <>
-        <DepotInitializationModal
-          onInitialized={handleApiKeyRegenerationCompleted}
+        <AuthenticationModal
+          onAuthComplete={handleApiKeyRegenerationCompleted}
           onAuthChanged={handleAuthChanged}
-          apiKeyOnlyMode={true}
+          title="API Key Regenerated"
+          subtitle="Please enter your new API key"
+          allowGuestMode={false}
         />
       </>
     );
@@ -412,61 +288,75 @@ const AppContent: React.FC = () => {
   // Check if user is authenticated or in guest mode
   const hasAccess = isAuthenticated || authMode === 'guest';
 
-  // Show initialization modal only if not authenticated AND not in guest mode AND not expired
-  // Don't skip for users who WERE in guest mode if they're not currently in guest mode
-  if (!hasAccess && authMode !== 'expired' && !isUpgradingAuth) {
-    // Mark initialization flow as active when showing the modal
+  // If guest session expired, show authentication modal
+  if (authMode === 'expired') {
+    return (
+      <AuthenticationModal
+        onAuthComplete={handleApiKeyRegenerationCompleted}
+        onAuthChanged={handleAuthChanged}
+        title="Session Expired"
+        subtitle="Your guest session has expired. Please authenticate to continue."
+        allowGuestMode={true}
+      />
+    );
+  }
+
+  // Show initialization modal if user is authenticated and in the middle of setup
+  if (authMode === 'authenticated' && isInitializationFlowActive) {
+    return (
+      <DepotInitializationModal
+        onInitialized={handleDepotInitialized}
+        onAuthChanged={handleAuthChanged}
+      />
+    );
+  }
+
+  // Show authentication/initialization modal if not authenticated
+  if (!hasAccess) {
+    // Check if this is first-time setup or just auth needed
+    const isFirstTimeSetup = setupCompleted === false && !depotInitialized && hasProcessedLogs === false;
+
+    if (isFirstTimeSetup) {
+      // Mark initialization flow as active when showing the modal
+      if (!isInitializationFlowActive) {
+        setIsInitializationFlowActive(true);
+        localStorage.setItem('initializationFlowActive', 'true');
+      }
+
+      // Show full 6-step initialization modal for first-time setup
+      return (
+        <DepotInitializationModal
+          onInitialized={handleDepotInitialized}
+          onAuthChanged={handleAuthChanged}
+        />
+      );
+    }
+
+    // Just need authentication (e.g., new browser)
+    return (
+      <AuthenticationModal
+        onAuthComplete={handleDepotInitialized}
+        onAuthChanged={handleAuthChanged}
+        title="Authentication Required"
+        subtitle="Please enter your API key to continue"
+        allowGuestMode={true}
+      />
+    );
+  }
+
+  // Show initialization modal if user is authenticated but hasn't completed first-time setup
+  if (authMode === 'authenticated' && setupCompleted === false && !depotInitialized && hasProcessedLogs === false) {
+    // Mark initialization flow as active
     if (!isInitializationFlowActive) {
       setIsInitializationFlowActive(true);
       localStorage.setItem('initializationFlowActive', 'true');
     }
 
-    // Show initialization modal with auth form
     return (
-      <>
-        <DepotInitializationModal
-          onInitialized={handleDepotInitialized}
-          onAuthChanged={handleAuthChanged}
-        />
-      </>
-    );
-  }
-
-  // If guest session expired, show modal to re-authenticate (but not during upgrade)
-  if (authMode === 'expired' && !isUpgradingAuth) {
-    return (
-      <>
-        <DepotInitializationModal
-          onInitialized={handleApiKeyRegenerationCompleted}
-          onAuthChanged={handleAuthChanged}
-          apiKeyOnlyMode={true}
-        />
-      </>
-    );
-  }
-
-  // Show initialization modal if:
-  // 1. User is authenticated (not guest or expired), AND
-  // 2. EITHER:
-  //    a) Initialization flow is active (user is mid-setup, even if setup was marked complete after step 3)
-  //    b) Setup is NOT completed AND depot data doesn't exist
-  // This ensures the modal shows for all 6 steps if user is in the flow, even after refreshing
-  if (authMode === 'authenticated' &&
-      (isInitializationFlowActive || (!setupCompleted && !depotInitialized)) &&
-      !isUpgradingAuth) {
-    // Mark initialization flow as active when showing the modal
-    if (!isInitializationFlowActive) {
-      setIsInitializationFlowActive(true);
-      localStorage.setItem('initializationFlowActive', 'true');
-    }
-
-    return (
-      <>
-        <DepotInitializationModal
-          onInitialized={handleDepotInitialized}
-          onAuthChanged={handleAuthChanged}
-        />
-      </>
+      <DepotInitializationModal
+        onInitialized={handleDepotInitialized}
+        onAuthChanged={handleAuthChanged}
+      />
     );
   }
 
