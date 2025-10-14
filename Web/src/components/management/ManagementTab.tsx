@@ -11,7 +11,8 @@ import {
   Shield,
   HardDrive,
   Plug,
-  Settings
+  Settings,
+  RefreshCw
 } from 'lucide-react';
 import * as signalR from '@microsoft/signalr';
 import { useData } from '@contexts/DataContext';
@@ -97,6 +98,8 @@ const DatabaseManager: React.FC<{
 }> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showClearDepotModal, setShowClearDepotModal] = useState(false);
+  const [clearingDepotMappings, setClearingDepotMappings] = useState(false);
   const [resetProgress, setResetProgress] = useState<{
     isProcessing: boolean;
     percentComplete: number;
@@ -215,6 +218,37 @@ const DatabaseManager: React.FC<{
     setShowResetModal(true);
   };
 
+  const handleClearDepotMappings = () => {
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
+      return;
+    }
+
+    setShowClearDepotModal(true);
+  };
+
+  const confirmClearDepotMappings = async () => {
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
+      return;
+    }
+
+    setClearingDepotMappings(true);
+    setShowClearDepotModal(false);
+
+    try {
+      const result = await ApiService.clearDepotMappings();
+      if (result) {
+        onSuccess?.(result.message || `Cleared ${result.count} depot mappings from database`);
+        onDataRefresh?.();
+      }
+    } catch (err: any) {
+      onError?.(err.message || 'Failed to clear depot mappings');
+    } finally {
+      setClearingDepotMappings(false);
+    }
+  };
+
   return (
     <>
       <Card>
@@ -222,7 +256,9 @@ const DatabaseManager: React.FC<{
         <Database className="w-5 h-5 icon-cyan flex-shrink-0" />
         <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
       </div>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+
+      {/* Reset Database Section */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
         <div className="flex-1">
           <p className="text-themed-secondary">Manage download history and statistics</p>
           <p className="text-xs text-themed-muted mt-1">
@@ -239,6 +275,28 @@ const DatabaseManager: React.FC<{
           className="w-full sm:w-48"
         >
           Reset Database
+        </Button>
+      </div>
+
+      {/* Clear Depot Mappings Section */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+        <div className="flex-1">
+          <p className="text-themed-secondary">Remove all Steam depot-to-game mappings from database</p>
+        </div>
+        <Button
+          onClick={handleClearDepotMappings}
+          disabled={clearingDepotMappings || mockMode || authMode !== 'authenticated'}
+          loading={clearingDepotMappings}
+          variant="filled"
+          color="blue"
+          leftSection={<Database className="w-4 h-4" />}
+          className="w-full sm:w-48"
+          style={{
+            backgroundColor: 'var(--theme-steam)',
+            borderColor: 'var(--theme-steam)'
+          }}
+        >
+          Clear Mappings
         </Button>
       </div>
       </Card>
@@ -285,6 +343,57 @@ const DatabaseManager: React.FC<{
               loading={loading}
             >
               Delete History
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        opened={showClearDepotModal}
+        onClose={() => {
+          if (!clearingDepotMappings) {
+            setShowClearDepotModal(false);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Clear Depot Mappings</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            This will permanently delete all Steam depot-to-game mappings from the database. This is useful if you have incorrect game name associations.
+          </p>
+
+          <Alert color="yellow">
+            <div>
+              <p className="text-sm font-medium mb-2">Important:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This action cannot be undone</li>
+                <li>Games will show as "Unknown" until mappings are rebuilt</li>
+                <li>You can rebuild mappings by logging into Steam or downloading precreated data</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setShowClearDepotModal(false)} disabled={clearingDepotMappings}>
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="blue"
+              leftSection={<Database className="w-4 h-4" />}
+              onClick={confirmClearDepotMappings}
+              loading={clearingDepotMappings}
+              style={{
+                backgroundColor: 'var(--theme-steam)',
+                borderColor: 'var(--theme-steam)'
+              }}
+            >
+              Clear Mappings
             </Button>
           </div>
         </div>
@@ -349,6 +458,7 @@ const LogFileManager: React.FC<{
   });
   const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingServiceRemoval, setPendingServiceRemoval] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState(false);
 
@@ -364,6 +474,8 @@ const LogFileManager: React.FC<{
   }, [activeServiceRemoval]);
 
   const loadConfig = async () => {
+    setIsLoading(true);
+    setLoadError(null);
     try {
       const [configData, counts] = await Promise.all([
         ApiService.getConfig(),
@@ -371,9 +483,10 @@ const LogFileManager: React.FC<{
       ]);
       setConfig(configData);
       setServiceCounts(counts);
-    } catch (err) {
+      setLoadError(null);
+    } catch (err: any) {
       console.error('Failed to load config:', err);
-      // Keep the "Loading..." state - API service will handle fallback if needed
+      setLoadError(err.message || 'Failed to load service log counts');
     } finally {
       setIsLoading(false);
     }
@@ -499,21 +612,49 @@ const LogFileManager: React.FC<{
   return (
     <>
       <Card>
-      <div className="flex items-center gap-2 mb-4">
-        <FileText className="w-5 h-5 icon-orange flex-shrink-0" />
-        <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <FileText className="w-5 h-5 icon-orange flex-shrink-0" />
+          <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
+        </div>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={loadConfig}
+          disabled={isLoading || !!activeServiceRemoval}
+          leftSection={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
+        >
+          Refresh
+        </Button>
       </div>
       <p className="text-themed-muted text-sm mb-4 break-words">
         Remove service entries from{' '}
         <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
       </p>
+      {loadError && (
+        <Alert color="red" className="mb-4">
+          <div>
+            <p className="text-sm font-medium mb-1">Failed to load service log counts</p>
+            <p className="text-xs opacity-75">{loadError}</p>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={loadConfig}
+              className="mt-2"
+              leftSection={<RefreshCw className="w-3 h-3" />}
+            >
+              Try Again
+            </Button>
+          </div>
+        </Alert>
+      )}
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-8 gap-3">
           <Loader className="w-6 h-6 animate-spin text-themed-accent" />
           <p className="text-sm text-themed-secondary">Scanning log file for services...</p>
           <p className="text-xs text-themed-muted">This may take up to 5 minutes for large log files</p>
         </div>
-      ) : mainServices.length > 0 || otherServices.length > 0 ? (
+      ) : !loadError && (mainServices.length > 0 || otherServices.length > 0) ? (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {servicesWithData.map((service) => {

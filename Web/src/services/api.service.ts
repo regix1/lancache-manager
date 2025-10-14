@@ -573,6 +573,21 @@ class ApiService {
       throw error;
     }
   }
+
+  // Clear all depot mappings from database (requires auth)
+  static async clearDepotMappings(): Promise<{ message: string; count: number }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/depot-mappings`, {
+        method: 'DELETE',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        signal: AbortSignal.timeout(30000)
+      });
+      return await this.handleResponse<{ message: string; count: number }>(res);
+    } catch (error) {
+      console.error('clearDepotMappings error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

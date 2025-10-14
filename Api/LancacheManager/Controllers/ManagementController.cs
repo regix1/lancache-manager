@@ -885,6 +885,33 @@ public class ManagementController : ControllerBase
             return StatusCode(500, new { error = "Failed to logout from Steam", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Clear all depot mappings from the database
+    /// </summary>
+    [HttpDelete("depot-mappings")]
+    [RequireAuth]
+    public async Task<IActionResult> ClearDepotMappings()
+    {
+        try
+        {
+            _logger.LogInformation("Clearing depot mappings from database");
+
+            var count = await _dbService.ClearDepotMappings();
+
+            return Ok(new
+            {
+                message = $"Successfully cleared {count} depot mappings from database",
+                count,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error clearing depot mappings");
+            return StatusCode(500, new { error = "Failed to clear depot mappings", details = ex.Message });
+        }
+    }
 }
 
 // Request model for removing service

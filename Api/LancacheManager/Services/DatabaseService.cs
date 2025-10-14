@@ -206,4 +206,24 @@ public class DatabaseService
 
         return 0;
     }
+
+    public async Task<int> ClearDepotMappings()
+    {
+        try
+        {
+            _logger.LogInformation("Clearing all depot mappings from database");
+
+            var count = await _context.SteamDepotMappings.CountAsync();
+            await _context.SteamDepotMappings.ExecuteDeleteAsync();
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Cleared {Count} depot mappings from database", count);
+            return count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error clearing depot mappings");
+            throw;
+        }
+    }
 }
