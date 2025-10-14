@@ -1,5 +1,7 @@
 import React, { Component, type ReactNode } from 'react';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
+import { Card } from '../ui/Card';
+import { Button } from '../ui/Button';
 
 interface Props {
   children: ReactNode;
@@ -28,23 +30,30 @@ class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-themed-primary flex items-center justify-center p-4">
-          <div className="alert-error rounded-lg p-6 max-w-md w-full">
-            <div className="flex items-start space-x-3">
-              <AlertCircle className="w-5 h-5 mt-0.5" />
-              <div>
-                <h3 className="text-lg font-semibold mb-2">Something went wrong</h3>
-                <p className="text-sm text-themed-secondary">
+          <Card className="max-w-md w-full">
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="p-3 rounded-full" style={{ backgroundColor: 'var(--theme-error-bg)' }}>
+                <AlertCircle className="w-8 h-8" style={{ color: 'var(--theme-error)' }} />
+              </div>
+
+              <div className="space-y-2 w-full">
+                <h3 className="text-xl font-semibold text-themed-primary">Something went wrong</h3>
+                <p className="text-sm text-themed-secondary break-words overflow-wrap-anywhere px-2">
                   {this.state.error?.message || 'An unexpected error occurred'}
                 </p>
-                <button
-                  onClick={() => window.location.reload()}
-                  className="mt-4 px-4 py-2 action-delete rounded-lg text-sm smooth-transition"
-                >
-                  Reload Page
-                </button>
               </div>
+
+              <Button
+                onClick={() => window.location.reload()}
+                variant="filled"
+                color="red"
+                leftSection={<RefreshCw className="w-4 h-4" />}
+                fullWidth
+              >
+                Reload Page
+              </Button>
             </div>
-          </div>
+          </Card>
         </div>
       );
     }
