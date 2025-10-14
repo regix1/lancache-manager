@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Info } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters';
 import { Card } from '../ui/Card';
@@ -16,6 +16,11 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<Chart | null>(null);
   const prevDataRef = useRef<string>('');
+
+  // Touch/swipe handling
+  const touchStartX = useRef<number>(0);
+  const touchEndX = useRef<number>(0);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const tabs = [
     { name: 'Service Distribution', id: 'service' },
@@ -363,12 +368,46 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
     };
   }, [chartData, chartSize, activeTab, chartKey]);
 
+  // Swipe handlers
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    touchEndX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    const minSwipeDistance = 50;
+    const swipeDistance = touchStartX.current - touchEndX.current;
+
+    if (Math.abs(swipeDistance) > minSwipeDistance) {
+      if (swipeDistance > 0) {
+        // Swiped left - go to next tab
+        setActiveTab((prev) => (prev + 1) % tabs.length);
+      } else {
+        // Swiped right - go to previous tab
+        setActiveTab((prev) => (prev - 1 + tabs.length) % tabs.length);
+      }
+    }
+
+    // Reset
+    touchStartX.current = 0;
+    touchEndX.current = 0;
+  }, [tabs.length]);
+
   // Calculate the actual chart container height
   const chartContainerHeight = 200 + (chartSize - 100) * 2;
 
   return (
     <Card padding="none">
-      <div className="p-6 pb-4">
+      <div
+        ref={containerRef}
+        className="p-6 pb-4"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center">
             <button

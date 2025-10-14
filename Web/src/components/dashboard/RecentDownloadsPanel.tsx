@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState, useCallback } from 'react';
+import React, { memo, useMemo, useState, useCallback, useRef } from 'react';
 import { Activity, Clock, Loader2 } from 'lucide-react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
@@ -32,6 +32,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     const [selectedClient, setSelectedClient] = useState<string>('all');
     const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
     const { activeDownloads, latestDownloads, loading } = useData();
+
+    // Touch/swipe handling
+    const touchStartX = useRef<number>(0);
+    const touchEndX = useRef<number>(0);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Grouping logic adapted from DownloadsTab
     const createGroups = useCallback((downloads: any[]): { groups: DownloadGroup[], individuals: any[] } => {
@@ -229,8 +234,42 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
       return { totalDownloads, totalBytes, totalCacheHits, overallHitRate };
     }, [filteredDownloads]);
 
+    // Swipe handlers for switching between Recent and Active views
+    const handleTouchStart = useCallback((e: React.TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX;
+    }, []);
+
+    const handleTouchMove = useCallback((e: React.TouchEvent) => {
+      touchEndX.current = e.touches[0].clientX;
+    }, []);
+
+    const handleTouchEnd = useCallback(() => {
+      const minSwipeDistance = 50;
+      const swipeDistance = touchStartX.current - touchEndX.current;
+
+      if (Math.abs(swipeDistance) > minSwipeDistance) {
+        if (swipeDistance > 0) {
+          // Swiped left - go to active view
+          setViewMode('active');
+        } else {
+          // Swiped right - go to recent view
+          setViewMode('recent');
+        }
+      }
+
+      // Reset
+      touchStartX.current = 0;
+      touchEndX.current = 0;
+    }, []);
+
     return (
       <Card>
+        <div
+          ref={containerRef}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
         <div className="mb-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -535,6 +574,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             </span>
           </div>
         )}
+        </div>
       </Card>
     );
   },
