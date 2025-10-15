@@ -122,12 +122,33 @@ public class SteamAuthStorageService
                     var persisted = JsonSerializer.Deserialize<PersistedSteamAuthData>(json) ?? new PersistedSteamAuthData();
 
                     // Convert persisted data to in-memory data, decrypting sensitive fields
+                    var decryptedRefreshToken = _encryption.Decrypt(persisted.RefreshToken);
+
+                    // If decryption failed (returned null) and we had encrypted data, clear the invalid data
+                    if (decryptedRefreshToken == null && !string.IsNullOrEmpty(persisted.RefreshToken))
+                    {
+                        _logger.LogWarning("Failed to decrypt Steam auth data - clearing invalid credentials. You will need to re-authenticate.");
+
+                        // Clear the invalid encrypted file
+                        try
+                        {
+                            File.Delete(_steamAuthFilePath);
+                            _logger.LogInformation("Deleted invalid Steam auth file");
+                        }
+                        catch (Exception deleteEx)
+                        {
+                            _logger.LogWarning(deleteEx, "Failed to delete invalid Steam auth file");
+                        }
+
+                        _cachedData = new SteamAuthData();
+                        return _cachedData;
+                    }
+
                     _cachedData = new SteamAuthData
                     {
                         Mode = persisted.Mode,
                         Username = persisted.Username,
-                        // Decrypt using Microsoft Data Protection API with API key
-                        RefreshToken = _encryption.Decrypt(persisted.RefreshToken),
+                        RefreshToken = decryptedRefreshToken,
                         LastAuthenticated = persisted.LastAuthenticated
                     };
 

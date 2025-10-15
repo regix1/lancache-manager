@@ -27,7 +27,6 @@ const AlertsManager: React.FC<AlertsManagerProps> = ({ alerts, onClearError, onC
         <Alert
           key={error.id}
           color="red"
-          icon={<AlertCircle className="w-5 h-5" />}
           withCloseButton
           onClose={() => onClearError(error.id)}
         >
@@ -38,7 +37,6 @@ const AlertsManager: React.FC<AlertsManagerProps> = ({ alerts, onClearError, onC
       {alerts.success && (
         <Alert
           color="green"
-          icon={<CheckCircle className="w-5 h-5" />}
           withCloseButton={!!onClearSuccess}
           onClose={onClearSuccess}
         >

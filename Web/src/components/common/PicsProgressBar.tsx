@@ -1,31 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Download, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Download, CheckCircle, AlertCircle, Loader2, X, User, UserX } from 'lucide-react';
 import themeService from '@services/theme.service';
-
-interface PicsProgress {
-  isRunning: boolean;
-  status: string;
-  totalApps: number;
-  processedApps: number;
-  totalBatches: number;
-  processedBatches: number;
-  progressPercent: number;
-  depotMappingsFound: number;
-  depotMappingsFoundInSession: number;
-  isReady: boolean;
-  lastCrawlTime?: string;
-  nextCrawlIn: any; // Can be TimeSpan string, object, or number from backend
-  crawlIntervalHours: number;
-  isConnected: boolean;
-  isLoggedOn: boolean;
-}
+import ApiService from '@services/api.service';
+import { Button } from '@components/ui/Button';
+import { usePicsProgress } from '@hooks/usePicsProgress';
+import { toTotalHours } from '@utils/timeFormatters';
 
 const PicsProgressBar: React.FC = () => {
-  const [progress, setProgress] = useState<PicsProgress | null>(null);
+  const { progress } = usePicsProgress({ pollingInterval: 2000 });
   const [isVisible, setIsVisible] = useState(false);
   const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
   const [alwaysVisible, setAlwaysVisible] = useState(false);
   const [wasRunning, setWasRunning] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [showForcedScanWarning, setShowForcedScanWarning] = useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     // Load the setting on mount
@@ -45,63 +35,54 @@ const PicsProgressBar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
+    if (!progress) return;
 
-    const fetchProgress = async () => {
-      try {
-        const response = await fetch('/api/gameinfo/steamkit/progress');
-        if (response.ok) {
-          const data: PicsProgress = await response.json();
-          setProgress(data);
+    // Detect if scan was forced from incremental to full (needs user confirmation)
+    if (progress.isRunning && progress.lastScanWasForced && progress.crawlIncrementalMode && !confirming) {
+      setShowConfirmation(true);
+      setShowForcedScanWarning(true);
+    } else if (!progress.isRunning) {
+      setShowForcedScanWarning(false);
+      setShowConfirmation(false);
+      setConfirming(false);
+    }
 
-          // Clear any existing hide timeout
-          if (hideTimeout) {
-            clearTimeout(hideTimeout);
-            setHideTimeout(null);
-          }
+    // Clear any existing hide timeout
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      setHideTimeout(null);
+    }
 
-          // If alwaysVisible is enabled, always show the bar
-          if (alwaysVisible) {
-            setIsVisible(true);
-            setWasRunning(data.isRunning);
-          } else {
-            // Show progress bar only when PICS is actually running
-            if (data.isRunning) {
-              setIsVisible(true);
-              setWasRunning(true);
-            } else if (wasRunning && !data.isRunning) {
-              // Was just running, now stopped - hide after 10 seconds
-              const timeout = setTimeout(() => {
-                setIsVisible(false);
-                setWasRunning(false);
-              }, 10000);
-              setHideTimeout(timeout);
-            } else if (!data.isRunning && !wasRunning) {
-              // Never was running in this session, hide immediately
-              setIsVisible(false);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch PICS progress:', error);
+    // If alwaysVisible is enabled, always show the bar
+    if (alwaysVisible) {
+      setIsVisible(true);
+      setWasRunning(progress.isRunning);
+    } else {
+      // Show progress bar only when PICS is actually running
+      if (progress.isRunning) {
+        setIsVisible(true);
+        setWasRunning(true);
+      } else if (wasRunning && !progress.isRunning) {
+        // Was just running, now stopped - hide after 10 seconds
+        const timeout = setTimeout(() => {
+          setIsVisible(false);
+          setWasRunning(false);
+        }, 10000);
+        setHideTimeout(timeout);
+      } else if (!progress.isRunning && !wasRunning) {
+        // Never was running in this session, hide immediately
+        setIsVisible(false);
       }
-    };
+    }
+  }, [progress, alwaysVisible, wasRunning, confirming]);
 
-    // Initial fetch
-    fetchProgress();
-
-    // Poll for updates every 2 seconds
-    intervalId = setInterval(fetchProgress, 2000);
-
+  useEffect(() => {
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
       if (hideTimeout) {
         clearTimeout(hideTimeout);
       }
     };
-  }, [alwaysVisible, wasRunning]);
+  }, [hideTimeout]);
 
   if (!progress) {
     return null;
@@ -126,6 +107,20 @@ const PicsProgressBar: React.FC = () => {
     return { backgroundColor: 'var(--theme-text-muted)' };
   };
 
+  const handleCancel = async () => {
+    if (!progress?.isRunning) return;
+
+    try {
+      setCancelling(true);
+      await ApiService.cancelSteamKitRebuild();
+      console.log('[PicsProgressBar] Scan cancelled successfully');
+    } catch (error) {
+      console.error('[PicsProgressBar] Failed to cancel scan:', error);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   return (
     <div
       className="w-full border-b shadow-sm overflow-hidden"
@@ -143,11 +138,32 @@ const PicsProgressBar: React.FC = () => {
           {getStatusIcon()}
           <div className="flex-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-themed-primary">
-                Steam PICS: {progress.status}
-                {!progress.isConnected && ' (Disconnected)'}
-                {progress.isConnected && !progress.isLoggedOn && ' (Not logged in)'}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-themed-primary">
+                  Steam PICS: {progress.status}
+                  {!progress.isConnected && ' (Disconnected)'}
+                  {progress.isConnected && !progress.isLoggedOn && ' (Not logged in)'}
+                </span>
+                {/* Auth mode indicator */}
+                {progress.isConnected && (
+                  <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded" style={{
+                    backgroundColor: 'var(--theme-bg-tertiary)',
+                    color: 'var(--theme-text-muted)'
+                  }}>
+                    {progress.isLoggedOn ? (
+                      <>
+                        <User className="w-3 h-3" />
+                        <span>Authenticated</span>
+                      </>
+                    ) : (
+                      <>
+                        <UserX className="w-3 h-3" />
+                        <span>Anonymous</span>
+                      </>
+                    )}
+                  </span>
+                )}
+              </div>
               <span className="text-xs text-themed-muted">
                 {progress.isRunning && progress.totalBatches > 0
                   ? `${progress.processedBatches}/${progress.totalBatches} batches (${Math.round(progress.progressPercent)}%)`
@@ -156,19 +172,39 @@ const PicsProgressBar: React.FC = () => {
                     : `${progress.depotMappingsFound.toLocaleString()} depot mappings`
                 }
                 {progress.isReady && progress.nextCrawlIn && (() => {
-                  let totalHours = 0;
-                  if (typeof progress.nextCrawlIn === 'object' && progress.nextCrawlIn.totalHours !== undefined) {
-                    totalHours = progress.nextCrawlIn.totalHours;
-                  } else if (typeof progress.nextCrawlIn === 'string') {
-                    const parts = progress.nextCrawlIn.split(':');
-                    totalHours = parseInt(parts[0]) + (parseInt(parts[1]) / 60);
-                  } else if (typeof progress.nextCrawlIn === 'number') {
-                    totalHours = progress.nextCrawlIn / 3600;
-                  }
+                  const totalHours = toTotalHours(progress.nextCrawlIn);
                   return totalHours > 0 ? ` • Next: ${Math.round(totalHours)}h` : '';
                 })()}
               </span>
             </div>
+
+            {/* Forced scan warning with confirmation */}
+            {showForcedScanWarning && (
+              <div className="text-xs p-2 rounded mb-2 flex items-start justify-between gap-2" style={{
+                backgroundColor: 'var(--theme-warning-bg)',
+                color: 'var(--theme-warning-text)',
+                border: '1px solid var(--theme-warning)'
+              }}>
+                <div className="flex-1">
+                  <strong>Full scan in progress:</strong> Change gap too large for incremental update.
+                  Scanning all ~270k Steam apps. This will take 15-30 minutes. Future scans will be faster with regular updates.
+                </div>
+                {showConfirmation && (
+                  <Button
+                    onClick={() => {
+                      setShowConfirmation(false);
+                      setConfirming(true);
+                    }}
+                    variant="filled"
+                    color="yellow"
+                    size="xs"
+                    className="whitespace-nowrap"
+                  >
+                    I Understand
+                  </Button>
+                )}
+              </div>
+            )}
 
             {progress.isRunning && progress.totalBatches > 0 && (
               <div
@@ -191,6 +227,21 @@ const PicsProgressBar: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Cancel button */}
+          {progress.isRunning && (
+            <Button
+              onClick={handleCancel}
+              disabled={cancelling}
+              variant="subtle"
+              color="red"
+              size="xs"
+              loading={cancelling}
+              leftSection={!cancelling && <X className="w-3 h-3" />}
+            >
+              {cancelling ? 'Cancelling' : 'Cancel'}
+            </Button>
+          )}
         </div>
       </div>
     </div>

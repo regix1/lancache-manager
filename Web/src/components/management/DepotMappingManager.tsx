@@ -5,6 +5,8 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
+import { usePicsProgress } from '@hooks/usePicsProgress';
+import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 
 interface DepotMappingManagerProps {
   isAuthenticated: boolean;
@@ -16,26 +18,6 @@ interface DepotMappingManagerProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-}
-
-interface PicsProgress {
-  isRunning: boolean;
-  status: string;
-  totalApps: number;
-  processedApps: number;
-  totalBatches: number;
-  processedBatches: number;
-  progressPercent: number;
-  depotMappingsFound: number;
-  depotMappingsFoundInSession: number;
-  isReady: boolean;
-  lastCrawlTime?: string;
-  nextCrawlIn: any;
-  crawlIntervalHours: number;
-  crawlIncrementalMode: boolean;
-  lastScanWasForced?: boolean;
-  isConnected: boolean;
-  isLoggedOn: boolean;
 }
 
 type DepotSource = 'incremental' | 'full' | 'github';
@@ -51,7 +33,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
-  const [depotProcessing, setDepotProcessing] = useState<PicsProgress | null>(null);
+  const { progress: depotProcessing, refresh: refreshProgress } = usePicsProgress({
+    pollingInterval: 3000,
+    mockMode
+  });
   const [depotSource, setDepotSource] = useState<DepotSource>('incremental');
   const [changeGapWarning, setChangeGapWarning] = useState<{
     show: boolean;
@@ -59,8 +44,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     estimatedApps: number;
   } | null>(null);
   const [operationType, setOperationType] = useState<'downloading' | 'scanning' | null>(null);
-  const depotPollingInterval = useRef<NodeJS.Timeout | null>(null);
+  const [fullScanRequired, setFullScanRequired] = useState(false);
   const hasShownForcedScanWarning = useRef(false);
+  const lastViabilityCheck = useRef<number>(0);
 
   // Auto-switch away from GitHub when Steam auth mode changes to authenticated
   useEffect(() => {
@@ -69,19 +55,46 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   }, [steamAuthMode, depotSource]);
 
+  // Check if full scan is required (for incremental mode) - for UI display only
   useEffect(() => {
-    if (mockMode) {
+    if (!depotProcessing || mockMode || !isAuthenticated) {
+      setFullScanRequired(false);
       return;
     }
 
-    startDepotPolling();
+    const { nextCrawlIn, isRunning, crawlIntervalHours, crawlIncrementalMode } = depotProcessing;
 
-    return () => {
-      if (depotPollingInterval.current) {
-        clearInterval(depotPollingInterval.current);
+    // Skip if not incremental mode or scheduling is disabled
+    if (crawlIntervalHours === 0 || !crawlIncrementalMode) {
+      setFullScanRequired(false);
+      return;
+    }
+
+    // Calculate if scan is due
+    const totalSeconds = toTotalSeconds(nextCrawlIn);
+    const isDue = totalSeconds <= 0;
+
+    // Only check viability when due and not running (for UI display)
+    if (isDue && !isRunning && !actionLoading) {
+      // Throttle checks to once per minute
+      const now = Date.now();
+      if (now - lastViabilityCheck.current > 60000) {
+        lastViabilityCheck.current = now;
+
+        ApiService.checkIncrementalViability()
+          .then((result) => {
+            setFullScanRequired(result.willTriggerFullScan === true);
+          })
+          .catch((err) => {
+            console.error('[DepotMapping] Failed to check viability:', err);
+            setFullScanRequired(false);
+          });
       }
-    };
-  }, [mockMode]);
+    } else if (!isDue) {
+      setFullScanRequired(false);
+      lastViabilityCheck.current = 0;
+    }
+  }, [depotProcessing, mockMode, isAuthenticated, actionLoading]);
 
   // Detect when Steam forced a full scan during execution (when incremental was requested)
   // This is informational only - the scan is already running and can't be cancelled
@@ -103,23 +116,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       setOperationType(null);
     }
   }, [depotProcessing?.lastScanWasForced, depotProcessing?.isRunning, onError, operationType]);
-
-  const startDepotPolling = () => {
-    const checkDepotStatus = async () => {
-      try {
-        const response = await fetch('/api/gameinfo/steamkit/progress');
-        if (response.ok) {
-          const data: PicsProgress = await response.json();
-          setDepotProcessing(data);
-        }
-      } catch (error) {
-        console.error('Failed to fetch depot status:', error);
-      }
-    };
-
-    checkDepotStatus();
-    depotPollingInterval.current = setInterval(checkDepotStatus, 3000);
-  };
 
   const handleDownloadFromGitHub = async () => {
     setChangeGapWarning(null);
@@ -205,62 +201,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
 
   const formatNextRun = () => {
-    if (depotProcessing?.isRunning) {
-      return 'Running now';
-    }
-
-    if (depotProcessing?.nextCrawlIn !== undefined && depotProcessing?.nextCrawlIn !== null) {
-      let totalSeconds: number;
-
-      if (typeof depotProcessing.nextCrawlIn === 'object' && depotProcessing.nextCrawlIn.totalSeconds !== undefined) {
-        totalSeconds = depotProcessing.nextCrawlIn.totalSeconds;
-      } else if (typeof depotProcessing.nextCrawlIn === 'object' && depotProcessing.nextCrawlIn.totalHours !== undefined) {
-        totalSeconds = depotProcessing.nextCrawlIn.totalHours * 3600;
-      } else if (typeof depotProcessing.nextCrawlIn === 'string') {
-        const parts = depotProcessing.nextCrawlIn.split(':');
-        if (parts.length >= 3) {
-          const dayHourPart = parts[0].split('.');
-          let hours = 0;
-          let days = 0;
-
-          if (dayHourPart.length === 2) {
-            days = parseInt(dayHourPart[0]) || 0;
-            hours = parseInt(dayHourPart[1]) || 0;
-          } else {
-            hours = parseInt(parts[0]) || 0;
-          }
-
-          const minutes = parseInt(parts[1]) || 0;
-          const seconds = parseInt(parts[2]) || 0;
-          totalSeconds = (days * 86400) + (hours * 3600) + (minutes * 60) + seconds;
-        } else {
-          return 'Loading...';
-        }
-      } else if (typeof depotProcessing.nextCrawlIn === 'number') {
-        totalSeconds = depotProcessing.nextCrawlIn;
-      } else {
-        return 'Loading...';
-      }
-
-      if (!isFinite(totalSeconds) || isNaN(totalSeconds)) return 'Loading...';
-
-      if (totalSeconds <= 0) {
-        return 'Due now';
-      }
-
-      const totalHours = totalSeconds / 3600;
-
-      if (totalHours > 24) {
-        const days = Math.floor(totalHours / 24);
-        const hours = Math.floor(totalHours % 24);
-        return hours > 0 ? `${days}d ${hours}h` : `${days} days`;
-      }
-      const hours = Math.floor(totalHours);
-      const minutes = Math.floor((totalSeconds % 3600) / 60);
-      return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-    }
-
-    return 'Loading...';
+    if (!depotProcessing) return 'Loading...';
+    return formatNextCrawlTime(
+      depotProcessing.nextCrawlIn,
+      depotProcessing.isRunning,
+      fullScanRequired,
+      depotProcessing.crawlIncrementalMode
+    );
   };
 
   return (
@@ -287,27 +234,27 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Runs every:</span>
                   <span className="font-medium text-themed-primary">
-                    {depotProcessing?.crawlIntervalHours !== undefined
-                      ? depotProcessing.crawlIntervalHours === 0
+                    {!depotProcessing
+                      ? 'Loading...'
+                      : depotProcessing.crawlIntervalHours === 0
                         ? 'Disabled'
-                        : `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`
-                      : 'Loading...'}
+                        : `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Scan mode:</span>
                   <span className="font-medium text-themed-primary">
-                    {depotProcessing?.crawlIntervalHours === 0
-                      ? 'Disabled'
-                      : depotProcessing?.crawlIncrementalMode !== undefined
-                        ? depotProcessing.crawlIncrementalMode ? 'Incremental' : 'Full'
-                        : 'Loading...'}
+                    {!depotProcessing
+                      ? 'Loading...'
+                      : depotProcessing.crawlIntervalHours === 0
+                        ? 'Disabled'
+                        : depotProcessing.crawlIncrementalMode ? 'Incremental' : 'Full'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Next run:</span>
                   <span className="font-medium text-themed-primary">
-                    {depotProcessing?.crawlIntervalHours === 0 ? 'Disabled' : formatNextRun()}
+                    {!depotProcessing || depotProcessing.crawlIntervalHours === 0 ? 'Disabled' : formatNextRun()}
                   </span>
                 </div>
                 {depotProcessing?.lastCrawlTime && (
@@ -333,7 +280,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   { value: '48', label: 'Every 2 days' },
                   { value: '168', label: 'Weekly' }
                 ]}
-                value={String(depotProcessing?.crawlIntervalHours ?? 1)}
+                value={depotProcessing ? String(depotProcessing.crawlIntervalHours) : '1'}
                 onChange={async (value) => {
                   const newInterval = Number(value);
                   try {
@@ -346,11 +293,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       body: JSON.stringify(newInterval)
                     });
 
-                    const response = await fetch('/api/gameinfo/steamkit/progress');
-                    if (response.ok) {
-                      const data: PicsProgress = await response.json();
-                      setDepotProcessing(data);
-                    }
+                    // Refresh the progress data after updating the interval
+                    refreshProgress();
                   } catch (error) {
                     console.error('Failed to update crawl interval:', error);
                   }
@@ -363,7 +307,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   { value: 'true', label: 'Incremental' },
                   { value: 'false', label: 'Full scan' }
                 ]}
-                value={String(depotProcessing?.crawlIncrementalMode ?? true)}
+                value={depotProcessing ? String(depotProcessing.crawlIncrementalMode) : 'true'}
                 onChange={async (value) => {
                   const incremental = value === 'true';
                   try {
@@ -376,16 +320,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       body: JSON.stringify(incremental)
                     });
 
-                    const response = await fetch('/api/gameinfo/steamkit/progress');
-                    if (response.ok) {
-                      const data: PicsProgress = await response.json();
-                      setDepotProcessing(data);
-                    }
+                    // Refresh the progress data after updating the scan mode
+                    refreshProgress();
                   } catch (error) {
                     console.error('Failed to update scan mode:', error);
                   }
                 }}
-                disabled={!isAuthenticated || mockMode || depotProcessing?.crawlIntervalHours === 0}
+                disabled={!isAuthenticated || mockMode || !depotProcessing || depotProcessing.crawlIntervalHours === 0}
                 className="w-full"
               />
             </div>

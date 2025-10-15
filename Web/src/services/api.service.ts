@@ -464,6 +464,22 @@ class ApiService {
     }
   }
 
+  static async cancelSteamKitRebuild(signal?: AbortSignal): Promise<void> {
+    try {
+      const res = await fetch(`${API_BASE}/gameinfo/steamkit/cancel`, {
+        method: 'POST',
+        signal,
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to cancel scan: ${res.statusText}`);
+      }
+    } catch (error) {
+      console.error('cancelSteamKitRebuild error:', error);
+      throw error;
+    }
+  }
+
   static async checkIncrementalViability(signal?: AbortSignal): Promise<any> {
     try {
       const res = await fetch(`${API_BASE}/gameinfo/steamkit/check-incremental`, {

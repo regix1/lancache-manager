@@ -215,7 +215,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     switch (authMode) {
       case 'authenticated': return <Unlock className="w-5 h-5" />;
       case 'guest': return <Eye className="w-5 h-5" />;
-      case 'expired': return <AlertTriangle className="w-5 h-5" />;
+      case 'expired': return undefined; // Let Alert component use default AlertTriangle for orange
       default: return <Lock className="w-5 h-5" />;
     }
   };

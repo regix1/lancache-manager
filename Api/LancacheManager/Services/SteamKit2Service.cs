@@ -149,10 +149,16 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Start callback handling loop
             _ = Task.Run(() => HandleCallbacks(_cancellationTokenSource.Token), CancellationToken.None);
 
-            // DISABLED: No automatic PICS crawls - users must choose initialization method via UI
-            // SetupPeriodicCrawls();
-
-            _logger.LogInformation("SteamKit2Service started with incremental PICS updates every hour");
+            // Enable periodic crawls if interval is configured (not 0)
+            if (_crawlInterval.TotalHours > 0)
+            {
+                SetupPeriodicCrawls();
+                _logger.LogInformation("Enabled automatic PICS crawls every {Hours} hour(s)", _crawlInterval.TotalHours);
+            }
+            else
+            {
+                _logger.LogInformation("Automatic PICS crawls are disabled (interval = 0)");
+            }
         }
         catch (Exception ex)
         {
@@ -295,7 +301,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                 StopIdleDisconnectTimer();
 
                 await ConnectAndLoginAsync(ct);
-                UpdateConnectionActivity();
+                _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
                 await BuildDepotIndexAsync(ct, incrementalOnly);
 
                 // Check if we still have unmapped downloads after the scan
@@ -1066,7 +1072,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         try
         {
             // Convert ConcurrentDictionary to Dictionary for the service call
-            var (depotMappingsDict, appNamesDict, depotOwnersDict) = ConvertMappingsDictionaries();
+            var (depotMappingsDict, appNamesDict, depotOwnersDict) = SteamKit2Helpers.ConvertMappingsDictionaries(
+                _depotToAppMappings, _appNames, _depotOwners);
 
             if (incrementalOnly)
             {
@@ -1284,7 +1291,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                 if (!wasConnected && _steamClient?.IsConnected == true)
                 {
                     _logger.LogDebug("Keeping Steam connection alive for {Seconds} seconds for potential reuse", ConnectionKeepAliveSeconds);
-                    UpdateConnectionActivity();
+                    _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
                     StartIdleDisconnectTimer();
                 }
             }
@@ -1331,6 +1338,10 @@ public class SteamKit2Service : IHostedService, IDisposable
         var totalMappings = _depotToAppMappings.Count;
         var newMappingsInSession = Math.Max(0, totalMappings - _sessionStartDepotCount);
 
+        // Check if we're using authenticated mode (refresh token saved) or anonymous mode
+        var authMode = _stateService.GetSteamAuthMode();
+        var isAuthenticated = authMode == "authenticated" && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
+
         return new
         {
             IsRunning = IsRebuildRunning,
@@ -1349,7 +1360,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             CrawlIncrementalMode = _crawlIncrementalMode,
             LastScanWasForced = _lastScanWasForced,
             IsConnected = _steamClient?.IsConnected == true,
-            IsLoggedOn = _isLoggedOn
+            IsLoggedOn = _isLoggedOn && isAuthenticated // Only true if both connected AND using authenticated mode
         };
     }
 
@@ -1458,6 +1469,38 @@ public class SteamKit2Service : IHostedService, IDisposable
     }
 
     public bool IsRebuildRunning => Interlocked.CompareExchange(ref _rebuildActive, 0, 0) == 1;
+
+    /// <summary>
+    /// Cancel the current PICS rebuild if one is running
+    /// </summary>
+    public async Task<bool> CancelRebuildAsync()
+    {
+        if (!IsRebuildRunning || _currentRebuildCts == null)
+        {
+            _logger.LogDebug("No active PICS rebuild to cancel");
+            return false;
+        }
+
+        try
+        {
+            _logger.LogInformation("Cancelling active PICS rebuild");
+            _currentRebuildCts.Cancel();
+
+            // Wait briefly for cancellation to complete
+            if (_currentBuildTask != null)
+            {
+                await Task.WhenAny(_currentBuildTask, Task.Delay(5000));
+            }
+
+            _logger.LogInformation("PICS rebuild cancelled successfully");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling PICS rebuild");
+            return false;
+        }
+    }
 
     /// <summary>
     /// Merge JSON-backed depot mappings into the in-memory dictionaries.
@@ -1758,39 +1801,6 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
-    /// <summary>
-    /// Helper method to convert concurrent dictionaries to regular dictionaries
-    /// </summary>
-    private (Dictionary<uint, HashSet<uint>>, Dictionary<uint, string>, Dictionary<uint, uint>) ConvertMappingsDictionaries()
-    {
-        var depotMappingsDict = new Dictionary<uint, HashSet<uint>>();
-        foreach (var kvp in _depotToAppMappings)
-        {
-            depotMappingsDict[kvp.Key] = kvp.Value;
-        }
-
-        var appNamesDict = new Dictionary<uint, string>();
-        foreach (var kvp in _appNames)
-        {
-            appNamesDict[kvp.Key] = kvp.Value;
-        }
-
-        var depotOwnersDict = new Dictionary<uint, uint>();
-        foreach (var kvp in _depotOwners)
-        {
-            depotOwnersDict[kvp.Key] = kvp.Value;
-        }
-
-        return (depotMappingsDict, appNamesDict, depotOwnersDict);
-    }
-
-    /// <summary>
-    /// Update connection activity timestamp
-    /// </summary>
-    private void UpdateConnectionActivity()
-    {
-        _lastConnectionActivity = DateTime.UtcNow;
-    }
 
     /// <summary>
     /// Start idle disconnect timer to close connection after inactivity

@@ -215,16 +215,14 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       {/* Error Alert */}
       {error && (
-        <Alert color="red" className="flex items-center gap-2">
-          <AlertCircle className="w-4 h-4" />
+        <Alert color="red">
           {error}
         </Alert>
       )}
 
       {/* Success Alert */}
       {successMessage && (
-        <Alert color="green" className="flex items-center gap-2">
-          <Check className="w-4 h-4" />
+        <Alert color="green">
           {successMessage}
         </Alert>
       )}

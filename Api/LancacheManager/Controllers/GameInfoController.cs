@@ -138,6 +138,32 @@ public class GameInfoController : ControllerBase
     }
 
     /// <summary>
+    /// Cancel the current PICS crawl/scan
+    /// </summary>
+    [HttpPost("steamkit/cancel")]
+    public async Task<IActionResult> CancelSteamKitRebuild()
+    {
+        try
+        {
+            var cancelled = await _steamKit2Service.CancelRebuildAsync();
+
+            if (cancelled)
+            {
+                return Ok(new { message = "PICS scan cancelled successfully" });
+            }
+            else
+            {
+                return Ok(new { message = "No active scan to cancel" });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling SteamKit PICS scan");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Check if incremental scan is viable or if change gap is too large
     /// </summary>
     [HttpGet("steamkit/check-incremental")]

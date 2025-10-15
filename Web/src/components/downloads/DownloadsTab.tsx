@@ -1318,7 +1318,7 @@ const DownloadsTab: React.FC = () => {
 
       {/* Performance warning */}
       {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
-        <Alert color="yellow" icon={<AlertTriangle className="w-5 h-5" />}>
+        <Alert color="yellow">
           Loading {itemsToDisplay.length} items. Consider using pagination for better performance.
         </Alert>
       )}
