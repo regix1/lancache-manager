@@ -1,23 +1,29 @@
-# Release Notes - Version 1.5.5
+# Release Notes - Version 1.5.6
 
 ## What's New
 
-### Multiple Access Log Support
-The log processor now automatically discovers and processes rotated log files (access.log.1, access.log.2, etc.) including compressed formats like .gz and .zst. This means you can now process your entire log history without manually combining files.
+### Frontend Code Cleanup
+Cleaned up the frontend codebase by removing duplicate components and consolidating shared UI elements for better maintainability.
 
-### Enhanced Metrics
-Added more Prometheus-compatible metrics for better system monitoring and observability.
+### Workflow Improvements
+Updated the GitHub release workflow to support both `RELEASE_NOTES.md` and `release_notes.md` filenames, making it more flexible for creating releases.
 
-### UI Improvements
-- Fixed modals that were getting stuck in their parent containers
-- Log File Management now shows clear error messages when scanning fails, with a refresh button to retry
-- Cleaned up the Database Management section with better button styling and consistent sizing
-- Improved dashboard charts and recent downloads panel
+## Changes
 
-### Bug Fixes
-- Fixed depot mapping associations for better game name detection
-- Cleaned up excessive logging in production
-- Fixed navigation rendering and swipe gesture handling on mobile
-- Removed deprecated code paths
+### Code Organization
+- Moved `Tooltip` component from `common/` to `ui/` folder for better organization
+- Removed duplicate `Tooltip.tsx` that wasn't being used
+- Removed duplicate inline `SteamIcon` component from `CompactView.tsx`, now uses the shared component from `ui/`
+- Updated 11 component files with corrected imports to use the reorganized Tooltip component
 
-The main benefit of this release is the multi-log support - you can now process years of cache history without worrying about log rotation or compression formats.
+### GitHub Workflow
+- Updated `.github/workflows/create-release.yml` to accept both uppercase and lowercase release notes filenames
+- Workflow now checks for both `RELEASE_NOTES.md` and `release_notes.md` when creating releases
+- Automatically removes either file after release creation
+
+### Build & Quality
+- All TypeScript builds passing with no errors or warnings
+- No unused variables or dead code detected
+- All component functionality preserved
+
+The main benefit of this release is improved code organization and a more flexible release workflow, making the project easier to maintain going forward.
