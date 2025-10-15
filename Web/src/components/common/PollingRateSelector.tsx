@@ -85,20 +85,25 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = React.memo(({ di
         <button
           onClick={() => !disabled && setShowDropdown(!showDropdown)}
           disabled={disabled}
-          className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg transition-all"
+          className={`flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-lg border text-sm transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
           style={{
-            backgroundColor: showDropdown ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
-            border: showDropdown ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-primary)',
-            opacity: disabled ? 0.5 : 1,
+            backgroundColor: 'var(--theme-bg-secondary)',
+            borderColor: showDropdown ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
             cursor: disabled ? 'not-allowed' : 'pointer'
           }}
+          onMouseEnter={(e) =>
+            !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
+          }
+          onMouseLeave={(e) =>
+            !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
+          }
         >
           <Gauge className="w-4 h-4 text-[var(--theme-primary)]" />
-          <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-primary)]">
+          <span className="font-medium text-[var(--theme-text-primary)]">
             {getCurrentLabel()}
           </span>
           <ChevronDown
-            className={`w-3 h-3 text-[var(--theme-text-secondary)] transition-transform ${
+            className={`w-4 h-4 transition-transform duration-200 ${
               showDropdown ? 'rotate-180' : ''
             }`}
           />
@@ -107,7 +112,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = React.memo(({ di
 
       {showDropdown && (
         <div
-          className="absolute right-0 mt-2 w-64 rounded-lg shadow-xl z-[99999]"
+          className="absolute right-0 top-full mt-2 w-64 rounded-lg shadow-xl z-[99999]"
           style={{
             backgroundColor: 'var(--theme-bg-secondary)',
             border: '1px solid var(--theme-border-primary)'

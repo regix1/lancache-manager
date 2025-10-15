@@ -86,31 +86,36 @@ const TimeFilter: React.FC<TimeFilterProps> = React.memo(({ disabled = false }) 
 
   return (
     <>
-      <div className="relative" ref={dropdownRef}>
-        <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2">
+        <div className="relative" ref={dropdownRef}>
           {disabled ? (
             <Tooltip content="Time filter is disabled in mock mode">
               <button
                 onClick={() => !disabled && setShowDropdown(!showDropdown)}
                 disabled={disabled}
-                className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg transition-all"
+                className={`flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-lg border text-sm transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 style={{
-                  backgroundColor: showDropdown ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
-                  border: showDropdown ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-primary)',
-                  opacity: disabled ? 0.5 : 1,
+                  backgroundColor: 'var(--theme-bg-secondary)',
+                  borderColor: showDropdown ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
                   cursor: disabled ? 'not-allowed' : 'pointer'
                 }}
+                onMouseEnter={(e) =>
+                  !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
+                }
+                onMouseLeave={(e) =>
+                  !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
+                }
               >
                 {timeFilterLoading ? (
                   <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
                 ) : (
                   <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
                 )}
-                <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-primary)]">
+                <span className="font-medium text-[var(--theme-text-primary)]">
                   {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
                 </span>
                 <ChevronDown
-                  className={`w-3 h-3 text-[var(--theme-text-secondary)] transition-transform ${
+                  className={`w-4 h-4 transition-transform duration-200 ${
                     showDropdown ? 'rotate-180' : ''
                   }`}
                 />
@@ -120,41 +125,38 @@ const TimeFilter: React.FC<TimeFilterProps> = React.memo(({ disabled = false }) 
             <button
               onClick={() => !disabled && setShowDropdown(!showDropdown)}
               disabled={disabled}
-              className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg transition-all"
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-lg border text-sm transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{
-                backgroundColor: showDropdown ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
-                border: showDropdown ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-primary)',
-                opacity: disabled ? 0.5 : 1,
+                backgroundColor: 'var(--theme-bg-secondary)',
+                borderColor: showDropdown ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
                 cursor: disabled ? 'not-allowed' : 'pointer'
               }}
+              onMouseEnter={(e) =>
+                !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
+              }
+              onMouseLeave={(e) =>
+                !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
+              }
             >
               {timeFilterLoading ? (
                 <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
               ) : (
                 <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
               )}
-              <span className="text-xs sm:text-sm font-medium text-[var(--theme-text-primary)]">
+              <span className="font-medium text-[var(--theme-text-primary)]">
                 {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
               </span>
               <ChevronDown
-                className={`w-3 h-3 text-[var(--theme-text-secondary)] transition-transform ${
+                className={`w-4 h-4 transition-transform duration-200 ${
                   showDropdown ? 'rotate-180' : ''
                 }`}
               />
             </button>
           )}
-          {timeRange === 'live' && !timeFilterLoading && !disabled && (
-            <Tooltip content="Live Mode: Data updates automatically every few seconds">
-              <div className="flex items-center">
-                <Radio className="w-3 h-3 animate-pulse" style={{ color: 'var(--theme-success)' }} />
-              </div>
-            </Tooltip>
-          )}
-        </div>
 
-        {showDropdown && (
+          {showDropdown && (
           <div
-            className="absolute right-0 mt-2 w-48 rounded-lg shadow-xl z-[99999]"
+            className="absolute right-0 top-full mt-2 w-48 rounded-lg shadow-xl z-[99999]"
             style={{
               backgroundColor: 'var(--theme-bg-secondary)',
               border: '1px solid var(--theme-border-primary)'
@@ -193,6 +195,15 @@ const TimeFilter: React.FC<TimeFilterProps> = React.memo(({ disabled = false }) 
               ))}
             </div>
           </div>
+        )}
+        </div>
+
+        {timeRange === 'live' && !timeFilterLoading && !disabled && (
+          <Tooltip content="Live Mode: Data updates automatically every few seconds">
+            <div className="flex items-center">
+              <Radio className="w-3 h-3 animate-pulse" style={{ color: 'var(--theme-success)' }} />
+            </div>
+          </Tooltip>
         )}
       </div>
 

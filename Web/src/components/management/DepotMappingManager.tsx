@@ -322,7 +322,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 )}
               </div>
             </div>
-            <div className="flex flex-col gap-2 min-w-[120px]">
+            <div className="flex flex-col gap-2 min-w-[160px]">
               <EnhancedDropdown
                 options={[
                   { value: '0', label: 'Disabled' },

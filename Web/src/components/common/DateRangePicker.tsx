@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Calendar, X, ChevronDown } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
+import { Modal } from '@components/ui/Modal';
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -26,18 +27,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const [lastClickTime, setLastClickTime] = useState<number>(0);
   const [lastClickedDate, setLastClickedDate] = useState<Date | null>(null);
   const [clickCount, setClickCount] = useState<number>(0);
-  const modalRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
 
   // Close dropdowns when clicking elsewhere
   const closeDropdowns = () => {
@@ -211,28 +200,18 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100000] p-4">
-      <div
-        ref={modalRef}
-        className="bg-[var(--theme-bg-secondary)] rounded-lg shadow-xl max-w-md w-full"
-        style={{ border: '1px solid var(--theme-border-primary)' }}
-      >
-        <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: 'var(--theme-border-primary)' }}>
-          <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-[var(--theme-primary)]" />
-            <h3 className="text-lg font-semibold text-[var(--theme-text-primary)]">
-              Select Date Range
-            </h3>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-[var(--theme-bg-tertiary)] rounded transition-colors"
-          >
-            <X className="w-5 h-5 text-[var(--theme-text-secondary)]" />
-          </button>
+    <Modal
+      opened={true}
+      onClose={onClose}
+      title={
+        <div className="flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-[var(--theme-primary)]" />
+          <span>Select Date Range</span>
         </div>
-
-        <div className="p-4">
+      }
+      size="md"
+    >
+      <div>
           <div className="mb-4 flex items-center justify-between">
             <button
               onClick={() => changeMonth(-1)}
@@ -524,9 +503,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
               Apply
             </button>
           </div>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 
