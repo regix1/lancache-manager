@@ -12,6 +12,14 @@ public class CacheManagementService
     private readonly string _cachePath;
     private readonly string _logPath;
 
+    // Cache for service log counts - prevents repeated Rust binary executions
+    private Dictionary<string, long>? _cachedServiceCounts;
+    private DateTime? _cacheExpiry;
+    private readonly TimeSpan _cacheValidDuration = TimeSpan.FromMinutes(5); // Cache valid for 5 minutes
+    private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
+    private DateTime? _lastLogWarningTime; // Track last time we logged a warning
+    private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
+
     public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver)
     {
         _configuration = configuration;
@@ -146,6 +154,19 @@ public class CacheManagementService
     {
         try
         {
+            // Invalidate cache since we're modifying logs
+            await _cacheLock.WaitAsync();
+            try
+            {
+                _cachedServiceCounts = null;
+                _cacheExpiry = null;
+                _logger.LogDebug("Service count cache invalidated due to log modification");
+            }
+            finally
+            {
+                _cacheLock.Release();
+            }
+
             if (!File.Exists(_logPath))
             {
                 throw new FileNotFoundException($"Log file not found: {_logPath}");
@@ -243,6 +264,21 @@ public class CacheManagementService
 
     public async Task<Dictionary<string, long>> GetServiceLogCounts()
     {
+        // Check if cache is valid
+        await _cacheLock.WaitAsync();
+        try
+        {
+            if (_cachedServiceCounts != null && _cacheExpiry.HasValue && DateTime.UtcNow < _cacheExpiry.Value)
+            {
+                _logger.LogDebug("Returning cached service counts (expires in {TimeRemaining})", _cacheExpiry.Value - DateTime.UtcNow);
+                return new Dictionary<string, long>(_cachedServiceCounts);
+            }
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+
         var counts = new Dictionary<string, long>();
 
         try
@@ -252,7 +288,7 @@ public class CacheManagementService
 
             if (!Directory.Exists(logDir))
             {
-                _logger.LogWarning($"Log directory not found: {logDir}");
+                LogThrottledWarning($"Log directory not found: {logDir}");
                 return counts;
             }
 
@@ -344,15 +380,28 @@ public class CacheManagementService
                         {
                             counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
                             _logger.LogInformation($"Rust log counting completed: Found {counts.Count} services");
+
+                            // Cache the results
+                            await _cacheLock.WaitAsync();
+                            try
+                            {
+                                _cachedServiceCounts = new Dictionary<string, long>(counts);
+                                _cacheExpiry = DateTime.UtcNow.Add(_cacheValidDuration);
+                                _logger.LogDebug("Service counts cached until {CacheExpiry}", _cacheExpiry);
+                            }
+                            finally
+                            {
+                                _cacheLock.Release();
+                            }
                         }
                         else
                         {
-                            _logger.LogWarning("Rust progress file did not include service counts. Path: {ProgressFile}", progressFile);
+                            LogThrottledWarning($"Rust progress file did not include service counts. Path: {progressFile}");
                         }
                     }
                     catch (JsonException jsonEx)
                     {
-                        _logger.LogWarning(jsonEx, "Rust progress file contained invalid JSON. Path: {ProgressFile}", progressFile);
+                        LogThrottledWarning($"Rust progress file contained invalid JSON. Path: {progressFile}. Error: {jsonEx.Message}");
                         return counts;
                     }
                 }
@@ -363,7 +412,7 @@ public class CacheManagementService
             // If the log file doesn't exist, return empty counts instead of throwing
             if (ex.Message.Contains("No such file or directory") || ex.Message.Contains("os error 2"))
             {
-                _logger.LogWarning($"Log file not accessible: {_logPath}. Returning empty service counts.");
+                LogThrottledWarning($"Log file not accessible: {_logPath}. Returning empty service counts.");
                 return counts;
             }
 
@@ -372,6 +421,25 @@ public class CacheManagementService
         }
 
         return counts;
+    }
+
+    /// <summary>
+    /// Logs a warning message, but throttles to only log once every 5 minutes
+    /// to prevent log spam when repeatedly called
+    /// </summary>
+    private void LogThrottledWarning(string message)
+    {
+        var now = DateTime.UtcNow;
+        if (!_lastLogWarningTime.HasValue || (now - _lastLogWarningTime.Value) > _logWarningThrottle)
+        {
+            _logger.LogWarning(message);
+            _lastLogWarningTime = now;
+        }
+        else
+        {
+            // Log at debug level so we can still track calls, but don't spam warnings
+            _logger.LogDebug("(Throttled warning) {Message}", message);
+        }
     }
 
     // Helper class for deserializing Rust progress data
