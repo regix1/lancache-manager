@@ -1,5 +1,4 @@
 import React from 'react';
-import { AlertCircle, CheckCircle } from 'lucide-react';
 import { Alert } from '../ui/Alert';
 
 interface AlertItem {

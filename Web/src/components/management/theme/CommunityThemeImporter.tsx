@@ -4,7 +4,6 @@ import {
   RefreshCw,
   Globe,
   Check,
-  AlertCircle,
   Moon,
   Sun,
   ExternalLink,

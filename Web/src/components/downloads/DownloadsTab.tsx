@@ -5,7 +5,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Database,
-  AlertTriangle,
   Settings,
   Download as DownloadIcon,
   Loader,

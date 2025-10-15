@@ -224,7 +224,6 @@ public class SteamAuthStorageService
                 }
 
                 _cachedData = data;
-                _logger.LogDebug("Saved Steam auth data to encrypted file with Microsoft Data Protection API");
             }
             catch (Exception ex)
             {
