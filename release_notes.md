@@ -1,66 +1,48 @@
-# Release Notes - Version 1.5.6.1
+## What Changed
 
-## What's New
+### Steam Credentials Now Stored Separately
+Your Steam login info now lives in its own encrypted file (`data/steam_auth/credentials.json`) instead of being mixed in with the main state.json file. This keeps things more organized and a bit more secure.
 
-### Separate Encrypted Storage for Steam Credentials
-Moved Steam authentication credentials out of the main state.json file into a dedicated encrypted file (`data/steam_auth/credentials.json`) for better security and separation of concerns.
+### Setup Wizard Fixes
+Fixed a bunch of bugs where the setup wizard would skip ahead too early or get confused about what step you were on.
 
-### Setup Flow Improvements
-Fixed several issues in the initialization wizard that were causing setup steps to complete prematurely or get stuck in certain scenarios.
+## Changelog
 
-## Changes
+### Security & Storage
+- Steam credentials now get their own encrypted file instead of living in state.json
+- If you're upgrading, your existing Steam login will automatically move to the new location
+- Cleaned up some old fields that weren't being used anymore (`LastDataLoadTime` and `LastDataMappingCount`)
 
-### Security & State Management
-- **New SteamAuthStorageService**: Created dedicated service for managing Steam credentials in a separate encrypted file using Microsoft ASP.NET Core Data Protection API
-- **StateService refactoring**: Removed Steam auth data from main state.json and migrated to separate storage
-- **Automatic migration**: Existing Steam credentials are automatically migrated to the new storage location on first startup
-- **Removed unused state fields**: Cleaned up `LastDataLoadTime` and `LastDataMappingCount` fields that were being stored but never read
+### Authentication
+- Regenerating your API key now logs you out of Steam (just to be safe)
+- Logging out now properly clears Steam session data from memory and disk
 
-### Authentication & Session Management
-- **AuthController updates**: Added Steam session logout when regenerating API keys for better security
-- **Session cleanup**: Steam auth data is now properly cleared from both in-memory and persistent storage when logging out
-- **Program.cs**: Registered new SteamAuthStorageService as a singleton
+### Setup Flow
+- Fixed the setup wizard marking itself as "done" before actually finishing all the steps
+- Fixed state not being saved properly when you refresh during setup
+- Fixed issues with detecting if a download was already running after a page reload
+- Improved timing between setup steps so they don't trip over each other
+- Added better debug logging to help track down issues
 
-### Frontend Setup Flow Fixes
-- **DepotInitializationModal**:
-  - Added proper state persistence for Steam auth usage across page reloads
-  - Fixed premature setup completion that was marking initialization as done before all steps finished
-  - Removed duplicate setup completion calls that were causing step flow issues
-  - Better handling of download-in-progress detection after page reload
+### Backend Changes
+- Added a new service (SteamAuthStorageService) to handle Steam credential storage
+- Refactored how Steam session state and credentials are managed
 
-- **Setup Step Components**:
-  - Updated DepotInitStep, DepotMappingStep, LogProcessingStep, PicsProgressStep to properly coordinate with the modal
-  - Fixed step transition timing issues
-  - Improved console logging for better debugging
+## Technical Notes
 
-- **App.tsx**: Updated initialization flow to work with the new setup completion logic
-
-- **SteamPicsAuthStep**: Minor updates to coordinate with the new Steam auth storage system
-
-### SteamKit2Service Updates
-- Updated to use the new SteamAuthStorageService for credential management
-- Better separation between Steam session state and credential storage
-
-## Technical Details
-
-### Migration Process
-When you first start this version:
-1. The app will check for existing Steam auth data in state.json
-2. If found, it will be migrated to `data/steam_auth/credentials.json`
-3. The Steam auth section will be removed from state.json
-4. The migration is one-time and automatic
+### First Run Migration
+When you start this version for the first time, it'll automatically move your Steam credentials from state.json to the new location. You don't need to do anything.
 
 ### File Locations
-- **Steam credentials**: `data/steam_auth/credentials.json` (encrypted)
-- **Application state**: `data/state.json` (no longer contains Steam auth)
-- **Data Protection keys**: `data/DataProtection-Keys/` (used for encryption)
+- Steam credentials: `data/steam_auth/credentials.json` (encrypted)
+- App state: `data/state.json` (no longer has Steam stuff)
+- Encryption keys: `data/DataProtection-Keys/`
 
-### Security Notes
-- Steam credentials are encrypted using Microsoft Data Protection API
-- On Windows, encryption keys are protected using DPAPI
-- On Linux/Docker, keys are protected by filesystem permissions (chmod 700)
-- Regenerating the API key now properly logs out active Steam sessions
+### Security
+- Uses Microsoft's Data Protection API for encryption
+- On Windows, encryption uses DPAPI
+- On Linux/Docker, files are protected with chmod 700
 
-## Benefits
+## Summary
 
-This release improves the setup experience by fixing several issues where the initialization wizard would get confused about which step to show or would mark setup as complete before all steps were actually done. The separation of Steam credentials into their own encrypted file also improves security and makes the state management cleaner.
+This update mainly fixes the annoying setup wizard bugs and moves Steam credentials to their own file. The setup process should be less janky now.
