@@ -12,8 +12,6 @@ public class WindowsPathResolver : IPathResolver
     {
         _logger = logger;
         _basePath = FindProjectRoot();
-
-        _logger.LogDebug("Windows base path resolved to: {BasePath}", _basePath);
     }
 
     public string GetBasePath() => _basePath;
@@ -87,15 +85,12 @@ public class WindowsPathResolver : IPathResolver
         // Normalize path separators for Windows
         currentDir = currentDir.Replace('/', '\\');
 
-        _logger.LogDebug("Starting project root search from: {CurrentDir}", currentDir);
-
         // Quick check: if we're in Api\LancacheManager, go up two levels
         if (currentDir.EndsWith("\\Api\\LancacheManager", StringComparison.OrdinalIgnoreCase))
         {
             var projectRoot = Directory.GetParent(currentDir)?.Parent?.FullName;
             if (projectRoot != null && IsValidProjectRoot(projectRoot))
             {
-                _logger.LogDebug("Found project root via Api\\LancacheManager pattern: {Root}", projectRoot);
                 return projectRoot;
             }
         }
@@ -106,7 +101,6 @@ public class WindowsPathResolver : IPathResolver
             var projectRoot = Directory.GetParent(currentDir)?.FullName;
             if (projectRoot != null && IsValidProjectRoot(projectRoot))
             {
-                _logger.LogDebug("Found project root via Api pattern: {Root}", projectRoot);
                 return projectRoot;
             }
         }
@@ -117,7 +111,6 @@ public class WindowsPathResolver : IPathResolver
         {
             if (IsValidProjectRoot(dir.FullName))
             {
-                _logger.LogDebug("Found project root via tree search: {Root}", dir.FullName);
                 return dir.FullName;
             }
 
@@ -130,7 +123,6 @@ public class WindowsPathResolver : IPathResolver
                 {
                     if (IsValidProjectRoot(parent.FullName))
                     {
-                        _logger.LogDebug("Found project root via bin search: {Root}", parent.FullName);
                         return parent.FullName;
                     }
                     parent = parent.Parent;
@@ -154,9 +146,8 @@ public class WindowsPathResolver : IPathResolver
             return Directory.Exists(Path.Combine(path, "Api")) &&
                    Directory.Exists(Path.Combine(path, "Web"));
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.LogDebug(ex, "Error validating project root: {Path}", path);
             return false;
         }
     }

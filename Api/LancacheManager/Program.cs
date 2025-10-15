@@ -66,10 +66,10 @@ else
 
 // Configure Data Protection for encrypting sensitive data
 // Keys are stored in the data directory and are machine-specific
-// Determine path based on OS without creating service provider
-var dataProtectionKeyPath = OperatingSystemDetector.IsWindows
-    ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LancacheManager", "DataProtection-Keys")
-    : Path.Combine("/data", "DataProtection-Keys");
+// Use IPathResolver to get consistent data directory across platforms
+var tempServiceProvider = builder.Services.BuildServiceProvider();
+var pathResolver = tempServiceProvider.GetRequiredService<IPathResolver>();
+var dataProtectionKeyPath = Path.Combine(pathResolver.GetDataDirectory(), "DataProtection-Keys");
 
 var dataProtection = builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyPath));
@@ -80,6 +80,10 @@ if (OperatingSystem.IsWindows())
 {
     dataProtection.ProtectKeysWithDpapi();
 }
+
+// Log where keys are stored
+var startupLogger = tempServiceProvider.GetService<ILogger<Program>>();
+startupLogger?.LogInformation("Data Protection keys will be stored in: {KeyPath}", dataProtectionKeyPath);
 
 // Register encryption service for state.json sensitive fields
 builder.Services.AddSingleton<SecureStateEncryptionService>();
