@@ -2,7 +2,7 @@ import React from 'react';
 import { useData } from '../../contexts/DataContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
-import { CacheInfoTooltip } from '../common/Tooltip';
+import { CacheInfoTooltip } from '@components/ui/Tooltip';
 
 const ClientsTab: React.FC = () => {
   const { clientStats } = useData();

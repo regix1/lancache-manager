@@ -1,96 +1,219 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Info } from 'lucide-react';
+
+type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
+type TooltipStrategy = 'edge' | 'overlay';
 
 interface TooltipProps {
-  content: string;
-  children: React.ReactNode;
-  position?: 'top' | 'bottom' | 'left' | 'right';
+  children?: React.ReactNode;
+  content: React.ReactNode;
+  position?: TooltipPosition;
+  offset?: number;
   className?: string;
+  contentClassName?: string;
+  strategy?: TooltipStrategy;
 }
 
-const Tooltip: React.FC<TooltipProps> = ({
-  content,
+const DEFAULT_OFFSET = 8;
+
+export const Tooltip: React.FC<TooltipProps> = ({
   children,
-  position = 'bottom',
-  className = ''
+  content,
+  position = 'top',
+  offset = DEFAULT_OFFSET,
+  className,
+  contentClassName = '',
+  strategy = 'edge'
 }) => {
-  const [isVisible, setIsVisible] = useState(false);
-  const [tooltipPosition, setTooltipPosition] = useState({ top: 0, left: 0 });
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [show, setShow] = useState(false);
+  const [x, setX] = useState(0);
+  const [y, setY] = useState(0);
   const triggerRef = useRef<HTMLDivElement>(null);
 
   // Check if tooltips are disabled globally
   const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
 
-  useEffect(() => {
-    if (isVisible && tooltipRef.current && triggerRef.current && !tooltipsDisabled) {
-      const triggerRect = triggerRef.current.getBoundingClientRect();
-      const tooltipRect = tooltipRef.current.getBoundingClientRect();
-
-      let top = 0;
-      let left = 0;
-
-      switch (position) {
-        case 'top':
-          top = triggerRect.top - tooltipRect.height - 8;
-          left = triggerRect.left + (triggerRect.width - tooltipRect.width) / 2;
-          break;
-        case 'bottom':
-          top = triggerRect.bottom + 8;
-          left = triggerRect.left + (triggerRect.width - tooltipRect.width) / 2;
-          break;
-        case 'left':
-          top = triggerRect.top + (triggerRect.height - tooltipRect.height) / 2;
-          left = triggerRect.left - tooltipRect.width - 8;
-          break;
-        case 'right':
-          top = triggerRect.top + (triggerRect.height - tooltipRect.height) / 2;
-          left = triggerRect.right + 8;
-          break;
-      }
-
-      setTooltipPosition({ top, left });
-    }
-  }, [isVisible, position, tooltipsDisabled]);
-
-  const handleMouseEnter = () => {
-    if (!tooltipsDisabled) {
-      setIsVisible(true);
-    }
-  };
-
-  const handleMouseLeave = () => {
-    setIsVisible(false);
-  };
+  // Default children with conditional cursor style
+  const defaultChildren = <Info className={`w-5 h-5 text-themed-muted p-1.5 -m-1.5 ${tooltipsDisabled ? '' : 'cursor-help'}`} />;
+  const childContent = children ?? defaultChildren;
 
   return (
     <>
       <div
         ref={triggerRef}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        className={`relative inline-block ${className}`}
+        className={className || 'inline-flex'}
+        onMouseEnter={(e) => {
+          if (!tooltipsDisabled) {
+            setShow(true);
+            setX(e.clientX);
+            setY(e.clientY);
+          }
+        }}
+        onMouseMove={(e) => {
+          if (!tooltipsDisabled && strategy === 'overlay') {
+            setX(e.clientX);
+            setY(e.clientY);
+          }
+        }}
+        onMouseLeave={() => setShow(false)}
       >
-        {children}
+        {childContent}
       </div>
 
-      {isVisible && !tooltipsDisabled && (
+      {show && !tooltipsDisabled && strategy === 'overlay' && createPortal(
         <div
-          ref={tooltipRef}
-          className="fixed z-50 px-2 py-1 text-xs font-medium rounded shadow-lg pointer-events-none transition-opacity duration-200"
+          className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
           style={{
-            top: tooltipPosition.top,
-            left: tooltipPosition.left,
-            backgroundColor: 'var(--theme-bg-primary)',
-            color: 'var(--theme-text-primary)',
-            border: '1px solid var(--theme-border-primary)',
-            maxWidth: '200px'
+            left: x + 10,
+            top: y + 10,
+            backdropFilter: 'blur(8px)',
+            border: '1px solid var(--theme-card-border)',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
           }}
         >
           {content}
-        </div>
+        </div>,
+        document.body
+      )}
+
+      {show && !tooltipsDisabled && strategy === 'edge' && triggerRef.current && createPortal(
+        <EdgeTooltip
+          trigger={triggerRef.current}
+          content={content}
+          position={position}
+          offset={offset}
+          contentClassName={contentClassName}
+        />,
+        document.body
       )}
     </>
   );
 };
 
-export default Tooltip;
+// Edge-positioned tooltips for info icons
+const EdgeTooltip: React.FC<{
+  trigger: HTMLElement;
+  content: React.ReactNode;
+  position: TooltipPosition;
+  offset: number;
+  contentClassName: string;
+}> = ({ trigger, content, position, offset, contentClassName }) => {
+  const rect = trigger.getBoundingClientRect();
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!ref.current) return;
+
+    const tooltipRect = ref.current.getBoundingClientRect();
+    const viewportPadding = 12;
+    let x = 0;
+    let y = 0;
+
+    // Calculate initial position
+    switch (position) {
+      case 'top':
+        x = rect.left + rect.width / 2 - tooltipRect.width / 2;
+        y = rect.top - tooltipRect.height - offset;
+        // Flip to bottom if would go off top
+        if (y < viewportPadding) {
+          y = rect.bottom + offset;
+        }
+        break;
+      case 'bottom':
+        x = rect.left + rect.width / 2 - tooltipRect.width / 2;
+        y = rect.bottom + offset;
+        // Flip to top if would go off bottom
+        if (y + tooltipRect.height > window.innerHeight - viewportPadding) {
+          y = rect.top - tooltipRect.height - offset;
+        }
+        break;
+      case 'left':
+        x = rect.left - tooltipRect.width - offset;
+        y = rect.top + rect.height / 2 - tooltipRect.height / 2;
+        // Flip to right if would go off left
+        if (x < viewportPadding) {
+          x = rect.right + offset;
+        }
+        break;
+      case 'right':
+        x = rect.right + offset;
+        y = rect.top + rect.height / 2 - tooltipRect.height / 2;
+        // Flip to left if would go off right
+        if (x + tooltipRect.width > window.innerWidth - viewportPadding) {
+          x = rect.left - tooltipRect.width - offset;
+        }
+        break;
+    }
+
+    // Clamp to viewport bounds
+    x = Math.max(viewportPadding, Math.min(x, window.innerWidth - tooltipRect.width - viewportPadding));
+    y = Math.max(viewportPadding, Math.min(y, window.innerHeight - tooltipRect.height - viewportPadding));
+
+    setPos({ x, y });
+  }, [rect, position, offset]);
+
+  return (
+    <div
+      ref={ref}
+      className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
+      style={{
+        left: pos.x,
+        top: pos.y,
+        backdropFilter: 'blur(8px)',
+        border: '1px solid var(--theme-card-border)',
+        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
+      }}
+    >
+      {content}
+    </div>
+  );
+};
+
+export const CacheInfoTooltip: React.FC = () => {
+  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+
+  return (
+    <Tooltip
+      content={
+        <div className="whitespace-nowrap">
+          <span className="cache-hit font-medium">Cache Hits:</span>
+          <span className="text-themed-secondary"> Data served from local cache</span>
+          <span className="text-themed-muted mx-2">|</span>
+          <span className="cache-miss font-medium">Cache Misses:</span>
+          <span className="text-themed-secondary"> Data downloaded from internet</span>
+        </div>
+      }
+      contentClassName="!max-w-none"
+    >
+      <Info className={`w-5 h-5 text-themed-muted ${tooltipsDisabled ? '' : 'cursor-help'}`} />
+    </Tooltip>
+  );
+};
+
+export const CachePerformanceTooltip: React.FC = () => (
+  <Tooltip
+    content="Higher cache hit rates mean better performance and bandwidth savings"
+    className="inline-flex p-1"
+  />
+);
+
+export const TimestampTooltip: React.FC<{
+  startTime: string;
+  endTime: string | null;
+  isActive: boolean;
+  children: React.ReactNode;
+}> = ({ startTime, endTime, isActive, children }) => (
+  <Tooltip
+    content={
+      <div className="space-y-1">
+        <div>Started: {startTime}</div>
+        {endTime && <div>Ended: {endTime}</div>}
+        <div>Status: {isActive ? 'Active' : 'Completed'}</div>
+      </div>
+    }
+  >
+    {children}
+  </Tooltip>
+);

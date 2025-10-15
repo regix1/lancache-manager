@@ -1,7 +1,7 @@
 import React from 'react';
 import TimeFilter from '../common/TimeFilter';
 import PollingRateSelector from '../common/PollingRateSelector';
-import { Tooltip } from '../common/Tooltip';
+import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useData } from '@contexts/DataContext';
 

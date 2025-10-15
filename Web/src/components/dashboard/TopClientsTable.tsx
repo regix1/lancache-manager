@@ -1,6 +1,6 @@
 import React, { useMemo, memo, useState } from 'react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
-import { CacheInfoTooltip } from '../common/Tooltip';
+import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 

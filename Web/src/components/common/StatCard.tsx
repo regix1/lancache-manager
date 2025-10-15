@@ -1,7 +1,7 @@
 // StatCard.tsx - Component without gradient backgrounds
 import React from 'react';
 import { type LucideIcon } from 'lucide-react';
-import { Tooltip } from './Tooltip';
+import { Tooltip } from '@components/ui/Tooltip';
 
 interface StatCardProps {
   title: string;

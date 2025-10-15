@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Clock, Calendar, ChevronDown, Loader, Radio } from 'lucide-react';
 import { useTimeFilter, TimeRange } from '@contexts/TimeFilterContext';
 import DateRangePicker from './DateRangePicker';
-import { Tooltip } from './Tooltip';
+import { Tooltip } from '@components/ui/Tooltip';
 
 interface TimeFilterProps {
   disabled?: boolean;

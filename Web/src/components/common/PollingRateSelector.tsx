@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Gauge, ChevronDown } from 'lucide-react';
 import { usePollingRate } from '@contexts/PollingRateContext';
 import { type PollingRate } from '@utils/constants';
-import { Tooltip } from './Tooltip';
+import { Tooltip } from '@components/ui/Tooltip';
 
 interface PollingRateSelectorProps {
   disabled?: boolean;

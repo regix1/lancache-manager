@@ -22,7 +22,7 @@ import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
 import { type StatCardData } from '../../types';
 import StatCard from '../common/StatCard';
-import { Tooltip } from '../common/Tooltip';
+import { Tooltip } from '@components/ui/Tooltip';
 import EnhancedServiceChart from './EnhancedServiceChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';

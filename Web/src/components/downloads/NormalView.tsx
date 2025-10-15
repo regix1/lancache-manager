@@ -4,7 +4,7 @@ import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatter
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
-import { Tooltip } from '@components/common/Tooltip';
+import { Tooltip } from '@components/ui/Tooltip';
 import type { Download, DownloadGroup } from '../../types';
 
 const API_BASE = '/api';
