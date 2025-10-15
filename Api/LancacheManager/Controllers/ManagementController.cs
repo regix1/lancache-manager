@@ -748,9 +748,10 @@ public class ManagementController : ControllerBase
             {
                 hasRefreshToken = _stateService.HasSteamRefreshToken();
             }
-            catch
+            catch (Exception ex)
             {
-                // If checking refresh token fails, assume no token
+                // If checking refresh token fails, assume no token and log warning
+                _logger.LogWarning(ex, "[Steam Auth Status] Failed to check refresh token - credentials may not be readable");
                 hasRefreshToken = false;
             }
 
@@ -800,9 +801,17 @@ public class ManagementController : ControllerBase
 
             if (result.Success)
             {
-                // Store auth state
+                // Store auth state (mode and username)
                 _stateService.SetSteamAuthMode("authenticated");
                 _stateService.SetSteamUsername(request.Username);
+
+                // Refresh token is saved by SteamKit2Service during authentication
+                // Verify it was saved correctly (log warning if missing)
+                var hasToken = _stateService.HasSteamRefreshToken();
+                if (!hasToken)
+                {
+                    _logger.LogWarning("[Steam Login] Refresh token was not saved! Steam auth may not persist for user: {Username}", request.Username);
+                }
 
                 // Conditionally trigger full PICS rebuild based on user preference
                 if (request.AutoStartPicsRebuild)
