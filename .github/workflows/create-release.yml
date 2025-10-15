@@ -73,11 +73,19 @@ jobs:
         run: |
           VERSION="${{ github.event.inputs.version }}"
 
-          # Check if RELEASE_NOTES.md exists, otherwise use default notes
+          # Check for release notes file (case-insensitive)
+          RELEASE_NOTES_FILE=""
           if [ -f "RELEASE_NOTES.md" ]; then
+            RELEASE_NOTES_FILE="RELEASE_NOTES.md"
+          elif [ -f "release_notes.md" ]; then
+            RELEASE_NOTES_FILE="release_notes.md"
+          fi
+
+          # Create release with notes file if it exists, otherwise use default notes
+          if [ -n "$RELEASE_NOTES_FILE" ]; then
             gh release create "v$VERSION" \
               --title "Release v$VERSION" \
-              --notes-file "RELEASE_NOTES.md" \
+              --notes-file "$RELEASE_NOTES_FILE" \
               --latest
           else
             gh release create "v$VERSION" \
@@ -86,10 +94,17 @@ jobs:
               --latest
           fi
 
-      - name: Delete RELEASE_NOTES.md if it exists
+      - name: Delete release notes file if it exists
         run: |
+          VERSION="${{ github.event.inputs.version }}"
+
+          # Check for and remove either case of release notes file
           if [ -f "RELEASE_NOTES.md" ]; then
             git rm RELEASE_NOTES.md
-            git commit -m "Remove release notes after v${{ github.event.inputs.version }} release"
+            git commit -m "Remove release notes after v$VERSION release"
+            git push origin main
+          elif [ -f "release_notes.md" ]; then
+            git rm release_notes.md
+            git commit -m "Remove release notes after v$VERSION release"
             git push origin main
           fi
