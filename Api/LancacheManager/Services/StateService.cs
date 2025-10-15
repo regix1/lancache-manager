@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace LancacheManager.Services;
 
@@ -11,19 +12,23 @@ public class StateService
     private readonly ILogger<StateService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly SecureStateEncryptionService _encryption;
+    private readonly SteamAuthStorageService _steamAuthStorage;
     private readonly string _stateFilePath;
     private readonly object _lock = new object();
     private AppState? _cachedState;
     private int _consecutiveFailures = 0;
+    private bool _migrationAttempted = false;
 
     public StateService(
         ILogger<StateService> logger,
         IPathResolver pathResolver,
-        SecureStateEncryptionService encryption)
+        SecureStateEncryptionService encryption,
+        SteamAuthStorageService steamAuthStorage)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _encryption = encryption;
+        _steamAuthStorage = steamAuthStorage;
         _stateFilePath = Path.Combine(_pathResolver.GetDataDirectory(), "state.json");
     }
 
@@ -39,10 +44,11 @@ public class StateService
         public bool CrawlIncrementalMode { get; set; } = true; // Default to incremental scans
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
-        public DateTime? LastDataLoadTime { get; set; }
-        public int LastDataMappingCount { get; set; } = 0;
         public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
-        public SteamAuthState SteamAuth { get; set; } = new();
+
+        // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
+        // This property is kept temporarily for backward compatibility during migration
+        public SteamAuthState? SteamAuth { get; set; }
     }
 
     public class SteamAuthState
@@ -50,7 +56,7 @@ public class StateService
         public string Mode { get; set; } = "anonymous"; // "anonymous" or "authenticated"
         public string? Username { get; set; }
         public string? RefreshToken { get; set; } // Decrypted in memory, encrypted in storage
-        public string? GuardData { get; set; } // Decrypted in memory, encrypted in storage
+        // NOTE: GuardData removed - modern Steam auth uses refresh tokens only
         public DateTime? LastAuthenticated { get; set; }
     }
 
@@ -69,10 +75,12 @@ public class StateService
         public bool CrawlIncrementalMode { get; set; } = true;
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
-        public DateTime? LastDataLoadTime { get; set; }
-        public int LastDataMappingCount { get; set; } = 0;
         public bool HasProcessedLogs { get; set; } = false;
-        public SteamAuthState SteamAuth { get; set; } = new(); // Contains encrypted tokens
+
+        // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
+        // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public SteamAuthState? SteamAuth { get; set; }
     }
 
     public class LogProcessingState
@@ -141,6 +149,29 @@ public class StateService
                     // Convert persisted state to app state, decrypting sensitive fields
                     _cachedState = ConvertFromPersistedState(persisted);
                     CleanupStaleOperations(_cachedState);
+
+                    // Migrate Steam auth data to separate file (one-time migration)
+                    if (!_migrationAttempted)
+                    {
+                        _steamAuthStorage.MigrateFromStateJson(_cachedState.SteamAuth);
+                        _migrationAttempted = true;
+
+                        // Always clear Steam auth from main state after migration attempt
+                        // (Steam auth now lives in separate file: data/steam_auth/credentials.json)
+                        // Setting to null will exclude it from JSON serialization
+                        var hadSteamAuth = _cachedState.SteamAuth != null &&
+                                          (_cachedState.SteamAuth.RefreshToken != null ||
+                                           _cachedState.SteamAuth.Mode != "anonymous" ||
+                                           !string.IsNullOrEmpty(_cachedState.SteamAuth.Username));
+
+                        if (hadSteamAuth)
+                        {
+                            _logger.LogInformation("Clearing Steam auth from state.json after migration to separate file");
+                        }
+
+                        _cachedState.SteamAuth = null;
+                        SaveState(_cachedState);
+                    }
                 }
                 else
                 {
@@ -287,11 +318,6 @@ public class StateService
         UpdateState(state =>
         {
             state.HasDataLoaded = loaded;
-            if (loaded)
-            {
-                state.LastDataLoadTime = DateTime.UtcNow;
-                state.LastDataMappingCount = mappingCount;
-            }
         });
     }
 
@@ -446,18 +472,16 @@ public class StateService
             CrawlIncrementalMode = persisted.CrawlIncrementalMode,
             LastUpdated = persisted.LastUpdated,
             HasDataLoaded = persisted.HasDataLoaded,
-            LastDataLoadTime = persisted.LastDataLoadTime,
-            LastDataMappingCount = persisted.LastDataMappingCount,
             HasProcessedLogs = persisted.HasProcessedLogs,
-            SteamAuth = new SteamAuthState
+            // LEGACY: Only load SteamAuth if present (for migration from old state.json)
+            SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
                 Mode = persisted.SteamAuth.Mode,
                 Username = persisted.SteamAuth.Username,
-                // Decrypt sensitive fields
+                // Decrypt sensitive fields (GuardData not used in modern auth)
                 RefreshToken = _encryption.Decrypt(persisted.SteamAuth.RefreshToken),
-                GuardData = _encryption.Decrypt(persisted.SteamAuth.GuardData),
                 LastAuthenticated = persisted.SteamAuth.LastAuthenticated
-            }
+            } : null
         };
 
         return state;
@@ -480,18 +504,17 @@ public class StateService
             CrawlIncrementalMode = state.CrawlIncrementalMode,
             LastUpdated = state.LastUpdated,
             HasDataLoaded = state.HasDataLoaded,
-            LastDataLoadTime = state.LastDataLoadTime,
-            LastDataMappingCount = state.LastDataMappingCount,
             HasProcessedLogs = state.HasProcessedLogs,
-            SteamAuth = new SteamAuthState
+            // LEGACY: Only persist SteamAuth if not null (will be null after migration)
+            // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
+            SteamAuth = state.SteamAuth != null ? new SteamAuthState
             {
                 Mode = state.SteamAuth.Mode,
                 Username = state.SteamAuth.Username,
-                // Encrypt sensitive fields
+                // Encrypt sensitive fields (GuardData not used in modern auth)
                 RefreshToken = _encryption.Encrypt(state.SteamAuth.RefreshToken),
-                GuardData = _encryption.Encrypt(state.SteamAuth.GuardData),
                 LastAuthenticated = state.SteamAuth.LastAuthenticated
-            }
+            } : null
         };
 
         return persisted;
@@ -520,56 +543,49 @@ public class StateService
         }
     }
 
-    // Steam Authentication Methods
+    // Steam Authentication Methods - now delegate to SteamAuthStorageService
     public string? GetSteamAuthMode()
     {
-        return GetState().SteamAuth.Mode;
+        return _steamAuthStorage.GetSteamAuthData().Mode;
     }
 
     public void SetSteamAuthMode(string mode)
     {
-        UpdateState(state => state.SteamAuth.Mode = mode);
+        _steamAuthStorage.UpdateSteamAuthData(data => data.Mode = mode);
     }
 
     public string? GetSteamUsername()
     {
-        return GetState().SteamAuth.Username;
+        return _steamAuthStorage.GetSteamAuthData().Username;
     }
 
     public void SetSteamUsername(string? username)
     {
-        UpdateState(state => state.SteamAuth.Username = username);
+        _steamAuthStorage.UpdateSteamAuthData(data => data.Username = username);
     }
 
     public string? GetSteamRefreshToken()
     {
-        return GetState().SteamAuth.RefreshToken;
+        return _steamAuthStorage.GetSteamAuthData().RefreshToken;
     }
 
     public void SetSteamRefreshToken(string? token)
     {
-        UpdateState(state =>
+        _steamAuthStorage.UpdateSteamAuthData(data =>
         {
-            state.SteamAuth.RefreshToken = token;
+            data.RefreshToken = token;
             if (token != null)
             {
-                state.SteamAuth.LastAuthenticated = DateTime.UtcNow;
+                data.LastAuthenticated = DateTime.UtcNow;
             }
         });
     }
 
     public bool HasSteamRefreshToken()
     {
-        return !string.IsNullOrEmpty(GetState().SteamAuth.RefreshToken);
+        return !string.IsNullOrEmpty(_steamAuthStorage.GetSteamAuthData().RefreshToken);
     }
 
-    public string? GetSteamGuardData()
-    {
-        return GetState().SteamAuth.GuardData;
-    }
-
-    public void SetSteamGuardData(string? guardData)
-    {
-        UpdateState(state => state.SteamAuth.GuardData = guardData);
-    }
+    // NOTE: GuardData methods removed - modern Steam auth uses refresh tokens only
+    // GetSteamGuardData() and SetSteamGuardData() are no longer needed
 }

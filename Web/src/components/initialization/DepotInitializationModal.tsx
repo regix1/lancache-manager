@@ -57,6 +57,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     // Restore from localStorage
     return localStorage.getItem('initializationDownloadStatus') || null;
   });
+  const [usingSteamAuth, setUsingSteamAuth] = useState<boolean>(() => {
+    // Restore from localStorage
+    const stored = localStorage.getItem('usingSteamAuth');
+    return stored === 'true';
+  });
 
   // Persist current step to localStorage whenever it changes
   useEffect(() => {
@@ -84,12 +89,18 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   }, [downloadStatus]);
 
+  // Persist usingSteamAuth to localStorage
+  useEffect(() => {
+    localStorage.setItem('usingSteamAuth', usingSteamAuth.toString());
+  }, [usingSteamAuth]);
+
   // Wrapper to clear localStorage and call onInitialized
   const handleInitializationComplete = () => {
     localStorage.removeItem('initializationCurrentStep');
     localStorage.removeItem('initializationInProgress');
     localStorage.removeItem('initializationMethod');
     localStorage.removeItem('initializationDownloadStatus');
+    localStorage.removeItem('usingSteamAuth');
     onInitialized();
   };
 
@@ -116,16 +127,37 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           localStorage.removeItem('initializationMethod');
           localStorage.removeItem('initializationDownloadStatus');
           localStorage.removeItem('initializationFlowActive');
+          localStorage.removeItem('usingSteamAuth');
           setCurrentStep('api-key');
           return;
         }
 
         console.log('[DepotInit] Restoring to step:', storedStep);
 
-        // Check if we were in the middle of a download when page reloaded
+        // Explicitly set the current step to the stored step (in case it wasn't set during initialization)
+        setCurrentStep(storedStep as InitStep);
+
+        // Restore other state variables from localStorage
         const storedMethod = localStorage.getItem('initializationMethod');
         const storedInProgress = localStorage.getItem('initializationInProgress');
+        const storedDownloadStatus = localStorage.getItem('initializationDownloadStatus');
+        const storedUsingSteamAuth = localStorage.getItem('usingSteamAuth');
 
+        // Restore state
+        if (storedMethod) {
+          setSelectedMethod(storedMethod as 'cloud' | 'generate' | 'continue');
+        }
+        if (storedInProgress === 'true') {
+          setInitializing(true);
+        }
+        if (storedDownloadStatus) {
+          setDownloadStatus(storedDownloadStatus);
+        }
+        if (storedUsingSteamAuth === 'true') {
+          setUsingSteamAuth(true);
+        }
+
+        // Check if we were in the middle of a download when page reloaded
         if ((storedStep === 'depot-init' || storedStep === 'steam-auth') && storedMethod === 'cloud' && storedInProgress === 'true') {
           console.log('[DepotInit] Download was in progress, checking completion status...');
           // Check if download actually completed while page was reloading
@@ -308,8 +340,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       // Step 2: Import into database
       setDownloadStatus('Import complete! Finalizing setup...');
-      console.log('[DepotInit] Download complete, marking setup as completed');
-      await markSetupCompleted();
+      console.log('[DepotInit] Download complete');
 
       // Step 3: Move to next step
       setDownloadStatus('Success! Moving to next step...');
@@ -361,8 +392,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         return;
       }
 
-      console.log('[DepotInit] Marking setup completed');
-      await markSetupCompleted();
       console.log('[DepotInit] Changing step to pics-progress');
       setInitializing(false);
       setSelectedMethod(null);
@@ -443,9 +472,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         }
       }
 
-      console.log('[DepotInit] Marking setup completed');
-      await markSetupCompleted();
-
       setDownloadStatus('Success! Moving to next step...');
       await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -473,7 +499,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   };
 
   const renderStep = () => {
-    console.log('[DepotInit] Rendering step:', currentStep);
     switch (currentStep) {
       case 'api-key':
         return (
@@ -492,7 +517,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       case 'steam-auth':
         return (
           <SteamPicsAuthStep
-            onComplete={async () => {
+            onComplete={async (usingSteam: boolean) => {
+              setUsingSteamAuth(usingSteam);
               await checkPicsDataStatus();
               setCurrentStep('depot-init');
             }}
@@ -506,9 +532,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             initializing={initializing}
             selectedMethod={selectedMethod}
             downloadStatus={downloadStatus}
+            usingSteamAuth={usingSteamAuth}
             onDownloadPrecreated={handleDownloadPrecreated}
             onGenerateOwn={handleGenerateOwn}
             onContinue={handleContinue}
+            onBackToSteamAuth={() => {
+              setUsingSteamAuth(false);
+              setCurrentStep('steam-auth');
+            }}
           />
         );
 

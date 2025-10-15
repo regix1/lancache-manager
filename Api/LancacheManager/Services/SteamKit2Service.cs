@@ -604,14 +604,14 @@ public class SteamKit2Service : IHostedService, IDisposable
 
                 try
                 {
-                    _logger.LogDebug("Processing batch {BatchNum}/{TotalBatches} with {AppCount} apps",
+                    _logger.LogTrace("Processing batch {BatchNum}/{TotalBatches} with {AppCount} apps",
                         _processedBatches + 1, allBatches.Count, batch.Length);
 
                     // Acquire access tokens for protected appinfo entries when available
                     var tokensJob = _steamApps!.PICSGetAccessTokens(batch, Enumerable.Empty<uint>());
                     var tokens = await WaitForCallbackAsync(tokensJob, ct);
 
-                    _logger.LogDebug("Received {GrantedTokens} granted tokens and {DeniedTokens} denied tokens for batch",
+                    _logger.LogTrace("Received {GrantedTokens} granted tokens and {DeniedTokens} denied tokens for batch",
                         tokens.AppTokens.Count, tokens.AppTokensDenied.Count);
 
                     // Prepare the product info request with tokens attached when needed
@@ -693,14 +693,14 @@ public class SteamKit2Service : IHostedService, IDisposable
                         }
                     }
 
-                    _logger.LogDebug(
+                    _logger.LogTrace(
                         "Received product info for {Apps} apps, {Unknown} unknown across {Parts} parts",
                         appsInThisBatch, unknownInThisBatch, productCallbacks.Count);
 
                     _processedBatches++;
 
-                    // More frequent progress updates for better visibility
-                    if (_processedBatches % 5 == 0)
+                    // Progress updates every 50 batches instead of every 5
+                    if (_processedBatches % 50 == 0)
                     {
                         _logger.LogInformation(
                             "Processed {Processed}/{Total} batches ({Percent:F1}%); depot mappings found={Mappings}",
@@ -1897,12 +1897,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                 throw;
             }
 
-            // Store guard data if provided
-            if (pollResponse?.NewGuardData != null)
-            {
-                _stateService.SetSteamGuardData(pollResponse.NewGuardData);
-                _logger.LogInformation("Saved Steam Guard data for future logins");
-            }
+            // NOTE: NewGuardData is not stored - modern Steam auth uses refresh tokens only
+            // The NewGuardData field is legacy and usually null/empty with modern authentication
 
             // Ensure pollResponse is not null
             if (pollResponse == null)
@@ -1923,7 +1919,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                 ShouldRememberPassword = true
             });
 
-            await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
+            // Use longer timeout for authentication (Steam servers can be slow)
+            await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
 
             return new AuthenticationResult
             {
@@ -1969,9 +1966,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                 }
             }
 
-            // Clear stored tokens
+            // Clear stored refresh token (GuardData not used in modern auth)
             _stateService.SetSteamRefreshToken(null);
-            _stateService.SetSteamGuardData(null);
 
             // Disconnect from Steam
             _intentionalDisconnect = true;

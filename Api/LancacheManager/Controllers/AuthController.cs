@@ -16,6 +16,7 @@ public class AuthController : ControllerBase
     private readonly AppDbContext _dbContext;
     private readonly StateService _stateService;
     private readonly SteamKit2Service _steamKit2Service;
+    private readonly SteamAuthStorageService _steamAuthStorage;
 
     public AuthController(
         ApiKeyService apiKeyService,
@@ -24,7 +25,8 @@ public class AuthController : ControllerBase
         ILogger<AuthController> logger,
         AppDbContext dbContext,
         StateService stateService,
-        SteamKit2Service steamKit2Service)
+        SteamKit2Service steamKit2Service,
+        SteamAuthStorageService steamAuthStorage)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -33,6 +35,7 @@ public class AuthController : ControllerBase
         _dbContext = dbContext;
         _stateService = stateService;
         _steamKit2Service = steamKit2Service;
+        _steamAuthStorage = steamAuthStorage;
     }
 
     /// <summary>
@@ -253,14 +256,9 @@ public class AuthController : ControllerBase
                 // Disconnect the active Steam session
                 await _steamKit2Service.LogoutAsync();
 
-                // Clear tokens from state
-                _stateService.UpdateState(state =>
-                {
-                    state.SteamAuth.Mode = "anonymous";
-                    state.SteamAuth.RefreshToken = null;
-                    state.SteamAuth.GuardData = null;
-                    state.SteamAuth.Username = null;
-                });
+                // Clear tokens from Steam auth file (using Microsoft Data Protection API)
+                _steamAuthStorage.ClearSteamAuthData();
+                _logger.LogInformation("Cleared Steam auth data from encrypted file (data/steam_auth/credentials.json)");
             }
 
             var (oldKey, newKey) = _apiKeyService.ForceRegenerateApiKey();

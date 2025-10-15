@@ -84,6 +84,9 @@ if (OperatingSystem.IsWindows())
 // Register encryption service for state.json sensitive fields
 builder.Services.AddSingleton<SecureStateEncryptionService>();
 
+// Register Steam authentication storage service (separate encrypted file with Microsoft Data Protection API)
+builder.Services.AddSingleton<SteamAuthStorageService>();
+
 // Database configuration (now can use IPathResolver)
 var dbPathInitialized = false;
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>

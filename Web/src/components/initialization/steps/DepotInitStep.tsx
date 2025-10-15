@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Database, Loader } from 'lucide-react';
+import { Cloud, Database, Loader, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 
 interface DepotInitStepProps {
@@ -7,9 +7,11 @@ interface DepotInitStepProps {
   initializing: boolean;
   selectedMethod: 'cloud' | 'generate' | 'continue' | null;
   downloadStatus?: string | null;
+  usingSteamAuth?: boolean;
   onDownloadPrecreated: () => void;
   onGenerateOwn: () => void;
   onContinue: () => void;
+  onBackToSteamAuth?: () => void;
 }
 
 export const DepotInitStep: React.FC<DepotInitStepProps> = ({
@@ -17,9 +19,11 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   initializing,
   selectedMethod,
   downloadStatus,
+  usingSteamAuth = false,
   onDownloadPrecreated,
   onGenerateOwn,
-  onContinue
+  onContinue,
+  onBackToSteamAuth
 }) => {
   const shouldShowContinueOption = () => {
     if (!picsData) return false;
@@ -32,6 +36,38 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         To identify Steam games from your cache logs, depot mapping data is required.
         Choose how you'd like to initialize this data:
       </p>
+
+      {/* Steam Auth Warning Banner */}
+      {usingSteamAuth && (
+        <div className="mb-6 p-4 rounded-lg border-2"
+             style={{
+               backgroundColor: 'var(--theme-warning-bg)',
+               borderColor: 'var(--theme-warning)',
+               color: 'var(--theme-warning-text)'
+             }}>
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold mb-1">Steam Account Authenticated</p>
+              <p className="text-sm mb-3">
+                Since you logged in with your Steam account, the GitHub download option is unavailable.
+                Your personalized depot data will be generated using your Steam login, which provides
+                access to all games including playtests and restricted content.
+              </p>
+              {onBackToSteamAuth && (
+                <Button
+                  size="sm"
+                  variant="default"
+                  leftSection={<ArrowLeft className="w-3 h-3" />}
+                  onClick={onBackToSteamAuth}
+                >
+                  Change Authentication Method
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Download Status Display */}
       {downloadStatus && (
@@ -106,11 +142,11 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             size="sm"
             leftSection={initializing && selectedMethod === 'cloud' ? <Loader className="w-3 h-3 animate-spin" /> : <Cloud className="w-3 h-3" />}
             onClick={onDownloadPrecreated}
-            disabled={initializing}
+            disabled={initializing || usingSteamAuth}
             fullWidth
             className="mt-auto"
           >
-            {initializing && selectedMethod === 'cloud' ? 'Downloading...' : 'Download Pre-created'}
+            {usingSteamAuth ? 'Unavailable (Steam Login)' : initializing && selectedMethod === 'cloud' ? 'Downloading...' : 'Download Pre-created'}
           </Button>
         </div>
 

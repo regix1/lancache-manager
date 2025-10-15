@@ -87,63 +87,66 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
 
   return (
     <div className="space-y-6">
-      <div className="text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-             style={{ backgroundColor: isComplete ? 'var(--theme-success)/10' : 'var(--theme-primary)/10' }}>
-          {isComplete ? (
-            <CheckCircle size={32} style={{ color: 'var(--theme-success)' }} />
-          ) : (
-            <Database size={32} style={{ color: 'var(--theme-primary)' }} className="animate-pulse" />
-          )}
-        </div>
-        <h2 className="text-2xl font-bold text-themed-primary mb-2">
-          {isComplete ? 'PICS Data Ready!' : 'Building Steam Depot Mappings'}
-        </h2>
-        <p className="text-themed-secondary">
-          {isComplete
-            ? 'Depot mappings successfully created'
-            : 'Fetching and processing depot information from Steam...'}
-        </p>
-      </div>
-
-      {/* Status Display */}
-      <div className="space-y-4">
-        {/* Status Box */}
-        <div className="p-6 rounded-lg text-center"
+      {/* Modern Card Layout */}
+      <div className="rounded-xl overflow-hidden border"
+           style={{
+             backgroundColor: 'var(--theme-card-bg)',
+             borderColor: 'var(--theme-card-border)'
+           }}>
+        {/* Gradient Banner with Icon */}
+        <div className="relative h-32 flex items-center justify-center"
              style={{
-               backgroundColor: isComplete ? 'var(--theme-success-bg)' : 'var(--theme-bg-tertiary)',
-               borderColor: isComplete ? 'var(--theme-success)' : 'var(--theme-border)',
-               color: isComplete ? 'var(--theme-success-text)' : 'var(--theme-primary)'
+               background: isComplete
+                 ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
+                 : 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
              }}>
           {isComplete ? (
-            <>
-              <CheckCircle className="w-12 h-12 mx-auto mb-3" style={{ color: 'var(--theme-success)' }} />
-              <p className="text-lg font-semibold mb-2">Setup Complete!</p>
-              <p className="text-sm opacity-90">
-                {progress?.depotMappingsFound || progress?.depotsFound ? `${(progress.depotMappingsFound || progress.depotsFound || 0).toLocaleString()} depot mappings ready` : 'Depot mappings are ready'}
-              </p>
-            </>
+            <CheckCircle size={64} className="text-white" />
           ) : (
-            <>
-              <div className="mb-4">
-                <Database size={32} className="mx-auto animate-pulse" style={{ color: 'var(--theme-primary)' }} />
-              </div>
-              <p className="text-lg font-semibold mb-2">
+            <Database size={64} className="text-white animate-pulse" />
+          )}
+        </div>
+
+        {/* Content Section */}
+        <div className="p-8">
+          <h2 className="text-2xl font-bold text-themed-primary mb-2 text-center">
+            {isComplete ? 'PICS Data Ready!' : 'Building Steam Depot Mappings'}
+          </h2>
+          <p className="text-themed-secondary text-center mb-6">
+            {isComplete
+              ? 'Depot mappings successfully created'
+              : 'Fetching and processing depot information from Steam...'}
+          </p>
+
+          {/* Status Display */}
+          {isComplete ? (
+            <div className="text-center py-4">
+              <p className="text-lg font-semibold text-themed-primary mb-2">Setup Complete!</p>
+              <p className="text-sm text-themed-secondary">
+                {progress?.depotMappingsFound || progress?.depotsFound
+                  ? `${(progress.depotMappingsFound || progress.depotsFound || 0).toLocaleString()} depot mappings ready`
+                  : 'Depot mappings are ready'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-lg font-semibold text-themed-primary text-center">
                 {getStatusMessage()}
               </p>
 
               {/* Show app count if available and not in initialization */}
               {!isInitializing() &&
                ((progress?.processedApps !== undefined && progress?.totalApps !== undefined && progress.totalApps > 0) ||
-                (progress?.appsProcessed !== undefined && progress?.totalApps !== undefined && progress.totalApps > 0)) ? (
-                <p className="text-sm opacity-75 mb-4">
+                (progress?.appsProcessed !== undefined && progress?.totalApps !== undefined && progress.totalApps > 0)) && (
+                <p className="text-sm text-themed-secondary text-center">
                   {(progress?.processedApps || progress?.appsProcessed || 0).toLocaleString()} / {progress.totalApps.toLocaleString()} apps processed
                 </p>
-              ) : null}
+              )}
 
-              {/* Progress Bar - always show, even if 0% */}
+              {/* Progress Bar */}
               <div className="mt-4">
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                <div className="w-full rounded-full h-3 overflow-hidden"
+                     style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
                   <div
                     className="h-full transition-all duration-300 ease-out rounded-full"
                     style={{
@@ -152,42 +155,43 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
                     }}
                   />
                 </div>
-                <p className="text-sm opacity-75 mt-2">
+                <p className="text-sm text-themed-secondary text-center mt-2">
                   {Math.round(progress?.progressPercent || 0)}%
                   {isInitializing() && ' - Preparing...'}
                 </p>
               </div>
-            </>
+            </div>
+          )}
+
+          {/* Info Box */}
+          {!isComplete && (
+            <div className="mt-6 p-4 rounded-lg"
+                 style={{
+                   backgroundColor: 'var(--theme-info-bg)',
+                   color: 'var(--theme-info-text)'
+                 }}>
+              <p className="text-sm text-center">
+                Building depot mappings from Steam. This typically takes 1-5 minutes depending on your connection.
+              </p>
+            </div>
+          )}
+
+          {/* Continue Button */}
+          {isComplete && (
+            <div className="mt-6">
+              <Button
+                variant="filled"
+                color="green"
+                leftSection={<CheckCircle className="w-4 h-4" />}
+                onClick={onComplete}
+                fullWidth
+              >
+                Continue
+              </Button>
+            </div>
           )}
         </div>
-
-        {/* Info Text */}
-        {!isComplete && (
-          <div className="p-4 rounded-lg"
-               style={{
-                 backgroundColor: 'var(--theme-info-bg)',
-                 borderColor: 'var(--theme-info)',
-                 color: 'var(--theme-info-text)'
-               }}>
-            <p className="text-sm text-center">
-              Building depot mappings from Steam. This typically takes 1-5 minutes depending on your connection.
-            </p>
-          </div>
-        )}
       </div>
-
-      {/* Manual Continue Button (only show if complete and not auto-continuing) */}
-      {isComplete && (
-        <Button
-          variant="filled"
-          color="green"
-          leftSection={<CheckCircle className="w-4 h-4" />}
-          onClick={onComplete}
-          fullWidth
-        >
-          Continue
-        </Button>
-      )}
     </div>
   );
 };

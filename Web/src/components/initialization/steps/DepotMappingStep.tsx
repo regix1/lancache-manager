@@ -152,136 +152,167 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
   return (
     <div className="space-y-6">
-      <div className="text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-             style={{ backgroundColor: complete ? 'var(--theme-success)/10' : 'var(--theme-primary)/10' }}>
+      {/* Modern Card Layout */}
+      <div className="rounded-xl overflow-hidden border"
+           style={{
+             backgroundColor: 'var(--theme-card-bg)',
+             borderColor: 'var(--theme-card-border)'
+           }}>
+        {/* Gradient Banner with Icon */}
+        <div className="relative h-32 flex items-center justify-center"
+             style={{
+               background: complete
+                 ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
+                 : mapping
+                   ? 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
+                   : 'linear-gradient(135deg, var(--theme-info) 0%, var(--theme-info-dark, var(--theme-info)) 100%)'
+             }}>
           {complete ? (
-            <CheckCircle size={32} style={{ color: 'var(--theme-success)' }} />
+            <CheckCircle size={64} className="text-white" />
           ) : mapping ? (
-            <Loader size={32} style={{ color: 'var(--theme-primary)' }} className="animate-spin" />
+            <Loader size={64} className="text-white animate-spin" />
           ) : (
-            <Map size={32} style={{ color: 'var(--theme-primary)' }} />
+            <Map size={64} className="text-white" />
           )}
         </div>
-        <h2 className="text-2xl font-bold text-themed-primary mb-2">
-          {complete ? 'Setup Complete!' : 'Map Game Depots'}
-        </h2>
-        <p className="text-themed-secondary">
-          {complete
-            ? 'All downloads have been mapped to games'
-            : 'Would you like to map depot IDs to game names now?'}
-        </p>
-      </div>
 
-      {!mapping && !complete && (
-        <div className="p-4 rounded-lg"
-             style={{
-               backgroundColor: 'var(--theme-info-bg)',
-               borderColor: 'var(--theme-info)',
-               color: 'var(--theme-info-text)'
-             }}>
-          <p className="text-sm">
-            This step will run an incremental PICS scan to update depot mappings, then apply them to your downloads.
-            This helps you see game names instead of depot IDs.
+        {/* Content Section */}
+        <div className="p-8">
+          <h2 className="text-2xl font-bold text-themed-primary mb-2 text-center">
+            {complete ? 'Setup Complete!' : 'Map Game Depots'}
+          </h2>
+          <p className="text-themed-secondary text-center mb-6">
+            {complete
+              ? 'All downloads have been mapped to games'
+              : 'Would you like to map depot IDs to game names now?'}
           </p>
-          <p className="text-sm mt-2">
-            <strong>You can skip this step and map depots later from the Management tab.</strong>
-          </p>
-        </div>
-      )}
 
-      {/* Progress Display */}
-      {mapping && !complete && (
-        <div className="space-y-4">
-          <div className="p-4 rounded-lg text-center"
-               style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
-            <Loader className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: 'var(--theme-primary)' }} />
-            <p className="text-sm text-themed-primary font-semibold">
-              {statusMessage || 'Processing...'}
-            </p>
-            <p className="text-xs text-themed-muted mt-1">
-              {progress.toFixed(0)}% complete
-            </p>
-          </div>
-        </div>
-      )}
-
-      {complete && (
-        <div className="space-y-4">
-          <div className="p-4 rounded-lg"
-               style={{
-                 backgroundColor: 'var(--theme-success-bg)',
-                 borderColor: 'var(--theme-success)',
-                 color: 'var(--theme-success-text)'
-               }}>
-            <p className="text-sm flex items-center gap-2">
-              <CheckCircle className="w-4 h-4" />
-              Setup complete! Your Lancache Manager is ready to use.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 p-6 rounded-lg"
-               style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
-            <div className="text-center">
-              <h3 className="text-lg font-semibold text-themed-primary mb-2">What's Next?</h3>
-              <ul className="text-sm text-themed-secondary space-y-2 text-left max-w-md mx-auto">
-                <li>✓ PICS depot mappings updated</li>
-                <li>✓ Cache logs have been processed</li>
-                <li>✓ Downloads are mapped to games</li>
-                <li>→ View your dashboard to see cache statistics</li>
-                <li>→ Check the Downloads tab to see identified games</li>
-              </ul>
+          {/* Info Box (when not mapping and not complete) */}
+          {!mapping && !complete && (
+            <div className="p-4 rounded-lg mb-6"
+                 style={{
+                   backgroundColor: 'var(--theme-info-bg)',
+                   color: 'var(--theme-info-text)'
+                 }}>
+              <p className="text-sm mb-2">
+                This step will run an incremental PICS scan to update depot mappings, then apply them to your downloads.
+                This helps you see game names instead of depot IDs.
+              </p>
+              <p className="text-sm font-semibold">
+                You can skip this step and map depots later from the Management tab.
+              </p>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {error && (
-        <div className="p-4 rounded-lg"
-             style={{
-               backgroundColor: 'var(--theme-error-bg)',
-               borderColor: 'var(--theme-error)',
-               color: 'var(--theme-error-text)'
-             }}>
-          <p className="text-sm">{error}</p>
-        </div>
-      )}
+          {/* Progress Display */}
+          {mapping && !complete && (
+            <div className="space-y-4 mb-6">
+              <div className="p-6 rounded-lg text-center"
+                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+                <Loader className="w-12 h-12 animate-spin mx-auto mb-3" style={{ color: 'var(--theme-primary)' }} />
+                <p className="text-lg font-semibold text-themed-primary mb-1">
+                  {statusMessage || 'Processing...'}
+                </p>
+                <p className="text-sm text-themed-secondary">
+                  {progress.toFixed(0)}% complete
+                </p>
+              </div>
+            </div>
+          )}
 
-      {/* Action Buttons */}
-      {!mapping && !complete && (
-        <div className="flex gap-3">
-          <Button
-            variant="filled"
-            color="blue"
-            leftSection={<Map className="w-4 h-4" />}
-            onClick={startDepotMapping}
-            fullWidth
-          >
-            Scan & Map Depots
-          </Button>
-          <Button
-            variant="default"
-            leftSection={<SkipForward className="w-4 h-4" />}
-            onClick={handleSkip}
-            fullWidth
-          >
-            Skip for Now
-          </Button>
-        </div>
-      )}
+          {/* Completion Summary */}
+          {complete && (
+            <div className="space-y-4 mb-6">
+              <div className="p-4 rounded-lg"
+                   style={{
+                     backgroundColor: 'var(--theme-success-bg)',
+                     color: 'var(--theme-success-text)'
+                   }}>
+                <p className="text-sm flex items-center justify-center gap-2">
+                  <CheckCircle className="w-4 h-4" />
+                  Setup complete! Your Lancache Manager is ready to use.
+                </p>
+              </div>
 
-      {complete && (
-        <Button
-          variant="filled"
-          color="green"
-          size="lg"
-          leftSection={<Home className="w-5 h-5" />}
-          onClick={onComplete}
-          fullWidth
-        >
-          Go to Dashboard
-        </Button>
-      )}
+              <div className="p-6 rounded-lg"
+                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+                <div className="text-center">
+                  <h3 className="text-lg font-semibold text-themed-primary mb-3">What's Next?</h3>
+                  <ul className="text-sm text-themed-secondary space-y-2 text-left max-w-md mx-auto">
+                    <li className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                      <span>PICS depot mappings updated</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                      <span>Cache logs have been processed</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                      <span>Downloads are mapped to games</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Home className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-primary)' }} />
+                      <span>View your dashboard to see cache statistics</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Home className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-primary)' }} />
+                      <span>Check the Downloads tab to see identified games</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="p-4 rounded-lg mb-6"
+                 style={{
+                   backgroundColor: 'var(--theme-error-bg)',
+                   color: 'var(--theme-error-text)'
+                 }}>
+              <p className="text-sm">{error}</p>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          {!mapping && !complete && (
+            <div className="flex gap-3">
+              <Button
+                variant="filled"
+                color="blue"
+                leftSection={<Map className="w-4 h-4" />}
+                onClick={startDepotMapping}
+                fullWidth
+              >
+                Scan & Map Depots
+              </Button>
+              <Button
+                variant="default"
+                leftSection={<SkipForward className="w-4 h-4" />}
+                onClick={handleSkip}
+                fullWidth
+              >
+                Skip for Now
+              </Button>
+            </div>
+          )}
+
+          {complete && (
+            <Button
+              variant="filled"
+              color="green"
+              size="lg"
+              leftSection={<Home className="w-5 h-5" />}
+              onClick={onComplete}
+              fullWidth
+            >
+              Go to Dashboard
+            </Button>
+          )}
+        </div>
+      </div>
 
       {/* Full Scan Required Modal */}
       {changeGapWarning?.show && (

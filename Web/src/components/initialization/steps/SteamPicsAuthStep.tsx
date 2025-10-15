@@ -6,7 +6,7 @@ import { Modal } from '@components/ui/Modal';
 import ApiService from '@services/api.service';
 
 interface SteamPicsAuthStepProps {
-  onComplete: () => void;
+  onComplete: (usingSteamAuth: boolean) => void;
 }
 
 type AuthMode = 'anonymous' | 'account';
@@ -45,7 +45,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   };
 
   const handleContinueAnonymous = () => {
-    onComplete();
+    onComplete(false); // false = not using Steam auth
   };
 
   const handleAuthenticate = async () => {
@@ -114,8 +114,8 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         if (result.success) {
           setShowAuthModal(false);
           resetAuthForm();
-          // Continue to next step
-          onComplete();
+          // Continue to next step - true = using Steam auth
+          onComplete(true);
         } else {
           setWaitingForMobileConfirmation(false);
           setAuthError(result.message || 'Authentication failed');

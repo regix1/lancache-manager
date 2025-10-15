@@ -83,156 +83,170 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
 
   return (
     <div className="space-y-6">
-      <div className="text-center">
-        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-             style={{ backgroundColor: complete ? 'var(--theme-success)/10' : 'var(--theme-primary)/10' }}>
-          {complete ? (
-            <CheckCircle size={32} style={{ color: 'var(--theme-success)' }} />
-          ) : processing ? (
-            <Loader size={32} style={{ color: 'var(--theme-primary)' }} className="animate-spin" />
-          ) : (
-            <FileText size={32} style={{ color: 'var(--theme-primary)' }} />
-          )}
-        </div>
-        <h2 className="text-2xl font-bold text-themed-primary mb-2">
-          {complete ? 'Log Processing Complete!' : 'Process Cache Logs'}
-        </h2>
-        <p className="text-themed-secondary">
-          {complete
-            ? 'All cache logs have been processed'
-            : 'Would you like to process all cache logs now?'}
-        </p>
-      </div>
-
-      {!processing && !complete && (
-        <div className="p-4 rounded-lg"
+      {/* Modern Card Layout */}
+      <div className="rounded-xl overflow-hidden border"
+           style={{
+             backgroundColor: 'var(--theme-card-bg)',
+             borderColor: 'var(--theme-card-border)'
+           }}>
+        {/* Gradient Banner with Icon */}
+        <div className="relative h-32 flex items-center justify-center"
              style={{
-               backgroundColor: 'var(--theme-info-bg)',
-               borderColor: 'var(--theme-info)',
-               color: 'var(--theme-info-text)'
+               background: complete
+                 ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
+                 : processing
+                   ? 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
+                   : 'linear-gradient(135deg, var(--theme-info) 0%, var(--theme-info-dark, var(--theme-info)) 100%)'
              }}>
-          <p className="text-sm">
-            Processing cache logs will identify all downloads and games in your cache history.
-            This can take several minutes depending on the size of your logs.
-          </p>
-          <p className="text-sm mt-2">
-            <strong>You can skip this step and process logs later from the Management tab.</strong>
-          </p>
-        </div>
-      )}
-
-      {/* Progress Display */}
-      {processing && progress && !complete && (
-        <div className="space-y-4">
-          {/* Progress Bar */}
-          {progress.progress !== undefined && (
-            <div className="w-full bg-themed-border rounded-full h-3 overflow-hidden">
-              <div
-                className="h-full transition-all duration-500 ease-out"
-                style={{
-                  width: `${progress.progress}%`,
-                  backgroundColor: 'var(--theme-primary)'
-                }}
-              />
-            </div>
+          {complete ? (
+            <CheckCircle size={64} className="text-white" />
+          ) : processing ? (
+            <Loader size={64} className="text-white animate-spin" />
+          ) : (
+            <FileText size={64} className="text-white" />
           )}
+        </div>
 
-          {/* Status Info */}
-          <div className="grid grid-cols-2 gap-4 p-4 rounded-lg"
-               style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
-            <div>
-              <p className="text-xs text-themed-muted mb-1">Status</p>
-              <p className="text-sm font-semibold text-themed-primary">
-                {progress.status || 'Processing...'}
+        {/* Content Section */}
+        <div className="p-8">
+          <h2 className="text-2xl font-bold text-themed-primary mb-2 text-center">
+            {complete ? 'Log Processing Complete!' : 'Process Cache Logs'}
+          </h2>
+          <p className="text-themed-secondary text-center mb-6">
+            {complete
+              ? 'All cache logs have been processed'
+              : 'Would you like to process all cache logs now?'}
+          </p>
+
+          {/* Info Box (when not processing and not complete) */}
+          {!processing && !complete && (
+            <div className="p-4 rounded-lg mb-6"
+                 style={{
+                   backgroundColor: 'var(--theme-info-bg)',
+                   color: 'var(--theme-info-text)'
+                 }}>
+              <p className="text-sm mb-2">
+                Processing cache logs will identify all downloads and games in your cache history.
+                This can take several minutes depending on the size of your logs.
+              </p>
+              <p className="text-sm font-semibold">
+                You can skip this step and process logs later from the Management tab.
               </p>
             </div>
-            {progress.linesProcessed !== undefined && (
-              <div>
-                <p className="text-xs text-themed-muted mb-1">Lines Processed</p>
-                <p className="text-sm font-semibold text-themed-primary">
-                  {progress.linesProcessed.toLocaleString()}
-                </p>
+          )}
+
+          {/* Progress Display */}
+          {processing && progress && !complete && (
+            <div className="space-y-4 mb-6">
+              {/* Progress Bar */}
+              {progress.progress !== undefined && (
+                <div>
+                  <div className="w-full rounded-full h-3 overflow-hidden mb-2"
+                       style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+                    <div
+                      className="h-full transition-all duration-500 ease-out"
+                      style={{
+                        width: `${progress.progress}%`,
+                        backgroundColor: 'var(--theme-primary)'
+                      }}
+                    />
+                  </div>
+                  <p className="text-sm text-themed-secondary text-center">
+                    {progress.progress.toFixed(1)}% complete
+                  </p>
+                </div>
+              )}
+
+              {/* Status Info Grid */}
+              <div className="grid grid-cols-2 gap-4 p-4 rounded-lg"
+                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+                <div>
+                  <p className="text-xs text-themed-muted mb-1">Status</p>
+                  <p className="text-sm font-semibold text-themed-primary">
+                    {progress.status || 'Processing...'}
+                  </p>
+                </div>
+                {progress.linesProcessed !== undefined && (
+                  <div>
+                    <p className="text-xs text-themed-muted mb-1">Lines Processed</p>
+                    <p className="text-sm font-semibold text-themed-primary">
+                      {progress.linesProcessed.toLocaleString()}
+                    </p>
+                  </div>
+                )}
+                {progress.entriesProcessed !== undefined && (
+                  <div>
+                    <p className="text-xs text-themed-muted mb-1">Entries Processed</p>
+                    <p className="text-sm font-semibold text-themed-primary">
+                      {progress.entriesProcessed.toLocaleString()}
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
-            {progress.entriesProcessed !== undefined && (
-              <div>
-                <p className="text-xs text-themed-muted mb-1">Entries Processed</p>
-                <p className="text-sm font-semibold text-themed-primary">
-                  {progress.entriesProcessed.toLocaleString()}
-                </p>
-              </div>
-            )}
-            {progress.progress !== undefined && (
-              <div>
-                <p className="text-xs text-themed-muted mb-1">Completion</p>
-                <p className="text-sm font-semibold text-themed-primary">
-                  {progress.progress.toFixed(1)}%
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      {complete && (
-        <div className="p-4 rounded-lg"
-             style={{
-               backgroundColor: 'var(--theme-success-bg)',
-               borderColor: 'var(--theme-success)',
-               color: 'var(--theme-success-text)'
-             }}>
-          <p className="text-sm flex items-center gap-2">
-            <CheckCircle className="w-4 h-4" />
-            Log processing complete! Click Continue to proceed.
-          </p>
-        </div>
-      )}
+          {/* Success Message */}
+          {complete && (
+            <div className="p-4 rounded-lg mb-6"
+                 style={{
+                   backgroundColor: 'var(--theme-success-bg)',
+                   color: 'var(--theme-success-text)'
+                 }}>
+              <p className="text-sm flex items-center justify-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                Log processing complete! Click Continue to proceed.
+              </p>
+            </div>
+          )}
 
-      {error && (
-        <div className="p-4 rounded-lg"
-             style={{
-               backgroundColor: 'var(--theme-error-bg)',
-               borderColor: 'var(--theme-error)',
-               color: 'var(--theme-error-text)'
-             }}>
-          <p className="text-sm">{error}</p>
-        </div>
-      )}
+          {/* Error Message */}
+          {error && (
+            <div className="p-4 rounded-lg mb-6"
+                 style={{
+                   backgroundColor: 'var(--theme-error-bg)',
+                   color: 'var(--theme-error-text)'
+                 }}>
+              <p className="text-sm">{error}</p>
+            </div>
+          )}
 
-      {/* Action Buttons */}
-      {!processing && !complete && (
-        <div className="flex gap-3">
-          <Button
-            variant="filled"
-            color="blue"
-            leftSection={<FileText className="w-4 h-4" />}
-            onClick={startLogProcessing}
-            fullWidth
-          >
-            Process All Logs
-          </Button>
-          <Button
-            variant="default"
-            leftSection={<SkipForward className="w-4 h-4" />}
-            onClick={onSkip}
-            fullWidth
-          >
-            Skip for Now
-          </Button>
-        </div>
-      )}
+          {/* Action Buttons */}
+          {!processing && !complete && (
+            <div className="flex gap-3">
+              <Button
+                variant="filled"
+                color="blue"
+                leftSection={<FileText className="w-4 h-4" />}
+                onClick={startLogProcessing}
+                fullWidth
+              >
+                Process All Logs
+              </Button>
+              <Button
+                variant="default"
+                leftSection={<SkipForward className="w-4 h-4" />}
+                onClick={onSkip}
+                fullWidth
+              >
+                Skip for Now
+              </Button>
+            </div>
+          )}
 
-      {complete && (
-        <Button
-          variant="filled"
-          color="green"
-          leftSection={<CheckCircle className="w-4 h-4" />}
-          onClick={onComplete}
-          fullWidth
-        >
-          Continue
-        </Button>
-      )}
+          {complete && (
+            <Button
+              variant="filled"
+              color="green"
+              leftSection={<CheckCircle className="w-4 h-4" />}
+              onClick={onComplete}
+              fullWidth
+            >
+              Continue
+            </Button>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

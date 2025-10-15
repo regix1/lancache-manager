@@ -365,9 +365,7 @@ const AppContent: React.FC = () => {
       className="min-h-screen flex flex-col"
       style={{
         backgroundColor: 'var(--theme-bg-primary)',
-        color: 'var(--theme-text-primary)',
-        opacity: !depotInitialized ? 0.5 : 1,
-        pointerEvents: !depotInitialized ? 'none' : 'auto'
+        color: 'var(--theme-text-primary)'
       }}
     >
       <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
