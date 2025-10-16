@@ -185,17 +185,18 @@ public class GameInfoController : ControllerBase
     /// <summary>
     /// Set the crawl interval for periodic depot mapping updates
     /// </summary>
-    /// <param name="intervalHours">Interval in hours</param>
+    /// <param name="intervalHours">Interval in hours (supports fractional values like 0.00833 for 30 seconds)</param>
     [HttpPost("steamkit/interval")]
     [RequireAuth]
     public IActionResult SetCrawlInterval([FromBody] double intervalHours)
     {
         try
         {
-            // Allow 0 (disabled), or between 0.1 and 168 hours
-            if (intervalHours < 0 || (intervalHours > 0 && intervalHours < 0.1) || intervalHours > 168)
+            // Allow 0 (disabled), or between 30 seconds (0.00833 hours) and 168 hours (1 week)
+            const double thirtySecondsInHours = 30.0 / 3600.0; // 0.00833 hours
+            if (intervalHours < 0 || (intervalHours > 0 && intervalHours < thirtySecondsInHours) || intervalHours > 168)
             {
-                return BadRequest(new { error = "Interval must be 0 (disabled) or between 0.1 and 168 hours" });
+                return BadRequest(new { error = $"Interval must be 0 (disabled) or between {thirtySecondsInHours:F5} (30 seconds) and 168 hours" });
             }
 
             _steamKit2Service.CrawlIntervalHours = intervalHours;
@@ -203,6 +204,11 @@ public class GameInfoController : ControllerBase
             if (intervalHours == 0)
             {
                 _logger.LogInformation("Automatic crawl schedule disabled");
+            }
+            else if (intervalHours < 1)
+            {
+                var seconds = intervalHours * 3600;
+                _logger.LogInformation("Crawl interval updated to {Seconds} seconds", (int)seconds);
             }
             else
             {
@@ -212,7 +218,11 @@ public class GameInfoController : ControllerBase
             return Ok(new
             {
                 intervalHours = _steamKit2Service.CrawlIntervalHours,
-                message = intervalHours == 0 ? "Automatic schedule disabled" : $"Crawl interval updated to {intervalHours} hour(s)"
+                message = intervalHours == 0
+                    ? "Automatic schedule disabled"
+                    : intervalHours < 1
+                        ? $"Crawl interval updated to {(int)(intervalHours * 3600)} seconds (testing mode)"
+                        : $"Crawl interval updated to {intervalHours} hour(s)"
             });
         }
         catch (Exception ex)

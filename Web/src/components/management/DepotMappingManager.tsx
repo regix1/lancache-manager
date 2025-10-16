@@ -238,7 +238,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       ? 'Loading...'
                       : depotProcessing.crawlIntervalHours === 0
                         ? 'Disabled'
-                        : `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`}
+                        : depotProcessing.crawlIntervalHours < 1
+                          ? `${Math.round(depotProcessing.crawlIntervalHours * 3600)} seconds (test)`
+                          : `${depotProcessing.crawlIntervalHours} hour${depotProcessing.crawlIntervalHours !== 1 ? 's' : ''}`}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -273,6 +275,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               <EnhancedDropdown
                 options={[
                   { value: '0', label: 'Disabled' },
+                  { value: '0.00833', label: '30 seconds (test)' },
                   { value: '1', label: 'Every hour' },
                   { value: '6', label: 'Every 6 hours' },
                   { value: '12', label: 'Every 12 hours' },
