@@ -255,14 +255,30 @@ public class SteamKit2Service : IHostedService, IDisposable
             return;
         }
 
-        // Set up the periodic timer for subsequent crawls
-        _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
-        _logger.LogInformation($"Scheduled incremental PICS updates every {_crawlInterval.TotalHours} hour(s)");
+        // Set up the periodic timer to check every minute if a scan is due
+        // This ensures scans trigger even if interval changes or system restarts
+        _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        _logger.LogInformation($"Scheduled PICS updates every {_crawlInterval.TotalHours} hour(s) (checking every minute)");
     }
 
     private void OnPeriodicCrawlTimer(object? state)
     {
         if (_cancellationTokenSource.Token.IsCancellationRequested || !_isRunning)
+        {
+            return;
+        }
+
+        // Skip if interval is 0 (disabled)
+        if (_crawlInterval.TotalHours == 0)
+        {
+            return;
+        }
+
+        // Check if enough time has elapsed since last crawl
+        var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
+        var isDue = timeSinceLastCrawl >= _crawlInterval;
+
+        if (!isDue)
         {
             return;
         }
@@ -273,7 +289,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             if (!IsRebuildRunning)
             {
                 var scanType = _crawlIncrementalMode ? "incremental" : "full";
-                _logger.LogInformation("Starting scheduled {ScanType} PICS update", scanType);
+                _logger.LogInformation("Starting scheduled {ScanType} PICS update (due: last crawl was {Minutes} minutes ago)",
+                    scanType, (int)timeSinceLastCrawl.TotalMinutes);
                 if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: _crawlIncrementalMode))
                 {
                     _lastCrawlTime = DateTime.UtcNow;
@@ -498,6 +515,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                 using var scope = _scopeFactory.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                 databaseDepotCount = await context.SteamDepotMappings.CountAsync();
+                _logger.LogInformation("Database has {Count} depot mappings", databaseDepotCount);
             }
             catch (Exception ex)
             {
@@ -507,8 +525,11 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Load existing data from JSON file if it exists
             var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
             bool hasExistingJsonData = existingData?.DepotMappings?.Any() == true;
-            bool hasExistingDatabaseData = databaseDepotCount > 0;
+            bool hasExistingDatabaseData = databaseDepotCount > 1000; // Require substantial database data (not just a few mappings)
             bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
+
+            _logger.LogInformation("Existing data check: JSON={HasJson} ({JsonCount} mappings), Database={HasDb} ({DbCount} mappings)",
+                hasExistingJsonData, existingData?.DepotMappings?.Count ?? 0, hasExistingDatabaseData, databaseDepotCount);
 
             if (!incrementalOnly)
             {
@@ -523,20 +544,24 @@ public class SteamKit2Service : IHostedService, IDisposable
                 // For incremental updates, load existing mappings and change number
                 _logger.LogInformation("Incremental update mode - loading existing data");
 
-                // Load existing mappings from database
+                // Load existing mappings from database first
                 await LoadExistingDepotMappings();
+                _logger.LogInformation("Loaded {Count} mappings from database into memory", _depotToAppMappings.Count);
 
                 // Load change number from JSON if available
                 if (hasExistingJsonData && existingData?.Metadata != null)
                 {
                     _lastChangeNumberSeen = existingData.Metadata.LastChangeNumber;
-                    _logger.LogInformation("Loaded change number {ChangeNumber} from existing data", _lastChangeNumberSeen);
+                    _logger.LogInformation("Loaded change number {ChangeNumber} from JSON metadata", _lastChangeNumberSeen);
 
-                    // Merge existing depot mappings from JSON
-                    var (jsonMappingsMerged, _) = MergeDepotMappingsFromJson(existingData);
-                    if (jsonMappingsMerged > 0)
+                    // Merge existing depot mappings from JSON (only if not already loaded from database)
+                    if (_depotToAppMappings.Count == 0)
                     {
-                        _logger.LogInformation("Merged {Count} existing mappings from JSON", jsonMappingsMerged);
+                        var (jsonMappingsMerged, _) = MergeDepotMappingsFromJson(existingData);
+                        if (jsonMappingsMerged > 0)
+                        {
+                            _logger.LogInformation("Merged {Count} existing mappings from JSON (database was empty)", jsonMappingsMerged);
+                        }
                     }
                 }
 
@@ -1166,6 +1191,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         get => _crawlInterval.TotalHours;
         set
         {
+            var oldInterval = _crawlInterval;
             _crawlInterval = TimeSpan.FromHours(value);
 
             // Save to state for persistence across restarts
@@ -1188,17 +1214,20 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 _logger.LogInformation("Saved crawl interval to state: {Hours} hour(s)", value);
 
-                // Reset the last crawl time to now so the countdown starts fresh with the new interval
-                _lastCrawlTime = DateTime.UtcNow;
-                _stateService.SetLastPicsCrawl(_lastCrawlTime);
-                _logger.LogInformation("Reset last crawl time to now due to interval change");
+                // DON'T reset the last crawl time - let the existing schedule continue with the new interval
+                // The timer will check if enough time has elapsed based on the new interval
 
-                // Restart the timer with new interval if it's running
+                // Restart the timer if it's already running (or create it if it doesn't exist)
                 if (_periodicTimer != null)
                 {
                     _periodicTimer?.Dispose();
-                    _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, _crawlInterval, _crawlInterval);
-                    _logger.LogInformation($"Updated crawl interval to {value} hour(s)");
+                    _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+                    _logger.LogInformation($"Updated crawl interval to {value} hour(s) - next scan will occur based on existing schedule");
+                }
+                else
+                {
+                    // Timer doesn't exist yet, create it
+                    SetupPeriodicCrawls();
                 }
             }
         }
