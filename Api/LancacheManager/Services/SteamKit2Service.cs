@@ -245,14 +245,39 @@ public class SteamKit2Service : IHostedService, IDisposable
 
     private void SetupPeriodicCrawls()
     {
-        // Don't auto-start any crawls - user must explicitly trigger via UI
-        // This prevents unwanted background processing during initialization
-
         // Don't set up timer if interval is 0 (disabled)
         if (_crawlInterval.TotalHours == 0)
         {
             _logger.LogInformation("Periodic crawls are disabled (interval = 0)");
             return;
+        }
+
+        // Check if a scan is already overdue and trigger it immediately
+        var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
+        var isDue = timeSinceLastCrawl >= _crawlInterval;
+
+        if (isDue && _lastCrawlTime != DateTime.MinValue)
+        {
+            _logger.LogInformation("Scan is overdue by {Minutes} minutes - triggering immediately on startup",
+                (int)(timeSinceLastCrawl - _crawlInterval).TotalMinutes);
+
+            // Trigger the scan immediately in the background
+            _ = Task.Run(() =>
+            {
+                // Small delay to ensure service is fully initialized
+                Task.Delay(5000).Wait();
+
+                if (!IsRebuildRunning && _isRunning)
+                {
+                    var scanType = _crawlIncrementalMode ? "incremental" : "full";
+                    _logger.LogInformation("Starting overdue {ScanType} PICS update (last crawl was {Minutes} minutes ago)",
+                        scanType, (int)timeSinceLastCrawl.TotalMinutes);
+                    if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: _crawlIncrementalMode))
+                    {
+                        _lastCrawlTime = DateTime.UtcNow;
+                    }
+                }
+            });
         }
 
         // Set up the periodic timer to check every minute if a scan is due

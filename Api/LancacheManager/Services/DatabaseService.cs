@@ -211,13 +211,27 @@ public class DatabaseService
     {
         try
         {
-            _logger.LogInformation("Clearing all depot mappings from database");
+            _logger.LogInformation("Clearing all depot mappings from database and downloads table");
 
             var count = await _context.SteamDepotMappings.CountAsync();
+
+            // Clear depot mappings table
             await _context.SteamDepotMappings.ExecuteDeleteAsync();
+
+            // Also clear game info from downloads table (set to null, keep download records)
+            await _context.Downloads
+                .Where(d => d.GameAppId != null || d.GameName != null || d.GameImageUrl != null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(d => d.GameAppId, (uint?)null)
+                    .SetProperty(d => d.GameName, (string?)null)
+                    .SetProperty(d => d.GameImageUrl, (string?)null));
+
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Cleared {Count} depot mappings from database", count);
+            // Invalidate stats cache since download records changed
+            _statsCache.InvalidateDownloads();
+
+            _logger.LogInformation("Cleared {Count} depot mappings from database and cleared game info from downloads table", count);
             return count;
         }
         catch (Exception ex)

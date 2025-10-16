@@ -192,14 +192,18 @@ public class GameInfoController : ControllerBase
     {
         try
         {
-            // Allow 0 (disabled), or between 30 seconds (0.00833 hours) and 168 hours (1 week)
-            const double thirtySecondsInHours = 30.0 / 3600.0; // 0.00833 hours
-            if (intervalHours < 0 || (intervalHours > 0 && intervalHours < thirtySecondsInHours) || intervalHours > 168)
+            _logger.LogInformation("Received crawl interval request: {IntervalHours} hours", intervalHours);
+
+            // Allow 0 (disabled), or between 1 hour and 168 hours (1 week)
+            if (intervalHours < 0 || (intervalHours > 0 && intervalHours < 1) || intervalHours > 168)
             {
-                return BadRequest(new { error = $"Interval must be 0 (disabled) or between {thirtySecondsInHours:F5} (30 seconds) and 168 hours" });
+                return BadRequest(new { error = $"Interval must be 0 (disabled) or between 1 and 168 hours. Received: {intervalHours}" });
             }
 
             _steamKit2Service.CrawlIntervalHours = intervalHours;
+
+            var actualInterval = _steamKit2Service.CrawlIntervalHours;
+            _logger.LogInformation("Crawl interval set. Requested: {Requested}, Actual: {Actual}", intervalHours, actualInterval);
 
             if (intervalHours == 0)
             {
