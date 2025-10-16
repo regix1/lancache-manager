@@ -37,7 +37,8 @@ const STORAGE_KEYS = {
   SORT_ORDER: 'lancache_downloads_sort_order',
   AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode',
   FULL_HEIGHT_BANNERS: 'lancache_downloads_full_height_banners',
-  ENABLE_SCROLL_INTO_VIEW: 'lancache_downloads_scroll_into_view'
+  ENABLE_SCROLL_INTO_VIEW: 'lancache_downloads_scroll_into_view',
+  GROUP_UNKNOWN_GAMES: 'lancache_downloads_group_unknown'
 };
 
 // View modes
@@ -104,7 +105,8 @@ const DownloadsTab: React.FC = () => {
     aestheticMode: localStorage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
     fullHeightBanners: localStorage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
     groupByFrequency: localStorage.getItem('lancache_downloads_group_by_frequency') !== 'false',
-    enableScrollIntoView: localStorage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false'
+    enableScrollIntoView: localStorage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false',
+    groupUnknownGames: localStorage.getItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES) === 'true'
   }));
 
   // Effect to save settings to localStorage
@@ -122,6 +124,7 @@ const DownloadsTab: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS, settings.fullHeightBanners.toString());
     localStorage.setItem('lancache_downloads_group_by_frequency', settings.groupByFrequency.toString());
     localStorage.setItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW, settings.enableScrollIntoView.toString());
+    localStorage.setItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES, settings.groupUnknownGames.toString());
   }, [settings]);
 
   // Always fetch unlimited downloads from API to ensure we have all for grouping
@@ -293,7 +296,7 @@ const DownloadsTab: React.FC = () => {
   }, [latestDownloads, settings.selectedService]);
 
   // Grouping logic for different view modes
-  const createGroups = (downloads: Download[]): { groups: DownloadGroup[], individuals: Download[] } => {
+  const createGroups = (downloads: Download[], groupUnknown: boolean = false): { groups: DownloadGroup[], individuals: Download[] } => {
     const groups: Record<string, DownloadGroup> = {};
     const individuals: Download[] = [];
 
@@ -302,12 +305,26 @@ const DownloadsTab: React.FC = () => {
       let groupName: string;
       let groupType: 'game' | 'metadata' | 'content';
 
+      // Check if this is an unknown game
+      const isUnknownGame = download.service.toLowerCase() === 'steam' && (
+        !download.gameName ||
+        download.gameName.trim() === '' ||
+        download.gameName === 'Unknown Steam Game' ||
+        download.gameName.toLowerCase().includes('unknown') ||
+        download.gameName.match(/^Steam App \d+$/)
+      );
+
       if (download.gameName &&
           download.gameName !== 'Unknown Steam Game' &&
           !download.gameName.match(/^Steam App \d+$/)) {
         groupKey = `game-${download.gameName}`;
         groupName = download.gameName;
         groupType = 'game';
+      } else if (groupUnknown && isUnknownGame) {
+        // Group all unknown games together when the setting is enabled
+        groupKey = 'unknown-steam-games';
+        groupName = 'Unknown Games';
+        groupType = 'content';
       } else if (download.gameName && download.gameName.match(/^Steam App \d+$/)) {
         groupKey = 'unmapped-steam-apps';
         groupName = 'Unmapped Steam Apps';
@@ -363,7 +380,7 @@ const DownloadsTab: React.FC = () => {
   const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
     if (settings.viewMode !== 'normal') return [];
 
-    const { groups, individuals } = createGroups(filteredDownloads);
+    const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
 
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
     let filteredGroups = groups;
@@ -406,12 +423,12 @@ const DownloadsTab: React.FC = () => {
         : new Date(b.startTimeLocal).getTime();
       return bTime - aTime;
     });
-  }, [filteredDownloads, settings.viewMode, settings.groupByFrequency, settings.hideUnknownGames]);
+  }, [filteredDownloads, settings.viewMode, settings.groupByFrequency, settings.hideUnknownGames, settings.groupUnknownGames]);
 
   const compactViewItems = useMemo((): (Download | DownloadGroup)[] => {
     if (settings.viewMode !== 'compact') return [];
 
-    const { groups, individuals } = createGroups(filteredDownloads);
+    const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
 
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
     let filteredGroups = groups;
@@ -454,7 +471,7 @@ const DownloadsTab: React.FC = () => {
         : new Date(b.startTimeLocal).getTime();
       return bTime - aTime;
     });
-  }, [filteredDownloads, settings.viewMode, settings.groupByFrequency, settings.hideUnknownGames]);
+  }, [filteredDownloads, settings.viewMode, settings.groupByFrequency, settings.hideUnknownGames, settings.groupUnknownGames]);
 
   const allItemsSorted = useMemo(() => {
     let items = settings.viewMode === 'normal' ? normalViewItems :
@@ -976,6 +993,14 @@ const DownloadsTab: React.FC = () => {
                     setSettings({ ...settings, hideUnknownGames: e.target.checked })
                   }
                   label="Hide unknown games"
+                />
+
+                <Checkbox
+                  checked={settings.groupUnknownGames}
+                  onChange={(e) =>
+                    setSettings({ ...settings, groupUnknownGames: e.target.checked })
+                  }
+                  label="Group unknown games together"
                 />
 
                 <Checkbox
