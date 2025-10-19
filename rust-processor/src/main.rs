@@ -130,11 +130,25 @@ impl Processor {
     fn count_lines_all_files(&self, log_files: &[LogFile]) -> Result<u64> {
         let mut total = 0u64;
         for log_file in log_files {
-            let mut reader = LogFileReader::open(&log_file.path)?;
-            // Count lines using BufRead trait
-            let lines = reader.as_buf_read().lines().count() as u64;
-            total += lines;
-            println!("  {} has {} lines", log_file.path.display(), lines);
+            // Try to count lines, but skip if file is corrupted
+            let file_result = (|| -> Result<u64> {
+                let mut reader = LogFileReader::open(&log_file.path)?;
+                // Count lines using BufRead trait
+                let lines = reader.as_buf_read().lines().count() as u64;
+                Ok(lines)
+            })();
+
+            match file_result {
+                Ok(lines) => {
+                    total += lines;
+                    println!("  {} has {} lines", log_file.path.display(), lines);
+                }
+                Err(e) => {
+                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    eprintln!("  Continuing with remaining files...");
+                    continue;
+                }
+            }
         }
         Ok(total)
     }
@@ -243,7 +257,14 @@ impl Processor {
         for (file_index, log_file) in log_files.iter().enumerate() {
             println!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
-            self.process_single_file(&mut conn, log_file, &mut lines_to_skip, total_lines)?;
+            // Try to process the file, but skip if it's corrupted (e.g., invalid gzip)
+            let file_result = self.process_single_file(&mut conn, log_file, &mut lines_to_skip, total_lines);
+
+            if let Err(e) = file_result {
+                eprintln!("⚠ Warning: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                eprintln!("  Continuing with remaining files...");
+                continue;
+            }
 
             // Check for cancellation between files
             if self.should_cancel() {
@@ -467,11 +488,8 @@ impl Processor {
             }
         }
 
-        // If all entries were duplicates, skip all processing
+        // If all entries were duplicates, skip all processing (silently)
         if new_entries.is_empty() {
-            if skipped > 0 {
-                println!("Skipped {} duplicate entries (all duplicates)", skipped);
-            }
             return Ok(0);
         }
 

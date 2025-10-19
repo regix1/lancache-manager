@@ -465,6 +465,47 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpGet("corruption/summary")]
+    public async Task<IActionResult> GetCorruptionSummary()
+    {
+        try
+        {
+            var summary = await _cacheService.GetCorruptionSummary();
+            return Ok(summary);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting corruption summary");
+            return StatusCode(500, new { error = "Failed to get corruption summary", details = ex.Message });
+        }
+    }
+
+    [HttpPost("corruption/remove")]
+    [RequireAuth]
+    public async Task<IActionResult> RemoveCorruptedChunks([FromBody] RemoveCorruptionRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(request.Service))
+            {
+                return BadRequest(new { error = "Service name is required" });
+            }
+
+            await _cacheService.RemoveCorruptedChunks(request.Service);
+
+            return Ok(new
+            {
+                message = $"Successfully removed corrupted chunks for {request.Service}",
+                service = request.Service
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing corrupted chunks: {Service}", request.Service);
+            return StatusCode(500, new { error = "Failed to remove corrupted chunks", details = ex.Message });
+        }
+    }
+
 
     [HttpGet("cache/active-operations")]
     public IActionResult GetActiveClearOperations()
@@ -950,4 +991,10 @@ public class SteamLoginRequest
     public string? EmailCode { get; set; }
     public bool AllowMobileConfirmation { get; set; }
     public bool AutoStartPicsRebuild { get; set; } = true; // Default to true for backward compatibility
+}
+
+// Request model for corruption removal
+public class RemoveCorruptionRequest
+{
+    public string Service { get; set; } = string.Empty;
 }

@@ -118,8 +118,10 @@ pub fn discover_log_files<P: AsRef<Path>>(log_directory: P, base_name: &str) -> 
         // - access.log.1
         // - access.log.2.gz
         // - access.log.10.zst
-        if file_name.starts_with(base_name) {
-            // Ensure it's either exact match or followed by '.' (to avoid matching "access.log.bak")
+        // But exclude .bak files (access.log.bak, access.log.1.bak, access.log.3.gz.bak, etc.)
+        // And exclude temp files (access.log.corruption_tmp.*, access.log.tmp.*, etc.)
+        if file_name.starts_with(base_name) && !file_name.ends_with(".bak") && !file_name.contains(".tmp") {
+            // Ensure it's either exact match or followed by '.' (to avoid matching "access.logfoo")
             let suffix = &file_name[base_name.len()..];
             if suffix.is_empty() || suffix.starts_with('.') {
                 log_files.push(LogFile::from_path(path));

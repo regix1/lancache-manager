@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Some fields only used by lancache_processor binary, not by other binaries
 pub(crate) struct LogEntry {
     pub(crate) timestamp: NaiveDateTime,
     pub(crate) client_ip: String,

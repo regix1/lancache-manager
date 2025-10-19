@@ -416,7 +416,9 @@ public class CacheManagementService
                 return counts;
             }
 
-            _logger.LogError(ex, "Error counting service logs with Rust binary");
+            // Log the full exception details for debugging
+            _logger.LogError(ex, "Error counting service logs with Rust binary. Exception type: {ExceptionType}, Message: {Message}",
+                ex.GetType().Name, ex.Message);
             throw;
         }
 
@@ -445,40 +447,278 @@ public class CacheManagementService
     // Helper class for deserializing Rust progress data
     private class LogCountProgressData
     {
+        [System.Text.Json.Serialization.JsonPropertyName("isProcessing")]
         public bool IsProcessing { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
         public double PercentComplete { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("status")]
         public string Status { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("message")]
         public string Message { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("linesProcessed")]
         public ulong LinesProcessed { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("serviceCounts")]
         public Dictionary<string, ulong>? ServiceCounts { get; set; }
     }
 
-    // Get list of unique services from logs
+    // Helper class for corruption summary
+    private class CorruptionSummaryData
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("service_counts")]
+        public Dictionary<string, ulong>? ServiceCounts { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("total_corrupted")]
+        public ulong TotalCorrupted { get; set; }
+    }
+
+    // Get list of unique services from logs with improved filtering
     public async Task<List<string>> GetServicesFromLogs()
     {
         try
         {
             // Get all services that have counts (uses Rust binary for fast counting)
             var serviceCounts = await GetServiceLogCounts();
+
+            // Filter out invalid services:
+            // - localhost
+            // - "ip-address" marker
+            // - Raw IP addresses (regex match)
+            // Keep valid CDN services (domains with dots like "officecdn.microsoft.com")
+            var filteredOut = new List<string>();
             var services = serviceCounts.Keys
-                .Where(service => !string.IsNullOrEmpty(service) && !service.Contains("."))
+                .Where(service =>
+                {
+                    if (string.IsNullOrEmpty(service)) { filteredOut.Add($"{service} (empty)"); return false; }
+                    if (service.Equals("localhost", StringComparison.OrdinalIgnoreCase)) { filteredOut.Add($"{service} (localhost)"); return false; }
+                    if (service.Equals("ip-address", StringComparison.OrdinalIgnoreCase)) { filteredOut.Add($"{service} (ip-address marker)"); return false; }
+
+                    // Check if it's a raw IP address (e.g., 192.168.1.1)
+                    if (System.Text.RegularExpressions.Regex.IsMatch(service, @"^\d+\.\d+\.\d+\.\d+$"))
+                    {
+                        filteredOut.Add($"{service} (raw IP)");
+                        return false;
+                    }
+
+                    return true;
+                })
                 .OrderBy(s => s)
                 .ToList();
 
             if (services.Count > 0)
             {
-                _logger.LogInformation($"Found services from counts: {string.Join(", ", services)}");
+                _logger.LogInformation($"Found {services.Count} valid services: {string.Join(", ", services)}");
+                if (filteredOut.Count > 0)
+                {
+                    _logger.LogDebug($"Filtered out {filteredOut.Count} invalid services: {string.Join(", ", filteredOut)}");
+                }
                 return services;
             }
 
-            // If no services found, return empty list
-            _logger.LogWarning("No services found in log file");
+            // Log which services were filtered out to help debugging
+            if (filteredOut.Count > 0)
+            {
+                _logger.LogInformation($"No valid services found. All {filteredOut.Count} services were filtered out: {string.Join(", ", filteredOut)}");
+            }
+            else
+            {
+                _logger.LogWarning("No valid services found in log file - logs may be empty or all entries were removed");
+            }
             return new List<string>();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting services from logs");
             return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// Get corruption summary with caching based on log file modification time
+    /// </summary>
+    public async Task<Dictionary<string, long>> GetCorruptionSummary()
+    {
+        var cachePath = Path.Combine(_pathResolver.GetDataDirectory(), "corruption_summary_cache.json");
+        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+
+        // Check if cache exists and is valid
+        if (File.Exists(cachePath) && File.Exists(logPath))
+        {
+            var cacheInfo = new FileInfo(cachePath);
+            var logInfo = new FileInfo(logPath);
+
+            // Cache is valid if it was created AFTER the log file's last modification
+            if (cacheInfo.LastWriteTimeUtc > logInfo.LastWriteTimeUtc)
+            {
+                _logger.LogDebug("Using cached corruption summary");
+                try
+                {
+                    var cachedJson = await File.ReadAllTextAsync(cachePath);
+                    var cachedData = JsonSerializer.Deserialize<CorruptionSummaryData>(cachedJson,
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                    if (cachedData?.ServiceCounts != null)
+                    {
+                        return cachedData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to read cached corruption summary, will regenerate");
+                }
+            }
+        }
+
+        // Run Rust binary to detect corruption
+        var logDir = Path.GetDirectoryName(logPath) ?? _pathResolver.GetLogsDirectory();
+        var cacheDir = _cachePath;
+        var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
+
+        // Get binary path from application directory (same location as log_manager)
+        var appDir = AppDomain.CurrentDomain.BaseDirectory;
+        var rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager.exe");
+
+        // On Linux/Mac, the binary doesn't have .exe extension
+        if (!File.Exists(rustBinaryPath))
+        {
+            rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager");
+        }
+
+        if (!File.Exists(rustBinaryPath))
+        {
+            var logManagerPath = _pathResolver.GetRustLogManagerPath();
+            var logManagerDir = Path.GetDirectoryName(logManagerPath);
+            _logger.LogError($"Corruption manager binary not found. Searched at: {rustBinaryPath}. AppDir: {appDir}. log_manager is at: {logManagerPath}");
+            throw new FileNotFoundException($"Corruption manager binary not found at {rustBinaryPath}. Application directory: {appDir}");
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = rustBinaryPath,
+            Arguments = $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using (var process = Process.Start(startInfo))
+        {
+            if (process == null)
+            {
+                throw new Exception("Failed to start corruption_manager process");
+            }
+
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync();
+
+            var output = await outputTask;
+            var error = await errorTask;
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+            }
+
+            // Parse JSON output from Rust binary
+            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (summaryData?.ServiceCounts == null)
+            {
+                return new Dictionary<string, long>();
+            }
+
+            // Cache the results
+            await File.WriteAllTextAsync(cachePath, output);
+
+            return summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+        }
+    }
+
+    /// <summary>
+    /// Remove corrupted chunks for a specific service (invalidates cache)
+    /// </summary>
+    public async Task RemoveCorruptedChunks(string service)
+    {
+        var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
+        var cacheDir = _cachePath;
+        var dataDir = _pathResolver.GetDataDirectory();
+        var progressPath = Path.Combine(dataDir, "corruption_removal_progress.json");
+
+        // Get binary path from application directory (same location as log_manager)
+        var appDir = AppDomain.CurrentDomain.BaseDirectory;
+        var rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager.exe");
+
+        // On Linux/Mac, the binary doesn't have .exe extension
+        if (!File.Exists(rustBinaryPath))
+        {
+            rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager");
+        }
+
+        if (!File.Exists(rustBinaryPath))
+        {
+            throw new FileNotFoundException($"Corruption manager binary not found at {rustBinaryPath}. Application directory: {appDir}");
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = rustBinaryPath,
+            Arguments = $"remove \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using (var process = Process.Start(startInfo))
+        {
+            if (process == null)
+            {
+                throw new Exception("Failed to start corruption_manager process");
+            }
+
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync();
+
+            var output = await outputTask;
+            var error = await errorTask;
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+            }
+
+            _logger.LogInformation($"Removed corrupted chunks for {service}: {output}");
+        }
+
+        // Invalidate corruption summary cache
+        var cachePath = Path.Combine(dataDir, "corruption_summary_cache.json");
+        if (File.Exists(cachePath))
+        {
+            File.Delete(cachePath);
+            _logger.LogDebug("Invalidated corruption summary cache after removal");
+        }
+
+        // Also invalidate service count cache since corruption affects counts
+        await _cacheLock.WaitAsync();
+        try
+        {
+            _cachedServiceCounts = null;
+            _cacheExpiry = null;
+            _logger.LogDebug("Service count cache invalidated after corruption removal");
+        }
+        finally
+        {
+            _cacheLock.Release();
         }
     }
 }

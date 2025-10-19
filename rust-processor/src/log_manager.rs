@@ -168,44 +168,55 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
     for (file_index, log_file) in log_files.iter().enumerate() {
         eprintln!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
-        let mut log_reader = LogFileReader::open(&log_file.path)?;
-        let mut line = String::new();
+        // Try to open and read the file, but skip if it's corrupted
+        let file_result = (|| -> Result<()> {
+            let mut log_reader = LogFileReader::open(&log_file.path)?;
+            let mut line = String::new();
 
-        loop {
-            line.clear();
-            let bytes_read = log_reader.read_line(&mut line)?;
-            if bytes_read == 0 {
-                break; // EOF
+            loop {
+                line.clear();
+                let bytes_read = log_reader.read_line(&mut line)?;
+                if bytes_read == 0 {
+                    break; // EOF
+                }
+
+                bytes_processed += line.len() as u64;
+                lines_processed += 1;
+
+                if let Some(service) = extract_service_from_line(line.trim()) {
+                    // Use the service name directly - auto-discover all services
+                    *service_counts.entry(service).or_insert(0) += 1;
+                }
+
+                // Update progress every 500ms
+                if last_progress_update.elapsed().as_millis() > 500 {
+                    let percent = if total_size > 0 {
+                        (bytes_processed as f64 / total_size as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+
+                    let progress = ProgressData::new(
+                        true,
+                        percent,
+                        "counting".to_string(),
+                        format!("Counting services... {} lines processed across {} files", lines_processed, file_index + 1),
+                        lines_processed,
+                        None,
+                        None,
+                    );
+                    write_progress(progress_path, &progress)?;
+                    last_progress_update = Instant::now();
+                }
             }
+            Ok(())
+        })();
 
-            bytes_processed += line.len() as u64;
-            lines_processed += 1;
-
-            if let Some(service) = extract_service_from_line(line.trim()) {
-                // Use the service name directly - auto-discover all services
-                *service_counts.entry(service).or_insert(0) += 1;
-            }
-
-            // Update progress every 500ms
-            if last_progress_update.elapsed().as_millis() > 500 {
-                let percent = if total_size > 0 {
-                    (bytes_processed as f64 / total_size as f64) * 100.0
-                } else {
-                    0.0
-                };
-
-                let progress = ProgressData::new(
-                    true,
-                    percent,
-                    "counting".to_string(),
-                    format!("Counting services... {} lines processed across {} files", lines_processed, file_index + 1),
-                    lines_processed,
-                    None,
-                    None,
-                );
-                write_progress(progress_path, &progress)?;
-                last_progress_update = Instant::now();
-            }
+        // If this file failed (e.g., corrupted gzip), log warning and skip it
+        if let Err(e) = file_result {
+            eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+            eprintln!("  Continuing with remaining files...");
+            continue;
         }
     }
 
@@ -277,115 +288,151 @@ fn remove_service_from_logs(
     for (file_index, log_file) in log_files.iter().enumerate() {
         eprintln!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
-        let file_path_str = log_file.path.to_str().context("Invalid file path")?;
+        // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
+        let file_result = (|| -> Result<(u64, u64)> {
+            let file_path_str = log_file.path.to_str().context("Invalid file path")?;
 
-        // Create backup for this file
-        let backup_path = format!("{}.bak", file_path_str);
-        fs::copy(&log_file.path, &backup_path).context("Failed to create backup")?;
-        eprintln!("Backup created at: {}", backup_path);
+            // Create backup for this file
+            let backup_path = format!("{}.bak", file_path_str);
+            fs::copy(&log_file.path, &backup_path).context("Failed to create backup")?;
+            eprintln!("Backup created at: {}", backup_path);
 
-        // Create temp file for filtered output
-        let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-        let temp_path = file_dir.join(format!("access.log.tmp.{}.{}", Utc::now().timestamp(), file_index));
+            // Create temp file for filtered output
+            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
+            let temp_path = file_dir.join(format!("access.log.tmp.{}.{}", Utc::now().timestamp(), file_index));
 
-        let mut lines_processed: u64 = 0;
-        let mut lines_removed: u64 = 0;
-        let service_lower = service_to_remove.to_lowercase();
+            let mut lines_processed: u64 = 0;
+            let mut lines_removed: u64 = 0;
+            let service_lower = service_to_remove.to_lowercase();
 
-        // Scope the file operations so handles are closed before deletion
-        {
-            // Use LogFileReader for automatic compression support (.gz, .zst)
-            let mut log_reader = LogFileReader::open(&log_file.path)?;
-            let file_size = std::fs::metadata(&log_file.path)?.len();
+            // Scope the file operations so handles are closed before deletion
+            {
+                // Use LogFileReader for automatic compression support (.gz, .zst)
+                let mut log_reader = LogFileReader::open(&log_file.path)?;
+                let file_size = std::fs::metadata(&log_file.path)?.len();
 
-            let temp_file = File::create(&temp_path).context("Failed to create temp file")?;
-            let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
+                let temp_file = File::create(&temp_path).context("Failed to create temp file")?;
+                let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
 
-            let mut bytes_processed: u64 = 0;
-            let mut last_progress_update = Instant::now();
-            let mut line = String::new();
+                let mut bytes_processed: u64 = 0;
+                let mut last_progress_update = Instant::now();
+                let mut line = String::new();
 
-            // Progress update for this file
-            let progress = ProgressData::new(
-                true,
-                0.0,
-                "removing".to_string(),
-                format!("Processing file {}/{}: removing {} entries...", file_index + 1, log_files.len(), service_to_remove),
-                total_lines_processed,
-                Some(total_lines_removed),
-                None,
-            );
-            write_progress(progress_path, &progress)?;
+                // Progress update for this file
+                let progress = ProgressData::new(
+                    true,
+                    0.0,
+                    "removing".to_string(),
+                    format!("Processing file {}/{}: removing {} entries...", file_index + 1, log_files.len(), service_to_remove),
+                    total_lines_processed,
+                    Some(total_lines_removed),
+                    None,
+                );
+                write_progress(progress_path, &progress)?;
 
-            loop {
-                line.clear();
-                let bytes_read = log_reader.read_line(&mut line)?;
-                if bytes_read == 0 {
-                    break; // EOF
-                }
-
-                bytes_processed += line.len() as u64;
-                lines_processed += 1;
-
-                let mut should_remove = false;
-
-                if let Some(line_service) = extract_service_from_line(line.trim()) {
-                    // Exact match - remove entries for this service
-                    if line_service == service_lower {
-                        should_remove = true;
+                loop {
+                    line.clear();
+                    let bytes_read = log_reader.read_line(&mut line)?;
+                    if bytes_read == 0 {
+                        break; // EOF
                     }
-                }
 
-                if !should_remove {
-                    write!(writer, "{}", line)?;
-                } else {
-                    lines_removed += 1;
-                    if lines_removed % 10000 == 0 {
-                        eprintln!("Removed {} {} entries from this file", lines_removed, service_to_remove);
+                    bytes_processed += line.len() as u64;
+                    lines_processed += 1;
+
+                    let mut should_remove = false;
+
+                    if let Some(line_service) = extract_service_from_line(line.trim()) {
+                        // Exact match - remove entries for this service
+                        if line_service == service_lower {
+                            should_remove = true;
+                        }
                     }
-                }
 
-                // Update progress every 500ms
-                if last_progress_update.elapsed().as_millis() > 500 {
-                    let percent = if file_size > 0 {
-                        (bytes_processed as f64 / file_size as f64) * 100.0
+                    if !should_remove {
+                        write!(writer, "{}", line)?;
                     } else {
-                        0.0
-                    };
+                        lines_removed += 1;
+                        if lines_removed.is_multiple_of(10000) {
+                            eprintln!("Removed {} {} entries from this file", lines_removed, service_to_remove);
+                        }
+                    }
 
-                    let progress = ProgressData::new(
-                        true,
-                        percent,
-                        "removing".to_string(),
-                        format!(
-                            "File {}/{}: {} lines processed, {} removed",
-                            file_index + 1, log_files.len(), total_lines_processed + lines_processed, total_lines_removed + lines_removed
-                        ),
-                        total_lines_processed + lines_processed,
-                        Some(total_lines_removed + lines_removed),
-                        None,
-                    );
-                    write_progress(progress_path, &progress)?;
-                    last_progress_update = Instant::now();
+                    // Update progress every 500ms
+                    if last_progress_update.elapsed().as_millis() > 500 {
+                        let percent = if file_size > 0 {
+                            (bytes_processed as f64 / file_size as f64) * 100.0
+                        } else {
+                            0.0
+                        };
+
+                        let progress = ProgressData::new(
+                            true,
+                            percent,
+                            "removing".to_string(),
+                            format!(
+                                "File {}/{}: {} lines processed, {} removed",
+                                file_index + 1, log_files.len(), total_lines_processed + lines_processed, total_lines_removed + lines_removed
+                            ),
+                            total_lines_processed + lines_processed,
+                            Some(total_lines_removed + lines_removed),
+                            None,
+                        );
+                        write_progress(progress_path, &progress)?;
+                        last_progress_update = Instant::now();
+                    }
                 }
+
+                // Flush and close writer
+                writer.flush()?;
+                drop(writer);
+
+                // reader and file are automatically dropped here when scope ends
             }
 
-            // Flush and close writer
-            writer.flush()?;
-            drop(writer);
+            // Check if the filtered file would be empty (all lines removed)
+            if lines_processed > 0 && lines_removed == lines_processed {
+                eprintln!("  WARNING: ALL {} lines from this file would be removed", lines_processed);
+                eprintln!("    Keeping original file unchanged and skipping to avoid data loss");
+                // Delete the empty temp file
+                fs::remove_file(&temp_path).ok();
+                return Ok((lines_processed, 0)); // Report 0 lines removed to indicate we skipped this file
+            }
 
-            // reader and file are automatically dropped here when scope ends
+            // Replace original with filtered version (only if some lines remain)
+            // Use atomic file replacement to avoid race conditions
+            #[cfg(windows)]
+            {
+                // On Windows, use copy-and-delete to avoid the rename gap
+                // First copy the temp file over the original (atomic operation)
+                fs::copy(&temp_path, &log_file.path).context("Failed to copy temp file over original")?;
+                // Then delete the temp file
+                fs::remove_file(&temp_path).ok(); // Ignore errors on cleanup
+            }
+            #[cfg(not(windows))]
+            {
+                // On Unix, rename is atomic and will replace the existing file
+                fs::rename(&temp_path, &log_file.path).context("Failed to rename temp file")?;
+            }
+
+            Ok((lines_processed, lines_removed))
+        })();
+
+        // If this file failed (e.g., corrupted gzip), log warning and skip it
+        match file_result {
+            Ok((lines_processed, lines_removed)) => {
+                eprintln!("  Lines processed: {}", lines_processed);
+                eprintln!("  Lines removed: {}", lines_removed);
+
+                total_lines_processed += lines_processed;
+                total_lines_removed += lines_removed;
+            }
+            Err(e) => {
+                eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                eprintln!("  Continuing with remaining files...");
+                continue;
+            }
         }
-
-        // Replace original with filtered version
-        fs::remove_file(&log_file.path).context("Failed to remove original log file")?;
-        fs::rename(&temp_path, &log_file.path).context("Failed to rename temp file")?;
-
-        eprintln!("  Lines processed: {}", lines_processed);
-        eprintln!("  Lines removed: {}", lines_removed);
-
-        total_lines_processed += lines_processed;
-        total_lines_removed += lines_removed;
     }
 
     let elapsed = start_time.elapsed();

@@ -75,7 +75,7 @@ impl LogParser {
 
     fn parse_timestamp(&self, time_str: &str) -> Option<NaiveDateTime> {
         // Extract timezone offset if present (e.g., " -0600" or " +0000")
-        let (time_without_tz, tz_offset) = if let Some(pos) = time_str.rfind(|c| c == '+' || c == '-') {
+        let (time_without_tz, tz_offset) = if let Some(pos) = time_str.rfind(['+', '-']) {
             let tz_str = time_str[pos..].trim();
             // Parse timezone like "+0000" or "-0600"
             let offset = if tz_str.len() >= 5 {
@@ -133,7 +133,7 @@ impl LogParser {
         let mut quote_count = 0;
         let mut start_idx = None;
 
-        for (i, ch) in rest.chars().enumerate() {
+        for (i, ch) in rest.char_indices() {
             if ch == '"' {
                 quote_count += 1;
                 if quote_count == 5 {

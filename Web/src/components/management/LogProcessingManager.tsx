@@ -123,6 +123,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       return '';
     }
 
+    // If 0 entries but lines were scanned, all were duplicates
+    if (safeProcessed === 0 && safeTotalLines > 0) {
+      return `0 entries from ${safeTotalLines.toLocaleString()} total lines (all duplicates already processed)`;
+    }
+
     // When complete, show entries saved vs total lines scanned
     // totalLines = all lines scanned across all log files
     // processed = valid entries actually saved (excludes duplicates, invalid lines)

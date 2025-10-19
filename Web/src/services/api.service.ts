@@ -604,6 +604,36 @@ class ApiService {
       throw error;
     }
   }
+
+  // Get corruption summary (counts of corrupted chunks per service)
+  static async getCorruptionSummary(): Promise<Record<string, number>> {
+    try {
+      const res = await fetch(`${API_BASE}/management/corruption/summary`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(300000) // 5 minute timeout for large log files
+      });
+      return await this.handleResponse<Record<string, number>>(res);
+    } catch (error) {
+      console.error('getCorruptionSummary error:', error);
+      throw error;
+    }
+  }
+
+  // Remove corrupted chunks for a specific service (requires auth)
+  static async removeCorruptedChunks(service: string): Promise<{ message: string; service: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/corruption/remove`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ service }),
+        signal: AbortSignal.timeout(300000) // 5 minute timeout
+      });
+      return await this.handleResponse<{ message: string; service: string }>(res);
+    } catch (error) {
+      console.error('removeCorruptedChunks error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

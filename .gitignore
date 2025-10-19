@@ -81,6 +81,8 @@ Api/LancacheManager/wwwroot/*.css
 # Node.js dependencies
 node_modules/
 **/node_modules/
+package-lock.json
+**/package-lock.json
 
 # Security - API Keys and Authentication
 api_key.txt

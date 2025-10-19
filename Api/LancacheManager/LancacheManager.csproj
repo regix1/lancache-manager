@@ -68,6 +68,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_cleaner.exe</Link>
     </None>
+    <None Include="..\..\rust-processor\target\release\corruption_manager.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\corruption_manager.exe</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(SkipRustBuild)' != 'true'">
@@ -87,6 +91,10 @@
     <None Include="..\..\rust-processor\bin\win-x64\cache_cleaner.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_cleaner.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\corruption_manager.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\corruption_manager.exe</Link>
     </None>
   </ItemGroup>
 
@@ -108,6 +116,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_cleaner</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\corruption_manager">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\corruption_manager</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And '$(SkipRustBuild)' != 'true'">
@@ -128,6 +140,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\cache_cleaner</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\corruption_manager">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\corruption_manager</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
@@ -147,6 +163,10 @@
     <None Include="../../rust-processor/target/release/cache_cleaner">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/cache_cleaner</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/corruption_manager">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/corruption_manager</Link>
     </None>
   </ItemGroup>
 

@@ -19,6 +19,10 @@ path = "src/log_manager.rs"
 name = "cache_cleaner"
 path = "src/cache_cleaner.rs"
 
+[[bin]]
+name = "corruption_manager"
+path = "src/corruption_manager.rs"
+
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 regex = "1.10"
@@ -32,6 +36,7 @@ num_cpus = "1.16"
 libc = "0.2"
 flate2 = "1.0"
 zstd = "0.13"
+md5 = "0.7"
 
 [profile.release]
 opt-level = 3

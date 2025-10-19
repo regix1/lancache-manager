@@ -132,6 +132,25 @@ public class CacheClearingService : IHostedService
                 operation.Status = ClearStatus.Failed;
                 operation.Error = $"Cache path does not exist: {_cachePath}";
                 operation.EndTime = DateTime.UtcNow;
+                _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operation.Id, operation.Error);
+                await NotifyProgress(operation);
+                SaveOperationToState(operation);
+                return;
+            }
+
+            // Validate cache directory has cache subdirectories
+            var cacheSubdirs = Directory.GetDirectories(_cachePath)
+                .Where(d => {
+                    var name = Path.GetFileName(d);
+                    return name.Length == 2 && IsHex(name);
+                }).ToList();
+
+            if (!cacheSubdirs.Any())
+            {
+                operation.Status = ClearStatus.Failed;
+                operation.Error = $"No cache directories found in {_cachePath}";
+                operation.EndTime = DateTime.UtcNow;
+                _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operation.Id, operation.Error);
                 await NotifyProgress(operation);
                 SaveOperationToState(operation);
                 return;
@@ -337,7 +356,19 @@ public class CacheClearingService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error in cache clear operation {operation.Id}");
+            // Distinguish between expected failures and unexpected errors
+            var isExpectedFailure = ex.Message.Contains("No cache directories found") ||
+                                   ex.Message.Contains("Cache path does not exist");
+
+            if (isExpectedFailure)
+            {
+                _logger.LogWarning("Cache clear operation {OperationId} failed: {Message}", operation.Id, ex.Message);
+            }
+            else
+            {
+                _logger.LogError(ex, "Error in cache clear operation {OperationId}", operation.Id);
+            }
+
             operation.Status = ClearStatus.Failed;
             operation.Error = ex.Message;
             operation.StatusMessage = $"Failed: {ex.Message}";

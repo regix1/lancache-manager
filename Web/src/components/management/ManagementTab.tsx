@@ -402,6 +402,210 @@ const DatabaseManager: React.FC<{
   );
 };
 
+// Corruption Detection Manager Component
+const CorruptionDetectionManager: React.FC<{
+  isAuthenticated: boolean;
+  authMode: AuthMode;
+  mockMode: boolean;
+  onError?: (message: string) => void;
+  onSuccess?: (message: string) => void;
+  onDataRefresh?: () => void;
+}> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh }) => {
+  const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [removingService, setRemovingService] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadCorruptionSummary();
+  }, []);
+
+  const loadCorruptionSummary = async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const summary = await ApiService.getCorruptionSummary();
+      setCorruptionSummary(summary);
+    } catch (err: any) {
+      console.error('Failed to load corruption summary:', err);
+      setLoadError(err.message || 'Failed to load corruption summary');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRemoveCorruption = (service: string) => {
+    if (authMode !== 'authenticated') {
+      onError?.('Full authentication required for management operations');
+      return;
+    }
+    setPendingRemoval(service);
+  };
+
+  const confirmRemoveCorruption = async () => {
+    if (!pendingRemoval || authMode !== 'authenticated') return;
+
+    const service = pendingRemoval;
+    setPendingRemoval(null);
+    setRemovingService(service);
+
+    try {
+      const result = await ApiService.removeCorruptedChunks(service);
+      onSuccess?.(result.message || `Corrupted chunks removed for ${service}`);
+
+      // Reload summary after removal
+      await loadCorruptionSummary();
+      onDataRefresh?.();
+    } catch (err: any) {
+      onError?.(err.message || `Failed to remove corrupted chunks for ${service}`);
+    } finally {
+      setRemovingService(null);
+    }
+  };
+
+  const servicesList = Object.entries(corruptionSummary)
+    .filter(([_, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]); // Sort by count descending
+
+  return (
+    <>
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 icon-red flex-shrink-0" />
+            <h3 className="text-lg font-semibold text-themed-primary">Corruption Detection</h3>
+          </div>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={loadCorruptionSummary}
+            disabled={isLoading || !!removingService}
+            leftSection={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
+          >
+            Refresh
+          </Button>
+        </div>
+
+        <p className="text-themed-muted text-sm mb-4">
+          Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+ occurrences) in access logs
+        </p>
+
+        {loadError && (
+          <Alert color="red" className="mb-4">
+            <div>
+              <p className="text-sm font-medium mb-1">Failed to detect corrupted chunks</p>
+              <p className="text-xs opacity-75">{loadError}</p>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={loadCorruptionSummary}
+                className="mt-2"
+                leftSection={<RefreshCw className="w-3 h-3" />}
+              >
+                Try Again
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-3">
+            <Loader className="w-6 h-6 animate-spin text-themed-accent" />
+            <p className="text-sm text-themed-secondary">Scanning logs for corrupted chunks...</p>
+            <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
+          </div>
+        ) : !loadError && servicesList.length > 0 ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {servicesList.map(([service, count]) => (
+                <Button
+                  key={service}
+                  onClick={() => handleRemoveCorruption(service)}
+                  disabled={mockMode || !!removingService || authMode !== 'authenticated'}
+                  variant="default"
+                  loading={removingService === service}
+                  className="flex flex-col items-center min-h-[60px] justify-center"
+                  fullWidth
+                >
+                  {removingService !== service ? (
+                    <>
+                      <span className="capitalize font-medium text-sm sm:text-base">Remove {service}</span>
+                      <span className="text-xs text-themed-muted mt-1">
+                        ({count.toLocaleString()} corrupted chunks)
+                      </span>
+                    </>
+                  ) : (
+                    <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
+                  )}
+                </Button>
+              ))}
+            </div>
+
+            <div className="mt-4">
+              <Alert color="yellow">
+                <p className="text-xs">
+                  <strong>Warning:</strong> This will delete cache files and remove log entries for corrupted chunks
+                </p>
+              </Alert>
+            </div>
+          </>
+        ) : (
+          <div className="text-center py-8 text-themed-muted">
+            <div className="mb-2">No corrupted chunks detected</div>
+            <div className="text-xs">
+              Cache appears healthy - all chunks are being served successfully
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Modal
+        opened={pendingRemoval !== null}
+        onClose={() => setPendingRemoval(null)}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Remove Corrupted Chunks</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Remove all corrupted cache chunks for <strong>{pendingRemoval}</strong>? This will delete cache files
+            and log entries for chunks with repeated MISS/UNKNOWN requests.
+          </p>
+
+          <Alert color="yellow">
+            <div>
+              <p className="text-sm font-medium mb-2">Important:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This action cannot be undone</li>
+                <li>May take several minutes for large cache directories</li>
+                <li>Valid {pendingRemoval} cache files will remain intact</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setPendingRemoval(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={confirmRemoveCorruption}
+              leftSection={<AlertTriangle className="w-4 h-4" />}
+            >
+              Remove Corrupted Chunks
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+};
+
 // Main services that should always be shown first
 const MAIN_SERVICES = [
   'steam', 'epic', 'riot', 'blizzard', 'origin', 'uplay',
@@ -1235,6 +1439,15 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 onBackgroundOperation={(service) =>
                   setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
                 }
+              />
+
+              <CorruptionDetectionManager
+                isAuthenticated={isAuthenticated}
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={fetchData}
               />
             </CollapsibleSection>
 
