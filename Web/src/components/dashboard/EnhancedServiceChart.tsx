@@ -28,30 +28,6 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
     { name: 'Bandwidth Saved', id: 'bandwidth' }
   ];
 
-  // Function to get chart colors from CSS variables with fallbacks
-  const getChartColors = () => {
-    // Use requestAnimationFrame to ensure CSS variables are available
-    const computedStyle = getComputedStyle(document.documentElement);
-    const colors = [
-      computedStyle.getPropertyValue('--theme-chart-1').trim(),
-      computedStyle.getPropertyValue('--theme-chart-2').trim(),
-      computedStyle.getPropertyValue('--theme-chart-3').trim(),
-      computedStyle.getPropertyValue('--theme-chart-4').trim(),
-      computedStyle.getPropertyValue('--theme-chart-5').trim(),
-      computedStyle.getPropertyValue('--theme-chart-6').trim(),
-      computedStyle.getPropertyValue('--theme-chart-7').trim(),
-      computedStyle.getPropertyValue('--theme-chart-8').trim()
-    ];
-    
-    // Fallback colors if CSS variables aren't loaded yet
-    const fallbacks = [
-      '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
-      '#8b5cf6', '#06b6d4', '#f97316', '#ec4899'
-    ];
-    
-    return colors.map((color, i) => color || fallbacks[i]);
-  };
-
   const getServiceDistributionData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) {
       // Keep previous data if we had it before
