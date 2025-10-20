@@ -263,12 +263,25 @@ const AppContent: React.FC = () => {
   const handleDownloadFromGitHub = async () => {
     // Close modal but keep user on current page
     setShowAutomaticScanSkippedModal(false);
+
+    // Set downloading flag in localStorage for PicsProgressBar
+    localStorage.setItem('githubDownloading', 'true');
+    localStorage.removeItem('githubDownloadComplete');
+
     // Trigger download from GitHub
     try {
       await ApiService.downloadPrecreatedDepotData();
       console.log('[App] GitHub download triggered successfully');
+
+      // Update localStorage flags on success
+      localStorage.removeItem('githubDownloading');
+      localStorage.setItem('githubDownloadComplete', 'true');
+      localStorage.setItem('githubDownloadTime', new Date().toISOString());
     } catch (error) {
       console.error('Failed to download from GitHub:', error);
+
+      // Clear downloading flag on error
+      localStorage.removeItem('githubDownloading');
     }
   };
 

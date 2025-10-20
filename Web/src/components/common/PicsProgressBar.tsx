@@ -13,6 +13,43 @@ const PicsProgressBar: React.FC = () => {
   const [alwaysVisible, setAlwaysVisible] = useState(false);
   const [wasRunning, setWasRunning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [githubDownloadStatus, setGithubDownloadStatus] = useState<'downloading' | 'complete' | null>(null);
+  // Check for GitHub download status
+  useEffect(() => {
+    const checkGithubStatus = () => {
+      const downloading = localStorage.getItem('githubDownloading');
+      const downloadComplete = localStorage.getItem('githubDownloadComplete');
+
+      // If PICS is running, clear GitHub complete status and show PICS instead
+      if (progress?.isRunning && downloadComplete === 'true') {
+        localStorage.removeItem('githubDownloadComplete');
+        localStorage.removeItem('githubDownloadTime');
+        setGithubDownloadStatus(null);
+        return;
+      }
+
+      if (downloading === 'true') {
+        setGithubDownloadStatus('downloading');
+      } else if (downloadComplete === 'true') {
+        setGithubDownloadStatus('complete');
+      } else {
+        setGithubDownloadStatus(null);
+      }
+    };
+
+    // Check on mount and periodically
+    checkGithubStatus();
+    const interval = setInterval(checkGithubStatus, 500);
+
+    // Listen for storage events (cross-tab communication)
+    window.addEventListener('storage', checkGithubStatus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', checkGithubStatus);
+    };
+  }, [progress?.isRunning]);
+
   useEffect(() => {
     // Load the setting on mount
     setAlwaysVisible(themeService.getPicsAlwaysVisible());
@@ -31,36 +68,34 @@ const PicsProgressBar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!progress) return;
-
     // Clear any existing hide timeout
     if (hideTimeout) {
       clearTimeout(hideTimeout);
       setHideTimeout(null);
     }
 
-    // If alwaysVisible is enabled, always show the bar
-    if (alwaysVisible) {
+    // If alwaysVisible is enabled or GitHub download is active, always show the bar
+    if (alwaysVisible || githubDownloadStatus === 'downloading') {
       setIsVisible(true);
-      setWasRunning(progress.isRunning);
+      setWasRunning((progress?.isRunning || githubDownloadStatus === 'downloading') ?? false);
     } else {
-      // Show progress bar only when PICS is actually running
-      if (progress.isRunning) {
+      // Show progress bar when PICS is running or GitHub download is complete
+      if (progress?.isRunning || githubDownloadStatus === 'complete') {
         setIsVisible(true);
         setWasRunning(true);
-      } else if (wasRunning && !progress.isRunning) {
+      } else if (wasRunning && !progress?.isRunning && githubDownloadStatus !== 'complete') {
         // Was just running, now stopped - hide after 10 seconds
         const timeout = setTimeout(() => {
           setIsVisible(false);
           setWasRunning(false);
         }, 10000);
         setHideTimeout(timeout);
-      } else if (!progress.isRunning && !wasRunning) {
+      } else if (!progress?.isRunning && !wasRunning && githubDownloadStatus !== 'complete') {
         // Never was running in this session, hide immediately
         setIsVisible(false);
       }
     }
-  }, [progress, alwaysVisible, wasRunning]);
+  }, [progress, alwaysVisible, wasRunning, githubDownloadStatus, hideTimeout]);
 
   useEffect(() => {
     return () => {
@@ -70,16 +105,21 @@ const PicsProgressBar: React.FC = () => {
     };
   }, [hideTimeout]);
 
-  if (!progress) {
+  // Don't return early if GitHub download is active - we still want to show that
+  if (!progress && !githubDownloadStatus) {
     return null;
   }
 
   const getStatusIcon = () => {
-    if (progress.isRunning) {
+    if (githubDownloadStatus === 'downloading') {
       return <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-info-text)' }} />;
-    } else if (progress.status === 'Complete') {
+    } else if (githubDownloadStatus === 'complete') {
       return <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />;
-    } else if (progress.status === 'Error occurred') {
+    } else if (progress?.isRunning) {
+      return <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-info-text)' }} />;
+    } else if (progress?.status === 'Complete') {
+      return <CheckCircle className="w-4 h-4" style={{ color: 'var(--theme-success-text)' }} />;
+    } else if (progress?.status === 'Error occurred') {
       return <AlertCircle className="w-4 h-4" style={{ color: 'var(--theme-error-text)' }} />;
     } else {
       return <Download className="w-4 h-4" style={{ color: 'var(--theme-text-muted)' }} />;
@@ -87,9 +127,11 @@ const PicsProgressBar: React.FC = () => {
   };
 
   const getStatusStyle = () => {
-    if (progress.isRunning) return { backgroundColor: 'var(--theme-info)' };
-    if (progress.status === 'Complete') return { backgroundColor: 'var(--theme-success)' };
-    if (progress.status === 'Error occurred') return { backgroundColor: 'var(--theme-error)' };
+    if (githubDownloadStatus === 'downloading') return { backgroundColor: 'var(--theme-info)' };
+    if (githubDownloadStatus === 'complete') return { backgroundColor: 'var(--theme-success)' };
+    if (progress?.isRunning) return { backgroundColor: 'var(--theme-info)' };
+    if (progress?.status === 'Complete') return { backgroundColor: 'var(--theme-success)' };
+    if (progress?.status === 'Error occurred') return { backgroundColor: 'var(--theme-error)' };
     return { backgroundColor: 'var(--theme-text-muted)' };
   };
 
@@ -126,12 +168,27 @@ const PicsProgressBar: React.FC = () => {
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-themed-primary">
-                  Steam PICS: {progress.status}
-                  {!progress.isConnected && ' (Disconnected)'}
-                  {progress.isConnected && !progress.isLoggedOn && ' (Not logged in)'}
+                  {/* Prioritize PICS status when running */}
+                  {progress?.isRunning ? (
+                    <>
+                      Steam PICS: {progress.status}
+                      {!progress.isConnected && ' (Disconnected)'}
+                      {progress.isConnected && !progress.isLoggedOn && ' (Not logged in)'}
+                    </>
+                  ) : githubDownloadStatus === 'downloading' ? (
+                    'GitHub: Downloading depot mappings...'
+                  ) : githubDownloadStatus === 'complete' ? (
+                    'GitHub: Applying depot mappings to downloads...'
+                  ) : progress ? (
+                    <>
+                      Steam PICS: {progress.status}
+                      {!progress.isConnected && ' (Disconnected)'}
+                      {progress.isConnected && !progress.isLoggedOn && ' (Not logged in)'}
+                    </>
+                  ) : null}
                 </span>
                 {/* Auth mode indicator */}
-                {progress.isConnected && (
+                {progress?.isConnected && (
                   <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded" style={{
                     backgroundColor: 'var(--theme-bg-tertiary)',
                     color: 'var(--theme-text-muted)'
@@ -151,20 +208,29 @@ const PicsProgressBar: React.FC = () => {
                 )}
               </div>
               <span className="text-xs text-themed-muted">
-                {progress.isRunning && progress.totalBatches > 0
-                  ? `${progress.processedBatches}/${progress.totalBatches} batches (${Math.round(progress.progressPercent)}%)`
-                  : progress.depotMappingsFoundInSession > 0
-                    ? `Found ${progress.depotMappingsFoundInSession.toLocaleString()} new mappings (Total: ${progress.depotMappingsFound.toLocaleString()})`
-                    : `${progress.depotMappingsFound.toLocaleString()} depot mappings`
-                }
-                {progress.isReady && progress.nextCrawlIn && (() => {
-                  const totalHours = toTotalHours(progress.nextCrawlIn);
-                  return totalHours > 0 ? ` • Next: ${Math.round(totalHours)}h` : '';
-                })()}
+                {/* Prioritize PICS info when running */}
+                {progress?.isRunning && progress.totalBatches > 0 ? (
+                  `${progress.processedBatches}/${progress.totalBatches} batches (${Math.round(progress.progressPercent)}%)`
+                ) : githubDownloadStatus === 'downloading' ? (
+                  'Fetching 290k+ depot mappings from GitHub...'
+                ) : githubDownloadStatus === 'complete' ? (
+                  'Mapping depots to your download history...'
+                ) : progress ? (
+                  <>
+                    {progress.depotMappingsFoundInSession > 0
+                      ? `Found ${progress.depotMappingsFoundInSession.toLocaleString()} new mappings (Total: ${progress.depotMappingsFound.toLocaleString()})`
+                      : `${progress.depotMappingsFound.toLocaleString()} depot mappings`
+                    }
+                    {progress.isReady && progress.nextCrawlIn && (() => {
+                      const totalHours = toTotalHours(progress.nextCrawlIn);
+                      return totalHours > 0 ? ` • Next: ${Math.round(totalHours)}h` : '';
+                    })()}
+                  </>
+                ) : null}
               </span>
             </div>
 
-            {progress.isRunning && progress.totalBatches > 0 && (
+            {progress?.isRunning && progress?.totalBatches > 0 && (
               <div
                 className="w-full rounded-full h-2"
                 style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
@@ -179,7 +245,7 @@ const PicsProgressBar: React.FC = () => {
               </div>
             )}
 
-            {progress.isRunning && progress.totalApps > 0 && (
+            {progress?.isRunning && progress?.totalApps > 0 && (
               <div className="text-xs text-themed-muted mt-1">
                 Processing {progress.processedApps.toLocaleString()}/{progress.totalApps.toLocaleString()} apps
               </div>
@@ -187,7 +253,7 @@ const PicsProgressBar: React.FC = () => {
           </div>
 
           {/* Cancel button */}
-          {progress.isRunning && (
+          {progress?.isRunning && (
             <Button
               onClick={handleCancel}
               disabled={cancelling}

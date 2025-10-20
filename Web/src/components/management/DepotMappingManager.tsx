@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Clock, Zap, AlertCircle } from 'lucide-react';
+import { Database, Clock, Zap, AlertCircle, Loader } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -45,7 +45,42 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   } | null>(null);
   const [operationType, setOperationType] = useState<'downloading' | 'scanning' | null>(null);
   const [fullScanRequired, setFullScanRequired] = useState(false);
+  const [githubDownloadComplete, setGithubDownloadComplete] = useState(false);
+  const [githubDownloading, setGithubDownloading] = useState(false);
   const lastViabilityCheck = useRef<number>(0);
+
+  // Check for pending GitHub download from localStorage on mount
+  useEffect(() => {
+    const downloadComplete = localStorage.getItem('githubDownloadComplete');
+    const downloadTime = localStorage.getItem('githubDownloadTime');
+
+    if (downloadComplete === 'true' && downloadTime) {
+      // Check if the download was within the last hour
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const downloadDate = new Date(downloadTime);
+
+      if (downloadDate > hourAgo) {
+        setGithubDownloadComplete(true);
+        // Automatically switch to incremental mode to guide user
+        setDepotSource('incremental');
+      } else {
+        // Clear old download status
+        localStorage.removeItem('githubDownloadComplete');
+        localStorage.removeItem('githubDownloadTime');
+      }
+    }
+  }, []);
+
+  // Clear GitHub download complete flag when a scan finishes
+  useEffect(() => {
+    if (depotProcessing && !depotProcessing.isRunning && githubDownloadComplete) {
+      // Clear the flag after scan completes
+      setGithubDownloadComplete(false);
+      localStorage.removeItem('githubDownloadComplete');
+      localStorage.removeItem('githubDownloadTime');
+      localStorage.removeItem('githubDownloading'); // Make sure this is also cleared
+    }
+  }, [depotProcessing?.isRunning, githubDownloadComplete]);
 
   // Auto-switch away from GitHub when Steam auth mode changes to authenticated
   useEffect(() => {
@@ -106,13 +141,35 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     setChangeGapWarning(null);
     setActionLoading(true);
     setOperationType('downloading');
+    setGithubDownloadComplete(false);
+    setGithubDownloading(true);
+
+    // Set downloading flag in localStorage for PicsProgressBar
+    localStorage.setItem('githubDownloading', 'true');
+    localStorage.removeItem('githubDownloadComplete');
 
     try {
       await ApiService.downloadPrecreatedDepotData();
-      onSuccess?.('Pre-created depot data downloaded and imported successfully');
+      onSuccess?.('GitHub depot data downloaded! Mappings are being applied to your downloads.');
+      setGithubDownloadComplete(true);
+      setGithubDownloading(false);
+
+      // Update localStorage flags
+      localStorage.removeItem('githubDownloading');
+      localStorage.setItem('githubDownloadComplete', 'true');
+      localStorage.setItem('githubDownloadTime', new Date().toISOString());
+
+      // Refresh the PICS progress data to clear automaticScanSkipped flag
+      await refreshProgress();
+
       setTimeout(() => onDataRefresh?.(), 2000);
     } catch (err: any) {
       onError?.(err.message || 'Failed to download from GitHub');
+      setGithubDownloadComplete(false);
+      setGithubDownloading(false);
+
+      // Clear downloading flag on error
+      localStorage.removeItem('githubDownloading');
     } finally {
       setActionLoading(false);
       setOperationType(null);
@@ -207,8 +264,49 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           Automatically identifies Steam games from depot IDs in download history
         </p>
 
-        {/* Automatic Scan Skipped Warning */}
-        {depotProcessing?.automaticScanSkipped && (
+        {/* GitHub Download In Progress */}
+        {githubDownloading && (
+          <div className="mb-4 p-3 rounded-lg border" style={{
+            backgroundColor: 'var(--theme-info-bg)',
+            borderColor: 'var(--theme-info)'
+          }}>
+            <div className="flex items-start gap-3">
+              <Loader className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--theme-info)' }} />
+              <div className="flex-1">
+                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
+                  Downloading Depot Mappings from GitHub...
+                </p>
+                <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
+                  Fetching pre-created depot mappings (290k+ depots). This may take a few moments.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* GitHub Download Complete - Incremental Scan Required */}
+        {githubDownloadComplete && !depotProcessing?.isRunning && !githubDownloading && (
+          <div className="mb-4 p-3 rounded-lg border" style={{
+            backgroundColor: 'var(--theme-info-bg)',
+            borderColor: 'var(--theme-info)'
+          }}>
+            <div className="flex items-start gap-3">
+              <Database className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
+              <div className="flex-1">
+                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
+                  GitHub Data Downloaded - Applying Mappings
+                </p>
+                <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
+                  Pre-created depot mappings have been imported from GitHub.
+                  The system is now applying these mappings to your download history.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Automatic Scan Skipped Warning - Don't show if GitHub download is complete or in progress */}
+        {depotProcessing?.automaticScanSkipped && !githubDownloadComplete && !githubDownloading && (
           <div className="mb-4 p-3 rounded-lg border" style={{
             backgroundColor: 'var(--theme-error-bg)',
             borderColor: 'var(--theme-error)'
@@ -352,8 +450,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 value: 'github',
                 label: steamAuthMode === 'authenticated'
                   ? 'GitHub (Not available with account login)'
-                  : 'GitHub (Download)',
-                disabled: steamAuthMode === 'authenticated'
+                  : githubDownloadComplete
+                    ? 'GitHub (Already downloaded)'
+                    : 'GitHub (Download)',
+                disabled: steamAuthMode === 'authenticated' || githubDownloadComplete
               }
             ]}
             value={depotSource}
@@ -380,7 +480,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               isProcessingLogs ||
               depotProcessing?.isRunning ||
               mockMode ||
-              !isAuthenticated
+              !isAuthenticated ||
+              githubDownloading
             }
             loading={actionLoading || depotProcessing?.isRunning}
             fullWidth
@@ -388,7 +489,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             {actionLoading && operationType === 'downloading' && 'Downloading from GitHub...'}
             {actionLoading && operationType === 'scanning' && 'Starting Scan...'}
             {!actionLoading && depotProcessing?.isRunning && `Scanning (${Math.round(depotProcessing.progressPercent)}%)`}
-            {!actionLoading && !depotProcessing?.isRunning && 'Apply Now'}
+            {!actionLoading && !depotProcessing?.isRunning && githubDownloadComplete && 'Applying Mappings...'}
+            {!actionLoading && !depotProcessing?.isRunning && !githubDownloadComplete && 'Apply Now'}
           </Button>
         </div>
 
@@ -418,7 +520,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             executeApplyDepotMappings(true); // Force full scan
           }}
           onCancel={() => setChangeGapWarning(null)}
-          onDownloadFromGitHub={handleDownloadFromGitHub}
+          onDownloadFromGitHub={() => {
+            setChangeGapWarning(null); // Close the modal immediately
+            handleDownloadFromGitHub();
+          }}
           showDownloadOption={true}
         />
       )}
