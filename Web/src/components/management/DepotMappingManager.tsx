@@ -45,7 +45,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   } | null>(null);
   const [operationType, setOperationType] = useState<'downloading' | 'scanning' | null>(null);
   const [fullScanRequired, setFullScanRequired] = useState(false);
-  const hasShownForcedScanWarning = useRef(false);
   const lastViabilityCheck = useRef<number>(0);
 
   // Auto-switch away from GitHub when Steam auth mode changes to authenticated
@@ -96,26 +95,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   }, [depotProcessing, mockMode, isAuthenticated, actionLoading]);
 
-  // Detect when Steam forced a full scan during execution (when incremental was requested)
-  // This is informational only - the scan is already running and can't be cancelled
+  // Clear operation type when scan completes
   useEffect(() => {
-    if (depotProcessing?.lastScanWasForced && depotProcessing?.isRunning && !hasShownForcedScanWarning.current) {
-      hasShownForcedScanWarning.current = true;
-      onError?.(
-        'Steam API forced a full scan due to outdated depot data. Now scanning ~270,000 apps via Web API. This will take 15-30 minutes. Future scans will be faster with regular updates.'
-      );
-    }
-
-    // Reset the warning flag when scan completes
-    if (!depotProcessing?.isRunning && hasShownForcedScanWarning.current) {
-      hasShownForcedScanWarning.current = false;
-    }
-
-    // Clear operation type when scan completes
     if (!depotProcessing?.isRunning && operationType === 'scanning') {
       setOperationType(null);
     }
-  }, [depotProcessing?.lastScanWasForced, depotProcessing?.isRunning, onError, operationType]);
+  }, [depotProcessing?.isRunning, operationType]);
 
   const handleDownloadFromGitHub = async () => {
     setChangeGapWarning(null);

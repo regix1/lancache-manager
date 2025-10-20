@@ -979,6 +979,15 @@ public class SteamKit2Service : IHostedService, IDisposable
             if (changes.RequiresFullUpdate || changes.RequiresFullAppUpdate)
             {
                 consecutiveFullUpdates++;
+
+                // If user requested incremental-only scan, cancel instead of auto-switching to full
+                if (incrementalOnly)
+                {
+                    _logger.LogWarning("PICS requesting full update, but user requested incremental-only. Cancelling scan.");
+                    _lastScanWasForced = true; // Mark that scan was cancelled due to forced full requirement
+                    throw new InvalidOperationException("Steam requires a full scan - change gap is too large for incremental update. Please run a full scan.");
+                }
+
                 _logger.LogWarning("PICS requesting full update, falling back to Web API");
                 _lastScanWasForced = true; // Mark that this scan was forced to be full
 

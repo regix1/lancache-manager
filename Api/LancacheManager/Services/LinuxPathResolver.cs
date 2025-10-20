@@ -49,6 +49,9 @@ public class LinuxPathResolver : IPathResolver
     public string GetRustCacheCleanerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_cleaner");
 
+    public string GetRustCorruptionManagerPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "corruption_manager");
+
     /// <summary>
     /// Resolves a relative path to an absolute path based on the operating system
     /// </summary>

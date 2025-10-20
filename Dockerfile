@@ -22,6 +22,7 @@ RUN cargo build --release && \
     cp target/release/database_reset /build/output/ && \
     cp target/release/log_manager /build/output/ && \
     cp target/release/cache_cleaner /build/output/ && \
+    cp target/release/corruption_manager /build/output/ && \
     chmod +x /build/output/*
 
 # Stage 2: Build Frontend

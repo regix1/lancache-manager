@@ -13,10 +13,6 @@ const PicsProgressBar: React.FC = () => {
   const [alwaysVisible, setAlwaysVisible] = useState(false);
   const [wasRunning, setWasRunning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [showForcedScanWarning, setShowForcedScanWarning] = useState(false);
-  const [showConfirmation, setShowConfirmation] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-
   useEffect(() => {
     // Load the setting on mount
     setAlwaysVisible(themeService.getPicsAlwaysVisible());
@@ -36,16 +32,6 @@ const PicsProgressBar: React.FC = () => {
 
   useEffect(() => {
     if (!progress) return;
-
-    // Detect if scan was forced from incremental to full (needs user confirmation)
-    if (progress.isRunning && progress.lastScanWasForced && progress.crawlIncrementalMode && !confirming) {
-      setShowConfirmation(true);
-      setShowForcedScanWarning(true);
-    } else if (!progress.isRunning) {
-      setShowForcedScanWarning(false);
-      setShowConfirmation(false);
-      setConfirming(false);
-    }
 
     // Clear any existing hide timeout
     if (hideTimeout) {
@@ -74,7 +60,7 @@ const PicsProgressBar: React.FC = () => {
         setIsVisible(false);
       }
     }
-  }, [progress, alwaysVisible, wasRunning, confirming]);
+  }, [progress, alwaysVisible, wasRunning]);
 
   useEffect(() => {
     return () => {
@@ -177,34 +163,6 @@ const PicsProgressBar: React.FC = () => {
                 })()}
               </span>
             </div>
-
-            {/* Forced scan warning with confirmation */}
-            {showForcedScanWarning && (
-              <div className="text-xs p-2 rounded mb-2 flex items-start justify-between gap-2" style={{
-                backgroundColor: 'var(--theme-warning-bg)',
-                color: 'var(--theme-warning-text)',
-                border: '1px solid var(--theme-warning)'
-              }}>
-                <div className="flex-1">
-                  <strong>Full scan in progress:</strong> Change gap too large for incremental update.
-                  Scanning all ~270k Steam apps. This will take 15-30 minutes. Future scans will be faster with regular updates.
-                </div>
-                {showConfirmation && (
-                  <Button
-                    onClick={() => {
-                      setShowConfirmation(false);
-                      setConfirming(true);
-                    }}
-                    variant="filled"
-                    color="yellow"
-                    size="xs"
-                    className="whitespace-nowrap"
-                  >
-                    I Understand
-                  </Button>
-                )}
-              </div>
-            )}
 
             {progress.isRunning && progress.totalBatches > 0 && (
               <div

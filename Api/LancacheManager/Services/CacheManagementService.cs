@@ -604,22 +604,13 @@ public class CacheManagementService
         var cacheDir = _cachePath;
         var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
 
-        // Get binary path from application directory (same location as log_manager)
-        var appDir = AppDomain.CurrentDomain.BaseDirectory;
-        var rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager.exe");
-
-        // On Linux/Mac, the binary doesn't have .exe extension
-        if (!File.Exists(rustBinaryPath))
-        {
-            rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager");
-        }
+        var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
         if (!File.Exists(rustBinaryPath))
         {
-            var logManagerPath = _pathResolver.GetRustLogManagerPath();
-            var logManagerDir = Path.GetDirectoryName(logManagerPath);
-            _logger.LogError($"Corruption manager binary not found. Searched at: {rustBinaryPath}. AppDir: {appDir}. log_manager is at: {logManagerPath}");
-            throw new FileNotFoundException($"Corruption manager binary not found at {rustBinaryPath}. Application directory: {appDir}");
+            var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+            _logger.LogError(errorMsg);
+            throw new FileNotFoundException(errorMsg);
         }
 
         var startInfo = new ProcessStartInfo
@@ -692,19 +683,13 @@ public class CacheManagementService
         _logger.LogInformation("[CorruptionDetection] Removal params - logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
             logDir, cacheDir, progressPath);
 
-        // Get binary path from application directory (same location as log_manager)
-        var appDir = AppDomain.CurrentDomain.BaseDirectory;
-        var rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager.exe");
-
-        // On Linux/Mac, the binary doesn't have .exe extension
-        if (!File.Exists(rustBinaryPath))
-        {
-            rustBinaryPath = Path.Combine(appDir, "rust-processor", "corruption_manager");
-        }
+        var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
         if (!File.Exists(rustBinaryPath))
         {
-            throw new FileNotFoundException($"Corruption manager binary not found at {rustBinaryPath}. Application directory: {appDir}");
+            var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+            _logger.LogError(errorMsg);
+            throw new FileNotFoundException(errorMsg);
         }
 
         var startInfo = new ProcessStartInfo

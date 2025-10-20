@@ -60,4 +60,9 @@ public interface IPathResolver
     /// Gets the path to the Rust cache cleaner executable
     /// </summary>
     string GetRustCacheCleanerPath();
+
+    /// <summary>
+    /// Gets the path to the Rust corruption manager executable
+    /// </summary>
+    string GetRustCorruptionManagerPath();
 }
