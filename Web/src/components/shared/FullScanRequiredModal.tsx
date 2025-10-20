@@ -4,12 +4,15 @@ import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 
 interface FullScanRequiredModalProps {
-  changeGap: number;
-  estimatedApps: number;
+  changeGap?: number;
+  estimatedApps?: number;
   onConfirm: () => void;
   onCancel: () => void;
   onDownloadFromGitHub: () => void;
   showDownloadOption?: boolean;
+  title?: string;
+  subtitle?: string;
+  isAutomaticScanSkipped?: boolean;
 }
 
 export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
@@ -18,8 +21,15 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   onConfirm,
   onCancel,
   onDownloadFromGitHub,
-  showDownloadOption = true
+  showDownloadOption = true,
+  title = "Full Scan Required",
+  subtitle,
+  isAutomaticScanSkipped = false
 }) => {
+
+  const defaultSubtitle = isAutomaticScanSkipped
+    ? "Scheduled incremental scan was skipped - Full scan required"
+    : "Steam requires a full scan - incremental update not possible";
 
   return (
     <Modal
@@ -30,7 +40,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--theme-error-bg)' }}>
             <AlertTriangle className="w-6 h-6" style={{ color: 'var(--theme-error)' }} />
           </div>
-          <span>Full Scan Required</span>
+          <span>{title}</span>
         </div>
       }
       size="lg"
@@ -42,12 +52,20 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
                borderColor: 'var(--theme-error)'
              }}>
           <p className="font-medium mb-2" style={{ color: 'var(--theme-error-text)' }}>
-            Steam requires a full scan - incremental update not possible
+            {subtitle || defaultSubtitle}
           </p>
           <div className="space-y-1 text-sm text-themed-secondary">
-            <p>• Change gap: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>{changeGap.toLocaleString()}</span> updates behind</p>
-            <p>• Estimated apps to scan: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>~{estimatedApps.toLocaleString()}</span> apps</p>
-            <p>• Steam's PICS API will force a <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>FULL SCAN</span> via Web API</p>
+            {isAutomaticScanSkipped && (
+              <p>• Your scheduled incremental depot mapping scan did not run</p>
+            )}
+            {changeGap && (
+              <p>• Change gap: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>{changeGap.toLocaleString()}</span> updates behind</p>
+            )}
+            <p>• {estimatedApps
+              ? <>Estimated apps to scan: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>~{estimatedApps.toLocaleString()}</span> apps</>
+              : <>Will need to scan <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>ALL</span> Steam apps (currently 300,000+)</>
+            }</p>
+            <p>• Steam's PICS API {isAutomaticScanSkipped ? "requires" : "will force"} a <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>FULL SCAN</span> {!isAutomaticScanSkipped && "via Web API"}</p>
           </div>
         </div>
 
@@ -66,8 +84,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               <p className="font-medium mb-2" style={{ color: 'var(--theme-info-text)' }}>Recommended: Download from GitHub</p>
               <ul className="space-y-1 text-sm text-themed-secondary">
                 <li>✓ Instant: Get pre-generated depot mappings in 1-2 minutes</li>
-                <li>✓ Complete: Contains 299,000+ current Steam depot mappings</li>
-                <li>✓ Efficient: Avoids scanning 270,000+ Steam apps (15-30 min)</li>
+                <li>✓ Complete: Contains 300,000+ current Steam depot mappings</li>
+                <li>✓ Efficient: Avoids scanning all Steam apps (15-30 min)</li>
               </ul>
             </div>
           )}
@@ -99,7 +117,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
             onClick={onCancel}
             variant="default"
           >
-            Cancel
+            {isAutomaticScanSkipped ? 'Dismiss' : 'Cancel'}
           </Button>
         </div>
       </div>

@@ -230,8 +230,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
-    // Debounce fast data based on current polling rate (half the interval)
-    const debounceTime = Math.max(500, getPollingInterval() / 2);
+    // Respect user's polling rate but reduce debounce overhead
+    // Use smaller of half-interval or 1 second for better responsiveness
+    const debounceTime = Math.min(1000, Math.max(250, getPollingInterval() / 4));
     if (!isInitialLoad.current && (now - lastFastFetchTime.current) < debounceTime) {
       return;
     }
@@ -297,8 +298,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
-    // Debounce medium data based on medium interval (half the interval)
-    const debounceTime = Math.max(1000, getMediumRefreshInterval() / 2);
+    // Minimal debounce for medium data - 500ms
+    const debounceTime = 500;
     if (!isInitialLoad.current && (now - lastMediumFetchTime.current) < debounceTime) {
       return;
     }
@@ -326,8 +327,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     const now = Date.now();
 
-    // Debounce slow data based on slow interval (half the interval)
-    const debounceTime = Math.max(2000, getSlowRefreshInterval() / 2);
+    // Minimal debounce for slow data - 1 second
+    const debounceTime = 1000;
     if (!isInitialLoad.current && (now - lastSlowFetchTime.current) < debounceTime) {
       return;
     }
@@ -504,22 +505,24 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
           .build();
 
         connection.on('DownloadsRefresh', () => {
-          // Respect the user's polling rate preference - don't override their choice
-          // SignalR should not trigger updates; regular intervals handle refreshes
+          // Respect the user's polling rate preference
           const now = Date.now();
           const timeSinceLastRefresh = now - lastSignalRRefreshTime.current;
 
           // Use the current polling rate from ref to avoid stale closure
           const pollingInterval = getPollingIntervalRef.current();
 
-          // Enforce strict debouncing - respect the user's polling interval
-          if (timeSinceLastRefresh < pollingInterval) {
-            console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${pollingInterval}ms)`);
+          // Respect user's polling interval but use a minimum threshold for responsiveness
+          // This prevents excessive updates while still being responsive
+          const minDebounceTime = Math.min(1000, pollingInterval); // At most 1 second debounce
+
+          if (timeSinceLastRefresh < minDebounceTime) {
+            console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${minDebounceTime}ms)`);
             return;
           }
 
           lastSignalRRefreshTime.current = now;
-          console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${pollingInterval}ms)`);
+          console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${minDebounceTime}ms)`);
 
           // Fetch fresh data when downloads are updated
           // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)
@@ -612,12 +615,8 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       // Set loading state when time range changes
       setLoading(true);
 
-      // Debounce the fetch slightly to avoid rapid calls
-      const debounceTimer = setTimeout(() => {
-        fetchData();
-      }, 100);
-
-      return () => clearTimeout(debounceTimer);
+      // Immediate fetch for time range changes - no debounce needed
+      fetchData();
     }
   }, [timeRange, mockMode]);
 
@@ -633,14 +632,14 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
         if (datesChanged) {
           setLoading(true);
-          // Debounce the fetch to avoid multiple rapid calls
+          // Minimal debounce to prevent duplicate calls
           const debounceTimer = setTimeout(() => {
             setLastCustomDates({
               start: customStartDate,
               end: customEndDate
             });
             fetchData();
-          }, 300); // 300ms debounce
+          }, 50); // Reduced to 50ms for faster response
 
           return () => clearTimeout(debounceTimer);
         }

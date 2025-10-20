@@ -571,7 +571,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           }
 
           if (!signalRConnected) {
-            setTimeout(() => startProcessingPolling(), 5000);
+            // Start polling immediately when SignalR is not connected
+            startProcessingPolling();
           }
         } else {
           onError?.('Log file appears to be empty or invalid');

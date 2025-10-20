@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Clock, Zap } from 'lucide-react';
+import { Database, Clock, Zap, AlertCircle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -206,6 +206,27 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         <p className="text-themed-secondary mb-4">
           Automatically identifies Steam games from depot IDs in download history
         </p>
+
+        {/* Automatic Scan Skipped Warning */}
+        {depotProcessing?.automaticScanSkipped && (
+          <div className="mb-4 p-3 rounded-lg border" style={{
+            backgroundColor: 'var(--theme-error-bg)',
+            borderColor: 'var(--theme-error)'
+          }}>
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-error)' }} />
+              <div className="flex-1">
+                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-error-text)' }}>
+                  Automatic Scan Skipped - Full Scan Required
+                </p>
+                <p className="text-xs" style={{ color: 'var(--theme-error-text)', opacity: 0.9 }}>
+                  The scheduled incremental scan was skipped because Steam requires a full scan.
+                  The change gap is too large for an incremental update. Please manually run a full scan or download pre-created data from GitHub.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Schedule Status */}
         <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">

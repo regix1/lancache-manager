@@ -16,6 +16,7 @@ export interface PicsProgress {
   crawlIntervalHours: number;
   crawlIncrementalMode: boolean;
   lastScanWasForced?: boolean;
+  automaticScanSkipped?: boolean;
   isConnected: boolean;
   isLoggedOn: boolean;
 }

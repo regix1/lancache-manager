@@ -10,6 +10,8 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import PicsProgressBar from '@components/common/PicsProgressBar';
 import DepotInitializationModal from '@components/initialization/DepotInitializationModal';
 import AuthenticationModal from '@components/auth/AuthenticationModal';
+import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
+import { usePicsProgress } from '@hooks/usePicsProgress';
 import ApiService from '@services/api.service';
 import authService, { AuthMode } from '@services/auth.service';
 import { setServerTimezone } from '@utils/timezone';
@@ -34,6 +36,18 @@ const AppContent: React.FC = () => {
   const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
   const [hasProcessedLogs, setHasProcessedLogs] = useState<boolean | null>(null);
   const [checkingSetupStatus, setCheckingSetupStatus] = useState(true);
+  const [showAutomaticScanSkippedModal, setShowAutomaticScanSkippedModal] = useState(false);
+  const [hasShownScanSkippedModal, setHasShownScanSkippedModal] = useState(false);
+  const { progress } = usePicsProgress({ pollingInterval: 5000 });
+
+  // Detect when automatic scan is skipped and show modal
+  useEffect(() => {
+    if (progress?.automaticScanSkipped && !hasShownScanSkippedModal && !showAutomaticScanSkippedModal) {
+      console.log('[App] Automatic scan skipped detected, showing modal');
+      setShowAutomaticScanSkippedModal(true);
+      setHasShownScanSkippedModal(true);
+    }
+  }, [progress?.automaticScanSkipped, hasShownScanSkippedModal, showAutomaticScanSkippedModal]);
 
   // Fetch server timezone on mount
   useEffect(() => {
@@ -211,9 +225,7 @@ const AppContent: React.FC = () => {
   };
 
   const handleAuthChanged = async () => {
-    // Small delay to ensure auth service state is fully updated
-    await new Promise(resolve => setTimeout(resolve, 100));
-
+    // Immediately check auth status without delay
     const authResult = await authService.checkAuth();
     setIsAuthenticated(authResult.isAuthenticated);
     setAuthMode(authResult.authMode);
@@ -230,6 +242,34 @@ const AppContent: React.FC = () => {
     setShowApiKeyRegenerationModal(false);
     setIsAuthenticated(authService.isAuthenticated);
     setAuthMode(authService.authMode);
+  };
+
+  const handleAutomaticScanSkippedClose = () => {
+    setShowAutomaticScanSkippedModal(false);
+  };
+
+  const handleRunFullScan = async () => {
+    // Close modal but keep user on current page
+    setShowAutomaticScanSkippedModal(false);
+    // Trigger full scan via API
+    try {
+      await ApiService.triggerSteamKitRebuild(false); // false = full scan
+      console.log('[App] Full scan triggered successfully');
+    } catch (error) {
+      console.error('Failed to trigger full scan:', error);
+    }
+  };
+
+  const handleDownloadFromGitHub = async () => {
+    // Close modal but keep user on current page
+    setShowAutomaticScanSkippedModal(false);
+    // Trigger download from GitHub
+    try {
+      await ApiService.downloadPrecreatedDepotData();
+      console.log('[App] GitHub download triggered successfully');
+    } catch (error) {
+      console.error('Failed to download from GitHub:', error);
+    }
   };
 
   const renderContent = () => {
@@ -361,19 +401,33 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div
-      className="min-h-screen flex flex-col"
-      style={{
-        backgroundColor: 'var(--theme-bg-primary)',
-        color: 'var(--theme-text-primary)'
-      }}
-    >
-      <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
-      <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
-      <PicsProgressBar />
-      <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
-      <Footer />
-    </div>
+    <>
+      {/* Automatic Scan Skipped Modal */}
+      {showAutomaticScanSkippedModal && (
+        <FullScanRequiredModal
+          onCancel={handleAutomaticScanSkippedClose}
+          onConfirm={handleRunFullScan}
+          onDownloadFromGitHub={handleDownloadFromGitHub}
+          showDownloadOption={authMode === 'authenticated'}
+          title="Automatic Scan Skipped"
+          isAutomaticScanSkipped={true}
+        />
+      )}
+
+      <div
+        className="min-h-screen flex flex-col"
+        style={{
+          backgroundColor: 'var(--theme-bg-primary)',
+          color: 'var(--theme-text-primary)'
+        }}
+      >
+        <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
+        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+        <PicsProgressBar />
+        <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
+        <Footer />
+      </div>
+    </>
   );
 };
 

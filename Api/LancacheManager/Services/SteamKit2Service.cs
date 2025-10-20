@@ -52,6 +52,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
     private bool _lastScanWasForced = false; // Track if the last scan was forced to be full due to Steam requirements
+    private bool _automaticScanSkipped = false; // Track if an automatic scan was skipped due to requiring full scan
 
     // depotId -> set of appIds (can be multiple for shared depots)
     private readonly ConcurrentDictionary<uint, HashSet<uint>> _depotToAppMappings = new();
@@ -262,16 +263,40 @@ public class SteamKit2Service : IHostedService, IDisposable
                 (int)(timeSinceLastCrawl - _crawlInterval).TotalMinutes);
 
             // Trigger the scan immediately in the background
-            _ = Task.Run(() =>
+            _ = Task.Run(async () =>
             {
                 // Small delay to ensure service is fully initialized
-                Task.Delay(5000).Wait();
+                await Task.Delay(5000);
 
                 if (!IsRebuildRunning && _isRunning)
                 {
                     var scanType = _crawlIncrementalMode ? "incremental" : "full";
                     _logger.LogInformation("Starting overdue {ScanType} PICS update (last crawl was {Minutes} minutes ago)",
                         scanType, (int)timeSinceLastCrawl.TotalMinutes);
+
+                    // For automatic incremental scans, check viability first
+                    if (_crawlIncrementalMode)
+                    {
+                        try
+                        {
+                            _logger.LogInformation("Checking incremental scan viability before starting automatic scan");
+                            var viability = await CheckIncrementalViabilityAsync(_cancellationTokenSource.Token);
+                            var viabilityObj = viability as dynamic;
+                            if (viabilityObj?.willTriggerFullScan == true)
+                            {
+                                _logger.LogWarning("Automatic incremental scan skipped - Steam requires full scan (change gap too large). User must manually trigger a full scan.");
+                                _automaticScanSkipped = true;
+                                return;
+                            }
+                            _logger.LogInformation("Incremental scan is viable, proceeding with automatic scan");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to check incremental viability, skipping automatic scan");
+                            return;
+                        }
+                    }
+
                     if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: _crawlIncrementalMode))
                     {
                         _lastCrawlTime = DateTime.UtcNow;
@@ -309,13 +334,37 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
 
         // Use configured scan mode for automatic scheduled scans
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             if (!IsRebuildRunning)
             {
                 var scanType = _crawlIncrementalMode ? "incremental" : "full";
                 _logger.LogInformation("Starting scheduled {ScanType} PICS update (due: last crawl was {Minutes} minutes ago)",
                     scanType, (int)timeSinceLastCrawl.TotalMinutes);
+
+                // For automatic incremental scans, check viability first
+                if (_crawlIncrementalMode)
+                {
+                    try
+                    {
+                        _logger.LogInformation("Checking incremental scan viability before starting scheduled scan");
+                        var viability = await CheckIncrementalViabilityAsync(_cancellationTokenSource.Token);
+                        var viabilityObj = viability as dynamic;
+                        if (viabilityObj?.willTriggerFullScan == true)
+                        {
+                            _logger.LogWarning("Scheduled incremental scan skipped - Steam requires full scan (change gap too large). User must manually trigger a full scan.");
+                            _automaticScanSkipped = true;
+                            return;
+                        }
+                        _logger.LogInformation("Incremental scan is viable, proceeding with scheduled scan");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to check incremental viability, skipping scheduled scan");
+                        return;
+                    }
+                }
+
                 if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: _crawlIncrementalMode))
                 {
                     _lastCrawlTime = DateTime.UtcNow;
@@ -1422,6 +1471,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             CrawlIntervalHours = _crawlInterval.TotalHours,
             CrawlIncrementalMode = _crawlIncrementalMode,
             LastScanWasForced = _lastScanWasForced,
+            AutomaticScanSkipped = _automaticScanSkipped,
             IsConnected = _steamClient?.IsConnected == true,
             IsLoggedOn = _isLoggedOn && isAuthenticated // Only true if both connected AND using authenticated mode
         };
@@ -1475,6 +1525,7 @@ public class SteamKit2Service : IHostedService, IDisposable
 
         _logger.LogInformation("Starting Steam PICS depot crawl");
         _lastScanWasForced = false; // Reset flag at start of new scan
+        _automaticScanSkipped = false; // Reset flag at start of new scan
 
         // Dispose previous cancellation token source if it exists
         _currentRebuildCts?.Dispose();
