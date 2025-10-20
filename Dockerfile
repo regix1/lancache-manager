@@ -30,7 +30,7 @@ WORKDIR /app
 
 # Copy and install dependencies
 COPY Web/package*.json ./
-RUN npm ci --quiet
+RUN npm install --quiet
 
 # Copy source and build
 COPY Web/ ./
