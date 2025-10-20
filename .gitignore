@@ -61,7 +61,10 @@ lancache-manager-dev.db*
 
 # Temporary files
 *.tmp
+*.tmp.*
 *.temp
+*.corruption_tmp.*
+*.bak
 bulk_processing.marker
 logposition.txt
 

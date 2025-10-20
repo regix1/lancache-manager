@@ -130,7 +130,7 @@ public class RustDatabaseResetService
                 }
             });
 
-            // Monitor stderr
+            // Monitor stderr - log all as debug since warnings/errors would be in progress JSON
             _ = Task.Run(async () =>
             {
                 while (!_rustProcess.StandardError.EndOfStream)
@@ -138,7 +138,7 @@ public class RustDatabaseResetService
                     var line = await _rustProcess.StandardError.ReadLineAsync();
                     if (!string.IsNullOrEmpty(line))
                     {
-                        _logger.LogError($"[rust reset error] {line}");
+                        _logger.LogDebug("[Rust Reset Stderr] {Line}", line);
                     }
                 }
             });

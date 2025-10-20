@@ -59,6 +59,12 @@ public class RustLogProcessorService
 
         [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
         public DateTime Timestamp { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("warnings")]
+        public List<string> Warnings { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonPropertyName("errors")]
+        public List<string> Errors { get; set; } = new();
     }
 
     public async Task<bool> StartProcessingAsync(string logFilePath, long startPosition = 0, bool silentMode = false)
@@ -155,7 +161,7 @@ public class RustLogProcessorService
                 }
             });
 
-            // Monitor stderr
+            // Monitor stderr - log all as debug since warnings/errors are in progress JSON
             _ = Task.Run(async () =>
             {
                 while (!_rustProcess.StandardError.EndOfStream)
@@ -163,7 +169,7 @@ public class RustLogProcessorService
                     var line = await _rustProcess.StandardError.ReadLineAsync();
                     if (!string.IsNullOrEmpty(line))
                     {
-                        _logger.LogError($"[Rust Error] {line}");
+                        _logger.LogDebug("[Rust Stderr] {Line}", line);
                     }
                 }
             });
@@ -284,6 +290,10 @@ public class RustLogProcessorService
 
                 if (!silentMode)
                 {
+                    // Set IsProcessing to false BEFORE the delay so polling can detect completion
+                    // This is critical for the initialization wizard step 5 to detect completion
+                    IsProcessing = false;
+
                     // Ensure minimum display duration of 2 seconds for UI visibility BEFORE sending completion
                     // This prevents the progress UI from disappearing before users can see it
                     var elapsed = DateTime.UtcNow - startTime;
@@ -320,7 +330,10 @@ public class RustLogProcessorService
                 }
                 else
                 {
-                    // In silent mode, send a lightweight notification that downloads have been updated
+                    // In silent mode, we can set IsProcessing to false immediately
+                    IsProcessing = false;
+
+                    // Send a lightweight notification that downloads have been updated
                     // This allows the frontend to refresh active downloads without progress bars
                     await _hubContext.Clients.All.SendAsync("DownloadsRefresh", new
                     {
@@ -380,12 +393,36 @@ public class RustLogProcessorService
             var logFileInfo = new FileInfo(logPath);
             var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
 
+            var loggedWarnings = new HashSet<string>();
+            var loggedErrors = new HashSet<string>();
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 // Poll for progress updates every 500ms (faster polling for better responsiveness)
                 await Task.Delay(500, cancellationToken);
 
                 var progress = await ReadProgressFileAsync(progressPath);
+                if (progress != null)
+                {
+                    // Log any new warnings
+                    foreach (var warning in progress.Warnings)
+                    {
+                        if (loggedWarnings.Add(warning))
+                        {
+                            _logger.LogWarning("[Rust] {Warning}", warning);
+                        }
+                    }
+
+                    // Log any new errors
+                    foreach (var error in progress.Errors)
+                    {
+                        if (loggedErrors.Add(error))
+                        {
+                            _logger.LogError("[Rust] {Error}", error);
+                        }
+                    }
+                }
+
                 if (progress != null)
                 {
                     // Calculate MB processed based on percentage

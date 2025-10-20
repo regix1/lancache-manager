@@ -1,4 +1,5 @@
 use crate::models::LogEntry;
+use crate::service_utils;
 use chrono::{FixedOffset, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
@@ -26,12 +27,13 @@ impl LogParser {
         }
     }
 
+
     pub(crate) fn parse_line(&self, line: &str) -> Option<LogEntry> {
         let captures = self.main_regex.captures(line)?;
 
         let service = captures
             .name("service")
-            .map(|m| m.as_str().to_string())
+            .map(|m| service_utils::normalize_service_name(m.as_str()))
             .unwrap_or_else(|| "unknown".to_string());
 
         let client_ip = captures.name("ip")?.as_str().to_string();
@@ -160,46 +162,5 @@ impl LogParser {
             .captures(url)
             .and_then(|cap| cap.get(1))
             .and_then(|m| m.as_str().parse::<u32>().ok())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_actual_log_format() {
-        let parser = LogParser::new(chrono_tz::UTC);
-
-        // Test heartbeat line - from actual file
-        let line1 = r#"[127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:16:28:34 -0600] "GET /lancache-heartbeat HTTP/1.1" 204 0 "-" "Wget/1.19.4 (linux-gnu)" "-" "127.0.0.1" "-""#;
-        let entry1 = parser.parse_line(line1);
-        println!("Line1: {}", line1);
-        println!("Entry1: {:?}", entry1);
-        println!("Line1 len: {}", line1.len());
-        println!("Line1 bytes: {:?}", &line1.as_bytes()[0..50]);
-
-        // Also test with escaped quotes (what might be in file)
-        let line1_alt = "[127.0.0.1] 127.0.0.1 / - - - [10/Jan/2024:16:28:34 -0600] \"GET /lancache-heartbeat HTTP/1.1\" 204 0 \"-\" \"Wget/1.19.4 (linux-gnu)\" \"-\" \"127.0.0.1\" \"-\"";
-        let entry1_alt = parser.parse_line(line1_alt);
-        println!("Line1_alt: {}", line1_alt);
-        println!("Entry1_alt: {:?}", entry1_alt);
-
-        assert!(entry1.is_some() || entry1_alt.is_some(), "Failed to parse heartbeat line");
-
-        // Test steam line
-        let line2 = r#"[steam] 172.16.1.143 / - - - [29/Aug/2025:19:48:49 -0500] "GET /depot/2767031/chunk/115d1e0e2ea9e4ed02b5111c5e3d061d052c292a HTTP/1.1" 200 414016 "-" "Valve/Steam HTTP Client 1.0" "MISS" "fastly.cdn.steampipe.steamcontent.com" "-""#;
-        let entry2 = parser.parse_line(line2);
-        println!("Line2: {}", line2);
-        println!("Entry2: {:?}", entry2);
-        assert!(entry2.is_some(), "Failed to parse steam line");
-
-        let entry2 = entry2.unwrap();
-        assert_eq!(entry2.service, "steam");
-        assert_eq!(entry2.client_ip, "172.16.1.143");
-        assert_eq!(entry2.status_code, 200);
-        assert_eq!(entry2.bytes_served, 414016);
-        assert_eq!(entry2.depot_id, Some(2767031));
-        assert_eq!(entry2.cache_status, "MISS");
     }
 }

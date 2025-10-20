@@ -428,7 +428,7 @@ const CorruptionDetectionManager: React.FC<{
       const summary = await ApiService.getCorruptionSummary();
       setCorruptionSummary(summary);
     } catch (err: any) {
-      console.error('Failed to load corruption summary:', err);
+      console.error('[CorruptionDetection] Failed to load corruption summary:', err);
       setLoadError(err.message || 'Failed to load corruption summary');
     } finally {
       setIsLoading(false);
@@ -458,6 +458,7 @@ const CorruptionDetectionManager: React.FC<{
       await loadCorruptionSummary();
       onDataRefresh?.();
     } catch (err: any) {
+      console.error('[CorruptionDetection] Removal failed:', err);
       onError?.(err.message || `Failed to remove corrupted chunks for ${service}`);
     } finally {
       setRemovingService(null);
@@ -654,7 +655,9 @@ const LogFileManager: React.FC<{
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
   onBackgroundOperation?: (service: string | null) => void;
-}> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh, onBackgroundOperation }) => {
+  onReloadRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+  onClearOperationRef?: React.MutableRefObject<(() => Promise<void>) | null>;
+}> = ({ authMode, mockMode, onError, onSuccess, onBackgroundOperation, onReloadRef, onClearOperationRef }) => {
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
   const [config, setConfig] = useState({
     logPath: 'Loading...',
@@ -668,9 +671,25 @@ const LogFileManager: React.FC<{
 
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
 
+  const clearOperationState = async () => {
+    await serviceRemovalOp.clear();
+    setActiveServiceRemoval(null);
+    onBackgroundOperation?.(null);
+  };
+
   useEffect(() => {
     loadConfig();
     restoreServiceRemoval();
+
+    // Expose reload function to parent via ref
+    if (onReloadRef) {
+      onReloadRef.current = loadConfig;
+    }
+
+    // Expose clear operation function to parent via ref
+    if (onClearOperationRef) {
+      onClearOperationRef.current = clearOperationState;
+    }
   }, []);
 
   useEffect(() => {
@@ -701,22 +720,8 @@ const LogFileManager: React.FC<{
     if (serviceOp?.data?.service) {
       setActiveServiceRemoval(serviceOp.data.service);
       onSuccess?.(`Removing ${serviceOp.data.service} entries from logs (operation resumed)...`);
-      setTimeout(async () => {
-        await serviceRemovalOp.clear();
-        setActiveServiceRemoval(null);
-        // Reload config without showing loading state
-        try {
-          const [configData, counts] = await Promise.all([
-            ApiService.getConfig(),
-            ApiService.getServiceLogCounts()
-          ]);
-          setConfig(configData);
-          setServiceCounts(counts);
-        } catch (err) {
-          console.error('Failed to reload config:', err);
-        }
-        onDataRefresh?.();
-      }, 10000);
+      // Note: SignalR LogRemovalComplete event will handle cleanup and reload
+      // No need for hardcoded timeout - the backend will notify when complete
     }
   };
 
@@ -732,47 +737,19 @@ const LogFileManager: React.FC<{
     try {
       setActiveServiceRemoval(serviceName);
       await serviceRemovalOp.save({ service: serviceName });
+
+      // Start the removal process - it runs in background
       const result = await ApiService.removeServiceFromLogs(serviceName);
 
-      if (result) {
-        onSuccess?.(result.message || `${serviceName} entries removed successfully`);
+      if (result && result.status === 'started') {
+        onSuccess?.(`Removing ${serviceName} entries from logs...`);
+        // SignalR will handle the completion notification and clear serviceRemovalOp
+      } else {
+        // Unexpected response
+        setActiveServiceRemoval(null);
+        await serviceRemovalOp.clear();
+        onError?.(`Unexpected response when starting log removal for ${serviceName}`);
       }
-
-      await serviceRemovalOp.clear();
-
-      // Poll for updated counts until the target service disappears (rust process is async on Linux)
-      const pollForUpdates = async (attempts = 0, maxAttempts = 20) => {
-        try {
-          const [configData, counts] = await Promise.all([
-            ApiService.getConfig(),
-            ApiService.getServiceLogCounts()
-          ]);
-          setConfig(configData);
-          setServiceCounts(counts);
-
-          const remaining = counts?.[serviceName] ?? 0;
-          if (remaining <= 0) {
-            setActiveServiceRemoval(null);
-            onDataRefresh?.();
-            return;
-          }
-
-          if (attempts >= maxAttempts) {
-            console.warn('Max polling attempts reached, clearing loading state');
-            setActiveServiceRemoval(null);
-            onDataRefresh?.();
-            return;
-          }
-
-          setTimeout(() => pollForUpdates(attempts + 1, maxAttempts), 2000);
-        } catch (err) {
-          console.error('Failed to reload config:', err);
-          setActiveServiceRemoval(null);
-        }
-      };
-
-      // Start polling after a brief delay
-      setTimeout(() => pollForUpdates(), 1000);
     } catch (err: any) {
       await serviceRemovalOp.clear();
       setActiveServiceRemoval(null);
@@ -993,6 +970,10 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
 
+  // Refs to interact with LogFileManager
+  const logFileManagerReloadRef = useRef<(() => Promise<void>) | null>(null);
+  const logFileManagerClearOpRef = useRef<(() => Promise<void>) | null>(null);
+
   // Alert management
   const addError = useCallback((message: string) => {
     setAlerts((prev) => ({
@@ -1109,6 +1090,45 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
           // Log processing is done, depot mapping can be triggered manually if needed
         });
 
+        // Listen for log removal progress
+        connection.on('LogRemovalProgress', (payload: any) => {
+          console.log('SignalR LogRemovalProgress received:', payload);
+          // Update UI with progress if needed
+        });
+
+        // Listen for log removal completion
+        connection.on('LogRemovalComplete', async (payload: any) => {
+          console.log('SignalR LogRemovalComplete received:', payload);
+          if (payload.success) {
+            console.log(`Service ${payload.service} removal completed successfully`);
+
+            // Clear LogFileManager operation state
+            if (logFileManagerClearOpRef.current) {
+              await logFileManagerClearOpRef.current();
+            }
+
+            // Clear parent operation state
+            setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
+
+            // Reload the service counts in LogFileManager
+            if (logFileManagerReloadRef.current) {
+              await logFileManagerReloadRef.current();
+            }
+
+            // Refresh main data
+            fetchData();
+          } else {
+            console.error(`Service ${payload.service} removal failed:`, payload.message);
+            addError(`Failed to remove ${payload.service} logs: ${payload.message}`);
+
+            // Clear operation states on failure too
+            if (logFileManagerClearOpRef.current) {
+              await logFileManagerClearOpRef.current();
+            }
+            setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
+          }
+        });
+
         await connection.start();
         signalRConnection.current = connection;
         console.log('ManagementTab SignalR connection established');
@@ -1147,7 +1167,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         signalRConnection.current.stop();
       }
     };
-  }, [mockMode, addError]);
+  }, [mockMode, addError, setSuccess]);
 
   return (
     <>
@@ -1439,6 +1459,8 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 onBackgroundOperation={(service) =>
                   setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
                 }
+                onReloadRef={logFileManagerReloadRef}
+                onClearOperationRef={logFileManagerClearOpRef}
               />
 
               <CorruptionDetectionManager

@@ -13,23 +13,21 @@ use std::os::windows::fs::OpenOptionsExt;
 
 mod log_discovery;
 mod log_reader;
+mod service_utils;
 
 use log_discovery::discover_log_files;
 use log_reader::LogFileReader;
 
 #[derive(Serialize, Clone)]
 struct ProgressData {
-    #[serde(rename = "isProcessing")]
     is_processing: bool,
-    #[serde(rename = "percentComplete")]
     percent_complete: f64,
     status: String,
     message: String,
-    #[serde(rename = "linesProcessed")]
     lines_processed: u64,
-    #[serde(rename = "linesRemoved")]
-    lines_removed: Option<u64>,
-    #[serde(rename = "serviceCounts")]
+    lines_removed: u64,
+    files_processed: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
     service_counts: Option<HashMap<String, u64>>,
     timestamp: String,
 }
@@ -41,7 +39,8 @@ impl ProgressData {
         status: String,
         message: String,
         lines_processed: u64,
-        lines_removed: Option<u64>,
+        lines_removed: u64,
+        files_processed: usize,
         service_counts: Option<HashMap<String, u64>>,
     ) -> Self {
         Self {
@@ -51,6 +50,7 @@ impl ProgressData {
             message,
             lines_processed,
             lines_removed,
+            files_processed,
             service_counts,
             timestamp: Utc::now().to_rfc3339(),
         }
@@ -95,30 +95,9 @@ fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
 }
 
 
+// Use the shared service extraction utility for consistency
 fn extract_service_from_line(line: &str) -> Option<String> {
-    // Log format: [service] ...
-    if line.starts_with('[') {
-        if let Some(end_idx) = line.find(']') {
-            let service = line[1..end_idx].to_lowercase();
-
-            // Normalize service names - use common name if it's an IP or localhost
-            if service.starts_with("127.") || service == "127" || service == "localhost" {
-                return Some("localhost".to_string());
-            }
-
-            // If it looks like an IP address (has dots and numbers), group as "ip-address"
-            if service.contains('.') && service.chars().any(|c| c.is_numeric()) {
-                // Check if it's mostly numbers and dots (likely an IP)
-                let non_ip_chars = service.chars().filter(|c| !c.is_numeric() && *c != '.').count();
-                if non_ip_chars == 0 {
-                    return Some("ip-address".to_string());
-                }
-            }
-
-            return Some(service);
-        }
-    }
-    None
+    service_utils::extract_service_from_line(line)
 }
 
 fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String, u64>> {
@@ -143,6 +122,20 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
 
     if log_files.is_empty() {
         eprintln!("No log files found matching pattern: {}", base_name);
+
+        // Write progress with empty service counts so UI updates correctly
+        let progress = ProgressData::new(
+            false,
+            100.0,
+            "complete".to_string(),
+            "No log files found".to_string(),
+            0,
+            0,
+            0,
+            Some(HashMap::new()),
+        );
+        write_progress(progress_path, &progress)?;
+
         return Ok(HashMap::new());
     }
 
@@ -202,7 +195,8 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
                         "counting".to_string(),
                         format!("Counting services... {} lines processed across {} files", lines_processed, file_index + 1),
                         lines_processed,
-                        None,
+                        0,
+                        file_index + 1,
                         None,
                     );
                     write_progress(progress_path, &progress)?;
@@ -239,7 +233,8 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
         format!("Service counting completed. Found {} services in {} lines across {} files.",
             service_counts.len(), lines_processed, log_files.len()),
         lines_processed,
-        None,
+        0,
+        log_files.len(),
         Some(service_counts.clone()),
     );
     write_progress(progress_path, &progress)?;
@@ -290,13 +285,6 @@ fn remove_service_from_logs(
 
         // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
         let file_result = (|| -> Result<(u64, u64)> {
-            let file_path_str = log_file.path.to_str().context("Invalid file path")?;
-
-            // Create backup for this file
-            let backup_path = format!("{}.bak", file_path_str);
-            fs::copy(&log_file.path, &backup_path).context("Failed to create backup")?;
-            eprintln!("Backup created at: {}", backup_path);
-
             // Create temp file for filtered output
             let file_dir = log_file.path.parent().context("Failed to get file directory")?;
             let temp_path = file_dir.join(format!("access.log.tmp.{}.{}", Utc::now().timestamp(), file_index));
@@ -325,7 +313,8 @@ fn remove_service_from_logs(
                     "removing".to_string(),
                     format!("Processing file {}/{}: removing {} entries...", file_index + 1, log_files.len(), service_to_remove),
                     total_lines_processed,
-                    Some(total_lines_removed),
+                    total_lines_removed,
+                    file_index + 1,
                     None,
                 );
                 write_progress(progress_path, &progress)?;
@@ -375,7 +364,8 @@ fn remove_service_from_logs(
                                 file_index + 1, log_files.len(), total_lines_processed + lines_processed, total_lines_removed + lines_removed
                             ),
                             total_lines_processed + lines_processed,
-                            Some(total_lines_removed + lines_removed),
+                            total_lines_removed + lines_removed,
+                            file_index + 1,
                             None,
                         );
                         write_progress(progress_path, &progress)?;
@@ -390,13 +380,16 @@ fn remove_service_from_logs(
                 // reader and file are automatically dropped here when scope ends
             }
 
-            // Check if the filtered file would be empty (all lines removed)
+            // Allow removing all lines - user may want to clear all entries for a service
+            // If file would be empty, just delete it instead of leaving an empty file
             if lines_processed > 0 && lines_removed == lines_processed {
-                eprintln!("  WARNING: ALL {} lines from this file would be removed", lines_processed);
-                eprintln!("    Keeping original file unchanged and skipping to avoid data loss");
-                // Delete the empty temp file
+                eprintln!("  INFO: All {} lines from this file will be removed", lines_processed);
+                eprintln!("    Deleting the log file entirely");
+                // Delete the temp file
                 fs::remove_file(&temp_path).ok();
-                return Ok((lines_processed, 0)); // Report 0 lines removed to indicate we skipped this file
+                // Delete the original log file
+                fs::remove_file(&log_file.path).ok();
+                return Ok((lines_processed, lines_removed));
             }
 
             // Replace original with filtered version (only if some lines remain)
@@ -456,7 +449,8 @@ fn remove_service_from_logs(
             elapsed.as_secs_f64()
         ),
         total_lines_processed,
-        Some(total_lines_removed),
+        total_lines_removed,
+        log_files.len(),
         None,
     );
     write_progress(progress_path, &progress)?;
@@ -502,7 +496,8 @@ fn main() {
                         "error".to_string(),
                         format!("Service counting failed: {}", e),
                         0,
-                        None,
+                        0,
+                        0,
                         None,
                     );
                     let _ = write_progress(progress_path, &error_progress);
@@ -530,7 +525,8 @@ fn main() {
                         "error".to_string(),
                         format!("Service removal failed: {}", e),
                         0,
-                        Some(0),
+                        0,
+                        0,
                         None,
                     );
                     let _ = write_progress(progress_path, &error_progress);

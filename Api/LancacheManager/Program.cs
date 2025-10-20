@@ -66,12 +66,13 @@ else
 
 // Configure Data Protection for encrypting sensitive data
 // Keys are stored in the data directory and are machine-specific
-// Determine the path directly without BuildServiceProvider to avoid the warning
+// Determine the path based on OS - must match PathResolver logic but cannot use DI yet
 string dataProtectionKeyPath;
 if (OperatingSystemDetector.IsWindows)
 {
-    // Windows: H:/data/DataProtection-Keys
-    dataProtectionKeyPath = Path.Combine("H:", "data", "DataProtection-Keys");
+    // Windows: Find project root and use data directory
+    var projectRoot = FindProjectRootForDataProtection();
+    dataProtectionKeyPath = Path.Combine(projectRoot, "data", "DataProtection-Keys");
 }
 else // Linux/Docker
 {
@@ -166,6 +167,9 @@ builder.Services.AddSingleton<RustLogProcessorService>();
 
 // Register Rust database reset service
 builder.Services.AddSingleton<RustDatabaseResetService>();
+
+// Register Rust log removal service
+builder.Services.AddSingleton<RustLogRemovalService>();
 
 // Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();
@@ -372,3 +376,34 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.Run();
+
+// Helper function to find project root for Data Protection setup (before DI is available)
+static string FindProjectRootForDataProtection()
+{
+    var currentDir = Directory.GetCurrentDirectory().Replace('/', '\\');
+
+    // Quick check: if we're in Api\LancacheManager, go up two levels
+    if (currentDir.EndsWith("\\Api\\LancacheManager", StringComparison.OrdinalIgnoreCase))
+    {
+        var projectRoot = Directory.GetParent(currentDir)?.Parent?.FullName;
+        if (projectRoot != null && Directory.Exists(Path.Combine(projectRoot, "Api")) &&
+            Directory.Exists(Path.Combine(projectRoot, "Web")))
+        {
+            return projectRoot;
+        }
+    }
+
+    // Search up the directory tree
+    var dir = new DirectoryInfo(currentDir);
+    while (dir != null)
+    {
+        if (Directory.Exists(Path.Combine(dir.FullName, "Api")) &&
+            Directory.Exists(Path.Combine(dir.FullName, "Web")))
+        {
+            return dir.FullName;
+        }
+        dir = dir.Parent;
+    }
+
+    throw new DirectoryNotFoundException($"Could not find project root from: {currentDir}");
+}

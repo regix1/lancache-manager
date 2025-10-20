@@ -150,22 +150,30 @@ public class CacheManagementService
         return _cachePath;
     }
 
+    /// <summary>
+    /// Invalidate the service counts cache - call this after modifying logs
+    /// </summary>
+    public async Task InvalidateServiceCountsCache()
+    {
+        await _cacheLock.WaitAsync();
+        try
+        {
+            _cachedServiceCounts = null;
+            _cacheExpiry = null;
+            _logger.LogDebug("Service count cache invalidated");
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
+
     public async Task RemoveServiceFromLogs(string service)
     {
         try
         {
             // Invalidate cache since we're modifying logs
-            await _cacheLock.WaitAsync();
-            try
-            {
-                _cachedServiceCounts = null;
-                _cacheExpiry = null;
-                _logger.LogDebug("Service count cache invalidated due to log modification");
-            }
-            finally
-            {
-                _cacheLock.Release();
-            }
+            await InvalidateServiceCountsCache();
 
             if (!File.Exists(_logPath))
             {
@@ -447,10 +455,10 @@ public class CacheManagementService
     // Helper class for deserializing Rust progress data
     private class LogCountProgressData
     {
-        [System.Text.Json.Serialization.JsonPropertyName("isProcessing")]
+        [System.Text.Json.Serialization.JsonPropertyName("is_processing")]
         public bool IsProcessing { get; set; }
 
-        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+        [System.Text.Json.Serialization.JsonPropertyName("percent_complete")]
         public double PercentComplete { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("status")]
@@ -459,10 +467,10 @@ public class CacheManagementService
         [System.Text.Json.Serialization.JsonPropertyName("message")]
         public string Message { get; set; } = "";
 
-        [System.Text.Json.Serialization.JsonPropertyName("linesProcessed")]
+        [System.Text.Json.Serialization.JsonPropertyName("lines_processed")]
         public ulong LinesProcessed { get; set; }
 
-        [System.Text.Json.Serialization.JsonPropertyName("serviceCounts")]
+        [System.Text.Json.Serialization.JsonPropertyName("service_counts")]
         public Dictionary<string, ulong>? ServiceCounts { get; set; }
     }
 
@@ -526,7 +534,7 @@ public class CacheManagementService
             }
             else
             {
-                _logger.LogWarning("No valid services found in log file - logs may be empty or all entries were removed");
+                LogThrottledWarning("No valid services found in log file - logs may be empty or all entries were removed");
             }
             return new List<string>();
         }
@@ -545,32 +553,50 @@ public class CacheManagementService
         var cachePath = Path.Combine(_pathResolver.GetDataDirectory(), "corruption_summary_cache.json");
         var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
 
+        _logger.LogInformation("[CorruptionDetection] GetCorruptionSummary called - cache: {Cache}, log: {Log}", cachePath, logPath);
+
         // Check if cache exists and is valid
         if (File.Exists(cachePath) && File.Exists(logPath))
         {
             var cacheInfo = new FileInfo(cachePath);
             var logInfo = new FileInfo(logPath);
 
+            _logger.LogInformation("[CorruptionDetection] Cache modified: {CacheTime}, Log modified: {LogTime}",
+                cacheInfo.LastWriteTimeUtc, logInfo.LastWriteTimeUtc);
+
             // Cache is valid if it was created AFTER the log file's last modification
             if (cacheInfo.LastWriteTimeUtc > logInfo.LastWriteTimeUtc)
             {
-                _logger.LogDebug("Using cached corruption summary");
+                _logger.LogInformation("[CorruptionDetection] Using cached corruption summary (cache is newer)");
                 try
                 {
                     var cachedJson = await File.ReadAllTextAsync(cachePath);
+
                     var cachedData = JsonSerializer.Deserialize<CorruptionSummaryData>(cachedJson,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                     if (cachedData?.ServiceCounts != null)
                     {
-                        return cachedData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+                        var result = cachedData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+                        _logger.LogInformation("[CorruptionDetection] Returning cached summary: {Services}",
+                            string.Join(", ", result.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+                        return result;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to read cached corruption summary, will regenerate");
+                    _logger.LogWarning(ex, "[CorruptionDetection] Failed to read cache, will regenerate");
                 }
             }
+            else
+            {
+                _logger.LogInformation("[CorruptionDetection] Cache is stale, will regenerate");
+            }
+        }
+        else
+        {
+            _logger.LogInformation("[CorruptionDetection] Cache or log missing - cacheExists: {CE}, logExists: {LE}",
+                File.Exists(cachePath), File.Exists(logPath));
         }
 
         // Run Rust binary to detect corruption
@@ -621,8 +647,11 @@ public class CacheManagementService
             var output = await outputTask;
             var error = await errorTask;
 
+            _logger.LogInformation("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
+
             if (process.ExitCode != 0)
             {
+                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
                 throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
             }
 
@@ -632,13 +661,19 @@ public class CacheManagementService
 
             if (summaryData?.ServiceCounts == null)
             {
+                _logger.LogInformation("[CorruptionDetection] No service counts in result");
                 return new Dictionary<string, long>();
             }
 
+            var finalResult = summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+            _logger.LogInformation("[CorruptionDetection] Summary generated: {Services}",
+                string.Join(", ", finalResult.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+
             // Cache the results
             await File.WriteAllTextAsync(cachePath, output);
+            _logger.LogInformation("[CorruptionDetection] Results cached to {Path}", cachePath);
 
-            return summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+            return finalResult;
         }
     }
 
@@ -647,10 +682,15 @@ public class CacheManagementService
     /// </summary>
     public async Task RemoveCorruptedChunks(string service)
     {
+        _logger.LogInformation("[CorruptionDetection] RemoveCorruptedChunks for service: {Service}", service);
+
         var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
         var cacheDir = _cachePath;
         var dataDir = _pathResolver.GetDataDirectory();
         var progressPath = Path.Combine(dataDir, "corruption_removal_progress.json");
+
+        _logger.LogInformation("[CorruptionDetection] Removal params - logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
+            logDir, cacheDir, progressPath);
 
         // Get binary path from application directory (same location as log_manager)
         var appDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -692,20 +732,33 @@ public class CacheManagementService
             var output = await outputTask;
             var error = await errorTask;
 
+            _logger.LogInformation("[CorruptionDetection] Removal process exit code: {Code}", process.ExitCode);
+            _logger.LogInformation("[CorruptionDetection] Removal stdout: {Output}", output);
+            if (!string.IsNullOrEmpty(error))
+            {
+                _logger.LogWarning("[CorruptionDetection] Removal stderr: {Error}", error);
+            }
+
             if (process.ExitCode != 0)
             {
+                _logger.LogError("[CorruptionDetection] Removal failed with exit code {Code}: {Error}", process.ExitCode, error);
                 throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
             }
 
-            _logger.LogInformation($"Removed corrupted chunks for {service}: {output}");
+            _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service}", service);
         }
 
         // Invalidate corruption summary cache
         var cachePath = Path.Combine(dataDir, "corruption_summary_cache.json");
         if (File.Exists(cachePath))
         {
+            _logger.LogInformation("[CorruptionDetection] Deleting cache file: {Path}", cachePath);
             File.Delete(cachePath);
-            _logger.LogDebug("Invalidated corruption summary cache after removal");
+            _logger.LogInformation("[CorruptionDetection] Corruption summary cache invalidated");
+        }
+        else
+        {
+            _logger.LogInformation("[CorruptionDetection] No cache file to delete at {Path}", cachePath);
         }
 
         // Also invalidate service count cache since corruption affects counts
@@ -714,7 +767,7 @@ public class CacheManagementService
         {
             _cachedServiceCounts = null;
             _cacheExpiry = null;
-            _logger.LogDebug("Service count cache invalidated after corruption removal");
+            _logger.LogInformation("[CorruptionDetection] Service count cache invalidated");
         }
         finally
         {

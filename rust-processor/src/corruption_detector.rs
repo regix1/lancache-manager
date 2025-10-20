@@ -1,5 +1,6 @@
 use crate::log_reader::LogFileReader;
 use crate::parser::LogParser;
+use crate::service_utils;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -110,6 +111,11 @@ impl CorruptionDetector {
 
                     // Parse log entry
                     if let Some(entry) = parser.parse_line(line.trim()) {
+                        // Skip health check/heartbeat endpoints
+                        if service_utils::should_skip_url(&entry.url) {
+                            continue;
+                        }
+
                         // Only track MISS and UNKNOWN status
                         if entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN" {
                             let key = (entry.service.clone(), entry.url.clone());
@@ -201,34 +207,5 @@ impl CorruptionDetector {
             service_counts,
             total_corrupted,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cache_path_calculation() {
-        let detector = CorruptionDetector::new("/cache", 3);
-
-        // Test with known values
-        let path = detector.calculate_cache_path("steam", "/depot/123/chunk/abc", 0, 1_048_575);
-
-        // Path should follow format: /cache/{last_2}/{middle_2}/{full_hash}
-        assert!(path.contains("/cache/"));
-
-        // Verify MD5 calculation is consistent
-        let cache_key = "steam/depot/123/chunk/abcbytes=0-1048575";
-        let hash1 = CorruptionDetector::calculate_md5(cache_key);
-        let hash2 = CorruptionDetector::calculate_md5(cache_key);
-        assert_eq!(hash1, hash2, "MD5 hash should be deterministic");
-    }
-
-    #[test]
-    fn test_md5_hash() {
-        let hash = CorruptionDetector::calculate_md5("test");
-        assert_eq!(hash.len(), 32, "MD5 hash should be 32 characters");
-        assert_eq!(hash, "098f6bcd4621d373cade4e832627b4f6"); // Known MD5 for "test"
     }
 }

@@ -17,7 +17,9 @@ public class ManagementController : ControllerBase
     private readonly StateService _stateService;
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustDatabaseResetService _rustDatabaseResetService;
+    private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly SteamKit2Service _steamKit2Service;
+    private readonly SteamAuthStorageService _steamAuthStorage;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -29,7 +31,9 @@ public class ManagementController : ControllerBase
         StateService stateService,
         RustLogProcessorService rustLogProcessorService,
         RustDatabaseResetService rustDatabaseResetService,
-        SteamKit2Service steamKit2Service)
+        RustLogRemovalService rustLogRemovalService,
+        SteamKit2Service steamKit2Service,
+        SteamAuthStorageService steamAuthStorage)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -40,7 +44,9 @@ public class ManagementController : ControllerBase
         _stateService = stateService;
         _rustLogProcessorService = rustLogProcessorService;
         _rustDatabaseResetService = rustDatabaseResetService;
+        _rustLogRemovalService = rustLogRemovalService;
         _steamKit2Service = steamKit2Service;
+        _steamAuthStorage = steamAuthStorage;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -435,17 +441,58 @@ public class ManagementController : ControllerBase
                 return BadRequest(new { error = "Service name is required" });
             }
 
-            await _cacheService.RemoveServiceFromLogs(request.Service);
+            if (_rustLogRemovalService.IsProcessing)
+            {
+                return BadRequest(new { error = $"Log removal is already in progress for service: {_rustLogRemovalService.CurrentService}" });
+            }
+
+            // Start background removal process
+            _logger.LogInformation("Starting log removal for service: {Service}", request.Service);
+            _ = Task.Run(async () => await _rustLogRemovalService.StartRemovalAsync(request.Service));
 
             return Ok(new {
-                message = $"Successfully removed {request.Service} entries from log file",
-                backupFile = $"{Path.Combine(_pathResolver.GetLogsDirectory(), "access.log")}.bak"
+                message = $"Log removal started for {request.Service}",
+                service = request.Service,
+                status = "started"
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error removing service from logs: {Service}", request.Service);
-            return StatusCode(500, new { error = "Failed to remove service from logs", details = ex.Message });
+            _logger.LogError(ex, "Error starting log removal for service: {Service}", request.Service);
+            return StatusCode(500, new { error = "Failed to start log removal", details = ex.Message });
+        }
+    }
+
+    [HttpGet("logs/remove-status")]
+    public async Task<IActionResult> GetLogRemovalStatus()
+    {
+        try
+        {
+            var progress = await _rustLogRemovalService.GetProgressAsync();
+
+            if (!_rustLogRemovalService.IsProcessing && progress == null)
+            {
+                return Ok(new {
+                    isProcessing = false,
+                    message = "No log removal in progress"
+                });
+            }
+
+            return Ok(new {
+                isProcessing = _rustLogRemovalService.IsProcessing,
+                service = _rustLogRemovalService.CurrentService,
+                filesProcessed = progress?.FilesProcessed ?? 0,
+                linesProcessed = progress?.LinesProcessed ?? 0,
+                linesRemoved = progress?.LinesRemoved ?? 0,
+                percentComplete = progress?.PercentComplete ?? 0.0,
+                status = progress?.Status ?? "idle",
+                message = progress?.Message ?? ""
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting log removal status");
+            return Ok(new { isProcessing = _rustLogRemovalService.IsProcessing, error = ex.Message });
         }
     }
 
@@ -916,9 +963,10 @@ public class ManagementController : ControllerBase
         {
             await _steamKit2Service.LogoutAsync();
 
-            // Clear auth state
+            // Clear auth state from both state service and auth storage
             _stateService.SetSteamAuthMode("anonymous");
             _stateService.SetSteamUsername(null);
+            _steamAuthStorage.ClearSteamAuthData();
 
             // Don't rebuild PICS data - preserve existing depot mappings
             _logger.LogInformation("Switched to anonymous Steam mode, keeping existing depot mappings");

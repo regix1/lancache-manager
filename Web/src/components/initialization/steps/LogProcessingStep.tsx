@@ -49,7 +49,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
             (status.totalLines === 0 && status.linesProcessed === 0) ||
             // Alternative: position-based completion
             (status.currentPosition !== undefined && status.totalSize !== undefined &&
-             status.currentPosition >= status.totalSize)
+             status.currentPosition >= status.totalSize) ||
+            // Rust processor explicitly marked as complete (handles invalid/empty logs)
+            (status.status === 'complete')
           );
 
         if (isFullyComplete) {

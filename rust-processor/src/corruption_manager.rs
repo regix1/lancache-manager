@@ -10,6 +10,7 @@ mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod service_utils;
 
 use corruption_detector::CorruptionDetector;
 
@@ -156,28 +157,134 @@ fn main() -> Result<()> {
 
             write_progress(&progress_path, "starting", &format!("Starting removal for {}", service))?;
 
-            // Step 1: Detect corrupted chunks for this service
-            eprintln!("Step 1: Detecting corrupted chunks for {}...", service);
-            let detector = CorruptionDetector::new(&cache_dir, 3);
-            let corrupted_map = detector.detect_corrupted_chunks(&log_dir, "access.log", chrono_tz::UTC)
-                .context("Failed to detect corrupted chunks")?;
+            // OPTIMIZED: Single-pass detection and removal
+            // Instead of reading logs twice (once to detect, once to remove),
+            // we detect corrupted URLs while filtering the log files in a single pass
 
-            // Filter to only this service
-            let service_corrupted: Vec<_> = corrupted_map
-                .into_iter()
-                .filter(|((s, _url), _count)| s == service)
+            use log_reader::LogFileReader;
+            use std::io::Write as IoWrite;
+            use std::fs::File;
+            use std::io::BufWriter;
+            use chrono::Utc;
+            use parser::LogParser;
+            use std::collections::HashMap;
+
+            eprintln!("Step 1: Single-pass detection and log filtering for {}...", service);
+
+            let service_lower = service.to_lowercase();
+            let parser = LogParser::new(chrono_tz::UTC);
+            let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
+
+            // Track MISS/UNKNOWN counts per URL while filtering
+            let mut miss_tracker: HashMap<String, usize> = HashMap::new();
+            let mut total_lines_removed: u64 = 0;
+
+            write_progress(&progress_path, "processing", &format!("Processing {} log files", log_files.len()))?;
+
+            for (file_index, log_file) in log_files.iter().enumerate() {
+                eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+
+                let file_result = (|| -> Result<u64> {
+                    // Create temp file for filtered output
+                    let file_dir = log_file.path.parent().context("Failed to get file directory")?;
+                    let temp_path = file_dir.join(format!("access.log.corruption_tmp.{}.{}", Utc::now().timestamp(), file_index));
+
+                    let mut lines_removed: u64 = 0;
+                    let mut lines_processed: u64 = 0;
+
+                    {
+                        let mut log_reader = LogFileReader::open(&log_file.path)?;
+                        let temp_file = File::create(&temp_path)?;
+                        let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
+                        let mut line = String::new();
+
+                        loop {
+                            line.clear();
+                            let bytes_read = log_reader.read_line(&mut line)?;
+                            if bytes_read == 0 {
+                                break; // EOF
+                            }
+
+                            lines_processed += 1;
+                            let mut should_remove = false;
+
+                            // Parse the line
+                            if let Some(entry) = parser.parse_line(line.trim()) {
+                                // Skip health check/heartbeat endpoints
+                                if !service_utils::should_skip_url(&entry.url) {
+                                    // Track MISS/UNKNOWN for this service
+                                    if entry.service == service_lower &&
+                                       (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN") {
+                                        *miss_tracker.entry(entry.url.clone()).or_insert(0) += 1;
+
+                                        // If this URL already has 3+ misses, remove this line
+                                        if miss_tracker[&entry.url] >= 3 {
+                                            should_remove = true;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !should_remove {
+                                write!(writer, "{}", line)?;
+                            } else {
+                                lines_removed += 1;
+                            }
+                        }
+
+                        writer.flush()?;
+                    }
+
+                    // Check if the filtered file would be empty
+                    if lines_processed > 0 && lines_removed == lines_processed {
+                        eprintln!("  WARNING: ALL {} lines would be removed, keeping original", lines_processed);
+                        std::fs::remove_file(&temp_path).ok();
+                        return Ok(0);
+                    }
+
+                    // Replace original with filtered version
+                    #[cfg(windows)]
+                    {
+                        std::fs::copy(&temp_path, &log_file.path)?;
+                        std::fs::remove_file(&temp_path).ok();
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        std::fs::rename(&temp_path, &log_file.path)?;
+                    }
+
+                    Ok(lines_removed)
+                })();
+
+                match file_result {
+                    Ok(lines_removed) => {
+                        eprintln!("    Removed {} log lines from this file", lines_removed);
+                        total_lines_removed += lines_removed;
+                    }
+                    Err(e) => {
+                        eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                        continue;
+                    }
+                }
+            }
+
+            // Filter to only URLs with 3+ misses
+            let corrupted_urls: Vec<String> = miss_tracker
+                .iter()
+                .filter(|(_, &count)| count >= 3)
+                .map(|(url, _)| url.clone())
                 .collect();
 
-            eprintln!("Found {} corrupted chunks for {}", service_corrupted.len(), service);
+            eprintln!("Found {} corrupted chunks for {}", corrupted_urls.len(), service);
 
-            write_progress(&progress_path, "removing_cache", &format!("Removing {} cache files for {}", service_corrupted.len(), service))?;
+            write_progress(&progress_path, "removing_cache", &format!("Removing {} cache files", corrupted_urls.len()))?;
 
             // Step 2: Delete cache files from disk
             eprintln!("Step 2: Deleting cache files...");
             let mut deleted_count = 0;
-            for ((svc, url), _count) in &service_corrupted {
+            for url in &corrupted_urls {
                 // Calculate cache file path for the first 1MB slice
-                let cache_key = format!("{}{}bytes=0-1048575", svc, url);
+                let cache_key = format!("{}{}bytes=0-1048575", service_lower, url);
                 let hash = format!("{:x}", md5::compute(cache_key.as_bytes()));
 
                 let len = hash.len();
@@ -203,128 +310,9 @@ fn main() -> Result<()> {
             }
 
             eprintln!("Deleted {} cache files", deleted_count);
-
-            write_progress(&progress_path, "removing_logs", &format!("Removing {} log entries", service))?;
-
-            // Step 3: Remove log lines for this service using log_manager functionality
-            eprintln!("Step 3: Removing log entries for {}...", service);
-
-            // Import the log filtering functionality
-            use log_reader::LogFileReader;
-            use std::io::Write as IoWrite;
-            use std::fs::File;
-            use std::io::BufWriter;
-            use chrono::Utc;
-
-            // Discover all log files
-            let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
-            let mut total_lines_removed: u64 = 0;
-
-            for (file_index, log_file) in log_files.iter().enumerate() {
-                eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
-
-                // Try to process the file, but skip if it's corrupted (same pattern as Step 1)
-                let file_result = (|| -> Result<u64> {
-                    // Create backup
-                    let backup_path = format!("{}.bak", log_file.path.display());
-                    std::fs::copy(&log_file.path, &backup_path)
-                        .context("Failed to create backup")?;
-
-                    // Create temp file for filtered output
-                    let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-                    let temp_path = file_dir.join(format!("access.log.corruption_tmp.{}.{}", Utc::now().timestamp(), file_index));
-
-                    let mut lines_removed: u64 = 0;
-                    let mut lines_processed: u64 = 0;
-                    let service_lower = service.to_lowercase();
-
-                    // Scope to ensure files are closed
-                    {
-                        let mut log_reader = LogFileReader::open(&log_file.path)?;
-                        let temp_file = File::create(&temp_path)?;
-                        let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
-                        let mut line = String::new();
-
-                        loop {
-                            line.clear();
-                            let bytes_read = log_reader.read_line(&mut line)?;
-                            if bytes_read == 0 {
-                                break; // EOF
-                            }
-
-                            lines_processed += 1;
-
-                            // Check if line should be removed (only lines for this service with MISS/UNKNOWN)
-                            let mut should_remove = false;
-
-                            // Extract service from line (format: [service] ... status)
-                            if line.starts_with('[') {
-                                if let Some(end_idx) = line.find(']') {
-                                    let line_service = line[1..end_idx].to_lowercase();
-                                    if line_service == service_lower {
-                                        // Check if it's a MISS or UNKNOWN status (quoted in nginx log format: "MISS" or "UNKNOWN")
-                                        if line.contains("\"MISS\"") || line.contains("\"UNKNOWN\"") {
-                                            should_remove = true;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if !should_remove {
-                                write!(writer, "{}", line)?;
-                            } else {
-                                lines_removed += 1;
-                            }
-                        }
-
-                        writer.flush()?;
-                    }
-
-                    // Check if the filtered file would be empty (all lines removed)
-                    if lines_processed > 0 && lines_removed == lines_processed {
-                        eprintln!("  WARNING: ALL {} lines from this file would be removed", lines_processed);
-                        eprintln!("    Keeping original file unchanged and skipping to avoid data loss");
-                        // Delete the empty temp file
-                        std::fs::remove_file(&temp_path).ok();
-                        return Ok(0); // Report 0 lines removed to indicate we skipped this file
-                    }
-
-                    // Replace original with filtered version (only if some lines remain)
-                    // Use atomic file replacement to avoid race conditions
-                    #[cfg(windows)]
-                    {
-                        // On Windows, use copy-and-delete to avoid the rename gap
-                        // First copy the temp file over the original (atomic operation)
-                        std::fs::copy(&temp_path, &log_file.path)?;
-                        // Then delete the temp file
-                        std::fs::remove_file(&temp_path).ok(); // Ignore errors on cleanup
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        // On Unix, rename is atomic and will replace the existing file
-                        std::fs::rename(&temp_path, &log_file.path)?;
-                    }
-
-                    Ok(lines_removed)
-                })();
-
-                // If this file failed (e.g., corrupted gzip), log warning and skip it
-                match file_result {
-                    Ok(lines_removed) => {
-                        eprintln!("    Removed {} log lines from this file", lines_removed);
-                        total_lines_removed += lines_removed;
-                    }
-                    Err(e) => {
-                        eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                        eprintln!("    Continuing with remaining files...");
-                        continue;
-                    }
-                }
-            }
-
             eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
 
-            write_progress(&progress_path, "complete", &format!("Removed {} corrupted chunks for {} ({} cache files deleted, {} log lines removed)", service_corrupted.len(), service, deleted_count, total_lines_removed))?;
+            write_progress(&progress_path, "complete", &format!("Removed {} corrupted chunks for {} ({} cache files deleted, {} log lines removed)", corrupted_urls.len(), service, deleted_count, total_lines_removed))?;
             eprintln!("Removal completed successfully");
         }
 

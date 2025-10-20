@@ -17,6 +17,7 @@ mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod service_utils;
 mod session;
 
 use log_discovery::{discover_log_files, LogFile};
@@ -38,6 +39,10 @@ struct Progress {
     status: String,
     message: String,
     timestamp: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    errors: Vec<String>,
 }
 
 
@@ -56,6 +61,8 @@ struct Processor {
     local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
+    warnings: std::sync::Mutex<Vec<String>>,
+    errors: std::sync::Mutex<Vec<String>>,
 }
 
 impl Processor {
@@ -105,6 +112,8 @@ impl Processor {
             local_tz,
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
+            warnings: std::sync::Mutex::new(Vec::new()),
+            errors: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -144,8 +153,10 @@ impl Processor {
                     println!("  {} has {} lines", log_file.path.display(), lines);
                 }
                 Err(e) => {
-                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    let warning = format!("Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    eprintln!("WARNING: {}", warning);
                     eprintln!("  Continuing with remaining files...");
+                    self.warnings.lock().unwrap().push(warning);
                     continue;
                 }
             }
@@ -164,6 +175,9 @@ impl Processor {
             0.0
         };
 
+        let warnings = self.warnings.lock().unwrap().clone();
+        let errors = self.errors.lock().unwrap().clone();
+
         let progress = Progress {
             total_lines: total,
             lines_parsed: parsed,
@@ -172,6 +186,8 @@ impl Processor {
             status: status.to_string(),
             message: message.to_string(),
             timestamp: Utc::now().to_rfc3339(),
+            warnings,
+            errors,
         };
 
         let json = serde_json::to_string_pretty(&progress)?;
@@ -352,6 +368,11 @@ impl Processor {
             // Parse the line (trim to remove newline)
             let trimmed_line = line_buffer.trim();
             if let Some(entry) = self.parser.parse_line(trimmed_line) {
+                // Skip health check/heartbeat endpoints
+                if service_utils::should_skip_url(&entry.url) {
+                    continue;
+                }
+
                 batch.push(entry);
 
                 // Process batch when it reaches BULK_BATCH_SIZE

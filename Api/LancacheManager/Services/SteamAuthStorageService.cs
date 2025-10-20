@@ -157,7 +157,6 @@ public class SteamAuthStorageService
                 else
                 {
                     _cachedData = new SteamAuthData();
-                    _logger.LogDebug("No Steam auth file found, using default anonymous mode");
                 }
 
                 return _cachedData;
