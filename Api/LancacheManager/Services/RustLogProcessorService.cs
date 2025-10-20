@@ -161,16 +161,12 @@ public class RustLogProcessorService
                 }
             });
 
-            // Monitor stderr - log all as debug since warnings/errors are in progress JSON
+            // Monitor stderr - discard output to prevent buffer issues
             _ = Task.Run(async () =>
             {
                 while (!_rustProcess.StandardError.EndOfStream)
                 {
-                    var line = await _rustProcess.StandardError.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(line))
-                    {
-                        _logger.LogDebug("[Rust Stderr] {Line}", line);
-                    }
+                    await _rustProcess.StandardError.ReadLineAsync();
                 }
             });
 

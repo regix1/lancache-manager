@@ -432,34 +432,34 @@ public class ManagementController : ControllerBase
 
     [HttpPost("logs/remove-service")]
     [RequireAuth]
-    public async Task<IActionResult> RemoveServiceFromLogs([FromBody] RemoveServiceRequest request)
+    public Task<IActionResult> RemoveServiceFromLogs([FromBody] RemoveServiceRequest request)
     {
         try
         {
             if (string.IsNullOrEmpty(request.Service))
             {
-                return BadRequest(new { error = "Service name is required" });
+                return Task.FromResult<IActionResult>(BadRequest(new { error = "Service name is required" }));
             }
 
             if (_rustLogRemovalService.IsProcessing)
             {
-                return BadRequest(new { error = $"Log removal is already in progress for service: {_rustLogRemovalService.CurrentService}" });
+                return Task.FromResult<IActionResult>(BadRequest(new { error = $"Log removal is already in progress for service: {_rustLogRemovalService.CurrentService}" }));
             }
 
             // Start background removal process
             _logger.LogInformation("Starting log removal for service: {Service}", request.Service);
             _ = Task.Run(async () => await _rustLogRemovalService.StartRemovalAsync(request.Service));
 
-            return Ok(new {
+            return Task.FromResult<IActionResult>(Ok(new {
                 message = $"Log removal started for {request.Service}",
                 service = request.Service,
                 status = "started"
-            });
+            }));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting log removal for service: {Service}", request.Service);
-            return StatusCode(500, new { error = "Failed to start log removal", details = ex.Message });
+            return Task.FromResult<IActionResult>(StatusCode(500, new { error = "Failed to start log removal", details = ex.Message }));
         }
     }
 

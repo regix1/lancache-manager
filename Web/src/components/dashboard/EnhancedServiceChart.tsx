@@ -61,7 +61,34 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
     const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
     if (totalBytes === 0) return { labels: [], data: [], colors: [] };
 
-    const chartColors = getChartColors();
+    // Map service names to their theme colors
+    const getServiceColor = (serviceName: string) => {
+      const computedStyle = getComputedStyle(document.documentElement);
+      const serviceLower = serviceName.toLowerCase();
+
+      switch (serviceLower) {
+        case 'steam':
+          return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
+        case 'epic':
+        case 'epicgames':
+          return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
+        case 'origin':
+        case 'ea':
+          return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
+        case 'blizzard':
+        case 'battle.net':
+        case 'battlenet':
+          return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
+        case 'wsus':
+        case 'windows':
+          return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
+        case 'riot':
+        case 'riotgames':
+          return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
+        default:
+          return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
+      }
+    };
 
     const sorted = serviceStats
       .map((s) => ({
@@ -74,7 +101,7 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
     return {
       labels: sorted.map((s) => s.name),
       data: sorted.map((s) => s.value),
-      colors: sorted.map((_, i) => chartColors[i % chartColors.length])
+      colors: sorted.map((s) => getServiceColor(s.name))
     };
   }, [serviceStats]);
 
@@ -102,6 +129,35 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
   const getBandwidthSavedData = useMemo(() => {
     if (!serviceStats || serviceStats.length === 0) return { labels: [], data: [], colors: [] };
 
+    // Map service names to their theme colors
+    const getServiceColor = (serviceName: string) => {
+      const computedStyle = getComputedStyle(document.documentElement);
+      const serviceLower = serviceName.toLowerCase();
+
+      switch (serviceLower) {
+        case 'steam':
+          return computedStyle.getPropertyValue('--theme-steam').trim() || '#10b981';
+        case 'epic':
+        case 'epicgames':
+          return computedStyle.getPropertyValue('--theme-epic').trim() || '#8b5cf6';
+        case 'origin':
+        case 'ea':
+          return computedStyle.getPropertyValue('--theme-origin').trim() || '#fb923c';
+        case 'blizzard':
+        case 'battle.net':
+        case 'battlenet':
+          return computedStyle.getPropertyValue('--theme-blizzard').trim() || '#3b82f6';
+        case 'wsus':
+        case 'windows':
+          return computedStyle.getPropertyValue('--theme-wsus').trim() || '#06b6d4';
+        case 'riot':
+        case 'riotgames':
+          return computedStyle.getPropertyValue('--theme-riot').trim() || '#ef4444';
+        default:
+          return computedStyle.getPropertyValue('--theme-text-secondary').trim() || '#6b7280';
+      }
+    };
+
     // Calculate bandwidth saved per service (cache hits only)
     const servicesWithSavings = serviceStats
       .map((s) => ({
@@ -121,12 +177,10 @@ const EnhancedServiceChart: React.FC<EnhancedServiceChartProps> = React.memo(({ 
       s.percentage = (s.value / totalSaved) * 100;
     });
 
-    const chartColors = getChartColors();
-
     return {
       labels: servicesWithSavings.map((s) => s.name),
       data: servicesWithSavings.map((s) => s.value),
-      colors: servicesWithSavings.map((_, i) => chartColors[i % chartColors.length])
+      colors: servicesWithSavings.map((s) => getServiceColor(s.name))
     };
   }, [serviceStats]);
 

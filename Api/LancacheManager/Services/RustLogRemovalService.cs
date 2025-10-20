@@ -114,16 +114,12 @@ public class RustLogRemovalService
                 }
             });
 
-            // Monitor stderr - log as debug
+            // Monitor stderr - discard output to prevent buffer issues
             _ = Task.Run(async () =>
             {
                 while (!_rustProcess.StandardError.EndOfStream)
                 {
-                    var line = await _rustProcess.StandardError.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(line))
-                    {
-                        _logger.LogDebug("[Rust Stderr] {Line}", line);
-                    }
+                    await _rustProcess.StandardError.ReadLineAsync();
                 }
             });
 

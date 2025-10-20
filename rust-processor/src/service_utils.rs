@@ -3,6 +3,7 @@
 
 /// Check if a URL should be skipped from processing
 /// Returns true for health check/heartbeat endpoints that legitimately have no cache status
+#[allow(dead_code)]
 pub fn should_skip_url(url: &str) -> bool {
     url.contains("/lancache-heartbeat") ||
     url.contains("/health") ||
@@ -35,6 +36,7 @@ pub fn normalize_service_name(service: &str) -> String {
 
 /// Extract and normalize service name from a log line
 /// Format: [service] ...
+#[allow(dead_code)]
 pub fn extract_service_from_line(line: &str) -> Option<String> {
     if line.starts_with('[') {
         if let Some(end_idx) = line.find(']') {

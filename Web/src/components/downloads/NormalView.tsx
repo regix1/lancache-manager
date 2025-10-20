@@ -3,6 +3,10 @@ import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle, ChevronLef
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
+import { RiotIcon } from '@components/ui/RiotIcon';
+import { EpicIcon } from '@components/ui/EpicIcon';
+import { EAIcon } from '@components/ui/EAIcon';
+import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { Tooltip } from '@components/ui/Tooltip';
 import type { Download, DownloadGroup } from '../../types';
@@ -118,7 +122,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const serviceLower = group.service.toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
-  const isOtherService = !isSteam && !isWsus;
+  const isRiot = serviceLower === 'riot' || serviceLower === 'riotgames';
+  const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
+  const isEA = serviceLower === 'origin' || serviceLower === 'ea';
+  const isBlizzard = serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
+  const isOtherService = !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isGenericSteamTitle =
@@ -128,7 +136,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const storeLink = primaryDownload?.gameAppId
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
     : null;
-  const shouldRenderBanner = !aestheticMode && (isSteam || isWsus || isOtherService);
+  const shouldRenderBanner = !aestheticMode && (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isOtherService);
   const hasSteamArtwork =
     showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
   const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
@@ -136,6 +144,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
     ? 'var(--theme-steam)'
     : isWsus
     ? 'var(--theme-wsus)'
+    : isRiot
+    ? 'var(--theme-riot)'
+    : isEpic
+    ? 'var(--theme-epic)'
+    : isEA
+    ? 'var(--theme-origin)'
+    : isBlizzard
+    ? 'var(--theme-blizzard)'
     : 'var(--theme-text-secondary)';
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
@@ -178,6 +194,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
             <SteamIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
           ) : isWsus ? (
             <WsusIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+          ) : isRiot ? (
+            <RiotIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+          ) : isEpic ? (
+            <EpicIcon size={placeholderIconSize} style={{ opacity: 0.75 }} />
+          ) : isEA ? (
+            <EAIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+          ) : isBlizzard ? (
+            <BlizzardIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
           ) : (
             <UnknownServiceIcon size={placeholderIconSize + 12} style={{ color: placeholderIconColor, opacity: 0.75 }} />
           )}

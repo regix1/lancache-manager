@@ -311,12 +311,12 @@ class ThemeService {
           infoText: '#93c5fd',
 
           // Service colors
-          steamColor: '#3b82f6',
-          epicColor: '#8b5cf6',
-          originColor: '#10b981',
-          blizzardColor: '#ef4444',
-          wsusColor: '#06b6d4',
-          riotColor: '#f59e0b',
+          steamColor: '#10b981', // Green
+          epicColor: '#8b5cf6', // Purple
+          originColor: '#fb923c', // Bright Orange
+          blizzardColor: '#3b82f6', // Blue
+          wsusColor: '#06b6d4', // Cyan
+          riotColor: '#ef4444', // Red
 
           // Components
           cardBg: '#1e2938',
@@ -466,12 +466,12 @@ class ThemeService {
           infoText: '#1e40af',
 
           // Service colors
-          steamColor: '#3b82f6',
-          epicColor: '#8b5cf6',
-          originColor: '#10b981',
-          blizzardColor: '#ef4444',
-          wsusColor: '#06b6d4',
-          riotColor: '#f59e0b',
+          steamColor: '#10b981', // Green
+          epicColor: '#8b5cf6', // Purple
+          originColor: '#fb923c', // Bright Orange
+          blizzardColor: '#3b82f6', // Blue
+          wsusColor: '#06b6d4', // Cyan
+          riotColor: '#ef4444', // Red
 
           // Components
           cardBg: '#ffffff',
