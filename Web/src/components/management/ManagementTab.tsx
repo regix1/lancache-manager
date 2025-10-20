@@ -416,9 +416,25 @@ const CorruptionDetectionManager: React.FC<{
   const [loadError, setLoadError] = useState<string | null>(null);
   const [removingService, setRemovingService] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
+  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
+  const refreshInterval = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    loadCorruptionSummary();
+    // Only load on initial mount
+    if (!hasInitiallyLoaded) {
+      loadCorruptionSummary();
+    }
+
+    // Setup 60 minute refresh interval
+    refreshInterval.current = setInterval(() => {
+      loadCorruptionSummary();
+    }, 60 * 60 * 1000); // 60 minutes
+
+    return () => {
+      if (refreshInterval.current) {
+        clearInterval(refreshInterval.current);
+      }
+    };
   }, []);
 
   const loadCorruptionSummary = async () => {
@@ -427,6 +443,7 @@ const CorruptionDetectionManager: React.FC<{
     try {
       const summary = await ApiService.getCorruptionSummary();
       setCorruptionSummary(summary);
+      setHasInitiallyLoaded(true);
     } catch (err: any) {
       console.error('[CorruptionDetection] Failed to load corruption summary:', err);
       setLoadError(err.message || 'Failed to load corruption summary');
@@ -668,8 +685,10 @@ const LogFileManager: React.FC<{
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingServiceRemoval, setPendingServiceRemoval] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState(false);
+  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
 
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
+  const refreshInterval = useRef<NodeJS.Timeout | null>(null);
 
   const clearOperationState = async () => {
     await serviceRemovalOp.clear();
@@ -678,8 +697,16 @@ const LogFileManager: React.FC<{
   };
 
   useEffect(() => {
-    loadConfig();
-    restoreServiceRemoval();
+    // Only load on initial mount
+    if (!hasInitiallyLoaded) {
+      loadConfig();
+      restoreServiceRemoval();
+    }
+
+    // Setup 60 minute refresh interval
+    refreshInterval.current = setInterval(() => {
+      loadConfig();
+    }, 60 * 60 * 1000); // 60 minutes
 
     // Expose reload function to parent via ref
     if (onReloadRef) {
@@ -690,6 +717,12 @@ const LogFileManager: React.FC<{
     if (onClearOperationRef) {
       onClearOperationRef.current = clearOperationState;
     }
+
+    return () => {
+      if (refreshInterval.current) {
+        clearInterval(refreshInterval.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -707,6 +740,7 @@ const LogFileManager: React.FC<{
       setConfig(configData);
       setServiceCounts(counts);
       setLoadError(null);
+      setHasInitiallyLoaded(true);
     } catch (err: any) {
       console.error('Failed to load config:', err);
       setLoadError(err.message || 'Failed to load service log counts');
@@ -1110,7 +1144,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             // Clear parent operation state
             setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
 
-            // Reload the service counts in LogFileManager
+            // Reload the service counts in LogFileManager after deletion
             if (logFileManagerReloadRef.current) {
               await logFileManagerReloadRef.current();
             }
