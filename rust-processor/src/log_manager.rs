@@ -342,7 +342,7 @@ fn remove_service_from_logs(
                         write!(writer, "{}", line)?;
                     } else {
                         lines_removed += 1;
-                        if lines_removed.is_multiple_of(10000) {
+                        if lines_removed % 10000 == 0 {
                             eprintln!("Removed {} {} entries from this file", lines_removed, service_to_remove);
                         }
                     }
