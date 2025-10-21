@@ -278,7 +278,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={loadAllData}
+                  onClick={() => loadAllData()}
                   className="mt-2"
                   leftSection={<RefreshCw className="w-3 h-3" />}
                 >
@@ -357,7 +357,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={loadAllData}
+                  onClick={() => loadAllData()}
                   className="mt-2"
                   leftSection={<RefreshCw className="w-3 h-3" />}
                 >
