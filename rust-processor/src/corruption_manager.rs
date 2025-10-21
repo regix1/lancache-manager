@@ -3,13 +3,14 @@ use serde::Serialize;
 use std::env;
 use std::fs::File;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod corruption_detector;
 mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod progress_utils;
 mod service_utils;
 
 use corruption_detector::CorruptionDetector;
@@ -25,19 +26,15 @@ fn parse_timezone(tz_str: &str) -> chrono_tz::Tz {
     tz_str.parse().unwrap_or(chrono_tz::UTC)
 }
 
-fn write_progress(progress_path: &PathBuf, status: &str, message: &str) -> Result<()> {
+fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<()> {
     let progress = ProgressData {
         status: status.to_string(),
         message: message.to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: progress_utils::current_timestamp(),
     };
 
-    let json = serde_json::to_string_pretty(&progress)?;
-    let mut file = File::create(progress_path)?;
-    file.write_all(json.as_bytes())?;
-    file.flush()?;
-
-    Ok(())
+    // Use shared progress writing utility
+    progress_utils::write_progress_json(progress_path, &progress)
 }
 
 fn main() -> Result<()> {

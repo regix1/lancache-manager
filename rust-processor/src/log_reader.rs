@@ -27,18 +27,22 @@ impl LogFileReader {
             .and_then(|e| e.to_str())
             .unwrap_or("");
 
+        // Reduced buffer sizes from 8MB to 512KB for better memory efficiency
+        // 512KB is still large enough for good I/O performance while reducing memory footprint
+        const BUFFER_SIZE: usize = 512 * 1024; // 512KB
+
         let reader: Box<dyn BufRead> = match extension {
             "gz" => {
                 let decoder = GzDecoder::new(file);
-                Box::new(BufReader::with_capacity(8 * 1024 * 1024, decoder))
+                Box::new(BufReader::with_capacity(BUFFER_SIZE, decoder))
             }
             "zst" => {
                 let decoder = zstd::Decoder::new(file)?;
-                Box::new(BufReader::with_capacity(8 * 1024 * 1024, decoder))
+                Box::new(BufReader::with_capacity(BUFFER_SIZE, decoder))
             }
             _ => {
                 // Plain text or unrecognized - treat as plain
-                Box::new(BufReader::with_capacity(8 * 1024 * 1024, file))
+                Box::new(BufReader::with_capacity(BUFFER_SIZE, file))
             }
         };
 

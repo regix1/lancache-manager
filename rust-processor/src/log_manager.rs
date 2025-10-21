@@ -8,11 +8,9 @@ use std::io::{BufWriter, Write as IoWrite};
 use std::path::Path;
 use std::time::Instant;
 
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
-
 mod log_discovery;
 mod log_reader;
+mod progress_utils;
 mod service_utils;
 
 use log_discovery::discover_log_files;
@@ -52,46 +50,14 @@ impl ProgressData {
             lines_removed,
             files_processed,
             service_counts,
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: progress_utils::current_timestamp(),
         }
     }
 }
 
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
-    let json = serde_json::to_string_pretty(progress)?;
-
-    // Use atomic write-and-rename on all platforms to avoid race conditions
-    // where C# reads the file while it's being truncated/written
-    let temp_path = progress_path.with_extension("json.tmp");
-
-    #[cfg(windows)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-
-        // Write to temp file with sharing flags
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .share_mode(0x07) // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-            .open(&temp_path)?;
-
-        file.write_all(json.as_bytes())?;
-        file.flush()?;
-        drop(file); // Ensure file is closed before rename
-
-        // Atomic rename - Windows allows this when file is opened with FILE_SHARE_DELETE
-        fs::rename(&temp_path, progress_path)?;
-    }
-
-    #[cfg(not(windows))]
-    {
-        fs::write(&temp_path, &json)?;
-        fs::rename(&temp_path, progress_path)?;
-    }
-
-    Ok(())
+    // Use shared progress writing utility
+    progress_utils::write_progress_json(progress_path, progress)
 }
 
 

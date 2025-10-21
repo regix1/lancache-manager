@@ -5,8 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
-use std::fs::File;
-use std::io::{BufRead, Write};
+use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -17,6 +16,7 @@ mod log_discovery;
 mod log_reader;
 mod models;
 mod parser;
+mod progress_utils;
 mod service_utils;
 mod session;
 
@@ -26,9 +26,10 @@ use models::*;
 use parser::LogParser;
 use session::SessionTracker;
 
-const BULK_BATCH_SIZE: usize = 2_000; // Smaller batches for more responsive cancellation
+const BULK_BATCH_SIZE: usize = 1_000; // Reduced from 2000 to lower memory spikes
 const SESSION_GAP_MINUTES: i64 = 5;
 const CANCEL_CHECK_INTERVAL: usize = 1_000; // Check for cancellation every 1k lines
+const LINE_BUFFER_CAPACITY: usize = 1024; // Reduced from 2048 for better memory efficiency
 
 #[derive(Serialize)]
 struct Progress {
@@ -185,39 +186,13 @@ impl Processor {
             percent_complete: percent,
             status: status.to_string(),
             message: message.to_string(),
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: progress_utils::current_timestamp(),
             warnings,
             errors,
         };
 
-        let json = serde_json::to_string_pretty(&progress)?;
-
-        // Retry file write with exponential backoff (up to 5 attempts)
-        let mut retries = 0;
-        let max_retries = 5;
-        loop {
-            match File::create(&self.progress_path) {
-                Ok(mut file) => {
-                    match file.write_all(json.as_bytes()).and_then(|_| file.flush()) {
-                        Ok(_) => break,
-                        Err(_) if retries < max_retries => {
-                            retries += 1;
-                            thread::sleep(Duration::from_millis(10 * retries));
-                            continue;
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                }
-                Err(_) if retries < max_retries => {
-                    retries += 1;
-                    thread::sleep(Duration::from_millis(10 * retries));
-                    continue;
-                }
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        Ok(())
+        // Use shared progress writing utility with retry logic
+        progress_utils::write_progress_with_retry(&self.progress_path, &progress, 5)
     }
 
     fn process(&mut self) -> Result<()> {
@@ -330,7 +305,7 @@ impl Processor {
         }
 
         let mut batch = Vec::with_capacity(BULK_BATCH_SIZE);
-        let mut line_buffer = String::with_capacity(2048);
+        let mut line_buffer = String::with_capacity(LINE_BUFFER_CAPACITY);
 
         self.write_progress("processing", &format!("Reading {}...", log_file.path.display()))?;
 
@@ -479,33 +454,99 @@ impl Processor {
             return Ok(0);
         }
 
-        // FIRST: Filter out duplicate entries before any processing
-        let mut check_stmt = tx.prepare_cached(
-            "SELECT 1 FROM LogEntries WHERE ClientIp = ? AND Service = ? AND Timestamp = ? AND Url = ? AND BytesServed = ? LIMIT 1"
-        )?;
-
+        // OPTIMIZED: Batch duplicate detection using IN clause
+        // Instead of N individual queries, we build one query to check all entries at once
         let mut new_entries = Vec::new();
         let mut skipped = 0;
 
-        for entry in entries {
-            let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+        // Build a temporary table approach for better performance with large batches
+        // For small batches (< 50), use IN clause. For larger batches, use temp table
+        if entries.len() < 50 {
+            // Small batch: use individual checks (still faster than before with prepared statement)
+            let mut check_stmt = tx.prepare_cached(
+                "SELECT 1 FROM LogEntries WHERE ClientIp = ? AND Service = ? AND Timestamp = ? AND Url = ? AND BytesServed = ? LIMIT 1"
+            )?;
 
-            // Check if this entry already exists
-            let exists = check_stmt.query_row(
-                params![
+            for entry in entries {
+                let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+
+                let exists = check_stmt.query_row(
+                    params![
+                        &entry.client_ip,
+                        &entry.service,
+                        &timestamp_str,
+                        &entry.url,
+                        entry.bytes_served,
+                    ],
+                    |_| Ok(true)
+                ).unwrap_or(false);
+
+                if exists {
+                    skipped += 1;
+                } else {
+                    new_entries.push(*entry);
+                }
+            }
+        } else {
+            // Large batch: use temporary table for efficient bulk checking
+            tx.execute_batch(
+                "CREATE TEMP TABLE IF NOT EXISTS temp_check (
+                    client_ip TEXT, service TEXT, timestamp TEXT, url TEXT, bytes_served INTEGER
+                )"
+            )?;
+            tx.execute("DELETE FROM temp_check", [])?;
+
+            // Insert all entries to check into temp table
+            let mut insert_stmt = tx.prepare_cached(
+                "INSERT INTO temp_check VALUES (?, ?, ?, ?, ?)"
+            )?;
+
+            for entry in entries {
+                let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                insert_stmt.execute(params![
                     &entry.client_ip,
                     &entry.service,
                     &timestamp_str,
                     &entry.url,
                     entry.bytes_served,
-                ],
-                |_| Ok(true)
-            ).unwrap_or(false);
+                ])?;
+            }
 
-            if exists {
-                skipped += 1;
-            } else {
-                new_entries.push(*entry);
+            // Find which entries already exist using a JOIN
+            let mut query = tx.prepare(
+                "SELECT tc.client_ip, tc.service, tc.timestamp, tc.url, tc.bytes_served
+                 FROM temp_check tc
+                 INNER JOIN LogEntries le ON
+                    tc.client_ip = le.ClientIp AND
+                    tc.service = le.Service AND
+                    tc.timestamp = le.Timestamp AND
+                    tc.url = le.Url AND
+                    tc.bytes_served = le.BytesServed"
+            )?;
+
+            let existing: std::collections::HashSet<String> = query
+                .query_map([], |row| {
+                    let client_ip: String = row.get(0)?;
+                    let service: String = row.get(1)?;
+                    let timestamp: String = row.get(2)?;
+                    let url: String = row.get(3)?;
+                    let bytes: i64 = row.get(4)?;
+                    Ok(format!("{}|{}|{}|{}|{}", client_ip, service, timestamp, url, bytes))
+                })?
+                .filter_map(Result::ok)
+                .collect();
+
+            // Filter entries based on the existing set
+            for entry in entries {
+                let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+                let key = format!("{}|{}|{}|{}|{}",
+                    entry.client_ip, entry.service, timestamp_str, entry.url, entry.bytes_served);
+
+                if existing.contains(&key) {
+                    skipped += 1;
+                } else {
+                    new_entries.push(*entry);
+                }
             }
         }
 
