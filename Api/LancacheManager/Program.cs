@@ -140,6 +140,13 @@ builder.Services.AddHttpClient<SteamService>(client =>
     client.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
 });
 
+// Register HttpClient for Steam image proxying with shorter timeout
+builder.Services.AddHttpClient("SteamImages", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15); // Shorter timeout for image fetches
+    client.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
+});
+
 // Register Authentication Services
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddSingleton<DeviceAuthService>();

@@ -11,22 +11,24 @@ public class GameImagesController : ControllerBase
 {
     private readonly ILogger<GameImagesController> _logger;
     private readonly AppDbContext _context;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     // Cache of failed image fetches to avoid repeated 404 warnings (AppId -> timestamp)
     private static readonly ConcurrentDictionary<uint, DateTime> _failedImageCache = new();
     private static readonly TimeSpan _failedCacheDuration = TimeSpan.FromHours(24);
 
-    public GameImagesController(ILogger<GameImagesController> logger, AppDbContext context)
+    public GameImagesController(ILogger<GameImagesController> logger, AppDbContext context, IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
         _context = context;
+        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>
     /// Proxy Steam game header images to avoid CORS issues
     /// </summary>
     [HttpGet("{appId}/header")]
-    public async Task<IActionResult> GetGameHeaderImage(uint appId)
+    public async Task<IActionResult> GetGameHeaderImage(uint appId, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -49,7 +51,7 @@ public class GameImagesController : ControllerBase
             var download = await _context.Downloads
                 .Where(d => d.GameAppId == appId && !string.IsNullOrEmpty(d.GameImageUrl))
                 .OrderByDescending(d => d.StartTimeUtc)
-                .FirstOrDefaultAsync();
+                .FirstOrDefaultAsync(cancellationToken);
 
             if (download?.GameImageUrl == null)
             {
@@ -57,14 +59,13 @@ public class GameImagesController : ControllerBase
                 return NotFound(new { error = $"Game image URL not found for app {appId}" });
             }
 
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
+            var httpClient = _httpClientFactory.CreateClient("SteamImages");
 
-            var response = await httpClient.GetAsync(download.GameImageUrl);
+            var response = await httpClient.GetAsync(download.GameImageUrl, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
-                var imageBytes = await response.Content.ReadAsByteArrayAsync();
+                var imageBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
                 var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
 
                 // Add cache headers
@@ -88,6 +89,17 @@ public class GameImagesController : ControllerBase
             }
 
             return NotFound(new { error = $"Steam header image not available for app {appId}" });
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogWarning($"Timeout fetching Steam header image for app {appId}");
+            _failedImageCache.TryAdd(appId, DateTime.UtcNow);
+            return StatusCode(504, new { error = "Request timeout fetching game header image" });
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogDebug($"Request cancelled for Steam header image app {appId}");
+            return StatusCode(499, new { error = "Request cancelled" });
         }
         catch (Exception ex)
         {
