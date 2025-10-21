@@ -424,6 +424,65 @@ fn remove_service_from_logs(
     Ok(())
 }
 
+/// Check if cached progress file is still valid (newer than all log files)
+/// Returns Ok with counts if cache is valid, Err if cache should be regenerated
+fn check_cache_validity(log_path: &str, progress_path: &Path) -> Result<HashMap<String, u64>> {
+    // Check if progress file exists
+    if !progress_path.exists() {
+        return Err(anyhow::anyhow!("Progress file doesn't exist"));
+    }
+
+    // Get progress file modification time
+    let progress_metadata = fs::metadata(progress_path)?;
+    let progress_modified = progress_metadata.modified()?;
+
+    // Determine log directory and base name
+    let (log_dir, base_name) = if Path::new(log_path).is_dir() {
+        (Path::new(log_path), "access.log")
+    } else {
+        let path = Path::new(log_path);
+        let dir = path.parent().context("Failed to get parent directory")?;
+        let name = path.file_name()
+            .and_then(|n| n.to_str())
+            .context("Failed to get file name")?;
+        (dir, name)
+    };
+
+    // Discover all log files
+    let log_files = discover_log_files(log_dir, base_name)?;
+
+    if log_files.is_empty() {
+        return Err(anyhow::anyhow!("No log files found"));
+    }
+
+    // Check if any log file is newer than progress file
+    for log_file in &log_files {
+        if let Ok(log_metadata) = fs::metadata(&log_file.path) {
+            if let Ok(log_modified) = log_metadata.modified() {
+                if log_modified > progress_modified {
+                    return Err(anyhow::anyhow!("Log file {} is newer than progress file", log_file.path.display()));
+                }
+            }
+        }
+    }
+
+    // Cache is valid, read and return the service counts
+    let json = fs::read_to_string(progress_path)?;
+
+    #[derive(serde::Deserialize)]
+    struct CachedProgress {
+        service_counts: Option<HashMap<String, u64>>,
+    }
+
+    let cached: CachedProgress = serde_json::from_str(&json)?;
+
+    if let Some(counts) = cached.service_counts {
+        Ok(counts)
+    } else {
+        Err(anyhow::anyhow!("Progress file doesn't contain service counts"))
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -449,6 +508,12 @@ fn main() {
                 std::process::exit(1);
             }
             let progress_path = Path::new(&args[3]);
+
+            // Check if cached progress is still valid
+            if let Ok(_cached_counts) = check_cache_validity(log_path, progress_path) {
+                eprintln!("Using cached service counts (progress file is newer than all log files)");
+                std::process::exit(0);
+            }
 
             match count_services(log_path, progress_path) {
                 Ok(_) => {

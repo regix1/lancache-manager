@@ -400,9 +400,10 @@ class ApiService {
   }
 
   // Get counts of log entries per service
-  static async getServiceLogCounts(): Promise<Record<string, number>> {
+  static async getServiceLogCounts(forceRefresh: boolean = false): Promise<Record<string, number>> {
     try {
-      const res = await fetch(`${API_BASE}/management/logs/service-counts`, {
+      const url = `${API_BASE}/management/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, {
         signal: AbortSignal.timeout(300000), // 5 minute timeout for large log files
         headers: this.getHeaders()
       });
@@ -606,9 +607,10 @@ class ApiService {
   }
 
   // Get corruption summary (counts of corrupted chunks per service)
-  static async getCorruptionSummary(): Promise<Record<string, number>> {
+  static async getCorruptionSummary(forceRefresh: boolean = false): Promise<Record<string, number>> {
     try {
-      const res = await fetch(`${API_BASE}/management/corruption/summary`, {
+      const url = `${API_BASE}/management/corruption/summary${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, {
         headers: this.getHeaders(),
         signal: AbortSignal.timeout(300000) // 5 minute timeout for large log files
       });

@@ -166,17 +166,88 @@ fn main() -> Result<()> {
             use parser::LogParser;
             use std::collections::HashMap;
 
-            eprintln!("Step 1: Single-pass detection and log filtering for {}...", service);
+            eprintln!("Step 1: Detecting corrupted URLs for {}...", service);
 
             let service_lower = service.to_lowercase();
             let parser = LogParser::new(chrono_tz::UTC);
             let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
 
-            // Track MISS/UNKNOWN counts per URL while filtering
+            // PASS 1: Scan all logs to identify corrupted URLs
             let mut miss_tracker: HashMap<String, usize> = HashMap::new();
+            let mut entries_processed: usize = 0;
+            let miss_threshold: usize = 3; // Same threshold as corruption_detector
+
+            write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks", log_files.len()))?;
+
+            // First pass: identify all corrupted URLs
+            for (file_index, log_file) in log_files.iter().enumerate() {
+                eprintln!("  Scanning file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+
+                let scan_result = (|| -> Result<()> {
+                    let mut log_reader = LogFileReader::open(&log_file.path)?;
+                    let mut line = String::new();
+
+                    loop {
+                        line.clear();
+                        let bytes_read = log_reader.read_line(&mut line)?;
+                        if bytes_read == 0 {
+                            break; // EOF
+                        }
+
+                        // Parse the line
+                        if let Some(entry) = parser.parse_line(line.trim()) {
+                            // Skip health check/heartbeat endpoints
+                            if !service_utils::should_skip_url(&entry.url) {
+                                // Track MISS/UNKNOWN for this service
+                                if entry.service == service_lower &&
+                                   (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN") {
+                                    *miss_tracker.entry(entry.url.clone()).or_insert(0) += 1;
+                                    entries_processed += 1;
+
+                                    // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
+                                    if entries_processed % 100_000 == 0 {
+                                        let before_size = miss_tracker.len();
+                                        miss_tracker.retain(|_, count| *count >= miss_threshold - 1);
+                                        let after_size = miss_tracker.len();
+                                        if before_size > after_size {
+                                            eprintln!("    Memory cleanup: Removed {} low-count entries (kept {})",
+                                                before_size - after_size, after_size);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(())
+                })();
+
+                if let Err(e) = scan_result {
+                    eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    continue;
+                }
+            }
+
+            // Build set of corrupted URLs (those with threshold+ misses)
+            let corrupted_urls: std::collections::HashSet<String> = miss_tracker
+                .iter()
+                .filter(|(_, &count)| count >= miss_threshold)
+                .map(|(url, _)| url.clone())
+                .collect();
+
+            eprintln!("Found {} corrupted chunks for {}", corrupted_urls.len(), service);
+
+            if corrupted_urls.is_empty() {
+                eprintln!("No corrupted chunks found, nothing to remove");
+                write_progress(&progress_path, "complete", "No corrupted chunks found")?;
+                return Ok(());
+            }
+
+            // PASS 2: Filter log files, removing ALL lines with corrupted URLs
+            eprintln!("Step 2: Filtering log files to remove corrupted chunks...");
+
             let mut total_lines_removed: u64 = 0;
 
-            write_progress(&progress_path, "processing", &format!("Processing {} log files", log_files.len()))?;
+            write_progress(&progress_path, "filtering", &format!("Filtering {} log files", log_files.len()))?;
 
             for (file_index, log_file) in log_files.iter().enumerate() {
                 eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
@@ -205,20 +276,11 @@ fn main() -> Result<()> {
                             lines_processed += 1;
                             let mut should_remove = false;
 
-                            // Parse the line
+                            // Parse the line and check if URL is in corrupted set
                             if let Some(entry) = parser.parse_line(line.trim()) {
-                                // Skip health check/heartbeat endpoints
-                                if !service_utils::should_skip_url(&entry.url) {
-                                    // Track MISS/UNKNOWN for this service
-                                    if entry.service == service_lower &&
-                                       (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN") {
-                                        *miss_tracker.entry(entry.url.clone()).or_insert(0) += 1;
-
-                                        // If this URL already has 3+ misses, remove this line
-                                        if miss_tracker[&entry.url] >= 3 {
-                                            should_remove = true;
-                                        }
-                                    }
+                                // Check if this URL is corrupted (from Pass 1 scan)
+                                if entry.service == service_lower && corrupted_urls.contains(&entry.url) {
+                                    should_remove = true;
                                 }
                             }
 
@@ -265,19 +327,10 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Filter to only URLs with 3+ misses
-            let corrupted_urls: Vec<String> = miss_tracker
-                .iter()
-                .filter(|(_, &count)| count >= 3)
-                .map(|(url, _)| url.clone())
-                .collect();
-
-            eprintln!("Found {} corrupted chunks for {}", corrupted_urls.len(), service);
-
             write_progress(&progress_path, "removing_cache", &format!("Removing {} cache files", corrupted_urls.len()))?;
 
-            // Step 2: Delete cache files from disk
-            eprintln!("Step 2: Deleting cache files...");
+            // Step 3: Delete cache files from disk
+            eprintln!("Step 3: Deleting cache files...");
             let mut deleted_count = 0;
             for url in &corrupted_urls {
                 // Calculate cache file path for the first 1MB slice

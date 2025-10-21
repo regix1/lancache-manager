@@ -1,24 +1,21 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ToggleLeft,
   ToggleRight,
   Database,
   Loader,
-  FileText,
   CheckCircle,
   StopCircle,
   AlertTriangle,
   Shield,
   HardDrive,
   Plug,
-  Settings,
-  RefreshCw
+  Settings
 } from 'lucide-react';
 import * as signalR from '@microsoft/signalr';
 import { useData } from '@contexts/DataContext';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
-import { useBackendOperation } from '@hooks/useBackendOperation';
 import operationStateService from '@services/operationState.service';
 
 // Import manager components
@@ -26,6 +23,7 @@ import AuthenticationManager from './AuthenticationManager';
 import SteamLoginManager from './SteamLoginManager';
 import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
+import LogAndCorruptionManager from './LogAndCorruptionManager';
 import ThemeManager from './ThemeManager';
 import AlertsManager from './AlertsManager';
 import GrafanaEndpoints from './GrafanaEndpoints';
@@ -402,580 +400,6 @@ const DatabaseManager: React.FC<{
   );
 };
 
-// Corruption Detection Manager Component
-const CorruptionDetectionManager: React.FC<{
-  isAuthenticated: boolean;
-  authMode: AuthMode;
-  mockMode: boolean;
-  onError?: (message: string) => void;
-  onSuccess?: (message: string) => void;
-  onDataRefresh?: () => void;
-}> = ({ authMode, mockMode, onError, onSuccess, onDataRefresh }) => {
-  const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [removingService, setRemovingService] = useState<string | null>(null);
-  const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
-  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
-  const refreshInterval = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    // Only load on initial mount
-    if (!hasInitiallyLoaded) {
-      loadCorruptionSummary();
-    }
-
-    // Setup 60 minute refresh interval
-    refreshInterval.current = setInterval(() => {
-      loadCorruptionSummary();
-    }, 60 * 60 * 1000); // 60 minutes
-
-    return () => {
-      if (refreshInterval.current) {
-        clearInterval(refreshInterval.current);
-      }
-    };
-  }, []);
-
-  const loadCorruptionSummary = async () => {
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const summary = await ApiService.getCorruptionSummary();
-      setCorruptionSummary(summary);
-      setHasInitiallyLoaded(true);
-    } catch (err: any) {
-      console.error('[CorruptionDetection] Failed to load corruption summary:', err);
-      setLoadError(err.message || 'Failed to load corruption summary');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRemoveCorruption = (service: string) => {
-    if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
-      return;
-    }
-    setPendingRemoval(service);
-  };
-
-  const confirmRemoveCorruption = async () => {
-    if (!pendingRemoval || authMode !== 'authenticated') return;
-
-    const service = pendingRemoval;
-    setPendingRemoval(null);
-    setRemovingService(service);
-
-    try {
-      const result = await ApiService.removeCorruptedChunks(service);
-      onSuccess?.(result.message || `Corrupted chunks removed for ${service}`);
-
-      // Reload summary after removal
-      await loadCorruptionSummary();
-      onDataRefresh?.();
-    } catch (err: any) {
-      console.error('[CorruptionDetection] Removal failed:', err);
-      onError?.(err.message || `Failed to remove corrupted chunks for ${service}`);
-    } finally {
-      setRemovingService(null);
-    }
-  };
-
-  const servicesList = Object.entries(corruptionSummary)
-    .filter(([_, count]) => count > 0)
-    .sort((a, b) => b[1] - a[1]); // Sort by count descending
-
-  return (
-    <>
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 icon-red flex-shrink-0" />
-            <h3 className="text-lg font-semibold text-themed-primary">Corruption Detection</h3>
-          </div>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={loadCorruptionSummary}
-            disabled={isLoading || !!removingService}
-            leftSection={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
-          >
-            Refresh
-          </Button>
-        </div>
-
-        <p className="text-themed-muted text-sm mb-4">
-          Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+ occurrences) in access logs
-        </p>
-
-        {loadError && (
-          <Alert color="red" className="mb-4">
-            <div>
-              <p className="text-sm font-medium mb-1">Failed to detect corrupted chunks</p>
-              <p className="text-xs opacity-75">{loadError}</p>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={loadCorruptionSummary}
-                className="mt-2"
-                leftSection={<RefreshCw className="w-3 h-3" />}
-              >
-                Try Again
-              </Button>
-            </div>
-          </Alert>
-        )}
-
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-8 gap-3">
-            <Loader className="w-6 h-6 animate-spin text-themed-accent" />
-            <p className="text-sm text-themed-secondary">Scanning logs for corrupted chunks...</p>
-            <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
-          </div>
-        ) : !loadError && servicesList.length > 0 ? (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {servicesList.map(([service, count]) => (
-                <Button
-                  key={service}
-                  onClick={() => handleRemoveCorruption(service)}
-                  disabled={mockMode || !!removingService || authMode !== 'authenticated'}
-                  variant="default"
-                  loading={removingService === service}
-                  className="flex flex-col items-center min-h-[60px] justify-center"
-                  fullWidth
-                >
-                  {removingService !== service ? (
-                    <>
-                      <span className="capitalize font-medium text-sm sm:text-base">Remove {service}</span>
-                      <span className="text-xs text-themed-muted mt-1">
-                        ({count.toLocaleString()} corrupted chunks)
-                      </span>
-                    </>
-                  ) : (
-                    <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
-                  )}
-                </Button>
-              ))}
-            </div>
-
-            <div className="mt-4">
-              <Alert color="yellow">
-                <p className="text-xs">
-                  <strong>Warning:</strong> This will delete cache files and remove log entries for corrupted chunks
-                </p>
-              </Alert>
-            </div>
-          </>
-        ) : (
-          <div className="text-center py-8 text-themed-muted">
-            <div className="mb-2">No corrupted chunks detected</div>
-            <div className="text-xs">
-              Cache appears healthy - all chunks are being served successfully
-            </div>
-          </div>
-        )}
-      </Card>
-
-      <Modal
-        opened={pendingRemoval !== null}
-        onClose={() => setPendingRemoval(null)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Remove Corrupted Chunks</span>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            Remove all corrupted cache chunks for <strong>{pendingRemoval}</strong>? This will delete cache files
-            and log entries for chunks with repeated MISS/UNKNOWN requests.
-          </p>
-
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">Important:</p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>May take several minutes for large cache directories</li>
-                <li>Valid {pendingRemoval} cache files will remain intact</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button variant="default" onClick={() => setPendingRemoval(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={confirmRemoveCorruption}
-              leftSection={<AlertTriangle className="w-4 h-4" />}
-            >
-              Remove Corrupted Chunks
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    </>
-  );
-};
-
-// Main services that should always be shown first
-const MAIN_SERVICES = [
-  'steam', 'epic', 'riot', 'blizzard', 'origin', 'uplay',
-  'gog', 'wsus', 'microsoft', 'sony', 'nintendo', 'apple'
-];
-
-// Memoized Service Button Component
-const ServiceButton = React.memo<{
-  service: string;
-  count: number;
-  isRemoving: boolean;
-  isDisabled: boolean;
-  onClick: () => void;
-}>(({ service, count, isRemoving, isDisabled, onClick }) => {
-  return (
-    <Button
-      onClick={onClick}
-      disabled={isDisabled}
-      variant="default"
-      loading={isRemoving}
-      className="flex flex-col items-center min-h-[60px] justify-center"
-      fullWidth
-    >
-      {!isRemoving ? (
-        <>
-          <span className="capitalize font-medium text-sm sm:text-base">Clear {service}</span>
-          <span className="text-xs text-themed-muted mt-1">
-            ({count.toLocaleString()} entries)
-          </span>
-        </>
-      ) : (
-        <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
-      )}
-    </Button>
-  );
-});
-
-ServiceButton.displayName = 'ServiceButton';
-
-// Log File Manager Component
-const LogFileManager: React.FC<{
-  isAuthenticated: boolean;
-  authMode: AuthMode;
-  mockMode: boolean;
-  onError?: (message: string) => void;
-  onSuccess?: (message: string) => void;
-  onDataRefresh?: () => void;
-  onBackgroundOperation?: (service: string | null) => void;
-  onReloadRef?: React.MutableRefObject<(() => Promise<void>) | null>;
-  onClearOperationRef?: React.MutableRefObject<(() => Promise<void>) | null>;
-}> = ({ authMode, mockMode, onError, onSuccess, onBackgroundOperation, onReloadRef, onClearOperationRef }) => {
-  const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
-  const [config, setConfig] = useState({
-    logPath: 'Loading...',
-    services: [] as string[]
-  });
-  const [activeServiceRemoval, setActiveServiceRemoval] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [pendingServiceRemoval, setPendingServiceRemoval] = useState<string | null>(null);
-  const [showMoreServices, setShowMoreServices] = useState(false);
-  const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
-
-  const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
-  const refreshInterval = useRef<NodeJS.Timeout | null>(null);
-
-  const clearOperationState = async () => {
-    await serviceRemovalOp.clear();
-    setActiveServiceRemoval(null);
-    onBackgroundOperation?.(null);
-  };
-
-  useEffect(() => {
-    // Only load on initial mount
-    if (!hasInitiallyLoaded) {
-      loadConfig();
-      restoreServiceRemoval();
-    }
-
-    // Setup 60 minute refresh interval
-    refreshInterval.current = setInterval(() => {
-      loadConfig();
-    }, 60 * 60 * 1000); // 60 minutes
-
-    // Expose reload function to parent via ref
-    if (onReloadRef) {
-      onReloadRef.current = loadConfig;
-    }
-
-    // Expose clear operation function to parent via ref
-    if (onClearOperationRef) {
-      onClearOperationRef.current = clearOperationState;
-    }
-
-    return () => {
-      if (refreshInterval.current) {
-        clearInterval(refreshInterval.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    onBackgroundOperation?.(activeServiceRemoval);
-  }, [activeServiceRemoval]);
-
-  const loadConfig = async () => {
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const [configData, counts] = await Promise.all([
-        ApiService.getConfig(),
-        ApiService.getServiceLogCounts()
-      ]);
-      setConfig(configData);
-      setServiceCounts(counts);
-      setLoadError(null);
-      setHasInitiallyLoaded(true);
-    } catch (err: any) {
-      console.error('Failed to load config:', err);
-      setLoadError(err.message || 'Failed to load service log counts');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const restoreServiceRemoval = async () => {
-    const serviceOp = await serviceRemovalOp.load();
-    if (serviceOp?.data?.service) {
-      setActiveServiceRemoval(serviceOp.data.service);
-      onSuccess?.(`Removing ${serviceOp.data.service} entries from logs (operation resumed)...`);
-      // Note: SignalR LogRemovalComplete event will handle cleanup and reload
-      // No need for hardcoded timeout - the backend will notify when complete
-    }
-  };
-
-  const executeRemoveServiceLogs = async (serviceName: string) => {
-    if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
-      return;
-    }
-
-    // Close modal immediately for better UX
-    setPendingServiceRemoval(null);
-
-    try {
-      setActiveServiceRemoval(serviceName);
-      await serviceRemovalOp.save({ service: serviceName });
-
-      // Start the removal process - it runs in background
-      const result = await ApiService.removeServiceFromLogs(serviceName);
-
-      if (result && result.status === 'started') {
-        onSuccess?.(`Removing ${serviceName} entries from logs...`);
-        // SignalR will handle the completion notification and clear serviceRemovalOp
-      } else {
-        // Unexpected response
-        setActiveServiceRemoval(null);
-        await serviceRemovalOp.clear();
-        onError?.(`Unexpected response when starting log removal for ${serviceName}`);
-      }
-    } catch (err: any) {
-      await serviceRemovalOp.clear();
-      setActiveServiceRemoval(null);
-
-      const errorMessage = err.message?.includes('read-only')
-        ? 'Logs directory is read-only. Remove :ro from docker-compose volume mount.'
-        : err.message || 'Action failed';
-      onError?.(errorMessage);
-    }
-  };
-
-  const handleRemoveServiceLogs = useCallback((serviceName: string) => {
-    if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
-      return;
-    }
-
-    setPendingServiceRemoval(serviceName);
-  }, [authMode, onError]);
-
-  // Show all services that have log entries (get from serviceCounts, not config.services)
-  // This ensures we show ALL services found in logs, including "unknown" and any others
-  const { mainServices, otherServices, servicesWithData } = useMemo(() => {
-    const allServices = Object.keys(serviceCounts).filter(service => serviceCounts[service] > 0);
-
-    // Split services into main (always shown) and other (show more)
-    const main = allServices
-      .filter(service => MAIN_SERVICES.includes(service.toLowerCase()))
-      .sort();
-
-    const other = allServices
-      .filter(service => !MAIN_SERVICES.includes(service.toLowerCase()))
-      .sort();
-
-    // Services to display based on "Show More" state
-    const displayed = showMoreServices ? [...main, ...other] : main;
-
-    return { mainServices: main, otherServices: other, servicesWithData: displayed };
-  }, [serviceCounts, showMoreServices]);
-
-  return (
-    <>
-      <Card>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <FileText className="w-5 h-5 icon-orange flex-shrink-0" />
-          <h3 className="text-lg font-semibold text-themed-primary">Log File Management</h3>
-        </div>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={loadConfig}
-          disabled={isLoading || !!activeServiceRemoval}
-          leftSection={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
-        >
-          Refresh
-        </Button>
-      </div>
-      <p className="text-themed-muted text-sm mb-4 break-words">
-        Remove service entries from{' '}
-        <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
-      </p>
-      {loadError && (
-        <Alert color="red" className="mb-4">
-          <div>
-            <p className="text-sm font-medium mb-1">Failed to load service log counts</p>
-            <p className="text-xs opacity-75">{loadError}</p>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={loadConfig}
-              className="mt-2"
-              leftSection={<RefreshCw className="w-3 h-3" />}
-            >
-              Try Again
-            </Button>
-          </div>
-        </Alert>
-      )}
-      {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-8 gap-3">
-          <Loader className="w-6 h-6 animate-spin text-themed-accent" />
-          <p className="text-sm text-themed-secondary">Scanning log file for services...</p>
-          <p className="text-xs text-themed-muted">This may take up to 5 minutes for large log files</p>
-        </div>
-      ) : !loadError && (mainServices.length > 0 || otherServices.length > 0) ? (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {servicesWithData.map((service) => {
-              const handleClick = () => handleRemoveServiceLogs(service);
-              return (
-                <ServiceButton
-                  key={service}
-                  service={service}
-                  count={serviceCounts[service] || 0}
-                  isRemoving={activeServiceRemoval === service}
-                  isDisabled={
-                    mockMode || !!activeServiceRemoval || serviceRemovalOp.loading || authMode !== 'authenticated'
-                  }
-                  onClick={handleClick}
-                />
-              );
-            })}
-          </div>
-
-          {/* Show More / Show Less button if there are other services */}
-          {otherServices.length > 0 && (
-            <div className="mt-4 text-center">
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => setShowMoreServices(!showMoreServices)}
-              >
-                {showMoreServices ? (
-                  <>Show Less ({otherServices.length} hidden)</>
-                ) : (
-                  <>Show More ({otherServices.length} more)</>
-                )}
-              </Button>
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="text-center py-8 text-themed-muted">
-          <div className="mb-2">No services with log entries found</div>
-          <div className="text-xs">
-            Services appear here when they have downloadable content in the logs
-          </div>
-        </div>
-      )}
-      <div className="mt-4">
-        <Alert color="yellow">
-          <p className="text-xs">
-            <strong>Warning:</strong> Requires write permissions to logs directory
-          </p>
-        </Alert>
-      </div>
-      </Card>
-
-      <Modal
-        opened={pendingServiceRemoval !== null}
-        onClose={() => {
-          if (!serviceRemovalOp.loading) {
-            setPendingServiceRemoval(null);
-          }
-        }}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Remove Service Logs</span>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            Remove all <strong>{pendingServiceRemoval}</strong> entries from the log file? This will reduce log size and improve performance.
-          </p>
-
-          <Alert color="yellow">
-            <div>
-              <p className="text-sm font-medium mb-2">Important:</p>
-              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>May take several minutes for large log files</li>
-                <li>Cached {pendingServiceRemoval} game files will remain intact</li>
-              </ul>
-            </div>
-          </Alert>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setPendingServiceRemoval(null)}
-              disabled={serviceRemovalOp.loading}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={() => pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval)}
-              loading={serviceRemovalOp.loading}
-            >
-              Remove Logs
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    </>
-  );
-};
-
 // Main Management Tab Component
 interface ManagementTabProps {
   onApiKeyRegenerated?: () => void;
@@ -1004,9 +428,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
 
-  // Refs to interact with LogFileManager
-  const logFileManagerReloadRef = useRef<(() => Promise<void>) | null>(null);
-  const logFileManagerClearOpRef = useRef<(() => Promise<void>) | null>(null);
+  // Refs to interact with LogAndCorruptionManager
+  const logAndCorruptionReloadRef = useRef<(() => Promise<void>) | null>(null);
+  const logAndCorruptionClearOpRef = useRef<(() => Promise<void>) | null>(null);
 
   // Alert management
   const addError = useCallback((message: string) => {
@@ -1026,6 +450,14 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       ...prev,
       errors: prev.errors.filter((e) => e.id !== id)
     }));
+  }, []);
+
+  // Helper function to refresh log & corruption management
+  const refreshLogAndCorruption = useCallback(async () => {
+    // Reload LogAndCorruptionManager only (don't refresh dashboard data)
+    if (logAndCorruptionReloadRef.current) {
+      await logAndCorruptionReloadRef.current();
+    }
   }, []);
 
   const clearSuccess = useCallback(() => {
@@ -1136,28 +568,23 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
           if (payload.success) {
             console.log(`Service ${payload.service} removal completed successfully`);
 
-            // Clear LogFileManager operation state
-            if (logFileManagerClearOpRef.current) {
-              await logFileManagerClearOpRef.current();
+            // Clear LogAndCorruptionManager operation state
+            if (logAndCorruptionClearOpRef.current) {
+              await logAndCorruptionClearOpRef.current();
             }
 
             // Clear parent operation state
             setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
 
-            // Reload the service counts in LogFileManager after deletion
-            if (logFileManagerReloadRef.current) {
-              await logFileManagerReloadRef.current();
-            }
-
-            // Refresh main data
-            fetchData();
+            // Refresh LogAndCorruptionManager
+            await refreshLogAndCorruption();
           } else {
             console.error(`Service ${payload.service} removal failed:`, payload.message);
             addError(`Failed to remove ${payload.service} logs: ${payload.message}`);
 
             // Clear operation states on failure too
-            if (logFileManagerClearOpRef.current) {
-              await logFileManagerClearOpRef.current();
+            if (logAndCorruptionClearOpRef.current) {
+              await logAndCorruptionClearOpRef.current();
             }
             setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
           }
@@ -1201,7 +628,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         signalRConnection.current.stop();
       }
     };
-  }, [mockMode, addError, setSuccess]);
+  }, [mockMode, addError, setSuccess, refreshLogAndCorruption]);
 
   return (
     <>
@@ -1483,27 +910,18 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 }
               />
 
-              <LogFileManager
+              <LogAndCorruptionManager
                 isAuthenticated={isAuthenticated}
                 authMode={authMode}
                 mockMode={mockMode}
                 onError={addError}
                 onSuccess={setSuccess}
-                onDataRefresh={fetchData}
+                onDataRefresh={refreshLogAndCorruption}
                 onBackgroundOperation={(service) =>
                   setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: service }))
                 }
-                onReloadRef={logFileManagerReloadRef}
-                onClearOperationRef={logFileManagerClearOpRef}
-              />
-
-              <CorruptionDetectionManager
-                isAuthenticated={isAuthenticated}
-                authMode={authMode}
-                mockMode={mockMode}
-                onError={addError}
-                onSuccess={setSuccess}
-                onDataRefresh={fetchData}
+                onReloadRef={logAndCorruptionReloadRef}
+                onClearOperationRef={logAndCorruptionClearOpRef}
               />
             </CollapsibleSection>
 

@@ -454,99 +454,33 @@ impl Processor {
             return Ok(0);
         }
 
-        // OPTIMIZED: Batch duplicate detection using IN clause
-        // Instead of N individual queries, we build one query to check all entries at once
-        let mut new_entries = Vec::new();
+        // Simple duplicate detection with prepared statement
+        // Use cached statement for best performance
+        let mut check_stmt = tx.prepare_cached(
+            "SELECT 1 FROM LogEntries WHERE ClientIp = ? AND Service = ? AND Timestamp = ? AND Url = ? AND BytesServed = ? LIMIT 1"
+        )?;
+
+        let mut new_entries = Vec::with_capacity(entries.len());
         let mut skipped = 0;
 
-        // Build a temporary table approach for better performance with large batches
-        // For small batches (< 50), use IN clause. For larger batches, use temp table
-        if entries.len() < 50 {
-            // Small batch: use individual checks (still faster than before with prepared statement)
-            let mut check_stmt = tx.prepare_cached(
-                "SELECT 1 FROM LogEntries WHERE ClientIp = ? AND Service = ? AND Timestamp = ? AND Url = ? AND BytesServed = ? LIMIT 1"
-            )?;
+        for entry in entries {
+            let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
 
-            for entry in entries {
-                let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-
-                let exists = check_stmt.query_row(
-                    params![
-                        &entry.client_ip,
-                        &entry.service,
-                        &timestamp_str,
-                        &entry.url,
-                        entry.bytes_served,
-                    ],
-                    |_| Ok(true)
-                ).unwrap_or(false);
-
-                if exists {
-                    skipped += 1;
-                } else {
-                    new_entries.push(*entry);
-                }
-            }
-        } else {
-            // Large batch: use temporary table for efficient bulk checking
-            tx.execute_batch(
-                "CREATE TEMP TABLE IF NOT EXISTS temp_check (
-                    client_ip TEXT, service TEXT, timestamp TEXT, url TEXT, bytes_served INTEGER
-                )"
-            )?;
-            tx.execute("DELETE FROM temp_check", [])?;
-
-            // Insert all entries to check into temp table
-            let mut insert_stmt = tx.prepare_cached(
-                "INSERT INTO temp_check VALUES (?, ?, ?, ?, ?)"
-            )?;
-
-            for entry in entries {
-                let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                insert_stmt.execute(params![
+            let exists = check_stmt.query_row(
+                params![
                     &entry.client_ip,
                     &entry.service,
                     &timestamp_str,
                     &entry.url,
                     entry.bytes_served,
-                ])?;
-            }
+                ],
+                |_| Ok(true)
+            ).unwrap_or(false);
 
-            // Find which entries already exist using a JOIN
-            let mut query = tx.prepare(
-                "SELECT tc.client_ip, tc.service, tc.timestamp, tc.url, tc.bytes_served
-                 FROM temp_check tc
-                 INNER JOIN LogEntries le ON
-                    tc.client_ip = le.ClientIp AND
-                    tc.service = le.Service AND
-                    tc.timestamp = le.Timestamp AND
-                    tc.url = le.Url AND
-                    tc.bytes_served = le.BytesServed"
-            )?;
-
-            let existing: std::collections::HashSet<String> = query
-                .query_map([], |row| {
-                    let client_ip: String = row.get(0)?;
-                    let service: String = row.get(1)?;
-                    let timestamp: String = row.get(2)?;
-                    let url: String = row.get(3)?;
-                    let bytes: i64 = row.get(4)?;
-                    Ok(format!("{}|{}|{}|{}|{}", client_ip, service, timestamp, url, bytes))
-                })?
-                .filter_map(Result::ok)
-                .collect();
-
-            // Filter entries based on the existing set
-            for entry in entries {
-                let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let key = format!("{}|{}|{}|{}|{}",
-                    entry.client_ip, entry.service, timestamp_str, entry.url, entry.bytes_served);
-
-                if existing.contains(&key) {
-                    skipped += 1;
-                } else {
-                    new_entries.push(*entry);
-                }
+            if exists {
+                skipped += 1;
+            } else {
+                new_entries.push(*entry);
             }
         }
 
@@ -635,7 +569,7 @@ impl Processor {
             // This ensures we get the correct URL including hash-based URLs for newer games
             let game_image_url: Option<String> = None;
 
-            // Convert timestamps to both UTC and local timezone
+            // Convert timestamps to both UTC and local timezone - format once and reuse
             let first_utc = first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
             let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
             let first_local = self.utc_to_local(first_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
@@ -673,18 +607,14 @@ impl Processor {
                 .map(|count: i64| count > 0)?;
 
             if client_exists {
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
                     "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ?, TotalDownloads = TotalDownloads + 1 WHERE ClientIp = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, client_ip],
+                    params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, client_ip],
                 )?;
             } else {
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
                     "INSERT INTO ClientStats (ClientIp, TotalCacheHitBytes, TotalCacheMissBytes, LastActivityUtc, LastActivityLocal, TotalDownloads) VALUES (?, ?, ?, ?, ?, 1)",
-                    params![client_ip, total_hit_bytes, total_miss_bytes, last_utc, last_local],
+                    params![client_ip, total_hit_bytes, total_miss_bytes, &last_utc, &last_local],
                 )?;
             }
 
@@ -698,18 +628,14 @@ impl Processor {
                 .map(|count: i64| count > 0)?;
 
             if service_exists {
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
                     "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ?, TotalDownloads = TotalDownloads + 1 WHERE Service = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, service],
+                    params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, service],
                 )?;
             } else {
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 tx.execute(
                     "INSERT INTO ServiceStats (Service, TotalCacheHitBytes, TotalCacheMissBytes, LastActivityUtc, LastActivityLocal, TotalDownloads) VALUES (?, ?, ?, ?, ?, 1)",
-                    params![service, total_hit_bytes, total_miss_bytes, last_utc, last_local],
+                    params![service, total_hit_bytes, total_miss_bytes, &last_utc, &last_local],
                 )?;
             }
 
@@ -768,17 +694,17 @@ impl Processor {
                 (tx.last_insert_rowid(), true)
             };
 
+            // Convert timestamps once for reuse in updates
+            let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+            let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+
             // Only update if we found existing download (not if we just created it)
             if !is_new {
-                // Convert timestamps to both UTC and local timezone
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
-
                 tx.execute(
                     "UPDATE Downloads SET EndTimeUtc = ?, EndTimeLocal = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName), GameImageUrl = COALESCE(?, GameImageUrl) WHERE Id = ?",
                     params![
-                        last_utc,
-                        last_local,
+                        &last_utc,
+                        &last_local,
                         total_hit_bytes,
                         total_miss_bytes,
                         last_url,
@@ -789,33 +715,17 @@ impl Processor {
                         download_id,
                     ],
                 )?;
-
-                // Update client stats (without incrementing TotalDownloads)
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
-                tx.execute(
-                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE ClientIp = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, client_ip],
-                )?;
-
-                // Update service stats (without incrementing TotalDownloads)
-                tx.execute(
-                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE Service = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, service],
-                )?;
-            } else {
-                // For new downloads, stats were already updated in the first branch, so update them here too
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
-                tx.execute(
-                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE ClientIp = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, client_ip],
-                )?;
-                tx.execute(
-                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE Service = ?",
-                    params![total_hit_bytes, total_miss_bytes, last_utc, last_local, service],
-                )?;
             }
+
+            // Update client and service stats (for both new and existing downloads)
+            tx.execute(
+                "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE ClientIp = ?",
+                params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, client_ip],
+            )?;
+            tx.execute(
+                "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE Service = ?",
+                params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, service],
+            )?;
 
             download_id
         };

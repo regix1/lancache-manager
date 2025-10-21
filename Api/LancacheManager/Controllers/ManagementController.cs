@@ -497,11 +497,11 @@ public class ManagementController : ControllerBase
     }
 
     [HttpGet("logs/service-counts")]
-    public async Task<IActionResult> GetServiceLogCounts()
+    public async Task<IActionResult> GetServiceLogCounts([FromQuery] bool forceRefresh = false)
     {
         try
         {
-            var counts = await _cacheService.GetServiceLogCounts();
+            var counts = await _cacheService.GetServiceLogCounts(forceRefresh);
 
             return Ok(counts);
         }
@@ -513,11 +513,11 @@ public class ManagementController : ControllerBase
     }
 
     [HttpGet("corruption/summary")]
-    public async Task<IActionResult> GetCorruptionSummary()
+    public async Task<IActionResult> GetCorruptionSummary([FromQuery] bool forceRefresh = false)
     {
         try
         {
-            var summary = await _cacheService.GetCorruptionSummary();
+            var summary = await _cacheService.GetCorruptionSummary(forceRefresh);
             return Ok(summary);
         }
         catch (Exception ex)

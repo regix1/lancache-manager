@@ -12,10 +12,7 @@ public class CacheManagementService
     private readonly string _cachePath;
     private readonly string _logPath;
 
-    // Cache for service log counts - prevents repeated Rust binary executions
-    private Dictionary<string, long>? _cachedServiceCounts;
-    private DateTime? _cacheExpiry;
-    private readonly TimeSpan _cacheValidDuration = TimeSpan.FromMinutes(5); // Cache valid for 5 minutes
+    // Lock for thread safety during Rust binary execution
     private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
     private DateTime? _lastLogWarningTime; // Track last time we logged a warning
     private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
@@ -155,16 +152,14 @@ public class CacheManagementService
     /// </summary>
     public async Task InvalidateServiceCountsCache()
     {
-        await _cacheLock.WaitAsync();
-        try
+        // Delete the Rust cache file to force rescan
+        var dataDir = _pathResolver.GetDataDirectory();
+        var progressFile = Path.Combine(dataDir, "log_count_progress.json");
+
+        if (File.Exists(progressFile))
         {
-            _cachedServiceCounts = null;
-            _cacheExpiry = null;
-            _logger.LogDebug("Service count cache invalidated");
-        }
-        finally
-        {
-            _cacheLock.Release();
+            await Task.Run(() => File.Delete(progressFile));
+            _logger.LogDebug("Service count cache file deleted: {ProgressFile}", progressFile);
         }
     }
 
@@ -270,23 +265,10 @@ public class CacheManagementService
         }
     }
 
-    public async Task<Dictionary<string, long>> GetServiceLogCounts()
+    public async Task<Dictionary<string, long>> GetServiceLogCounts(bool forceRefresh = false)
     {
-        // Check if cache is valid
-        await _cacheLock.WaitAsync();
-        try
-        {
-            if (_cachedServiceCounts != null && _cacheExpiry.HasValue && DateTime.UtcNow < _cacheExpiry.Value)
-            {
-                _logger.LogDebug("Returning cached service counts (expires in {TimeRemaining})", _cacheExpiry.Value - DateTime.UtcNow);
-                return new Dictionary<string, long>(_cachedServiceCounts);
-            }
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
-
+        // Use Rust binary which has its own file-based caching with modification time validation
+        // No need for C# in-memory cache - Rust handles it efficiently
         var counts = new Dictionary<string, long>();
 
         try
@@ -322,6 +304,13 @@ public class CacheManagementService
             }
 
             _logger.LogInformation($"Using Rust binary for log counting: {rustBinaryPath}");
+
+            // If forceRefresh is true, delete the cache file to force Rust to rescan
+            if (forceRefresh && File.Exists(progressFile))
+            {
+                _logger.LogInformation("Force refresh - deleting cached progress file: {ProgressFile}", progressFile);
+                File.Delete(progressFile);
+            }
 
             var startInfo = new ProcessStartInfo
             {
@@ -388,19 +377,7 @@ public class CacheManagementService
                         {
                             counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
                             _logger.LogInformation($"Rust log counting completed: Found {counts.Count} services");
-
-                            // Cache the results
-                            await _cacheLock.WaitAsync();
-                            try
-                            {
-                                _cachedServiceCounts = new Dictionary<string, long>(counts);
-                                _cacheExpiry = DateTime.UtcNow.Add(_cacheValidDuration);
-                                _logger.LogDebug("Service counts cached until {CacheExpiry}", _cacheExpiry);
-                            }
-                            finally
-                            {
-                                _cacheLock.Release();
-                            }
+                            // Rust binary handles caching via file modification time - no need for C# cache
                         }
                         else
                         {
@@ -548,59 +525,9 @@ public class CacheManagementService
     /// <summary>
     /// Get corruption summary with caching based on log file modification time
     /// </summary>
-    public async Task<Dictionary<string, long>> GetCorruptionSummary()
+    public async Task<Dictionary<string, long>> GetCorruptionSummary(bool forceRefresh = false)
     {
-        var cachePath = Path.Combine(_pathResolver.GetDataDirectory(), "corruption_summary_cache.json");
-        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
-
-        _logger.LogInformation("[CorruptionDetection] GetCorruptionSummary called - cache: {Cache}, log: {Log}", cachePath, logPath);
-
-        // Check if cache exists and is valid
-        if (File.Exists(cachePath) && File.Exists(logPath))
-        {
-            var cacheInfo = new FileInfo(cachePath);
-            var logInfo = new FileInfo(logPath);
-
-            _logger.LogInformation("[CorruptionDetection] Cache modified: {CacheTime}, Log modified: {LogTime}",
-                cacheInfo.LastWriteTimeUtc, logInfo.LastWriteTimeUtc);
-
-            // Cache is valid if it was created AFTER the log file's last modification
-            if (cacheInfo.LastWriteTimeUtc > logInfo.LastWriteTimeUtc)
-            {
-                _logger.LogInformation("[CorruptionDetection] Using cached corruption summary (cache is newer)");
-                try
-                {
-                    var cachedJson = await File.ReadAllTextAsync(cachePath);
-
-                    var cachedData = JsonSerializer.Deserialize<CorruptionSummaryData>(cachedJson,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                    if (cachedData?.ServiceCounts != null)
-                    {
-                        var result = cachedData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-                        _logger.LogInformation("[CorruptionDetection] Returning cached summary: {Services}",
-                            string.Join(", ", result.Select(kvp => $"{kvp.Key}={kvp.Value}")));
-                        return result;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[CorruptionDetection] Failed to read cache, will regenerate");
-                }
-            }
-            else
-            {
-                _logger.LogInformation("[CorruptionDetection] Cache is stale, will regenerate");
-            }
-        }
-        else
-        {
-            _logger.LogInformation("[CorruptionDetection] Cache or log missing - cacheExists: {CE}, logExists: {LE}",
-                File.Exists(cachePath), File.Exists(logPath));
-        }
-
-        // Run Rust binary to detect corruption
-        var logDir = Path.GetDirectoryName(logPath) ?? _pathResolver.GetLogsDirectory();
+        var logDir = _pathResolver.GetLogsDirectory();
         var cacheDir = _cachePath;
         var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
 
@@ -660,10 +587,7 @@ public class CacheManagementService
             _logger.LogInformation("[CorruptionDetection] Summary generated: {Services}",
                 string.Join(", ", finalResult.Select(kvp => $"{kvp.Key}={kvp.Value}")));
 
-            // Cache the results
-            await File.WriteAllTextAsync(cachePath, output);
-            _logger.LogInformation("[CorruptionDetection] Results cached to {Path}", cachePath);
-
+            // No caching needed - Rust binary is fast enough to run on every request
             return finalResult;
         }
     }
@@ -733,30 +657,8 @@ public class CacheManagementService
             _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service}", service);
         }
 
-        // Invalidate corruption summary cache
-        var cachePath = Path.Combine(dataDir, "corruption_summary_cache.json");
-        if (File.Exists(cachePath))
-        {
-            _logger.LogInformation("[CorruptionDetection] Deleting cache file: {Path}", cachePath);
-            File.Delete(cachePath);
-            _logger.LogInformation("[CorruptionDetection] Corruption summary cache invalidated");
-        }
-        else
-        {
-            _logger.LogInformation("[CorruptionDetection] No cache file to delete at {Path}", cachePath);
-        }
-
-        // Also invalidate service count cache since corruption affects counts
-        await _cacheLock.WaitAsync();
-        try
-        {
-            _cachedServiceCounts = null;
-            _cacheExpiry = null;
-            _logger.LogInformation("[CorruptionDetection] Service count cache invalidated");
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
+        // No corruption summary cache to invalidate (Rust runs fresh each time)
+        // Invalidate service count cache since corruption removal affects counts
+        await InvalidateServiceCountsCache();
     }
 }

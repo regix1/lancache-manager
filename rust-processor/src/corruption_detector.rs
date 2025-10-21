@@ -73,6 +73,7 @@ impl CorruptionDetector {
 
     /// Detect corrupted chunks by analyzing log files
     /// Returns a map of (service, url) -> miss_count for chunks with 3+ misses
+    /// Memory-optimized: Periodically filters out entries below threshold to prevent unbounded growth
     pub fn detect_corrupted_chunks<P: AsRef<Path>>(
         &self,
         log_dir: P,
@@ -92,6 +93,7 @@ impl CorruptionDetector {
 
         let parser = LogParser::new(timezone);
         let mut miss_tracker: HashMap<(String, String), usize> = HashMap::new();
+        let mut entries_processed = 0usize;
 
         // Process each log file
         for log_file in &log_files {
@@ -120,6 +122,19 @@ impl CorruptionDetector {
                         if entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN" {
                             let key = (entry.service.clone(), entry.url.clone());
                             *miss_tracker.entry(key).or_insert(0) += 1;
+                            entries_processed += 1;
+
+                            // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
+                            // This prevents unbounded HashMap growth with millions of single-miss URLs
+                            if entries_processed % 100_000 == 0 {
+                                let before_size = miss_tracker.len();
+                                miss_tracker.retain(|_, count| *count >= self.miss_threshold - 1);
+                                let after_size = miss_tracker.len();
+                                if before_size > after_size {
+                                    eprintln!("  Memory cleanup: Removed {} low-count entries (kept {})",
+                                        before_size - after_size, after_size);
+                                }
+                            }
                         }
                         // Skip HIT entries - they're working fine
                     }
@@ -135,7 +150,7 @@ impl CorruptionDetector {
             }
         }
 
-        // Filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
+        // Final filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
         let corrupted: HashMap<(String, String), usize> = miss_tracker
             .into_iter()
             .filter(|(_, count)| *count >= self.miss_threshold)
