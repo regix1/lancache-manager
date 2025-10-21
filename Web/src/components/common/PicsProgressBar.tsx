@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Download, CheckCircle, AlertCircle, Loader2, X, User, UserX } from 'lucide-react';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
@@ -9,7 +9,8 @@ import { toTotalHours } from '@utils/timeFormatters';
 const PicsProgressBar: React.FC = () => {
   const { progress } = usePicsProgress({ pollingInterval: 2000 });
   const [isVisible, setIsVisible] = useState(false);
-  const [hideTimeout, setHideTimeout] = useState<NodeJS.Timeout | null>(null);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hideTimeoutSetRef = useRef<boolean>(false);
   const [alwaysVisible, setAlwaysVisible] = useState(false);
   const [wasRunning, setWasRunning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -68,42 +69,52 @@ const PicsProgressBar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Clear any existing hide timeout
-    if (hideTimeout) {
-      clearTimeout(hideTimeout);
-      setHideTimeout(null);
-    }
-
     // If alwaysVisible is enabled or GitHub download is active, always show the bar
     if (alwaysVisible || githubDownloadStatus === 'downloading') {
+      // Clear any pending hide timeout
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
+        hideTimeoutRef.current = null;
+        hideTimeoutSetRef.current = false;
+      }
       setIsVisible(true);
       setWasRunning((progress?.isRunning || githubDownloadStatus === 'downloading') ?? false);
     } else {
       // Show progress bar when PICS is running or GitHub download is complete
       if (progress?.isRunning || githubDownloadStatus === 'complete') {
+        // Clear any pending hide timeout since we're running again
+        if (hideTimeoutRef.current) {
+          clearTimeout(hideTimeoutRef.current);
+          hideTimeoutRef.current = null;
+          hideTimeoutSetRef.current = false;
+        }
         setIsVisible(true);
         setWasRunning(true);
       } else if (wasRunning && !progress?.isRunning && githubDownloadStatus !== 'complete') {
-        // Was just running, now stopped - hide after 10 seconds
-        const timeout = setTimeout(() => {
-          setIsVisible(false);
-          setWasRunning(false);
-        }, 10000);
-        setHideTimeout(timeout);
+        // Was just running, now stopped - hide after 10 seconds (but only set timeout ONCE)
+        if (!hideTimeoutSetRef.current) {
+          hideTimeoutSetRef.current = true;
+          hideTimeoutRef.current = setTimeout(() => {
+            setIsVisible(false);
+            setWasRunning(false);
+            hideTimeoutSetRef.current = false;
+          }, 10000);
+        }
       } else if (!progress?.isRunning && !wasRunning && githubDownloadStatus !== 'complete') {
         // Never was running in this session, hide immediately
         setIsVisible(false);
       }
     }
-  }, [progress, alwaysVisible, wasRunning, githubDownloadStatus, hideTimeout]);
+  }, [progress, alwaysVisible, wasRunning, githubDownloadStatus]);
 
+  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
-      if (hideTimeout) {
-        clearTimeout(hideTimeout);
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
       }
     };
-  }, [hideTimeout]);
+  }, []);
 
   // Don't return early if GitHub download is active - we still want to show that
   if (!progress && !githubDownloadStatus) {
