@@ -13,6 +13,7 @@ interface FullScanRequiredModalProps {
   title?: string;
   subtitle?: string;
   isAutomaticScanSkipped?: boolean;
+  isAuthenticated?: boolean;
 }
 
 export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
@@ -24,7 +25,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   showDownloadOption = true,
   title = "Full Scan Required",
   subtitle,
-  isAutomaticScanSkipped = false
+  isAutomaticScanSkipped = false,
+  isAuthenticated = false
 }) => {
 
   const defaultSubtitle = isAutomaticScanSkipped
@@ -98,6 +100,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               variant="filled"
               color="blue"
               className="flex-1"
+              disabled={isAuthenticated}
+              title={isAuthenticated ? 'GitHub downloads are not available when using Steam account login' : undefined}
             >
               <Download className="w-4 h-4 mr-2" />
               Download from GitHub (Recommended)
