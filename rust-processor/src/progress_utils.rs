@@ -1,7 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
-use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::thread;
@@ -32,7 +31,7 @@ pub fn write_progress_json<T: Serialize>(progress_path: &Path, progress: &T) -> 
     Ok(())
 }
 
-/// Write progress with exponential backoff retry logic
+/// Write progress with exponential backoff retry logic using atomic operations
 #[allow(dead_code)]
 pub fn write_progress_with_retry<T: Serialize>(
     progress_path: &Path,
@@ -40,13 +39,27 @@ pub fn write_progress_with_retry<T: Serialize>(
     max_retries: usize,
 ) -> Result<()> {
     let json = serde_json::to_string_pretty(progress)?;
+    let parent_dir = progress_path.parent().unwrap_or(Path::new("."));
 
     let mut retries = 0;
     loop {
-        match File::create(progress_path) {
-            Ok(mut file) => {
-                match file.write_all(json.as_bytes()).and_then(|_| file.flush()) {
-                    Ok(_) => break,
+        // Use atomic write-and-rename to avoid race conditions
+        match NamedTempFile::new_in(parent_dir) {
+            Ok(mut temp_file) => {
+                match temp_file.write_all(json.as_bytes()).and_then(|_| temp_file.flush()) {
+                    Ok(_) => {
+                        // Close file handle and persist atomically
+                        let temp_path = temp_file.into_temp_path();
+                        match temp_path.persist(progress_path) {
+                            Ok(_) => break,
+                            Err(_) if retries < max_retries => {
+                                retries += 1;
+                                thread::sleep(Duration::from_millis(10 * retries as u64));
+                                continue;
+                            }
+                            Err(e) => return Err(anyhow::Error::new(e.error)),
+                        }
+                    }
                     Err(_) if retries < max_retries => {
                         retries += 1;
                         thread::sleep(Duration::from_millis(10 * retries as u64));
