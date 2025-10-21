@@ -40,10 +40,8 @@ struct Progress {
     status: String,
     message: String,
     timestamp: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    warnings: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    errors: Vec<String>,
+    // NOTE: warnings/errors removed - they're only used for C# logging (stderr capture)
+    // and are NOT displayed in UI. Keeping them caused unbounded memory growth.
 }
 
 
@@ -62,8 +60,6 @@ struct Processor {
     local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
-    warnings: std::sync::Mutex<Vec<String>>,
-    errors: std::sync::Mutex<Vec<String>>,
 }
 
 impl Processor {
@@ -113,8 +109,6 @@ impl Processor {
             local_tz,
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
-            warnings: std::sync::Mutex::new(Vec::new()),
-            errors: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -154,10 +148,9 @@ impl Processor {
                     println!("  {} has {} lines", log_file.path.display(), lines);
                 }
                 Err(e) => {
-                    let warning = format!("Skipping corrupted file {}: {}", log_file.path.display(), e);
-                    eprintln!("WARNING: {}", warning);
+                    // Log to stderr - C# captures this for logging
+                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
                     eprintln!("  Continuing with remaining files...");
-                    self.warnings.lock().unwrap().push(warning);
                     continue;
                 }
             }
@@ -176,9 +169,6 @@ impl Processor {
             0.0
         };
 
-        let warnings = self.warnings.lock().unwrap().clone();
-        let errors = self.errors.lock().unwrap().clone();
-
         let progress = Progress {
             total_lines: total,
             lines_parsed: parsed,
@@ -187,8 +177,6 @@ impl Processor {
             status: status.to_string(),
             message: message.to_string(),
             timestamp: progress_utils::current_timestamp(),
-            warnings,
-            errors,
         };
 
         // Use shared progress writing utility with retry logic
@@ -325,6 +313,7 @@ impl Processor {
                 if !batch.is_empty() {
                     self.process_batch(conn, &batch)?;
                     batch.clear();
+                    batch.shrink_to_fit(); // Release memory since we're done
                 }
                 break;
             }
@@ -360,6 +349,7 @@ impl Processor {
 
                     self.process_batch(conn, &batch)?;
                     batch.clear();
+                    // Don't shrink here - we'll reuse the capacity for the next batch
 
                     let parsed = self.lines_parsed.load(Ordering::Relaxed);
                     let saved = self.entries_saved.load(Ordering::Relaxed);

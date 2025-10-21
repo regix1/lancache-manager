@@ -129,6 +129,8 @@ impl CorruptionDetector {
                             if entries_processed % 100_000 == 0 {
                                 let before_size = miss_tracker.len();
                                 miss_tracker.retain(|_, count| *count >= self.miss_threshold - 1);
+                                // Actually release memory back to the system
+                                miss_tracker.shrink_to_fit();
                                 let after_size = miss_tracker.len();
                                 if before_size > after_size {
                                     eprintln!("  Memory cleanup: Removed {} low-count entries (kept {})",

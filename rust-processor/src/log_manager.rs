@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::Path;
 use std::time::Instant;
+use tempfile::NamedTempFile;
 
 mod log_discovery;
 mod log_reader;
@@ -181,7 +181,7 @@ fn count_services(log_path: &str, progress_path: &Path) -> Result<HashMap<String
     }
 
     let elapsed = start_time.elapsed();
-    eprintln!("\n✓ Service counting completed!");
+    eprintln!("\nService counting completed!");
     eprintln!("  Files processed: {}", log_files.len());
     eprintln!("  Lines processed: {}", lines_processed);
     eprintln!("  Services found: {}", service_counts.len());
@@ -251,9 +251,9 @@ fn remove_service_from_logs(
 
         // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
         let file_result = (|| -> Result<(u64, u64)> {
-            // Create temp file for filtered output
+            // Create temp file for filtered output with automatic cleanup
             let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_path = file_dir.join(format!("access.log.tmp.{}.{}", Utc::now().timestamp(), file_index));
+            let temp_file = NamedTempFile::new_in(file_dir)?;
 
             let mut lines_processed: u64 = 0;
             let mut lines_removed: u64 = 0;
@@ -265,8 +265,7 @@ fn remove_service_from_logs(
                 let mut log_reader = LogFileReader::open(&log_file.path)?;
                 let file_size = std::fs::metadata(&log_file.path)?.len();
 
-                let temp_file = File::create(&temp_path).context("Failed to create temp file")?;
-                let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
+                let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file.as_file());
 
                 let mut bytes_processed: u64 = 0;
                 let mut last_progress_update = Instant::now();
@@ -351,28 +350,16 @@ fn remove_service_from_logs(
             if lines_processed > 0 && lines_removed == lines_processed {
                 eprintln!("  INFO: All {} lines from this file will be removed", lines_processed);
                 eprintln!("    Deleting the log file entirely");
-                // Delete the temp file
-                fs::remove_file(&temp_path).ok();
+                // temp_file automatically deleted when it goes out of scope
                 // Delete the original log file
                 fs::remove_file(&log_file.path).ok();
                 return Ok((lines_processed, lines_removed));
             }
 
-            // Replace original with filtered version (only if some lines remain)
-            // Use atomic file replacement to avoid race conditions
-            #[cfg(windows)]
-            {
-                // On Windows, use copy-and-delete to avoid the rename gap
-                // First copy the temp file over the original (atomic operation)
-                fs::copy(&temp_path, &log_file.path).context("Failed to copy temp file over original")?;
-                // Then delete the temp file
-                fs::remove_file(&temp_path).ok(); // Ignore errors on cleanup
-            }
-            #[cfg(not(windows))]
-            {
-                // On Unix, rename is atomic and will replace the existing file
-                fs::rename(&temp_path, &log_file.path).context("Failed to rename temp file")?;
-            }
+            // Atomically replace original with filtered version
+            // Use into_temp_path() to close file handle before persisting (Windows fix)
+            let temp_path = temp_file.into_temp_path();
+            temp_path.persist(&log_file.path).context("Failed to persist temp file")?;
 
             Ok((lines_processed, lines_removed))
         })();
@@ -395,7 +382,7 @@ fn remove_service_from_logs(
     }
 
     let elapsed = start_time.elapsed();
-    eprintln!("\n✓ Log filtering completed!");
+    eprintln!("\nLog filtering completed!");
     eprintln!("  Files processed: {}", log_files.len());
     eprintln!("  Lines processed: {}", total_lines_processed);
     eprintln!("  Lines removed: {}", total_lines_removed);

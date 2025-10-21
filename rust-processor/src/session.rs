@@ -51,5 +51,8 @@ impl SessionTracker {
             let duration = current_timestamp.signed_duration_since(last_activity);
             duration.num_seconds() <= cleanup_threshold as i64
         });
+
+        // Actually release memory back to the system
+        self.sessions.shrink_to_fit();
     }
 }

@@ -527,7 +527,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     let final_files = total_files_deleted.load(Ordering::Relaxed);
     let elapsed = start_time.elapsed();
 
-    eprintln!("\n✓ Cache clear completed!");
+    eprintln!("\nCache clear completed!");
     eprintln!("  Directories processed: {}", final_dirs);
     eprintln!("  Files deleted: {}", final_files);
     eprintln!("  Bytes deleted: {} ({:.2} GB)", final_bytes, final_bytes as f64 / 1_073_741_824.0);

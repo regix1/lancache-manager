@@ -179,7 +179,7 @@ fn reset_database(
     );
     write_progress(progress_path, &progress)?;
 
-    println!("\n✓ Database reset completed successfully!");
+    println!("\nDatabase reset completed successfully!");
     println!("  Tables cleared: {}", tables_cleared);
     println!("  Files deleted: {}", files_deleted);
     println!("  Time elapsed: {:.2}s", elapsed.as_secs_f64());

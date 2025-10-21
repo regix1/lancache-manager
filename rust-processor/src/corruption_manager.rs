@@ -4,6 +4,7 @@ use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use tempfile::NamedTempFile;
 
 mod corruption_detector;
 mod log_discovery;
@@ -160,9 +161,7 @@ fn main() -> Result<()> {
 
             use log_reader::LogFileReader;
             use std::io::Write as IoWrite;
-            use std::fs::File;
             use std::io::BufWriter;
-            use chrono::Utc;
             use parser::LogParser;
             use std::collections::HashMap;
 
@@ -208,6 +207,8 @@ fn main() -> Result<()> {
                                     if entries_processed % 100_000 == 0 {
                                         let before_size = miss_tracker.len();
                                         miss_tracker.retain(|_, count| *count >= miss_threshold - 1);
+                                        // Actually release memory back to the system
+                                        miss_tracker.shrink_to_fit();
                                         let after_size = miss_tracker.len();
                                         if before_size > after_size {
                                             eprintln!("    Memory cleanup: Removed {} low-count entries (kept {})",
@@ -253,17 +254,16 @@ fn main() -> Result<()> {
                 eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
                 let file_result = (|| -> Result<u64> {
-                    // Create temp file for filtered output
+                    // Create temp file for filtered output with automatic cleanup
                     let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-                    let temp_path = file_dir.join(format!("access.log.corruption_tmp.{}.{}", Utc::now().timestamp(), file_index));
+                    let temp_file = NamedTempFile::new_in(file_dir)?;
 
                     let mut lines_removed: u64 = 0;
                     let mut lines_processed: u64 = 0;
 
                     {
                         let mut log_reader = LogFileReader::open(&log_file.path)?;
-                        let temp_file = File::create(&temp_path)?;
-                        let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file);
+                        let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file.as_file());
                         let mut line = String::new();
 
                         loop {
@@ -294,23 +294,19 @@ fn main() -> Result<()> {
                         writer.flush()?;
                     }
 
-                    // Check if the filtered file would be empty
+                    // If all lines would be removed, delete the entire file instead
                     if lines_processed > 0 && lines_removed == lines_processed {
-                        eprintln!("  WARNING: ALL {} lines would be removed, keeping original", lines_processed);
-                        std::fs::remove_file(&temp_path).ok();
-                        return Ok(0);
+                        eprintln!("  INFO: All {} lines from this file are corrupted, deleting file entirely", lines_processed);
+                        // temp_file automatically deleted when it goes out of scope
+                        // Delete the original log file
+                        std::fs::remove_file(&log_file.path).ok();
+                        return Ok(lines_removed);
                     }
 
-                    // Replace original with filtered version
-                    #[cfg(windows)]
-                    {
-                        std::fs::copy(&temp_path, &log_file.path)?;
-                        std::fs::remove_file(&temp_path).ok();
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        std::fs::rename(&temp_path, &log_file.path)?;
-                    }
+                    // Atomically replace original with filtered version
+                    // persist() handles platform differences (Windows vs Unix)
+                    let temp_path = temp_file.into_temp_path();
+                    temp_path.persist(&log_file.path)?;
 
                     Ok(lines_removed)
                 })();

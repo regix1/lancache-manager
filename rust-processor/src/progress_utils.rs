@@ -1,47 +1,33 @@
 use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
+use tempfile::NamedTempFile;
 
 /// Write progress data to a JSON file with atomic write-and-rename to avoid race conditions
 #[allow(dead_code)]
 pub fn write_progress_json<T: Serialize>(progress_path: &Path, progress: &T) -> Result<()> {
     let json = serde_json::to_string_pretty(progress)?;
 
-    // Use atomic write-and-rename on all platforms to avoid race conditions
-    // where other processes read the file while it's being truncated/written
-    let temp_path = progress_path.with_extension("json.tmp");
+    // Use tempfile for automatic cleanup on error
+    let parent_dir = progress_path.parent().unwrap_or(Path::new("."));
+    let mut temp_file = NamedTempFile::new_in(parent_dir)?;
 
-    #[cfg(windows)]
-    {
-        // Write to temp file with sharing flags
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .share_mode(0x07) // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-            .open(&temp_path)?;
+    // Write JSON to temp file
+    temp_file.write_all(json.as_bytes())?;
+    temp_file.flush()?;
 
-        file.write_all(json.as_bytes())?;
-        file.flush()?;
-        drop(file); // Ensure file is closed before rename
+    // IMPORTANT: On Windows, we must close the file handle before persisting
+    // Convert to TempPath which closes the file while keeping the path
+    let temp_path = temp_file.into_temp_path();
 
-        // Atomic rename - Windows allows this when file is opened with FILE_SHARE_DELETE
-        fs::rename(&temp_path, progress_path)?;
-    }
-
-    #[cfg(not(windows))]
-    {
-        fs::write(&temp_path, &json)?;
-        fs::rename(&temp_path, progress_path)?;
-    }
+    // Now atomically replace the target file
+    // This works on Windows because the file handle is closed
+    temp_path.persist(progress_path)?;
 
     Ok(())
 }
