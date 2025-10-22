@@ -22,7 +22,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("clients")]
-    [ResponseCache(Duration = 10)] // Cache for 10 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetClients([FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
@@ -65,7 +65,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("services")]
-    [ResponseCache(Duration = 10)] // Cache for 10 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
@@ -133,7 +133,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    [ResponseCache(Duration = 5)] // Cache for 5 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetDashboardStats([FromQuery] string period = "24h")
     {
         try
@@ -145,56 +145,52 @@ public class StatsController : ControllerBase
                 cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
             }
             
-            // Get all service stats (these are all-time totals)
-            var serviceStats = await _context.ServiceStats
-                .AsNoTracking()
-                .ToListAsync();
-                
-            // Get all client stats
-            var clientStats = await _context.ClientStats
-                .AsNoTracking()
-                .ToListAsync();
-            
-            // Get downloads based on period
-            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
-            if (cutoffTime.HasValue)
-            {
-                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-            }
-            var recentDownloads = await downloadsQuery.ToListAsync();
+            // Get all service stats (these are all-time totals) - USE CACHE
+            var serviceStats = await _statsService.GetServiceStatsAsync();
 
-            // Active downloads count
-            var activeDownloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
-                .CountAsync();
-            
             // Calculate all-time metrics from ServiceStats (these are cumulative totals)
             var totalBandwidthSaved = serviceStats.Sum(s => s.TotalCacheHitBytes);
             var totalAddedToCache = serviceStats.Sum(s => s.TotalCacheMissBytes);
             var totalServed = totalBandwidthSaved + totalAddedToCache;
-            var cacheHitRatio = totalServed > 0 
-                ? (double)totalBandwidthSaved / totalServed 
+            var cacheHitRatio = totalServed > 0
+                ? (double)totalBandwidthSaved / totalServed
                 : 0;
-            
-            // Calculate period-specific metrics from downloads
-            var periodHitBytes = recentDownloads.Sum(d => d.CacheHitBytes);
-            var periodMissBytes = recentDownloads.Sum(d => d.CacheMissBytes);
-            var periodTotal = periodHitBytes + periodMissBytes;
-            var periodHitRatio = periodTotal > 0 
-                ? (double)periodHitBytes / periodTotal 
-                : 0;
-            
-            // Count unique clients for the period
-            var uniqueClientsCount = cutoffTime.HasValue
-                ? clientStats.Where(c => c.LastActivityUtc >= cutoffTime.Value).Count()
-                : clientStats.Count();
-            
+
             // Get top service
             var topService = serviceStats
                 .OrderByDescending(s => s.TotalBytes)
                 .FirstOrDefault()?.Service ?? "none";
-            
+
+            // DATABASE-SIDE AGGREGATION: Calculate period metrics without loading all records
+            var downloadsQuery = _context.Downloads.AsNoTracking();
+            if (cutoffTime.HasValue)
+            {
+                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
+            }
+
+            // Calculate aggregates in the database (no ToListAsync - just get the numbers)
+            var periodHitBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+            var periodMissBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
+            var periodDownloadCount = await downloadsQuery.CountAsync();
+            var periodTotal = periodHitBytes + periodMissBytes;
+            var periodHitRatio = periodTotal > 0
+                ? (double)periodHitBytes / periodTotal
+                : 0;
+
+            // Active downloads count (database-side)
+            var activeDownloads = await _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
+                .CountAsync();
+
+            // Count unique clients for the period (database-side)
+            var uniqueClientsCount = cutoffTime.HasValue
+                ? await _context.ClientStats
+                    .AsNoTracking()
+                    .Where(c => c.LastActivityUtc >= cutoffTime.Value)
+                    .CountAsync()
+                : await _context.ClientStats.AsNoTracking().CountAsync();
+
             // For "all" period, period metrics should equal all-time metrics
             if (period == "all")
             {
@@ -226,7 +222,7 @@ public class StatsController : ControllerBase
                     addedToCache = periodMissBytes,
                     totalServed = periodTotal,
                     hitRatio = periodHitRatio,
-                    downloads = recentDownloads.Count
+                    downloads = periodDownloadCount
                 },
                 
                 // Service breakdown (always all-time for consistency)
@@ -253,7 +249,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("cache-effectiveness")]
-    [ResponseCache(Duration = 10)] // Cache for 10 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetCacheEffectiveness([FromQuery] string period = "24h")
     {
         try
@@ -265,25 +261,24 @@ public class StatsController : ControllerBase
                 cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
             }
             
-            // Get downloads based on period
-            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
+            // DATABASE-SIDE AGGREGATION: Calculate overall effectiveness without loading records
+            var downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
                 downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
             }
-            var downloads = await downloadsQuery.ToListAsync();
-                
-            // Calculate overall effectiveness
-            var totalHitBytes = downloads.Sum(d => d.CacheHitBytes);
-            var totalMissBytes = downloads.Sum(d => d.CacheMissBytes);
+
+            var totalHitBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+            var totalMissBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
             var totalBytes = totalHitBytes + totalMissBytes;
-            
-            var overallHitRatio = totalBytes > 0 
-                ? (double)totalHitBytes / totalBytes 
+            var totalDownloadsCount = await downloadsQuery.CountAsync();
+
+            var overallHitRatio = totalBytes > 0
+                ? (double)totalHitBytes / totalBytes
                 : 0;
-                
-            // Per-service effectiveness
-            var serviceEffectiveness = downloads
+
+            // DATABASE-SIDE AGGREGATION: Per-service effectiveness (GroupBy in database)
+            var serviceEffectiveness = await downloadsQuery
                 .GroupBy(d => d.Service)
                 .Select(g => new
                 {
@@ -291,16 +286,24 @@ public class StatsController : ControllerBase
                     hitBytes = g.Sum(d => d.CacheHitBytes),
                     missBytes = g.Sum(d => d.CacheMissBytes),
                     totalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    hitRatio = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) > 0
-                        ? (double)g.Sum(d => d.CacheHitBytes) / g.Sum(d => d.CacheHitBytes + d.CacheMissBytes)
-                        : 0,
                     downloads = g.Count()
                 })
                 .OrderByDescending(s => s.totalBytes)
-                .ToList();
-                
-            // Per-client effectiveness
-            var clientEffectiveness = downloads
+                .ToListAsync();
+
+            // Calculate hit ratio in-memory (EF Core can't translate division in GroupBy)
+            var serviceEffectivenessWithRatio = serviceEffectiveness.Select(s => new
+            {
+                s.service,
+                s.hitBytes,
+                s.missBytes,
+                s.totalBytes,
+                hitRatio = s.totalBytes > 0 ? (double)s.hitBytes / s.totalBytes : 0,
+                s.downloads
+            }).ToList();
+
+            // DATABASE-SIDE AGGREGATION: Per-client effectiveness (GroupBy in database)
+            var clientEffectiveness = await downloadsQuery
                 .GroupBy(d => d.ClientIp)
                 .Select(g => new
                 {
@@ -308,14 +311,22 @@ public class StatsController : ControllerBase
                     hitBytes = g.Sum(d => d.CacheHitBytes),
                     missBytes = g.Sum(d => d.CacheMissBytes),
                     totalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    hitRatio = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) > 0
-                        ? (double)g.Sum(d => d.CacheHitBytes) / g.Sum(d => d.CacheHitBytes + d.CacheMissBytes)
-                        : 0,
                     downloads = g.Count()
                 })
                 .OrderByDescending(c => c.totalBytes)
                 .Take(20) // Top 20 clients
-                .ToList();
+                .ToListAsync();
+
+            // Calculate hit ratio in-memory
+            var clientEffectivenessWithRatio = clientEffectiveness.Select(c => new
+            {
+                c.clientIp,
+                c.hitBytes,
+                c.missBytes,
+                c.totalBytes,
+                hitRatio = c.totalBytes > 0 ? (double)c.hitBytes / c.totalBytes : 0,
+                c.downloads
+            }).ToList();
                 
             return Ok(new
             {
@@ -333,10 +344,10 @@ public class StatsController : ControllerBase
                     hitRatio = overallHitRatio,
                     hitPercentage = overallHitRatio * 100,
                     bandwidthSaved = totalHitBytes,
-                    downloadsAnalyzed = downloads.Count
+                    downloadsAnalyzed = totalDownloadsCount
                 },
-                byService = serviceEffectiveness,
-                byClient = clientEffectiveness,
+                byService = serviceEffectivenessWithRatio,
+                byClient = clientEffectivenessWithRatio,
                 timestamp = DateTime.UtcNow
             });
         }
@@ -348,7 +359,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("timeline")]
-    [ResponseCache(Duration = 30)] // Cache for 30 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetTimelineStats(
         [FromQuery] string period = "24h",
         [FromQuery] string interval = "hourly")
@@ -363,17 +374,16 @@ public class StatsController : ControllerBase
             }
             var intervalMinutes = ParseInterval(interval);
             
-            // Get downloads based on period
-            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
+            // DATABASE-SIDE AGGREGATION: Build query for period
+            var downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
             {
                 downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
             }
-            var downloads = await downloadsQuery
-                .OrderBy(d => d.StartTimeUtc)
-                .ToListAsync();
-                
-            if (downloads.Count == 0)
+
+            // Check if we have any data
+            var hasData = await downloadsQuery.AnyAsync();
+            if (!hasData)
             {
                 return Ok(new
                 {
@@ -395,24 +405,26 @@ public class StatsController : ControllerBase
                 });
             }
             
-            // Group downloads by time interval
-            var dataPoints = new List<object>();
-            var startTime = cutoffTime ?? downloads.Min(d => d.StartTimeUtc);
+            // DATABASE-SIDE AGGREGATION: Get start time without loading all records
+            var startTime = cutoffTime ?? await downloadsQuery.MinAsync(d => d.StartTimeUtc);
             var currentTime = startTime;
             var endTime = DateTime.UtcNow;
-            
+
+            // DATABASE-SIDE AGGREGATION: Calculate data points by grouping in database
+            var dataPoints = new List<object>();
+
             while (currentTime < endTime)
             {
                 var intervalEnd = currentTime.AddMinutes(intervalMinutes);
-                
-                var intervalDownloads = downloads
-                    .Where(d => d.StartTimeUtc >= currentTime && d.StartTimeUtc < intervalEnd)
-                    .ToList();
-                    
-                var hitBytes = intervalDownloads.Sum(d => d.CacheHitBytes);
-                var missBytes = intervalDownloads.Sum(d => d.CacheMissBytes);
+
+                // Calculate aggregates for this interval in the database
+                var intervalQuery = downloadsQuery.Where(d => d.StartTimeUtc >= currentTime && d.StartTimeUtc < intervalEnd);
+
+                var hitBytes = await intervalQuery.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+                var missBytes = await intervalQuery.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
                 var totalBytes = hitBytes + missBytes;
-                
+                var downloadCount = await intervalQuery.CountAsync();
+
                 dataPoints.Add(new
                 {
                     timestamp = currentTime,
@@ -421,15 +433,15 @@ public class StatsController : ControllerBase
                     cacheMisses = missBytes,
                     totalBytes,
                     hitRatio = totalBytes > 0 ? (double)hitBytes / totalBytes : 0,
-                    downloads = intervalDownloads.Count
+                    downloads = downloadCount
                 });
-                
+
                 currentTime = intervalEnd;
             }
-            
-            // Calculate summary statistics
-            var totalHitBytes = downloads.Sum(d => d.CacheHitBytes);
-            var totalMissBytes = downloads.Sum(d => d.CacheMissBytes);
+
+            // DATABASE-SIDE AGGREGATION: Calculate summary statistics without loading all records
+            var totalHitBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+            var totalMissBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
             var totalBytesSum = totalHitBytes + totalMissBytes;
             
             return Ok(new
@@ -463,7 +475,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("bandwidth-saved")]
-    [ResponseCache(Duration = 10)]
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetBandwidthSaved([FromQuery] string period = "all")
     {
         try
@@ -479,26 +491,32 @@ public class StatsController : ControllerBase
                 }
             }
 
-            var downloads = await query.ToListAsync();
-            
-            var totalSaved = downloads.Sum(d => d.CacheHitBytes);
-            var totalServed = downloads.Sum(d => d.CacheHitBytes + d.CacheMissBytes);
+            // DATABASE-SIDE AGGREGATION: Calculate totals without loading all records
+            var totalSaved = await query.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+            var totalMiss = await query.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
+            var totalServed = totalSaved + totalMiss;
             var savingsRatio = totalServed > 0 ? (double)totalSaved / totalServed : 0;
-            
-            // Calculate by service
-            var byService = downloads
+
+            // DATABASE-SIDE AGGREGATION: Calculate by service (GroupBy in database)
+            var byServiceData = await query
                 .GroupBy(d => d.Service)
                 .Select(g => new
                 {
                     service = g.Key,
                     saved = g.Sum(d => d.CacheHitBytes),
-                    total = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    ratio = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) > 0
-                        ? (double)g.Sum(d => d.CacheHitBytes) / g.Sum(d => d.CacheHitBytes + d.CacheMissBytes)
-                        : 0
+                    missed = g.Sum(d => d.CacheMissBytes)
                 })
                 .OrderByDescending(s => s.saved)
-                .ToList();
+                .ToListAsync();
+
+            // Calculate ratios in-memory (EF Core can't translate complex division)
+            var byService = byServiceData.Select(s => new
+            {
+                s.service,
+                s.saved,
+                total = s.saved + s.missed,
+                ratio = (s.saved + s.missed) > 0 ? (double)s.saved / (s.saved + s.missed) : 0
+            }).ToList();
             
             return Ok(new
             {
@@ -519,7 +537,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("top-games")]
-    [ResponseCache(Duration = 30)]
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetTopGames([FromQuery] int limit = 10, [FromQuery] string period = "7d")
     {
         try

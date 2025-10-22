@@ -22,7 +22,7 @@ public class DownloadsController : ControllerBase
     }
 
     [HttpGet("latest")]
-    [ResponseCache(Duration = 5)] // Cache for 5 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetLatest([FromQuery] int count = 9999, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         const int maxRetries = 3;
@@ -79,7 +79,7 @@ public class DownloadsController : ControllerBase
     }
 
     [HttpGet("active")]
-    [ResponseCache(Duration = 2)] // Cache for 2 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - respect user's polling rate
     public async Task<IActionResult> GetActive()
     {
         try
