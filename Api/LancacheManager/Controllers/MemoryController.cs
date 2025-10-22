@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using LancacheManager.Security;
 
 namespace LancacheManager.Controllers;
 
@@ -15,8 +16,10 @@ public class MemoryController : ControllerBase
 
     /// <summary>
     /// Get current memory usage for debugging memory leaks
+    /// Requires API key authentication for security
     /// </summary>
     [HttpGet]
+    [RequireAuth]
     public IActionResult GetMemoryStats()
     {
         GC.Collect();
