@@ -56,6 +56,7 @@ public class DownloadsController : ControllerBase
                         .ToListAsync();
                 }
 
+                // Return just the array - frontend will use array.length for actual count
                 return Ok(downloads);
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 5) // SQLITE_BUSY

@@ -226,13 +226,24 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     }, [filteredDownloads, createGroups]);
 
     const stats = useMemo(() => {
+      // Count downloads in the displayed groups only
+      const displayedDownloads = groupedItems.displayedItems.reduce((count, item) => {
+        if ('downloads' in item) {
+          // It's a group, count all downloads in the group
+          return count + item.downloads.length;
+        } else {
+          // It's an individual download
+          return count + 1;
+        }
+      }, 0);
+
       const totalDownloads = filteredDownloads.length;
       const totalBytes = filteredDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
       const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
       const overallHitRate = totalBytes > 0 ? (totalCacheHits / totalBytes) * 100 : 0;
 
-      return { totalDownloads, totalBytes, totalCacheHits, overallHitRate };
-    }, [filteredDownloads]);
+      return { displayedDownloads, totalDownloads, totalBytes, totalCacheHits, overallHitRate };
+    }, [filteredDownloads, groupedItems]);
 
     // Swipe handlers for switching between Recent and Active views
     const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -329,7 +340,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 <>
                   {!loading && latestDownloads.length > 0 && (
                     <>
-                      <span className="text-xs text-themed-muted whitespace-nowrap">{stats.totalDownloads} shown</span>
+                      <span className="text-xs text-themed-muted whitespace-nowrap">
+                        {groupedItems.displayedItems.length} of {groupedItems.totalGroups} groups
+                      </span>
+                      <span className="text-xs text-themed-muted whitespace-nowrap">•</span>
+                      <span className="text-xs text-themed-muted whitespace-nowrap">
+                        {stats.displayedDownloads} of {stats.totalDownloads} {stats.totalDownloads === 1 ? 'download' : 'downloads'}
+                      </span>
                       <span
                         className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${
                           stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
@@ -574,7 +591,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
               {groupedItems.totalGroups > displayCount && (
                 <>Showing {Math.min(displayCount, groupedItems.displayedItems.length)} of {groupedItems.totalGroups} groups • </>
               )}
-              {filteredDownloads.length} of {latestDownloads.length} downloads
+              {stats.displayedDownloads} of {stats.totalDownloads} downloads
             </span>
           </div>
         )}

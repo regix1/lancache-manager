@@ -283,17 +283,7 @@ const DownloadsTab: React.FC = () => {
     return filtered;
   }, [latestDownloads, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.selectedService, settings.selectedClient]);
 
-  const serviceFilteredDownloads = useMemo(() => {
-    if (!Array.isArray(latestDownloads)) {
-      return [];
-    }
-
-    if (settings.selectedService === 'all') {
-      return latestDownloads;
-    }
-
-    return latestDownloads.filter((d) => d.service.toLowerCase() === settings.selectedService);
-  }, [latestDownloads, settings.selectedService]);
+  // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count
 
   // Grouping logic for different view modes
   const createGroups = (downloads: Download[], groupUnknown: boolean = false): { groups: DownloadGroup[], individuals: Download[] } => {
@@ -1054,8 +1044,8 @@ const DownloadsTab: React.FC = () => {
               <span>Showing {itemsToDisplay.length} of {allItemsSorted.length} groups</span>
               <span className="whitespace-nowrap">
                 ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'}
-                {filteredDownloads.length !== serviceFilteredDownloads.length &&
-                  ` of ${serviceFilteredDownloads.length} total`})
+                {filteredDownloads.length !== latestDownloads.length &&
+                  ` of ${latestDownloads.length} total`})
               </span>
             </span>
             {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
