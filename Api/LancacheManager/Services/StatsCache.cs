@@ -25,9 +25,13 @@ public class StatsCache
             var clientStats = await context.ClientStats
                 .AsNoTracking()
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
+                .Take(100) // Limit to top 100 clients
                 .ToListAsync();
 
-            _cache.Set("client_stats", clientStats, _cacheExpiration);
+            var clientStatsOptions = new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(_cacheExpiration)
+                .SetSize(1);
+            _cache.Set("client_stats", clientStats, clientStatsOptions);
             _logger.LogInformation($"Cached {clientStats.Count} client stats");
 
             // Pre-load service stats into cache
@@ -35,19 +39,26 @@ public class StatsCache
                 .AsNoTracking()
                 .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
                 .ToListAsync();
-            
-            _cache.Set("service_stats", serviceStats, _cacheExpiration);
+
+            var serviceStatsOptions = new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(_cacheExpiration)
+                .SetSize(1);
+            _cache.Set("service_stats", serviceStats, serviceStatsOptions);
             _logger.LogInformation($"Cached {serviceStats.Count} service stats");
 
             // Pre-load recent downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
+            // MEMORY LEAK FIX: Limit to 500 downloads max
             var recentDownloads = await context.Downloads
                 .AsNoTracking()
                 .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
                 .OrderByDescending(d => d.StartTimeUtc)
-                .Take(100)
+                .Take(500)
                 .ToListAsync();
 
-            _cache.Set("recent_downloads", recentDownloads, _cacheExpiration);
+            var recentDownloadsOptions = new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(_cacheExpiration)
+                .SetSize(1);
+            _cache.Set("recent_downloads", recentDownloads, recentDownloadsOptions);
             _logger.LogInformation($"Cached {recentDownloads.Count} recent downloads");
 
             // Pre-load active downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
@@ -90,7 +101,10 @@ public class StatsCache
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToList();
 
-            _cache.Set("active_downloads", activeDownloads, TimeSpan.FromSeconds(2));
+            var activeDownloadsOptions = new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(TimeSpan.FromSeconds(2))
+                .SetSize(1);
+            _cache.Set("active_downloads", activeDownloads, activeDownloadsOptions);
             _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (from {activeDownloadsRaw.Count} raw chunks)");
         }
         catch (Exception ex)
@@ -104,6 +118,7 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("client_stats", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
+            entry.SetSize(1);
 
             return await context.ClientStats
                 .AsNoTracking()
@@ -118,7 +133,8 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("service_stats", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            
+            entry.SetSize(1);
+
             return await context.ServiceStats
                 .AsNoTracking()
                 .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
@@ -128,17 +144,25 @@ public class StatsCache
 
     public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = 9999)
     {
-        var cacheKey = $"recent_downloads_{count}";
+        // MEMORY LEAK FIX: Cap maximum count to prevent loading thousands of records
+        // Frontend requests "unlimited" (9999) but we limit to 500 for memory safety
+        const int maxAllowedCount = 500;
+        var effectiveCount = Math.Min(count, maxAllowedCount);
+
+        // MEMORY LEAK FIX: Use consistent cache key to prevent multiple entries
+        // Don't use count in key - always use the same key for recent downloads
+        const string cacheKey = "recent_downloads";
 
         return await _cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
+            entry.SetSize(1); // Set size for cache eviction policies
 
             return await context.Downloads
                 .AsNoTracking()
                 .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
                 .OrderByDescending(d => d.StartTimeUtc)
-                .Take(count)
+                .Take(effectiveCount)
                 .ToListAsync();
         }) ?? new List<Download>();
     }
@@ -148,6 +172,7 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("active_downloads", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(2); // Fast refresh for live data
+            entry.SetSize(1);
 
             // Get all active downloads
             var activeDownloads = await context.Downloads
@@ -202,13 +227,6 @@ public class StatsCache
     {
         _cache.Remove("recent_downloads");
         _cache.Remove("active_downloads");
-
-        // Remove all count-specific recent download caches (including common values)
-        var commonCounts = new[] { 10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100, 200, 500, 1000, 9999 };
-        foreach (var count in commonCounts)
-        {
-            _cache.Remove($"recent_downloads_{count}");
-        }
 
         _logger.LogDebug("Downloads cache invalidated");
     }

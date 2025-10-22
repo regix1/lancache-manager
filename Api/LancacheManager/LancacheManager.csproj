@@ -20,6 +20,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.8" />
     <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.0.0" />
     <PackageReference Include="SteamKit2" Version="3.3.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
     <PackageReference Include="Tomlyn" Version="0.19.0" />
@@ -37,16 +38,10 @@
     <Message Text="Building Rust binaries for target: $(RustTarget)" Importance="high" />
 
     <!-- Windows build -->
-    <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))"
-          Command="powershell -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\rust-processor\build.ps1&quot; -Target $(RustTarget)"
-          WorkingDirectory="$(MSBuildProjectDirectory)\..\..\rust-processor"
-          IgnoreExitCode="false" />
+    <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))" Command="powershell -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\rust-processor\build.ps1&quot; -Target $(RustTarget)" WorkingDirectory="$(MSBuildProjectDirectory)\..\..\rust-processor" IgnoreExitCode="false" />
 
     <!-- Linux/Mac build -->
-    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))"
-          Command="bash build.sh $(RustTarget)"
-          WorkingDirectory="$(MSBuildProjectDirectory)/../../rust-processor"
-          IgnoreExitCode="false" />
+    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Command="bash build.sh $(RustTarget)" WorkingDirectory="$(MSBuildProjectDirectory)/../../rust-processor" IgnoreExitCode="false" />
   </Target>
 
   <!-- Copy Rust executables to output directory -->

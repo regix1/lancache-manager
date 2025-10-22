@@ -133,7 +133,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    [ResponseCache(Duration = 5)] // Cache for 5 seconds
+    [ResponseCache(Duration = 0, NoStore = true)] // No cache - prevent memory buildup
     public async Task<IActionResult> GetDashboardStats([FromQuery] string period = "24h")
     {
         try
@@ -144,57 +144,53 @@ public class StatsController : ControllerBase
             {
                 cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
             }
-            
-            // Get all service stats (these are all-time totals)
-            var serviceStats = await _context.ServiceStats
-                .AsNoTracking()
-                .ToListAsync();
-                
-            // Get all client stats
-            var clientStats = await _context.ClientStats
-                .AsNoTracking()
-                .ToListAsync();
-            
-            // Get downloads based on period
-            IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
-            if (cutoffTime.HasValue)
-            {
-                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-            }
-            var recentDownloads = await downloadsQuery.ToListAsync();
 
-            // Active downloads count
-            var activeDownloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
-                .CountAsync();
-            
+            // Get all service stats (these are all-time totals) - USE CACHE
+            var serviceStats = await _statsService.GetServiceStatsAsync();
+
             // Calculate all-time metrics from ServiceStats (these are cumulative totals)
             var totalBandwidthSaved = serviceStats.Sum(s => s.TotalCacheHitBytes);
             var totalAddedToCache = serviceStats.Sum(s => s.TotalCacheMissBytes);
             var totalServed = totalBandwidthSaved + totalAddedToCache;
-            var cacheHitRatio = totalServed > 0 
-                ? (double)totalBandwidthSaved / totalServed 
+            var cacheHitRatio = totalServed > 0
+                ? (double)totalBandwidthSaved / totalServed
                 : 0;
-            
-            // Calculate period-specific metrics from downloads
-            var periodHitBytes = recentDownloads.Sum(d => d.CacheHitBytes);
-            var periodMissBytes = recentDownloads.Sum(d => d.CacheMissBytes);
-            var periodTotal = periodHitBytes + periodMissBytes;
-            var periodHitRatio = periodTotal > 0 
-                ? (double)periodHitBytes / periodTotal 
-                : 0;
-            
-            // Count unique clients for the period
-            var uniqueClientsCount = cutoffTime.HasValue
-                ? clientStats.Where(c => c.LastActivityUtc >= cutoffTime.Value).Count()
-                : clientStats.Count();
-            
+
             // Get top service
             var topService = serviceStats
                 .OrderByDescending(s => s.TotalBytes)
                 .FirstOrDefault()?.Service ?? "none";
-            
+
+            // DATABASE-SIDE AGGREGATION: Calculate period metrics without loading all records
+            var downloadsQuery = _context.Downloads.AsNoTracking();
+            if (cutoffTime.HasValue)
+            {
+                downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
+            }
+
+            // Calculate aggregates in the database (no ToListAsync - just get the numbers)
+            var periodHitBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
+            var periodMissBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
+            var periodDownloadCount = await downloadsQuery.CountAsync();
+            var periodTotal = periodHitBytes + periodMissBytes;
+            var periodHitRatio = periodTotal > 0
+                ? (double)periodHitBytes / periodTotal
+                : 0;
+
+            // Active downloads count (database-side)
+            var activeDownloads = await _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
+                .CountAsync();
+
+            // Count unique clients for the period (database-side)
+            var uniqueClientsCount = cutoffTime.HasValue
+                ? await _context.ClientStats
+                    .AsNoTracking()
+                    .Where(c => c.LastActivityUtc >= cutoffTime.Value)
+                    .CountAsync()
+                : await _context.ClientStats.AsNoTracking().CountAsync();
+
             // For "all" period, period metrics should equal all-time metrics
             if (period == "all")
             {
@@ -203,7 +199,7 @@ public class StatsController : ControllerBase
                 periodTotal = totalServed;
                 periodHitRatio = cacheHitRatio;
             }
-            
+
             return Ok(new
             {
                 // All-time metrics (always from ServiceStats totals)
@@ -211,12 +207,12 @@ public class StatsController : ControllerBase
                 totalAddedToCache,
                 totalServed,
                 cacheHitRatio,
-                
+
                 // Current status
                 activeDownloads,
                 uniqueClients = uniqueClientsCount,
                 topService,
-                
+
                 // Period-specific metrics
                 period = new
                 {
@@ -226,22 +222,22 @@ public class StatsController : ControllerBase
                     addedToCache = periodMissBytes,
                     totalServed = periodTotal,
                     hitRatio = periodHitRatio,
-                    downloads = recentDownloads.Count
+                    downloads = periodDownloadCount
                 },
-                
+
                 // Service breakdown (always all-time for consistency)
                 serviceBreakdown = serviceStats
                     .Select(s => new
                     {
                         service = s.Service,
                         bytes = s.TotalBytes,
-                        percentage = totalServed > 0 
-                            ? (s.TotalBytes * 100.0) / totalServed 
+                        percentage = totalServed > 0
+                            ? (s.TotalBytes * 100.0) / totalServed
                             : 0
                     })
                     .OrderByDescending(s => s.bytes)
                     .ToList(),
-                    
+
                 lastUpdated = DateTime.UtcNow
             });
         }
