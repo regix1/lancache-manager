@@ -192,9 +192,6 @@ public class CacheClearingService : IHostedService
                 CreateNoWindow = true
             };
 
-            // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
-            startInfo.ConfigureEnvironmentVariables(_logger);
-
             using (var process = Process.Start(startInfo))
             {
                 if (process == null)
