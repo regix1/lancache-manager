@@ -9,7 +9,7 @@ public class StatsCache
 {
     private readonly IMemoryCache _cache;
     private readonly ILogger<StatsCache> _logger;
-    private readonly TimeSpan _cacheExpiration = TimeSpan.FromSeconds(1); // Short cache to respect user's polling rate choice
+    private readonly TimeSpan _cacheExpiration = TimeSpan.FromSeconds(10); // Longer cache for graph stability
 
     public StatsCache(IMemoryCache cache, ILogger<StatsCache> logger)
     {
@@ -27,10 +27,7 @@ public class StatsCache
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .ToListAsync();
 
-            var clientStatsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(_cacheExpiration)
-                .SetSize(1);
-            _cache.Set("client_stats", clientStats, clientStatsOptions);
+            _cache.Set("client_stats", clientStats, _cacheExpiration);
             _logger.LogInformation($"Cached {clientStats.Count} client stats");
 
             // Pre-load service stats into cache
@@ -38,11 +35,8 @@ public class StatsCache
                 .AsNoTracking()
                 .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
                 .ToListAsync();
-
-            var serviceStatsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(_cacheExpiration)
-                .SetSize(1);
-            _cache.Set("service_stats", serviceStats, serviceStatsOptions);
+            
+            _cache.Set("service_stats", serviceStats, _cacheExpiration);
             _logger.LogInformation($"Cached {serviceStats.Count} service stats");
 
             // Pre-load recent downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
@@ -53,10 +47,7 @@ public class StatsCache
                 .Take(100)
                 .ToListAsync();
 
-            var recentDownloadsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(_cacheExpiration)
-                .SetSize(1);
-            _cache.Set("recent_downloads", recentDownloads, recentDownloadsOptions);
+            _cache.Set("recent_downloads", recentDownloads, _cacheExpiration);
             _logger.LogInformation($"Cached {recentDownloads.Count} recent downloads");
 
             // Pre-load active downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
@@ -99,10 +90,7 @@ public class StatsCache
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToList();
 
-            var activeDownloadsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(TimeSpan.FromSeconds(2))
-                .SetSize(1);
-            _cache.Set("active_downloads", activeDownloads, activeDownloadsOptions);
+            _cache.Set("active_downloads", activeDownloads, TimeSpan.FromSeconds(2));
             _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (from {activeDownloadsRaw.Count} raw chunks)");
         }
         catch (Exception ex)
@@ -116,7 +104,6 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("client_stats", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
 
             return await context.ClientStats
                 .AsNoTracking()
@@ -131,8 +118,7 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("service_stats", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
-
+            
             return await context.ServiceStats
                 .AsNoTracking()
                 .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
@@ -147,7 +133,6 @@ public class StatsCache
         return await _cache.GetOrCreateAsync(cacheKey, async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
 
             return await context.Downloads
                 .AsNoTracking()
@@ -163,7 +148,6 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("active_downloads", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(2); // Fast refresh for live data
-            entry.SetSize(1);
 
             // Get all active downloads
             var activeDownloads = await context.Downloads
@@ -214,94 +198,6 @@ public class StatsCache
         }) ?? new List<Download>();
     }
 
-    /// <summary>
-    /// Get downloads for a specific time period with caching
-    /// </summary>
-    public async Task<List<Download>> GetDownloadsByPeriodAsync(AppDbContext context, string period = "24h")
-    {
-        var cacheKey = $"downloads_period_{period}";
-
-        return await _cache.GetOrCreateAsync(cacheKey, async entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
-
-            DateTime? cutoffTime = null;
-            if (period != "all")
-            {
-                cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
-            }
-
-            IQueryable<Download> query = context.Downloads.AsNoTracking();
-            if (cutoffTime.HasValue)
-            {
-                query = query.Where(d => d.StartTimeUtc >= cutoffTime.Value);
-            }
-
-            return await query
-                .OrderByDescending(d => d.StartTimeUtc)
-                .Take(10000) // Reasonable limit to prevent loading millions of records
-                .ToListAsync();
-        }) ?? new List<Download>();
-    }
-
-    /// <summary>
-    /// Get all client stats with caching (used by dashboard)
-    /// </summary>
-    public async Task<List<ClientStats>> GetAllClientStatsAsync(AppDbContext context)
-    {
-        return await _cache.GetOrCreateAsync("all_client_stats", async entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
-
-            return await context.ClientStats
-                .AsNoTracking()
-                .ToListAsync();
-        }) ?? new List<ClientStats>();
-    }
-
-    /// <summary>
-    /// Get all service stats with caching (used by dashboard)
-    /// </summary>
-    public async Task<List<ServiceStats>> GetAllServiceStatsAsync(AppDbContext context)
-    {
-        return await _cache.GetOrCreateAsync("all_service_stats", async entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
-
-            return await context.ServiceStats
-                .AsNoTracking()
-                .ToListAsync();
-        }) ?? new List<ServiceStats>();
-    }
-
-    private DateTime? ParseTimePeriod(string period)
-    {
-        if (string.IsNullOrEmpty(period) || period == "all")
-            return null;
-
-        var now = DateTime.UtcNow;
-
-        return period.ToLower() switch
-        {
-            "15m" => now.AddMinutes(-15),
-            "30m" => now.AddMinutes(-30),
-            "1h" => now.AddHours(-1),
-            "6h" => now.AddHours(-6),
-            "12h" => now.AddHours(-12),
-            "24h" or "1d" => now.AddDays(-1),
-            "48h" or "2d" => now.AddDays(-2),
-            "7d" or "1w" => now.AddDays(-7),
-            "14d" or "2w" => now.AddDays(-14),
-            "30d" or "1m" => now.AddDays(-30),
-            "90d" or "3m" => now.AddDays(-90),
-            "365d" or "1y" => now.AddDays(-365),
-            _ => null
-        };
-    }
-
     public void InvalidateDownloads()
     {
         _cache.Remove("recent_downloads");
@@ -314,23 +210,6 @@ public class StatsCache
             _cache.Remove($"recent_downloads_{count}");
         }
 
-        // Remove period-specific caches
-        var commonPeriods = new[] { "15m", "30m", "1h", "6h", "12h", "24h", "7d", "30d", "all" };
-        foreach (var period in commonPeriods)
-        {
-            _cache.Remove($"downloads_period_{period}");
-        }
-
         _logger.LogDebug("Downloads cache invalidated");
-    }
-
-    public void InvalidateAll()
-    {
-        InvalidateDownloads();
-        _cache.Remove("client_stats");
-        _cache.Remove("service_stats");
-        _cache.Remove("all_client_stats");
-        _cache.Remove("all_service_stats");
-        _logger.LogDebug("All cache invalidated");
     }
 }

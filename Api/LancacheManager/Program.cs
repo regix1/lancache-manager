@@ -190,13 +190,8 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Operat
 builder.Services.AddHostedService<DownloadCleanupService>();
 builder.Services.AddHostedService<LiveLogMonitorService>();
 
-// Add memory cache for storing stats with size limits to prevent unbounded growth
-builder.Services.AddMemoryCache(options =>
-{
-    options.SizeLimit = 100; // Limit cache to 100 entries
-    options.CompactionPercentage = 0.25; // Remove 25% of entries when limit is reached
-    options.ExpirationScanFrequency = TimeSpan.FromMinutes(1); // Scan for expired entries every minute
-});
+// Add memory cache for storing stats
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<StatsCache>();
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
