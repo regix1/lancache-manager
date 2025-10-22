@@ -13,6 +13,7 @@ public class LiveLogMonitorService : BackgroundService
     private readonly StateService _stateService;
     private readonly string _logFilePath;
     private long _lastFileSize = 0;
+    private long _lastLineCount = 0; // Cache line count to avoid recounting entire file
     private bool _isProcessing = false;
 
     // Configuration - optimized for real-time updates with minimal latency
@@ -36,18 +37,60 @@ public class LiveLogMonitorService : BackgroundService
 
     /// <summary>
     /// Counts lines in a file with proper file sharing to allow other processes to delete/modify the file
+    /// OPTIMIZED: Uses a small fixed buffer instead of reading entire lines into memory
     /// </summary>
     private long CountLinesWithSharing(string filePath)
     {
         using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(fileStream);
 
         long lineCount = 0;
-        while (reader.ReadLine() != null)
+        byte[] buffer = new byte[64 * 1024]; // 64KB buffer (much smaller than file size)
+        int bytesRead;
+
+        while ((bytesRead = fileStream.Read(buffer, 0, buffer.Length)) > 0)
         {
-            lineCount++;
+            for (int i = 0; i < bytesRead; i++)
+            {
+                if (buffer[i] == '\n')
+                {
+                    lineCount++;
+                }
+            }
         }
+
         return lineCount;
+    }
+
+    /// <summary>
+    /// OPTIMIZED: Count only new lines since the last file size check
+    /// This avoids reading the entire file when we only need to count new lines
+    /// </summary>
+    private long CountNewLinesSincePosition(string filePath, long startPosition)
+    {
+        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+
+        // Seek to the last known position
+        if (startPosition > 0 && startPosition < fileStream.Length)
+        {
+            fileStream.Seek(startPosition, SeekOrigin.Begin);
+        }
+
+        long newLineCount = 0;
+        byte[] buffer = new byte[64 * 1024]; // 64KB buffer
+        int bytesRead;
+
+        while ((bytesRead = fileStream.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            for (int i = 0; i < bytesRead; i++)
+            {
+                if (buffer[i] == '\n')
+                {
+                    newLineCount++;
+                }
+            }
+        }
+
+        return newLineCount;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -70,8 +113,14 @@ public class LiveLogMonitorService : BackgroundService
             if (currentPosition == 0)
             {
                 var lineCount = CountLinesWithSharing(_logFilePath);
+                _lastLineCount = lineCount; // Cache the line count
                 _stateService.SetLogPosition(lineCount);
                 _logger.LogInformation("Initialized log position to end of file (line {LineCount}) - will only process new entries", lineCount);
+            }
+            else
+            {
+                // If we already have a position, use it as cached line count
+                _lastLineCount = currentPosition;
             }
         }
 
@@ -181,8 +230,10 @@ public class LiveLogMonitorService : BackgroundService
                     // The stored position is only used by the "Process All Logs" button
                     var lastPosition = _stateService.GetLogPosition();
 
-                    // Count total lines in the file to get the current end position
-                    var currentLineCount = CountLinesWithSharing(_logFilePath);
+                    // OPTIMIZED: Only count new lines since last file size
+                    // Instead of counting the entire file, we count only new lines from the last position
+                    var newLinesSinceLastSize = CountNewLinesSincePosition(_logFilePath, _lastFileSize);
+                    var currentLineCount = _lastLineCount + newLinesSinceLastSize;
 
                     // If stored position is less than current file size, use stored position
                     // Otherwise use current line count (file might have been truncated/rotated)
@@ -198,8 +249,9 @@ public class LiveLogMonitorService : BackgroundService
 
                     if (success)
                     {
-                        // Update file size tracker after successful processing
+                        // Update file size and line count trackers after successful processing
                         _lastFileSize = currentFileSize;
+                        _lastLineCount = currentLineCount;
                         _logger.LogDebug("Successfully processed new entries in live mode (silent)");
                     }
                     else
