@@ -110,6 +110,9 @@ public class RustDatabaseResetService
                 WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
             };
 
+            // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
+            startInfo.ConfigureEnvironmentVariables(_logger);
+
             _rustProcess = Process.Start(startInfo);
 
             if (_rustProcess == null)

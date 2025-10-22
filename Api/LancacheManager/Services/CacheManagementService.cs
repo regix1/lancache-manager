@@ -225,6 +225,9 @@ public class CacheManagementService
                 CreateNoWindow = true
             };
 
+            // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
+            startInfo.ConfigureEnvironmentVariables(_logger);
+
             using (var process = Process.Start(startInfo))
             {
                 if (process == null)
@@ -321,6 +324,9 @@ public class CacheManagementService
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+
+            // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
+            startInfo.ConfigureEnvironmentVariables(_logger);
 
             using (var process = Process.Start(startInfo))
             {
@@ -575,6 +581,9 @@ public class CacheManagementService
             CreateNoWindow = true
         };
 
+        // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
+        startInfo.ConfigureEnvironmentVariables(_logger);
+
         using (var process = Process.Start(startInfo))
         {
             if (process == null)
@@ -651,6 +660,9 @@ public class CacheManagementService
             CreateNoWindow = true
         };
 
+        // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
+        startInfo.ConfigureEnvironmentVariables(_logger);
+
         using (var process = Process.Start(startInfo))
         {
             if (process == null)
@@ -721,6 +733,9 @@ public class CacheManagementService
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+
+            // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
+            startInfo.ConfigureEnvironmentVariables(_logger);
 
             _logger.LogInformation("[CorruptionDetection] Running detect command: {Command} {Args}",
                 rustBinaryPath, startInfo.Arguments);

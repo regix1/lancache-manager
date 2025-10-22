@@ -133,13 +133,8 @@ public class RustLogProcessorService
                 WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
             };
 
-            // Pass TZ environment variable to Rust processor so it uses the correct timezone
-            var tz = Environment.GetEnvironmentVariable("TZ");
-            if (!string.IsNullOrEmpty(tz))
-            {
-                startInfo.EnvironmentVariables["TZ"] = tz;
-                _logger.LogInformation($"Passing TZ={tz} to Rust processor");
-            }
+            // Configure common environment variables (TZ, RUST_MAX_MEMORY_MB)
+            startInfo.ConfigureEnvironmentVariables(_logger);
 
             _rustProcess = Process.Start(startInfo);
 

@@ -14,6 +14,7 @@ use std::time::Duration;
 
 mod log_discovery;
 mod log_reader;
+mod memory_manager;
 mod models;
 mod parser;
 mod progress_utils;
@@ -22,6 +23,7 @@ mod session;
 
 use log_discovery::{discover_log_files, LogFile};
 use log_reader::LogFileReader;
+use memory_manager::MemoryManager;
 use models::*;
 use parser::LogParser;
 use session::SessionTracker;
@@ -60,6 +62,7 @@ struct Processor {
     local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
+    memory_manager: Option<Arc<MemoryManager>>,
 }
 
 impl Processor {
@@ -71,6 +74,7 @@ impl Processor {
         cancel_path: PathBuf,
         start_position: u64,
         auto_map_depots: bool,
+        max_memory_mb: u64,
     ) -> Self {
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
@@ -79,6 +83,26 @@ impl Processor {
         let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
         println!("Using timezone: {} (from TZ env var)", local_tz);
         println!("Auto-map depots: {}", auto_map_depots);
+
+        // Setup memory manager if memory limit is specified
+        let memory_manager = if max_memory_mb > 0 {
+            println!("Memory limit enabled: {} MB", max_memory_mb);
+            let manager = Arc::new(MemoryManager::new(max_memory_mb));
+            // Start background monitoring thread (check every 5 seconds)
+            let manager_clone = Arc::clone(&manager);
+            thread::spawn(move || {
+                loop {
+                    thread::sleep(Duration::from_secs(5));
+                    if !manager_clone.check_memory() {
+                        manager_clone.force_cleanup();
+                    }
+                }
+            });
+            Some(manager)
+        } else {
+            println!("Memory limit disabled");
+            None
+        };
 
         // Spawn background thread to monitor cancel file
         let cancel_flag_clone = Arc::clone(&cancel_flag);
@@ -109,6 +133,7 @@ impl Processor {
             local_tz,
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
+            memory_manager,
         }
     }
 
@@ -350,6 +375,15 @@ impl Processor {
                     self.process_batch(conn, &batch)?;
                     batch.clear();
                     // Don't shrink here - we'll reuse the capacity for the next batch
+
+                    // Check memory usage and force cleanup if needed
+                    if let Some(ref mem_mgr) = self.memory_manager {
+                        if !mem_mgr.check_memory() {
+                            mem_mgr.force_cleanup();
+                            // Shrink batch to release memory
+                            batch.shrink_to_fit();
+                        }
+                    }
 
                     let parsed = self.lines_parsed.load(Ordering::Relaxed);
                     let saved = self.entries_saved.load(Ordering::Relaxed);
@@ -770,7 +804,7 @@ fn main() -> Result<()> {
 
     if args.len() < 6 {
         eprintln!(
-            "Usage: {} <db_path> <log_dir> <progress_path> <start_position> <auto_map_depots>",
+            "Usage: {} <db_path> <log_dir> <progress_path> <start_position> <auto_map_depots> [max_memory_mb]",
             args[0]
         );
         eprintln!("  db_path: Path to SQLite database");
@@ -778,6 +812,7 @@ fn main() -> Result<()> {
         eprintln!("  progress_path: Path to progress JSON file");
         eprintln!("  start_position: Line number to start from (0 for beginning)");
         eprintln!("  auto_map_depots: 1 for live/background processing (auto-map), 0 for manual processing");
+        eprintln!("  max_memory_mb: Optional memory limit in MB (0 = unlimited, default from RUST_MAX_MEMORY_MB env var or 0)");
         eprintln!("\nNote: Processor will discover all log files matching 'access.log*' pattern");
         eprintln!("      including rotated logs (access.log.1, access.log.2, etc.)");
         eprintln!("      and compressed logs (.gz, .zst)");
@@ -789,6 +824,16 @@ fn main() -> Result<()> {
     let progress_path = PathBuf::from(&args[3]);
     let start_position: u64 = args[4].parse().context("Invalid start_position")?;
     let auto_map_depots: bool = args[5].parse::<u8>().context("Invalid auto_map_depots")? == 1;
+
+    // Memory limit: first try command-line arg, then env var, then default to 0 (unlimited)
+    let max_memory_mb: u64 = if args.len() > 6 {
+        args[6].parse().context("Invalid max_memory_mb")?
+    } else {
+        env::var("RUST_MAX_MEMORY_MB")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0)
+    };
 
     // Log file base name (hardcoded for now, could be made configurable)
     let log_base_name = "access.log".to_string();
@@ -809,7 +854,8 @@ fn main() -> Result<()> {
         progress_path,
         cancel_path,
         start_position,
-        auto_map_depots
+        auto_map_depots,
+        max_memory_mb
     );
     processor.process()?;
 
