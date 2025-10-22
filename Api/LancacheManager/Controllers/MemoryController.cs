@@ -18,13 +18,18 @@ public class MemoryController : ControllerBase
     /// Get current memory usage for debugging memory leaks
     /// Requires API key authentication for security
     /// </summary>
+    /// <param name="forceGC">Optional: Force garbage collection before reading stats (use for diagnostics only)</param>
     [HttpGet]
     [RequireAuth]
-    public IActionResult GetMemoryStats()
+    public IActionResult GetMemoryStats([FromQuery] bool forceGC = false)
     {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
+        if (forceGC)
+        {
+            _logger.LogWarning("Forcing garbage collection - this should only be used for diagnostics");
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
 
         var gcMemoryInfo = GC.GetGCMemoryInfo();
         var totalMemory = GC.GetTotalMemory(false);

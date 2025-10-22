@@ -25,12 +25,10 @@ public class StatsCache
             var clientStats = await context.ClientStats
                 .AsNoTracking()
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
-                .Take(100) // Limit to top 100 clients
                 .ToListAsync();
 
             var clientStatsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(_cacheExpiration)
-                .SetSize(1);
+                .SetAbsoluteExpiration(_cacheExpiration);
             _cache.Set("client_stats", clientStats, clientStatsOptions);
             _logger.LogInformation($"Cached {clientStats.Count} client stats");
 
@@ -41,31 +39,15 @@ public class StatsCache
                 .ToListAsync();
 
             var serviceStatsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(_cacheExpiration)
-                .SetSize(1);
+                .SetAbsoluteExpiration(_cacheExpiration);
             _cache.Set("service_stats", serviceStats, serviceStatsOptions);
             _logger.LogInformation($"Cached {serviceStats.Count} service stats");
-
-            // Pre-load recent downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
-            var recentDownloads = await context.Downloads
-                .AsNoTracking()
-                .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
-                .OrderByDescending(d => d.StartTimeUtc)
-                .Take(100)
-                .ToListAsync();
-
-            var recentDownloadsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(_cacheExpiration)
-                .SetSize(1);
-            _cache.Set("recent_downloads", recentDownloads, recentDownloadsOptions);
-            _logger.LogInformation($"Cached {recentDownloads.Count} recent downloads");
 
             // Pre-load active downloads into cache (exclude App 0 which indicates unmapped/invalid apps)
             var activeDownloadsRaw = await context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
                 .OrderByDescending(d => d.StartTimeUtc)
-                .Take(100)
                 .ToListAsync();
 
             // Group chunks by game - prefer mapped downloads
@@ -101,8 +83,7 @@ public class StatsCache
                 .ToList();
 
             var activeDownloadsOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(TimeSpan.FromSeconds(2))
-                .SetSize(1);
+                .SetAbsoluteExpiration(TimeSpan.FromSeconds(2));
             _cache.Set("active_downloads", activeDownloads, activeDownloadsOptions);
             _logger.LogInformation($"Cached {activeDownloads.Count} active downloads (from {activeDownloadsRaw.Count} raw chunks)");
         }
@@ -117,12 +98,10 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("client_stats", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
 
             return await context.ClientStats
                 .AsNoTracking()
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
-                .Take(100)
                 .ToListAsync();
         }) ?? new List<ClientStats>();
     }
@@ -132,7 +111,6 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("service_stats", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1);
 
             return await context.ServiceStats
                 .AsNoTracking()
@@ -143,22 +121,13 @@ public class StatsCache
 
     public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = 9999)
     {
-        // MEMORY LEAK FIX: Use consistent cache key to prevent multiple entries
-        // Don't use count in key - always use the same key for recent downloads
-        const string cacheKey = "recent_downloads";
-
-        return await _cache.GetOrCreateAsync(cacheKey, async entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
-            entry.SetSize(1); // Set size for cache eviction policies
-
-            return await context.Downloads
-                .AsNoTracking()
-                .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
-                .OrderByDescending(d => d.StartTimeUtc)
-                .Take(count) // Use requested count (can be 9999)
-                .ToListAsync();
-        }) ?? new List<Download>();
+        // No cache - always query DB for fresh data with requested count
+        return await context.Downloads
+            .AsNoTracking()
+            .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
+            .OrderByDescending(d => d.StartTimeUtc)
+            .Take(count)
+            .ToListAsync();
     }
 
     public async Task<List<Download>> GetActiveDownloadsAsync(AppDbContext context)
@@ -166,14 +135,12 @@ public class StatsCache
         return await _cache.GetOrCreateAsync("active_downloads", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(2); // Fast refresh for live data
-            entry.SetSize(1);
 
             // Get all active downloads
             var activeDownloads = await context.Downloads
                 .AsNoTracking()
                 .Where(d => d.IsActive && (d.CacheHitBytes + d.CacheMissBytes) > 0 && (!d.GameAppId.HasValue || d.GameAppId.Value != 0))
                 .OrderByDescending(d => d.StartTimeUtc)
-                .Take(100)
                 .ToListAsync();
 
             // Group chunks by game to show as single download
@@ -219,7 +186,7 @@ public class StatsCache
 
     public void InvalidateDownloads()
     {
-        _cache.Remove("recent_downloads");
+        // Only invalidate active downloads cache (recent downloads not cached)
         _cache.Remove("active_downloads");
 
         _logger.LogDebug("Downloads cache invalidated");

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Services;
 using LancacheManager.Data;
@@ -133,7 +134,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    [ResponseCache(Duration = 0, NoStore = true)] // No cache - prevent memory buildup
+    [OutputCache(PolicyName = "dashboard")]
     public async Task<IActionResult> GetDashboardStats([FromQuery] string period = "24h")
     {
         try

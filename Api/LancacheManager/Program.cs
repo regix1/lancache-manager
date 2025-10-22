@@ -190,14 +190,20 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<Operat
 builder.Services.AddHostedService<DownloadCleanupService>();
 builder.Services.AddHostedService<LiveLogMonitorService>();
 
-// Add memory cache for storing stats with size limits to prevent unbounded growth
+// Add memory cache for storing stats - use expiration times to control memory
 builder.Services.AddMemoryCache(options =>
 {
-    options.SizeLimit = 100; // Limit cache to 100 entries
-    options.CompactionPercentage = 0.25; // Remove 25% of entries when limit is reached
-    options.ExpirationScanFrequency = TimeSpan.FromMinutes(1); // Scan for expired entries every minute
+    options.CompactionPercentage = 0.25; // Remove 25% of entries during compaction
+    options.ExpirationScanFrequency = TimeSpan.FromSeconds(30); // Scan for expired entries frequently
 });
 builder.Services.AddSingleton<StatsCache>();
+
+// Add Output Caching for API endpoints
+builder.Services.AddOutputCache(options =>
+{
+    options.AddPolicy("dashboard", builder =>
+        builder.Expire(TimeSpan.FromSeconds(5)));
+});
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
 builder.Services.AddOpenTelemetry()
@@ -253,6 +259,7 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.UseRouting();
+app.UseOutputCache();
 app.UseAuthorization();
 
 // Add Authentication Middleware (after routing so endpoints are resolved)
