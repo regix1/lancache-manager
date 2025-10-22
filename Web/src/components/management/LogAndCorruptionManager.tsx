@@ -3,7 +3,9 @@ import {
   FileText,
   AlertTriangle,
   Loader,
-  RefreshCw
+  RefreshCw,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
@@ -12,6 +14,8 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
+import { Tooltip } from '@components/ui/Tooltip';
+import type { CorruptedChunkDetail } from '@/types';
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
@@ -88,6 +92,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
   const [removingCorruption, setRemovingCorruption] = useState<string | null>(null);
   const [pendingCorruptionRemoval, setPendingCorruptionRemoval] = useState<string | null>(null);
+  const [expandedCorruptionService, setExpandedCorruptionService] = useState<string | null>(null);
+  const [corruptionDetails, setCorruptionDetails] = useState<Record<string, CorruptedChunkDetail[]>>({});
+  const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
 
   // Shared State
   const [isLoading, setIsLoading] = useState(true);
@@ -220,6 +227,30 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       onError?.(err.message || `Failed to remove corrupted chunks for ${service}`);
     } finally {
       setRemovingCorruption(null);
+    }
+  };
+
+  const toggleCorruptionDetails = async (service: string) => {
+    if (expandedCorruptionService === service) {
+      // Collapse if already expanded
+      setExpandedCorruptionService(null);
+      return;
+    }
+
+    // Expand and load details if not already loaded
+    setExpandedCorruptionService(service);
+
+    if (!corruptionDetails[service]) {
+      setLoadingDetails(service);
+      try {
+        const details = await ApiService.getCorruptionDetails(service);
+        setCorruptionDetails(prev => ({ ...prev, [service]: details }));
+      } catch (err: any) {
+        onError?.(err.message || `Failed to load corruption details for ${service}`);
+        setExpandedCorruptionService(null);
+      } finally {
+        setLoadingDetails(null);
+      }
     }
   };
 
@@ -375,28 +406,92 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             </div>
           ) : !loadError && corruptionList.length > 0 ? (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              <div className="space-y-3">
                 {corruptionList.map(([service, count]) => (
-                  <Button
-                    key={`corruption-${service}`}
-                    onClick={() => handleRemoveCorruption(service)}
-                    disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated'}
-                    variant="default"
-                    loading={removingCorruption === service}
-                    className="flex flex-col items-center min-h-[60px] justify-center"
-                    fullWidth
-                  >
-                    {removingCorruption !== service ? (
-                      <>
-                        <span className="capitalize font-medium text-sm sm:text-base">Remove {service}</span>
-                        <span className="text-xs text-themed-muted mt-1">
-                          ({count.toLocaleString()} corrupted chunks)
-                        </span>
-                      </>
-                    ) : (
-                      <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
+                  <div key={`corruption-${service}`} className="rounded-lg border" style={{
+                    backgroundColor: 'var(--theme-bg-tertiary)',
+                    borderColor: 'var(--theme-border-secondary)'
+                  }}>
+                    <div className="flex items-center gap-2 p-3">
+                      <Button
+                        onClick={() => toggleCorruptionDetails(service)}
+                        variant="subtle"
+                        size="sm"
+                        className="flex-shrink-0"
+                        disabled={!!removingCorruption || !!activeServiceRemoval}
+                      >
+                        {expandedCorruptionService === service ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </Button>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="capitalize font-medium text-themed-primary">{service}</span>
+                          <span className="text-xs text-themed-muted">
+                            ({count.toLocaleString()} corrupted chunk{count !== 1 ? 's' : ''})
+                          </span>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => handleRemoveCorruption(service)}
+                        disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated'}
+                        variant="filled"
+                        color="red"
+                        size="sm"
+                        loading={removingCorruption === service}
+                      >
+                        {removingCorruption !== service ? 'Remove All' : 'Removing...'}
+                      </Button>
+                    </div>
+
+                    {/* Expandable Details Section */}
+                    {expandedCorruptionService === service && (
+                      <div className="border-t px-3 py-3" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                        {loadingDetails === service ? (
+                          <div className="flex items-center justify-center py-4 gap-2">
+                            <Loader className="w-4 h-4 animate-spin text-themed-accent" />
+                            <span className="text-sm text-themed-secondary">Loading corruption details...</span>
+                          </div>
+                        ) : corruptionDetails[service] && corruptionDetails[service].length > 0 ? (
+                          <div className="space-y-2 max-h-96 overflow-y-auto">
+                            {corruptionDetails[service].map((chunk, idx) => (
+                              <div key={idx} className="p-2 rounded border" style={{
+                                backgroundColor: 'var(--theme-bg-secondary)',
+                                borderColor: 'var(--theme-border-primary)'
+                              }}>
+                                <div className="flex items-start gap-2">
+                                  <AlertTriangle className="w-4 h-4 text-themed-warning flex-shrink-0 mt-0.5" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="mb-1">
+                                      <Tooltip content={chunk.url}>
+                                        <span className="text-xs font-mono text-themed-primary truncate block">
+                                          {chunk.url}
+                                        </span>
+                                      </Tooltip>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-xs text-themed-muted">
+                                      <span>Miss count: <strong className="text-themed-error">{chunk.miss_count || 0}</strong></span>
+                                      {chunk.cache_file_path && (
+                                        <Tooltip content={chunk.cache_file_path}>
+                                          <span className="truncate">Cache: <code className="text-xs">{chunk.cache_file_path.split('/').pop() || chunk.cache_file_path.split('\\').pop()}</code></span>
+                                        </Tooltip>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-4 text-themed-muted text-sm">
+                            No details available
+                          </div>
+                        )}
+                      </div>
                     )}
-                  </Button>
+                  </div>
                 ))}
               </div>
             </>

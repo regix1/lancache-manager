@@ -461,6 +461,31 @@ public class CacheManagementService
         public ulong TotalCorrupted { get; set; }
     }
 
+    // Helper classes for detailed corruption report
+    private class CorruptionReport
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("corrupted_chunks")]
+        public List<CorruptedChunkDetail>? CorruptedChunks { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("summary")]
+        public CorruptionSummaryData? Summary { get; set; }
+    }
+
+    public class CorruptedChunkDetail
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("service")]
+        public string Service { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("url")]
+        public string Url { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("miss_count")]
+        public ulong MissCount { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("cache_file_path")]
+        public string CacheFilePath { get; set; } = string.Empty;
+    }
+
     // Get list of unique services from logs with improved filtering
     public async Task<List<string>> GetServicesFromLogs()
     {
@@ -660,5 +685,115 @@ public class CacheManagementService
         // No corruption summary cache to invalidate (Rust runs fresh each time)
         // Invalidate service count cache since corruption removal affects counts
         await InvalidateServiceCountsCache();
+    }
+
+    /// <summary>
+    /// Get detailed corruption information for a specific service
+    /// </summary>
+    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false)
+    {
+        _logger.LogInformation("[CorruptionDetection] GetCorruptionDetails for service: {Service}, forceRefresh: {ForceRefresh}",
+            service, forceRefresh);
+
+        var logDir = _pathResolver.GetLogsDirectory();
+        var cacheDir = _cachePath;
+        var dataDir = _pathResolver.GetDataDirectory();
+        var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
+        var outputJson = Path.Combine(dataDir, $"corruption_details_{service}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+        var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
+
+        if (!File.Exists(rustBinaryPath))
+        {
+            var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+            _logger.LogError(errorMsg);
+            throw new FileNotFoundException(errorMsg);
+        }
+
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = rustBinaryPath,
+                Arguments = $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            _logger.LogInformation("[CorruptionDetection] Running detect command: {Command} {Args}",
+                rustBinaryPath, startInfo.Arguments);
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new Exception("Failed to start corruption_manager process");
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                await process.WaitForExitAsync();
+
+                var output = await outputTask;
+                var error = await errorTask;
+
+                _logger.LogInformation("[CorruptionDetection] Detect process exit code: {Code}", process.ExitCode);
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogError("[CorruptionDetection] Detect failed with exit code {Code}: {Error}",
+                        process.ExitCode, error);
+                    throw new Exception($"corruption_manager detect failed with exit code {process.ExitCode}: {error}");
+                }
+
+                // Read the generated JSON file
+                if (!File.Exists(outputJson))
+                {
+                    _logger.LogError("[CorruptionDetection] Output JSON file not found: {Path}", outputJson);
+                    throw new FileNotFoundException($"Corruption details output file not found: {outputJson}");
+                }
+
+                var jsonContent = await File.ReadAllTextAsync(outputJson);
+                _logger.LogInformation("[CorruptionDetection] Read JSON output, length: {Length}", jsonContent.Length);
+
+                // Parse the report
+                var report = JsonSerializer.Deserialize<CorruptionReport>(jsonContent,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (report?.CorruptedChunks == null)
+                {
+                    _logger.LogInformation("[CorruptionDetection] No corrupted chunks in report");
+                    return new List<CorruptedChunkDetail>();
+                }
+
+                // Filter by service
+                var serviceDetails = report.CorruptedChunks
+                    .Where(chunk => chunk.Service.Equals(service, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                _logger.LogInformation("[CorruptionDetection] Found {Count} corrupted chunks for service {Service}",
+                    serviceDetails.Count, service);
+
+                // Clean up temporary JSON file
+                try
+                {
+                    File.Delete(outputJson);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[CorruptionDetection] Failed to delete temporary JSON file: {Path}", outputJson);
+                }
+
+                return serviceDetails;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[CorruptionDetection] Error getting corruption details for service {Service}", service);
+            throw;
+        }
     }
 }

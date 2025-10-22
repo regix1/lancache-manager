@@ -9,7 +9,8 @@ import type {
   ProcessingStatus,
   ClearCacheResponse,
   Config,
-  DashboardStats
+  DashboardStats,
+  CorruptedChunkDetail
 } from '../types';
 
 class ApiService {
@@ -633,6 +634,21 @@ class ApiService {
       return await this.handleResponse<{ message: string; service: string }>(res);
     } catch (error) {
       console.error('removeCorruptedChunks error:', error);
+      throw error;
+    }
+  }
+
+  // Get detailed corruption information for a specific service
+  static async getCorruptionDetails(service: string, forceRefresh: boolean = false): Promise<CorruptedChunkDetail[]> {
+    try {
+      const url = `${API_BASE}/management/corruption/details/${encodeURIComponent(service)}${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, {
+        headers: this.getHeaders()
+        // No timeout - wait for backend to complete analysis (could take several minutes for large logs)
+      });
+      return await this.handleResponse<CorruptedChunkDetail[]>(res);
+    } catch (error) {
+      console.error('getCorruptionDetails error:', error);
       throw error;
     }
   }

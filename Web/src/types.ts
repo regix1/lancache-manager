@@ -213,3 +213,10 @@ export interface ApiResponse<T> {
   error?: string;
   status: number;
 }
+
+export interface CorruptedChunkDetail {
+  service: string;
+  url: string;
+  miss_count: number;
+  cache_file_path: string;
+}

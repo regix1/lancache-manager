@@ -553,6 +553,20 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpGet("corruption/details/{service}")]
+    public async Task<IActionResult> GetCorruptionDetails(string service, [FromQuery] bool forceRefresh = false)
+    {
+        try
+        {
+            var details = await _cacheService.GetCorruptionDetails(service, forceRefresh);
+            return Ok(details);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting corruption details for service {Service}", service);
+            return StatusCode(500, new { error = "Failed to get corruption details", details = ex.Message });
+        }
+    }
 
     [HttpGet("cache/active-operations")]
     public IActionResult GetActiveClearOperations()
