@@ -35,7 +35,52 @@ if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VE
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    // Add API Key authentication support to Swagger UI
+    c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Name = "X-Api-Key",
+        Description = "API Key authentication. Enter your API key from the Management tab."
+    });
+
+    c.AddSecurityDefinition("DeviceId", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Name = "X-Device-Id",
+        Description = "Device ID authentication (guest mode). This is automatically generated."
+    });
+
+    // Apply API Key security requirement to all endpoints
+    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "ApiKey"
+                }
+            },
+            new string[] {}
+        },
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "DeviceId"
+                }
+            },
+            new string[] {}
+        }
+    });
+});
 builder.Services.AddSignalR();
 
 // Configure CORS
@@ -244,14 +289,6 @@ using (var scope = app.Services.CreateScope())
     apiKeyService.DisplayApiKey(); // This will create and display the API key
 }
 
-// Enable Swagger in all environments
-app.UseSwagger();
-app.UseSwaggerUI(c =>
-{
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "LancacheManager API V1");
-    c.RoutePrefix = "swagger"; // Access at /swagger
-});
-
 app.UseCors("AllowAll");
 
 // Serve static files
@@ -268,8 +305,19 @@ app.UseMiddleware<AuthenticationMiddleware>();
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();
 
-// Add Swagger Authentication Middleware (ALWAYS requires auth for /swagger)
+// Swagger middleware (currently allows full access - authentication handled by Swagger UI's Authorize button)
 app.UseMiddleware<SwaggerAuthenticationMiddleware>();
+
+// Enable Swagger in all environments
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "LancacheManager API V1");
+    c.RoutePrefix = "swagger"; // Access at /swagger
+
+    // Enable "Authorize" button and persist authorization in browser
+    c.EnablePersistAuthorization();
+});
 
 // Minimal API endpoint for canceling log processing - NO database access required
 // This endpoint must work even when database is locked by Rust process
@@ -327,7 +375,6 @@ app.MapFallback(async context =>
     if (context.Request.Path.StartsWithSegments("/api") ||
         context.Request.Path.StartsWithSegments("/health") ||
         context.Request.Path.StartsWithSegments("/hubs") ||
-        context.Request.Path.StartsWithSegments("/swagger") ||
         context.Request.Path.StartsWithSegments("/metrics"))
     {
         context.Response.StatusCode = 404;

@@ -46,27 +46,24 @@ public class MemoryController : ControllerBase
         var stats = new
         {
             timestamp = DateTime.UtcNow,
-            totalSystemMemoryBytes = totalSystemMemoryBytes,
+            // System Memory
             totalSystemMemoryMB = totalSystemMemoryBytes / 1024.0 / 1024.0,
             totalSystemMemoryGB = totalSystemMemoryBytes / 1024.0 / 1024.0 / 1024.0,
-            workingSetBytes = workingSetBytes,
+            // Process Memory
             workingSetMB = workingSetBytes / 1024.0 / 1024.0,
             workingSetGB = workingSetBytes / 1024.0 / 1024.0 / 1024.0,
-            managedBytes = managedBytes,
             managedMB = managedBytes / 1024.0 / 1024.0,
             managedGB = managedBytes / 1024.0 / 1024.0 / 1024.0,
-            unmanagedBytes = unmanagedBytes,
             unmanagedMB = unmanagedBytes / 1024.0 / 1024.0,
             unmanagedGB = unmanagedBytes / 1024.0 / 1024.0 / 1024.0,
-            totalAllocatedBytes = totalMemory,
+            // Managed Memory Details
             totalAllocatedMB = totalMemory / 1024.0 / 1024.0,
             totalAllocatedGB = totalMemory / 1024.0 / 1024.0 / 1024.0,
-            heapSizeBytes = gcMemoryInfo.HeapSizeBytes,
             heapSizeMB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0,
             heapSizeGB = gcMemoryInfo.HeapSizeBytes / 1024.0 / 1024.0 / 1024.0,
-            fragmentedBytes = gcMemoryInfo.FragmentedBytes,
             fragmentedMB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0,
             fragmentedGB = gcMemoryInfo.FragmentedBytes / 1024.0 / 1024.0 / 1024.0,
+            // Process Statistics
             gen0Collections = GC.CollectionCount(0),
             gen1Collections = GC.CollectionCount(1),
             gen2Collections = GC.CollectionCount(2),

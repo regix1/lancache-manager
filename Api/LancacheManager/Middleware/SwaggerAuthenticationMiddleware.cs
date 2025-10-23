@@ -3,8 +3,10 @@ using LancacheManager.Security;
 namespace LancacheManager.Middleware;
 
 /// <summary>
-/// Middleware to require authentication for Swagger documentation endpoints
-/// Always requires either X-Api-Key or X-Device-Id header
+/// Middleware for Swagger endpoint (currently allows full access)
+/// - Users can view API documentation and swagger.json without authentication
+/// - Swagger UI provides built-in "Authorize" button for entering API key or Device ID
+/// - Authentication is required only for making actual API calls (protected by AuthenticationMiddleware)
 /// </summary>
 public class SwaggerAuthenticationMiddleware
 {
@@ -21,39 +23,9 @@ public class SwaggerAuthenticationMiddleware
 
     public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeyService, DeviceAuthService deviceAuthService)
     {
-        // Only apply to /swagger endpoints
-        if (!context.Request.Path.StartsWithSegments("/swagger"))
-        {
-            await _next(context);
-            return;
-        }
-
-        // Swagger ALWAYS requires authentication - check for API key first
-        if (context.Request.Headers.TryGetValue("X-Api-Key", out var extractedApiKey))
-        {
-            if (apiKeyService.ValidateApiKey(extractedApiKey))
-            {
-                // Valid API key, proceed
-                await _next(context);
-                return;
-            }
-        }
-
-        // Check for device ID
-        if (context.Request.Headers.TryGetValue("X-Device-Id", out var deviceId))
-        {
-            if (deviceAuthService.ValidateDevice(deviceId))
-            {
-                // Valid device ID, proceed
-                await _next(context);
-                return;
-            }
-        }
-
-        // Not authenticated
-        _logger.LogWarning("Unauthorized access attempt to /swagger from {IP}", context.Connection.RemoteIpAddress);
-        context.Response.StatusCode = 401;
-        context.Response.ContentType = "application/json";
-        await context.Response.WriteAsync("{\"error\":\"Authentication required\",\"message\":\"Please provide either X-Api-Key or X-Device-Id header\"}");
+        // Allow full access to /swagger endpoints
+        // Swagger UI has built-in "Authorize" button for authentication
+        // Users can view documentation freely but need auth to make actual API calls
+        await _next(context);
     }
 }
