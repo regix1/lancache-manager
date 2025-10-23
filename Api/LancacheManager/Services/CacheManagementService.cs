@@ -63,7 +63,6 @@ public class CacheManagementService
             // For Windows development, skip drive info
             if (Environment.OSVersion.Platform == PlatformID.Win32NT)
             {
-                _logger.LogDebug("Running on Windows, skipping drive info");
                 return info;
             }
 
@@ -78,7 +77,6 @@ public class CacheManagementService
                 info.FreeCacheSize = driveInfo.AvailableFreeSpace;
                 info.UsedCacheSize = info.TotalCacheSize - info.FreeCacheSize;
                 
-                _logger.LogDebug($"Drive info for {mountPoint}: Total={info.TotalCacheSize}, Used={info.UsedCacheSize}, Free={info.FreeCacheSize}");
             }
             else
             {
@@ -119,7 +117,6 @@ public class CacheManagementService
                     }
                 }
 
-                _logger.LogDebug($"Best mount point for {path}: {bestMatch}");
                 return bestMatch;
             }
             
@@ -159,7 +156,6 @@ public class CacheManagementService
         if (File.Exists(progressFile))
         {
             await Task.Run(() => File.Delete(progressFile));
-            _logger.LogDebug("Service count cache file deleted: {ProgressFile}", progressFile);
         }
     }
 
@@ -249,7 +245,6 @@ public class CacheManagementService
                 _logger.LogInformation($"Rust log filtering completed: {output}");
                 if (!string.IsNullOrEmpty(error))
                 {
-                    _logger.LogDebug($"Rust stderr: {error}");
                 }
             }
         }
@@ -345,7 +340,6 @@ public class CacheManagementService
 
                 if (!string.IsNullOrEmpty(error))
                 {
-                    _logger.LogDebug($"Rust stderr: {error}");
                 }
 
                 // Read results from progress file
@@ -425,7 +419,6 @@ public class CacheManagementService
         else
         {
             // Log at debug level so we can still track calls, but don't spam warnings
-            _logger.LogDebug("(Throttled warning) {Message}", message);
         }
     }
 
@@ -524,7 +517,6 @@ public class CacheManagementService
                 _logger.LogInformation($"Found {services.Count} valid services: {string.Join(", ", services)}");
                 if (filteredOut.Count > 0)
                 {
-                    _logger.LogDebug($"Filtered out {filteredOut.Count} invalid services: {string.Join(", ", filteredOut)}");
                 }
                 return services;
             }

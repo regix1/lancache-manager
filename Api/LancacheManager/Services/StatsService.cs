@@ -41,7 +41,7 @@ public class StatsService
     /// <summary>
     /// Get latest downloads with optional limit (cached for performance)
     /// </summary>
-    public async Task<List<Download>> GetLatestDownloadsAsync(int limit = 100, CancellationToken cancellationToken = default)
+    public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, CancellationToken cancellationToken = default)
     {
         return await _cache.GetRecentDownloadsAsync(_context, limit);
     }

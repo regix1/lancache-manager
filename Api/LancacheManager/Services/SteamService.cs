@@ -344,7 +344,6 @@ public class SteamService : IHostedService, IDisposable
             // Check cache first
             if (_depotToAppCache.TryGetValue(depotId, out var cachedAppId))
             {
-                _logger.LogDebug($"Cache hit: depot {depotId} -> app {cachedAppId}");
                 return cachedAppId;
             }
 
@@ -353,15 +352,9 @@ public class SteamService : IHostedService, IDisposable
             {
                 var selectedAppId = appIds.Min();
                 _depotToAppCache[depotId] = selectedAppId;
-                _logger.LogDebug(
-                    "Mapped depot {DepotId} to app {AppId} (total apps mapped={AppCount})",
-                    depotId,
-                    selectedAppId,
-                    appIds.Count);
                 return selectedAppId;
             }
 
-            _logger.LogDebug($"No mapping found for depot {depotId}");
             return null;
         }
         catch (Exception ex)
@@ -433,7 +426,6 @@ public class SteamService : IHostedService, IDisposable
                 return fallbackInfo;
             }
 
-            _logger.LogDebug($"No game info found for app {appId}");
             return null;
         }
         catch (Exception ex)

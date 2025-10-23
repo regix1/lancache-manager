@@ -271,7 +271,6 @@ public class RustLogProcessorService
                 // For manual processing (silentMode=false), depot mapping is done separately in step 5
                 if (finalProgress?.EntriesSaved > 0)
                 {
-                    _logger.LogDebug("Invalidating cache for {EntriesCount} new entries", finalProgress.EntriesSaved);
                     _ = Task.Run(async () =>
                     {
                         await InvalidateCacheAsync(silentMode);
@@ -523,7 +522,6 @@ public class RustLogProcessorService
     {
         try
         {
-            _logger.LogDebug("Fetching missing game images for newly mapped downloads");
 
             using var scope = _serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();

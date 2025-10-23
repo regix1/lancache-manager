@@ -138,7 +138,6 @@ public class RustDatabaseResetService
                     var line = await _rustProcess.StandardError.ReadLineAsync();
                     if (!string.IsNullOrEmpty(line))
                     {
-                        _logger.LogDebug("[Rust Reset Stderr] {Line}", line);
                     }
                 }
             });

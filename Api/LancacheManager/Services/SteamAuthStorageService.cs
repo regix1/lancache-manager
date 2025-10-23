@@ -75,7 +75,6 @@ public class SteamAuthStorageService
                 if (OperatingSystem.IsWindows())
                 {
                     // On Windows, the directory inherits ACLs from parent, which is fine for most cases
-                    _logger.LogDebug("Steam auth directory created (Windows - using inherited ACLs)");
                 }
                 else
                 {
@@ -86,7 +85,6 @@ public class SteamAuthStorageService
                         // Use chmod via UnixFileMode (available in .NET 6+)
                         File.SetUnixFileMode(_steamAuthDirectory,
                             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                        _logger.LogDebug("Steam auth directory permissions set to 700 (owner only)");
                     }
                     catch (Exception ex)
                     {
@@ -152,7 +150,6 @@ public class SteamAuthStorageService
                         LastAuthenticated = persisted.LastAuthenticated
                     };
 
-                    _logger.LogDebug("Loaded Steam auth data from encrypted file");
                 }
                 else
                 {
@@ -285,14 +282,12 @@ public class SteamAuthStorageService
                 // Only migrate if we don't already have data
                 if (File.Exists(_steamAuthFilePath))
                 {
-                    _logger.LogDebug("Steam auth file already exists, skipping migration");
                     return;
                 }
 
                 // Check if there's actually data to migrate (only refresh token matters)
                 if (string.IsNullOrEmpty(oldAuthState.RefreshToken) && oldAuthState.Mode == "anonymous")
                 {
-                    _logger.LogDebug("No Steam auth data to migrate from state.json");
                     return;
                 }
 

@@ -120,7 +120,6 @@ public class LiveLogMonitorService : BackgroundService
             // Only log once per service start to avoid spam
             if (_lastFileSize == 0)
             {
-                _logger.LogDebug("Current log file not found: {LogFile}. Will monitor once it's created (rotated logs can still be processed manually)", _logFilePath);
                 _lastFileSize = -1; // Mark as logged
             }
             return;
@@ -149,19 +148,8 @@ public class LiveLogMonitorService : BackgroundService
                 var timeSinceLastProcess = (DateTime.UtcNow - _lastProcessTime).TotalSeconds;
                 if (timeSinceLastProcess < _minSecondsBetweenProcessing)
                 {
-                    _logger.LogDebug(
-                        "Skipping processing - only {TimeSince:F1}s since last run (minimum {MinTime}s)",
-                        timeSinceLastProcess,
-                        _minSecondsBetweenProcessing
-                    );
                     return;
                 }
-
-                _logger.LogDebug(
-                    "Detected {SizeIncrease:N0} bytes of new log data ({CurrentSize:N0} bytes total), triggering silent Rust processor",
-                    sizeIncrease,
-                    currentFileSize
-                );
 
                 // Check if manual processing is already running
                 if (_rustLogProcessorService.IsProcessing)
@@ -200,7 +188,6 @@ public class LiveLogMonitorService : BackgroundService
                     {
                         // Update file size tracker after successful processing
                         _lastFileSize = currentFileSize;
-                        _logger.LogDebug("Successfully processed new entries in live mode (silent)");
                     }
                     else
                     {

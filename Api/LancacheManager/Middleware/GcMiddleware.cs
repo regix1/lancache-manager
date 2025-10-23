@@ -30,7 +30,13 @@ public class GcMiddleware
         var now = DateTime.UtcNow;
 
         // Get current settings
-        var (memoryThresholdBytes, minTimeBetweenChecks, onPageLoadOnly) = _gcSettingsService.GetComputedSettings();
+        var (memoryThresholdBytes, minTimeBetweenChecks, onPageLoadOnly, disabled) = _gcSettingsService.GetComputedSettings();
+
+        // If GC is disabled, skip all checks
+        if (disabled)
+        {
+            return;
+        }
 
         // Only check memory periodically to avoid performance impact
         if (now - _lastGcTime < minTimeBetweenChecks)

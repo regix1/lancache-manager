@@ -87,7 +87,6 @@ public class DatabaseService
             await _context.ServiceStats.ExecuteDeleteAsync();
             await _context.SaveChangesAsync();
 
-            _logger.LogDebug("Database cleared successfully");
 
             // Get data directory for file cleanup
             var dataDirectory = _pathResolver.GetDataDirectory();
@@ -113,7 +112,6 @@ public class DatabaseService
             if (File.Exists(positionFile))
             {
                 File.Delete(positionFile);
-                _logger.LogDebug($"Deleted position file: {positionFile}");
             }
 
             // Clear performance data file
@@ -121,7 +119,6 @@ public class DatabaseService
             if (File.Exists(performanceFile))
             {
                 File.Delete(performanceFile);
-                _logger.LogDebug($"Deleted performance data file: {performanceFile}");
             }
 
             // Clear processing marker
@@ -129,7 +126,6 @@ public class DatabaseService
             if (File.Exists(processingMarker))
             {
                 File.Delete(processingMarker);
-                _logger.LogDebug($"Deleted processing marker: {processingMarker}");
             }
 
             _logger.LogInformation($"Database reset completed successfully. Data directory: {dataDirectory}");

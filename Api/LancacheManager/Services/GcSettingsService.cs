@@ -4,17 +4,20 @@ namespace LancacheManager.Services;
 
 public enum GcAggressiveness
 {
+    Disabled,
     OnPageLoad,
-    Low,
-    Medium,
-    High,
-    VeryHigh
+    Every60Minutes,
+    Every60Seconds,
+    Every30Seconds,
+    Every10Seconds,
+    Every5Seconds,
+    Every1Second
 }
 
 public class GcSettings
 {
-    public GcAggressiveness Aggressiveness { get; set; } = GcAggressiveness.OnPageLoad;
-    public long MemoryThresholdMB { get; set; } = 3072; // 3GB default
+    public GcAggressiveness Aggressiveness { get; set; } = GcAggressiveness.Disabled;
+    public long MemoryThresholdMB { get; set; } = 4096; // 4GB default
 }
 
 public class GcSettingsService
@@ -106,22 +109,26 @@ public class GcSettingsService
         }
     }
 
-    public (long thresholdBytes, TimeSpan minTimeBetweenChecks, bool onPageLoadOnly) GetComputedSettings()
+    public (long thresholdBytes, TimeSpan minTimeBetweenChecks, bool onPageLoadOnly, bool disabled) GetComputedSettings()
     {
         var settings = GetSettings();
         var thresholdBytes = settings.MemoryThresholdMB * 1024L * 1024L;
         var onPageLoadOnly = settings.Aggressiveness == GcAggressiveness.OnPageLoad;
+        var disabled = settings.Aggressiveness == GcAggressiveness.Disabled;
 
         var minTimeBetweenChecks = settings.Aggressiveness switch
         {
+            GcAggressiveness.Disabled => TimeSpan.MaxValue,
             GcAggressiveness.OnPageLoad => TimeSpan.FromSeconds(5), // Cooldown period to prevent spam
-            GcAggressiveness.Low => TimeSpan.FromSeconds(5),
-            GcAggressiveness.Medium => TimeSpan.FromSeconds(2),
-            GcAggressiveness.High => TimeSpan.FromSeconds(1),
-            GcAggressiveness.VeryHigh => TimeSpan.FromMilliseconds(500),
-            _ => TimeSpan.FromSeconds(2)
+            GcAggressiveness.Every60Minutes => TimeSpan.FromMinutes(60),
+            GcAggressiveness.Every60Seconds => TimeSpan.FromSeconds(60),
+            GcAggressiveness.Every30Seconds => TimeSpan.FromSeconds(30),
+            GcAggressiveness.Every10Seconds => TimeSpan.FromSeconds(10),
+            GcAggressiveness.Every5Seconds => TimeSpan.FromSeconds(5),
+            GcAggressiveness.Every1Second => TimeSpan.FromSeconds(1),
+            _ => TimeSpan.FromSeconds(5)
         };
 
-        return (thresholdBytes, minTimeBetweenChecks, onPageLoadOnly);
+        return (thresholdBytes, minTimeBetweenChecks, onPageLoadOnly, disabled);
     }
 }

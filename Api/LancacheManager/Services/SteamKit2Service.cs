@@ -205,7 +205,6 @@ public class SteamKit2Service : IHostedService, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Steam depot crawl finished with an error during shutdown");
             }
         }
 
@@ -292,7 +291,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "Failed to check incremental viability, skipping automatic scan");
+                            _logger.LogWarning(ex, "Failed to check incremental viability, skipping automatic scan");
+                            _automaticScanSkipped = true;
                             return;
                         }
                     }
@@ -360,7 +360,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to check incremental viability, skipping scheduled scan");
+                        _logger.LogWarning(ex, "Failed to check incremental viability, skipping scheduled scan");
+                        _automaticScanSkipped = true;
                         return;
                     }
                 }
@@ -452,7 +453,6 @@ public class SteamKit2Service : IHostedService, IDisposable
     {
         if (_isLoggedOn && _steamClient?.IsConnected == true)
         {
-            _logger.LogDebug("Already connected to Steam; skipping logon");
             return;
         }
 
@@ -462,8 +462,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         _logger.LogInformation("Connecting to Steam...");
         _steamClient!.Connect();
 
-        // Wait for connected
-        await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct);
+        // Wait for connected (increased timeout to handle Steam server delays)
+        await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct);
 
         // Check if we have a saved refresh token for authenticated login
         var refreshToken = _stateService.GetSteamRefreshToken();
@@ -487,8 +487,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             _steamUser!.LogOnAnonymous();
         }
 
-        // Wait for logged on
-        await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(30), ct);
+        // Wait for logged on (increased timeout to handle Steam server delays)
+        await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct);
     }
 
     private async Task WaitForTaskWithTimeout(Task task, TimeSpan timeout, CancellationToken ct)
@@ -546,7 +546,6 @@ public class SteamKit2Service : IHostedService, IDisposable
         }
         else
         {
-            _logger.LogDebug("Steam disconnected normally - no reconnection needed");
         }
     }
 
@@ -1402,15 +1401,40 @@ public class SteamKit2Service : IHostedService, IDisposable
                 // This allows reuse if a crawl starts immediately after viability check
                 if (!wasConnected && _steamClient?.IsConnected == true)
                 {
-                    _logger.LogDebug("Keeping Steam connection alive for {Seconds} seconds for potential reuse", ConnectionKeepAliveSeconds);
                     _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
                     StartIdleDisconnectTimer();
                 }
             }
         }
+        catch (TimeoutException tex)
+        {
+            _logger.LogWarning("Steam connection timed out while checking incremental viability: {Message}", tex.Message);
+
+            // Try to get the change number from JSON for error reporting
+            uint changeNumberForError = 0;
+            try
+            {
+                var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+                changeNumberForError = picsData?.Metadata?.LastChangeNumber ?? 0;
+            }
+            catch { }
+
+            // If we can't check viability, assume full scan is required for safety
+            return new
+            {
+                isViable = false,
+                lastChangeNumber = changeNumberForError,
+                currentChangeNumber = (uint)0,
+                changeGap = (uint)0,
+                isLargeGap = true,
+                willTriggerFullScan = true,
+                estimatedAppsToScan = 270000,
+                error = tex.Message
+            };
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error checking incremental viability");
+            _logger.LogWarning("Failed to check incremental viability: {Message}", ex.Message);
 
             // Try to get the change number from JSON for error reporting
             uint changeNumberForError = 0;
@@ -1519,7 +1543,6 @@ public class SteamKit2Service : IHostedService, IDisposable
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
-            _logger.LogDebug("Steam PICS depot crawl already running; skipping trigger");
             return false;
         }
 
@@ -1567,7 +1590,6 @@ public class SteamKit2Service : IHostedService, IDisposable
                 // Explicitly disconnect after crawl completion to prevent reconnection loops
                 if (_steamClient?.IsConnected == true)
                 {
-                    _logger.LogDebug("Disconnecting from Steam after PICS crawl completion");
                     _intentionalDisconnect = true;
                     await DisconnectFromSteamAsync();
                 }
@@ -1591,7 +1613,6 @@ public class SteamKit2Service : IHostedService, IDisposable
     {
         if (!IsRebuildRunning || _currentRebuildCts == null)
         {
-            _logger.LogDebug("No active PICS rebuild to cancel");
             return false;
         }
 
@@ -1791,11 +1812,9 @@ public class SteamKit2Service : IHostedService, IDisposable
                                 if (_appNames.ContainsKey(potentialAppId))
                                 {
                                     appId = potentialAppId;
-                                    _logger.LogDebug($"Using log-based fallback: depot {download.DepotId} -> app {appId} (depot ID = app ID)");
                                 }
                                 else
                                 {
-                                    _logger.LogDebug($"No owner app found for depot {download.DepotId}");
                                 }
                             }
                         }
@@ -1813,7 +1832,6 @@ public class SteamKit2Service : IHostedService, IDisposable
                             download.GameImageUrl = gameInfo.HeaderImage;
                             updated++;
 
-                            _logger.LogDebug($"Updated download {download.Id}: depot {download.DepotId} -> {gameInfo.Name} (App {appId})");
                         }
                         else
                         {
@@ -1824,7 +1842,6 @@ public class SteamKit2Service : IHostedService, IDisposable
                     else
                     {
                         notFound++;
-                        _logger.LogDebug($"No PICS mapping found for depot {download.DepotId}");
                     }
                 }
                 catch (Exception ex)
@@ -1894,7 +1911,6 @@ public class SteamKit2Service : IHostedService, IDisposable
         try
         {
             _stateService.SetLastPicsCrawl(_lastCrawlTime);
-            _logger.LogDebug("Saved last PICS crawl time: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
         }
         catch (Exception ex)
         {
@@ -1932,7 +1948,6 @@ public class SteamKit2Service : IHostedService, IDisposable
                 var idleTime = DateTime.UtcNow - _lastConnectionActivity;
                 if (idleTime.TotalSeconds >= ConnectionKeepAliveSeconds)
                 {
-                    _logger.LogDebug("Connection idle for {Seconds} seconds, disconnecting", (int)idleTime.TotalSeconds);
                     _intentionalDisconnect = true;
                     await DisconnectFromSteamAsync();
                     StopIdleDisconnectTimer();

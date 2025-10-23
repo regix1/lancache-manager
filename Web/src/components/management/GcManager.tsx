@@ -16,11 +16,14 @@ interface GcManagerProps {
 }
 
 const aggressivenessOptions: DropdownOption[] = [
+  { value: 'disabled', label: 'Disabled' },
   { value: 'onpageload', label: 'On Page Load Only' },
-  { value: 'low', label: 'Low (Every 5s)' },
-  { value: 'medium', label: 'Medium (Every 2s)' },
-  { value: 'high', label: 'High (Every 1s)' },
-  { value: 'veryhigh', label: 'Very High (Every 0.5s)' }
+  { value: 'every60minutes', label: 'Every 60 Minutes' },
+  { value: 'every60seconds', label: 'Every 60 Seconds' },
+  { value: 'every30seconds', label: 'Every 30 Seconds' },
+  { value: 'every10seconds', label: 'Every 10 Seconds' },
+  { value: 'every5seconds', label: 'Every 5 Seconds' },
+  { value: 'every1second', label: 'Every 1 Second' }
 ];
 
 const memoryThresholdOptions: DropdownOption[] = [
@@ -37,8 +40,8 @@ const memoryThresholdOptions: DropdownOption[] = [
 
 const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   const [settings, setSettings] = useState<GcSettings>({
-    aggressiveness: 'onpageload',
-    memoryThresholdMB: 3072
+    aggressiveness: 'disabled',
+    memoryThresholdMB: 4096
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -111,16 +114,22 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
 
   const getAggressivenessDescription = (level: string): string => {
     switch (level) {
+      case 'disabled':
+        return 'Garbage collection is disabled. Memory will only be cleaned up by the .NET runtime. May use more memory.';
       case 'onpageload':
         return 'Only runs when you refresh or load a page. 5-second cooldown prevents spam. Recommended for most users.';
-      case 'low':
-        return 'Runs garbage collection less frequently. Best for performance, but may use more memory.';
-      case 'medium':
-        return 'Balanced approach. Good performance with reasonable memory usage.';
-      case 'high':
-        return 'More aggressive cleanup. Better memory control, slight performance impact.';
-      case 'veryhigh':
-        return 'Very aggressive cleanup. Maximum memory control, noticeable performance impact.';
+      case 'every60minutes':
+        return 'Runs every 60 minutes. Minimal performance impact, suitable for servers with plenty of RAM.';
+      case 'every60seconds':
+        return 'Runs every 60 seconds. Low frequency cleanup with minimal performance impact.';
+      case 'every30seconds':
+        return 'Runs every 30 seconds. Moderate cleanup frequency for balanced memory management.';
+      case 'every10seconds':
+        return 'Runs every 10 seconds. More frequent cleanup, slight performance impact.';
+      case 'every5seconds':
+        return 'Runs every 5 seconds. Aggressive cleanup with noticeable performance impact.';
+      case 'every1second':
+        return 'Runs every 1 second. Very aggressive cleanup. Maximum memory control but significant performance impact.';
       default:
         return '';
     }

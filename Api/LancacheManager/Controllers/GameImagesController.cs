@@ -81,7 +81,6 @@ public class GameImagesController : ControllerBase
             // Use Warning level for other errors
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
-                _logger.LogDebug($"Steam header image not found for app {appId} ({download.GameName ?? "Unknown"}) - likely a tool/redistributable");
             }
             else
             {
@@ -98,7 +97,6 @@ public class GameImagesController : ControllerBase
         }
         catch (TaskCanceledException)
         {
-            _logger.LogDebug($"Request cancelled for Steam header image app {appId}");
             return StatusCode(499, new { error = "Request cancelled" });
         }
         catch (Exception ex)

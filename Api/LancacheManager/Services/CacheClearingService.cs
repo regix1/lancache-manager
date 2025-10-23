@@ -276,7 +276,6 @@ public class CacheClearingService : IHostedService
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogDebug(ex, "Failed to read progress file");
                             }
                         }
                     }
@@ -307,7 +306,6 @@ public class CacheClearingService : IHostedService
                 _logger.LogInformation($"Rust cache cleaner output: {output}");
                 if (!string.IsNullOrEmpty(error))
                 {
-                    _logger.LogDebug($"Rust stderr: {error}");
                 }
 
                 // Read final progress
@@ -419,7 +417,6 @@ public class CacheClearingService : IHostedService
 
             await _hubContext.Clients.All.SendAsync("CacheClearProgress", progress);
 
-            _logger.LogDebug($"Progress: {progress.PercentComplete:F1}% - {operation.StatusMessage}");
         }
         catch (Exception ex)
         {
@@ -687,7 +684,6 @@ public class CacheClearingService : IHostedService
             
             if (toRemove.Count > 0)
             {
-                _logger.LogDebug($"Cleaned up {toRemove.Count} old cache clear operations");
 
                 // Remove from state service as well
                 foreach (var key in toRemove)

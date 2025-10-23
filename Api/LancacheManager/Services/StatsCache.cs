@@ -119,7 +119,7 @@ public class StatsCache
         }) ?? new List<ServiceStats>();
     }
 
-    public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = 9999)
+    public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = int.MaxValue)
     {
         // No cache - always query DB for fresh data with requested count
         return await context.Downloads
@@ -188,7 +188,5 @@ public class StatsCache
     {
         // Only invalidate active downloads cache (recent downloads not cached)
         _cache.Remove("active_downloads");
-
-        _logger.LogDebug("Downloads cache invalidated");
     }
 }

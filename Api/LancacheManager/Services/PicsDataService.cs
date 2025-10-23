@@ -283,7 +283,6 @@ public class PicsDataService
         {
             if (!File.Exists(_picsJsonFile))
             {
-                _logger.LogDebug("PICS JSON file not found: {FilePath}", _picsJsonFile);
                 return Task.FromResult<PicsJsonData?>(null);
             }
 
@@ -322,7 +321,6 @@ public class PicsDataService
 
             if (picsData != null)
             {
-                _logger.LogDebug($"Loaded PICS data with {picsData.Metadata?.TotalMappings ?? 0} mappings from JSON file");
 
                 // Update state to indicate data is loaded
                 if (picsData.Metadata?.TotalMappings > 0)
@@ -355,7 +353,6 @@ public class PicsDataService
 
             // Always return false to use incremental updates only
             // The incremental system will handle new items and updates
-            _logger.LogDebug($"PICS data exists with {picsData.Metadata.TotalMappings} mappings, using incremental updates only");
             return false;
         }
         catch (Exception ex)
@@ -532,13 +529,11 @@ public class PicsDataService
                 {
                     await context.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
                     await context.SaveChangesAsync(cancellationToken);
-                    _logger.LogDebug($"Imported batch {i / batchSize + 1}/{(newMappings.Count + batchSize - 1) / batchSize} ({batch.Count} mappings)");
                 }
                 catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
                 {
                     // UNIQUE constraint violation - duplicates already exist, this is fine
                     // This can happen if the import is called multiple times or run concurrently
-                    _logger.LogDebug($"Batch {i / batchSize + 1} contains duplicate mappings (already in database) - skipping");
 
                     // Clear the context to avoid tracking issues
                     context.ChangeTracker.Clear();

@@ -165,7 +165,6 @@ public class OperationStateService : IHostedService
 
             if (persisted.UpdatedAt <= DateTime.UtcNow.AddHours(-24))
             {
-                _logger.LogDebug("Persisted state {Key} is older than 24 hours and will be ignored", key);
                 return null;
             }
 
@@ -375,7 +374,6 @@ public class OperationStateService : IHostedService
 
             if (expired.Count > 0)
             {
-                _logger.LogDebug($"Cleaned up {expired.Count} expired operation states");
 
                 // Remove from state service as well
                 foreach (var key in expired)

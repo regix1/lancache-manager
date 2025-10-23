@@ -17,14 +17,12 @@ public class LinuxPathResolver : IPathResolver
         if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
         {
             _basePath = "/";
-            _logger.LogDebug("Running in container, using root as base path");
         }
         else
         {
             _basePath = FindProjectRoot();
         }
 
-        _logger.LogDebug("Linux base path resolved to: {BasePath}", _basePath);
     }
 
     public string GetBasePath() => _basePath;
@@ -98,7 +96,6 @@ public class LinuxPathResolver : IPathResolver
     {
         var currentDir = Directory.GetCurrentDirectory();
 
-        _logger.LogDebug("Starting project root search from: {CurrentDir}", currentDir);
 
         // Quick check: if we're in Api/LancacheManager, go up two levels
         if (currentDir.EndsWith("/Api/LancacheManager", StringComparison.OrdinalIgnoreCase))
@@ -106,7 +103,6 @@ public class LinuxPathResolver : IPathResolver
             var projectRoot = Directory.GetParent(currentDir)?.Parent?.FullName;
             if (projectRoot != null && IsValidProjectRoot(projectRoot))
             {
-                _logger.LogDebug("Found project root via Api/LancacheManager pattern: {Root}", projectRoot);
                 return projectRoot;
             }
         }
@@ -117,7 +113,6 @@ public class LinuxPathResolver : IPathResolver
             var projectRoot = Directory.GetParent(currentDir)?.FullName;
             if (projectRoot != null && IsValidProjectRoot(projectRoot))
             {
-                _logger.LogDebug("Found project root via Api pattern: {Root}", projectRoot);
                 return projectRoot;
             }
         }
@@ -128,7 +123,6 @@ public class LinuxPathResolver : IPathResolver
         {
             if (IsValidProjectRoot(dir.FullName))
             {
-                _logger.LogDebug("Found project root via tree search: {Root}", dir.FullName);
                 return dir.FullName;
             }
 
@@ -141,7 +135,6 @@ public class LinuxPathResolver : IPathResolver
                 {
                     if (IsValidProjectRoot(parent.FullName))
                     {
-                        _logger.LogDebug("Found project root via bin search: {Root}", parent.FullName);
                         return parent.FullName;
                     }
                     parent = parent.Parent;
@@ -167,7 +160,6 @@ public class LinuxPathResolver : IPathResolver
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Error validating project root: {Path}", path);
             return false;
         }
     }

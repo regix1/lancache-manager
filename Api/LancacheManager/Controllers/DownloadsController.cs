@@ -23,7 +23,7 @@ public class DownloadsController : ControllerBase
 
     [HttpGet("latest")]
     [ResponseCache(Duration = 5)] // Cache for 5 seconds
-    public async Task<IActionResult> GetLatest([FromQuery] int count = 9999, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
+    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         const int maxRetries = 3;
         for (int retry = 0; retry < maxRetries; retry++)

@@ -30,10 +30,6 @@ public class ApiKeyService
 
         // Log absolute path for debugging
         var absolutePath = Path.GetFullPath(_apiKeyPath);
-        _logger.LogDebug("API key path resolved to: {Path}", _apiKeyPath);
-        _logger.LogDebug("API key absolute path: {AbsPath}", absolutePath);
-        _logger.LogDebug("Data directory: {DataDir}", _pathResolver.GetDataDirectory());
-        _logger.LogDebug("Base path: {BasePath}", _pathResolver.GetBasePath());
 
         // Ensure data directory exists
         var dir = Path.GetDirectoryName(_apiKeyPath);
