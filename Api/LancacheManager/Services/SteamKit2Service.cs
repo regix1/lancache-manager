@@ -203,7 +203,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 _logger.LogInformation("Steam depot crawl cancelled during shutdown");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }

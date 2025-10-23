@@ -158,7 +158,7 @@ public class LinuxPathResolver : IPathResolver
             return Directory.Exists(Path.Combine(path, "Api")) &&
                    Directory.Exists(Path.Combine(path, "Web"));
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             return false;
         }

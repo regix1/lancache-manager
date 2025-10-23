@@ -274,7 +274,7 @@ public class CacheClearingService : IHostedService
                                     }
                                 }
                             }
-                            catch (Exception ex)
+                            catch (Exception)
                             {
                             }
                         }
