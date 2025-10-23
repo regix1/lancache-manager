@@ -92,6 +92,17 @@ public class AuthenticationMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        var path = context.Request.Path.Value?.ToLower() ?? "";
+
+        // Skip authentication for swagger and metrics endpoints
+        // These have their own dedicated authentication middleware
+        if (path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/metrics", StringComparison.OrdinalIgnoreCase))
+        {
+            await _next(context);
+            return;
+        }
+
         // Check if authentication is globally disabled
         var authEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
         if (!authEnabled)
@@ -100,8 +111,6 @@ public class AuthenticationMiddleware
             await _next(context);
             return;
         }
-
-        var path = context.Request.Path.Value?.ToLower() ?? "";
 
         // Check if this is a protected endpoint
         bool requiresAuth = false;

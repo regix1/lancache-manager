@@ -22,8 +22,12 @@ const DownloadsTab = lazy(() => import('@components/downloads/DownloadsTab'));
 const ClientsTab = lazy(() => import('@components/clients/ClientsTab'));
 const ServicesTab = lazy(() => import('@components/services/ServicesTab'));
 const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
+const MemoryDiagnostics = lazy(() => import('@components/memory/MemoryDiagnostics'));
 
 const AppContent: React.FC = () => {
+  // Check if we're on a special route like /memory
+  const isMemoryRoute = window.location.pathname === '/memory';
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const { connectionStatus } = useData();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
@@ -410,6 +414,15 @@ const AppContent: React.FC = () => {
         onInitialized={handleDepotInitialized}
         onAuthChanged={handleAuthChanged}
       />
+    );
+  }
+
+  // Handle special routes like /memory
+  if (isMemoryRoute) {
+    return (
+      <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading memory diagnostics..." />}>
+        <MemoryDiagnostics />
+      </Suspense>
     );
   }
 

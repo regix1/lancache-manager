@@ -69,9 +69,7 @@ public class OperationStateController : ControllerBase
         }
     }
 
-    // FIX: Use explicit route to avoid routing issues
     [HttpPatch("{key}")]
-    [Route("{key}")]
     public IActionResult UpdateState(string key, [FromBody] UpdateStateRequest request)
     {
         try

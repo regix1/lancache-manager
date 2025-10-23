@@ -268,6 +268,9 @@ app.UseMiddleware<AuthenticationMiddleware>();
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();
 
+// Add Swagger Authentication Middleware (ALWAYS requires auth for /swagger)
+app.UseMiddleware<SwaggerAuthenticationMiddleware>();
+
 // Minimal API endpoint for canceling log processing - NO database access required
 // This endpoint must work even when database is locked by Rust process
 app.MapPost("/api/management/cancel-processing", (IPathResolver pathResolver, ILogger<Program> logger) =>
@@ -330,7 +333,7 @@ app.MapFallback(async context =>
         context.Response.StatusCode = 404;
         return;
     }
-    
+
     var indexPath = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
     if (File.Exists(indexPath))
     {
