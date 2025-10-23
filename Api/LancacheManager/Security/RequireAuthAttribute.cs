@@ -20,9 +20,8 @@ public class RequireAuthAttribute : ActionFilterAttribute
         }
 
         var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
-        var deviceAuthService = httpContext.RequestServices.GetRequiredService<DeviceAuthService>();
 
-        // Check for API key in header
+        // Check for API key in header - ONLY API KEY, NO DEVICE ID
         var apiKey = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
         if (!string.IsNullOrEmpty(apiKey) && apiKeyService.ValidateApiKey(apiKey))
         {
@@ -30,19 +29,11 @@ public class RequireAuthAttribute : ActionFilterAttribute
             return;
         }
 
-        // Check for device ID in header
-        var deviceId = httpContext.Request.Headers["X-Device-Id"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(deviceId) && deviceAuthService.ValidateDevice(deviceId))
-        {
-            base.OnActionExecuting(context);
-            return;
-        }
-
-        // Not authenticated
+        // Not authenticated - API Key required
         context.Result = new UnauthorizedObjectResult(new
         {
             error = "Authentication required",
-            message = "Please provide either X-Api-Key or X-Device-Id header"
+            message = "Please provide X-Api-Key header"
         });
     }
 }
@@ -52,10 +43,9 @@ public class AuthenticationMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<AuthenticationMiddleware> _logger;
     private readonly ApiKeyService _apiKeyService;
-    private readonly DeviceAuthService _deviceAuthService;
     private readonly IConfiguration _configuration;
-    
-    // Endpoints that require authentication
+
+    // Endpoints that require authentication (API Key ONLY)
     private readonly HashSet<string> _protectedPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/management/cache/clear-all",
@@ -68,9 +58,9 @@ public class AuthenticationMiddleware
         "/api/auth/devices", // GET and DELETE require auth
         "/api/auth/revoke"
     };
-    
+
     // Patterns for protected paths (contains check)
-    private readonly string[] _protectedPatterns = 
+    private readonly string[] _protectedPatterns =
     {
         "/api/management/cache/clear",
         "/api/management/cache/delete"
@@ -80,13 +70,11 @@ public class AuthenticationMiddleware
         RequestDelegate next,
         ILogger<AuthenticationMiddleware> logger,
         ApiKeyService apiKeyService,
-        DeviceAuthService deviceAuthService,
         IConfiguration configuration)
     {
         _next = next;
         _logger = logger;
         _apiKeyService = apiKeyService;
-        _deviceAuthService = deviceAuthService;
         _configuration = configuration;
     }
 
@@ -146,33 +134,25 @@ public class AuthenticationMiddleware
         
         if (requiresAuth)
         {
-            // Check for API key in header
+            // Check for API key in header - ONLY API KEY, NO DEVICE ID
             var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
             if (!string.IsNullOrEmpty(apiKey) && _apiKeyService.ValidateApiKey(apiKey))
             {
                 await _next(context);
                 return;
             }
-            
-            // Check for device ID in header
-            var deviceId = context.Request.Headers["X-Device-Id"].FirstOrDefault();
-            if (!string.IsNullOrEmpty(deviceId) && _deviceAuthService.ValidateDevice(deviceId))
-            {
-                await _next(context);
-                return;
-            }
-            
-            // Not authenticated
-            _logger.LogWarning("Unauthorized access attempt to {Path} from {IP}", 
+
+            // Not authenticated - API Key required
+            _logger.LogWarning("Unauthorized access attempt to {Path} from {IP}",
                 path, context.Connection.RemoteIpAddress);
-            
+
             context.Response.StatusCode = 401;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsync(
-                System.Text.Json.JsonSerializer.Serialize(new 
-                { 
+                System.Text.Json.JsonSerializer.Serialize(new
+                {
                     error = "Authentication required",
-                    message = "Please provide either X-Api-Key or X-Device-Id header",
+                    message = "Please provide X-Api-Key header",
                     path
                 }));
             return;

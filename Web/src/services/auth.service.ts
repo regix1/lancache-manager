@@ -34,6 +34,7 @@ const API_URL = getApiUrl();
 
 class AuthService {
   private deviceId: string;
+  private apiKey: string | null = null;
   public isAuthenticated: boolean;
   public authChecked: boolean;
   public authMode: AuthMode = 'unauthenticated';
@@ -42,6 +43,7 @@ class AuthService {
 
   constructor() {
     this.deviceId = this.getOrCreateDeviceId();
+    this.apiKey = localStorage.getItem('lancache_api_key');
     this.isAuthenticated = false;
     this.authChecked = false;
     this.startGuestModeTimer();
@@ -300,6 +302,10 @@ class AuthService {
         // Clear any existing guest session FIRST when successfully authenticated
         this.exitGuestMode();
 
+        // Store the API key for future requests
+        this.apiKey = apiKey;
+        localStorage.setItem('lancache_api_key', apiKey);
+
         this.isAuthenticated = true;
         this.authMode = 'authenticated';
         localStorage.setItem('lancache_auth_registered', 'true');
@@ -375,15 +381,28 @@ class AuthService {
   }
 
   getAuthHeaders(): Record<string, string> {
+    // Prefer API key over Device ID for authentication
+    if (this.apiKey) {
+      return {
+        'X-Api-Key': this.apiKey
+      };
+    }
+    // Fallback to Device ID for guest mode
     return {
       'X-Device-Id': this.deviceId
     };
+  }
+
+  getDeviceId(): string {
+    return this.deviceId;
   }
 
   handleUnauthorized(): void {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
+    localStorage.removeItem('lancache_api_key');
+    this.apiKey = null;
     // Clear device ID so a new one is generated on next request
     // This handles API key regeneration scenarios where all devices are revoked
     localStorage.removeItem('lancache_device_id');
@@ -394,6 +413,8 @@ class AuthService {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
+    localStorage.removeItem('lancache_api_key');
+    this.apiKey = null;
     this.exitGuestMode(); // Also clear guest mode
   }
 
@@ -401,6 +422,8 @@ class AuthService {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
+    localStorage.removeItem('lancache_api_key');
+    this.apiKey = null;
     localStorage.removeItem('lancache_device_id');
     this.deviceId = this.getOrCreateDeviceId();
     this.exitGuestMode(); // Also clear guest mode

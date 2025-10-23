@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import TimeFilter from '../common/TimeFilter';
 import PollingRateSelector from '../common/PollingRateSelector';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useData } from '@contexts/DataContext';
+import authService from '@services/auth.service';
 
 interface HeaderProps {
   title?: string;
@@ -17,6 +18,24 @@ const Header: React.FC<HeaderProps> = ({
   connectionStatus = 'connected'
 }) => {
   const { mockMode } = useData();
+  const [isGuestMode, setIsGuestMode] = useState(false);
+  const [deviceId, setDeviceId] = useState('');
+
+  useEffect(() => {
+    // Check if user is in guest mode
+    const checkGuestMode = () => {
+      const guestMode = authService.authMode === 'guest';
+      setIsGuestMode(guestMode);
+      if (guestMode) {
+        setDeviceId(authService.getDeviceId());
+      }
+    };
+
+    checkGuestMode();
+    // Recheck periodically in case auth mode changes
+    const interval = setInterval(checkGuestMode, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <>
@@ -88,6 +107,20 @@ const Header: React.FC<HeaderProps> = ({
               <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">{title}</h1>
               <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted hidden sm:flex">
                 <span className="truncate">{subtitle}</span>
+                {isGuestMode && (
+                  <div
+                    className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
+                    style={{
+                      backgroundColor: 'var(--theme-warning-bg)',
+                      color: 'var(--theme-warning-text)',
+                      border: '1px solid var(--theme-warning)',
+                    }}
+                  >
+                    <span>Guest Mode</span>
+                    <span style={{ opacity: 0.7 }}>|</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{deviceId}</span>
+                  </div>
+                )}
                 {connectionStatus === 'connected' && (
                   <Tooltip content="API Status: Connected - All backend services are responding normally">
                     <div className="flex items-center">

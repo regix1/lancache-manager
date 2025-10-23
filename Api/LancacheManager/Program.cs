@@ -46,14 +46,6 @@ builder.Services.AddSwaggerGen(c =>
         Description = "API Key authentication. Enter your API key from the Management tab."
     });
 
-    c.AddSecurityDefinition("DeviceId", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-    {
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Name = "X-Device-Id",
-        Description = "Device ID authentication (guest mode). This is automatically generated."
-    });
-
     // Apply API Key security requirement to all endpoints
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {
@@ -64,17 +56,6 @@ builder.Services.AddSwaggerGen(c =>
                 {
                     Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
                     Id = "ApiKey"
-                }
-            },
-            new string[] {}
-        },
-        {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-            {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
-                {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "DeviceId"
                 }
             },
             new string[] {}
