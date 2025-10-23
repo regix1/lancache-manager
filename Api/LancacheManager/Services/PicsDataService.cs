@@ -101,6 +101,9 @@ public class PicsDataService
                 File.WriteAllText(_picsJsonFile, jsonContent);
             }
 
+            // Clear cache so next load reads the new file
+            ClearCache();
+
             _logger.LogInformation($"Saved {picsData.Metadata.TotalMappings} PICS depot mappings to JSON file: {_picsJsonFile}");
 
             // Update state to indicate data is loaded
@@ -246,6 +249,9 @@ public class PicsDataService
                 File.WriteAllText(_picsJsonFile, jsonContent);
             }
 
+            // Clear cache so next load reads the new file
+            ClearCache();
+
             _logger.LogInformation(
                 "Incrementally updated PICS JSON: {NewCount} new, {UpdatedCount} updated, {RemovedCount} removed corrupted, {TotalMappingPairs} total app mappings (shared depots included)",
                 newCount,
@@ -266,6 +272,11 @@ public class PicsDataService
     /// <summary>
     /// Load PICS depot mappings from JSON file
     /// </summary>
+    // Cache for loaded PICS data to avoid repeated deserialization of 73MB+ file
+    private PicsJsonData? _cachedPicsData = null;
+    private DateTime _cacheLastLoaded = DateTime.MinValue;
+    private readonly TimeSpan _cacheExpiration = TimeSpan.FromMinutes(5);
+
     public Task<PicsJsonData?> LoadPicsDataFromJsonAsync()
     {
         try
@@ -274,6 +285,12 @@ public class PicsDataService
             {
                 _logger.LogDebug("PICS JSON file not found: {FilePath}", _picsJsonFile);
                 return Task.FromResult<PicsJsonData?>(null);
+            }
+
+            // Return cached data if still valid
+            if (_cachedPicsData != null && (DateTime.UtcNow - _cacheLastLoaded) < _cacheExpiration)
+            {
+                return Task.FromResult<PicsJsonData?>(_cachedPicsData);
             }
 
             string jsonContent;
@@ -294,6 +311,14 @@ public class PicsDataService
             };
 
             var picsData = JsonSerializer.Deserialize<PicsJsonData>(jsonContent, jsonOptions);
+
+            // Cache the loaded data
+            if (picsData != null)
+            {
+                _cachedPicsData = picsData;
+                _cacheLastLoaded = DateTime.UtcNow;
+                _logger.LogInformation("PICS data loaded and cached ({TotalMappings} mappings)", picsData.Metadata?.TotalMappings ?? 0);
+            }
 
             if (picsData != null)
             {
@@ -558,6 +583,16 @@ public class PicsDataService
             return "PatternMatching+JSON";
 
         return existingSource;
+    }
+
+    /// <summary>
+    /// Clear the cached PICS data - call this after updating the JSON file
+    /// </summary>
+    public void ClearCache()
+    {
+        _cachedPicsData = null;
+        _cacheLastLoaded = DateTime.MinValue;
+        _logger.LogInformation("PICS data cache cleared");
     }
 }
 

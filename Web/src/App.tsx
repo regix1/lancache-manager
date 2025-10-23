@@ -69,6 +69,32 @@ const AppContent: React.FC = () => {
     fetchTimezone();
   }, []);
 
+  // Detect page reload/refresh and trigger garbage collection
+  useEffect(() => {
+    const checkIfReload = async () => {
+      try {
+        // Use Performance Navigation API to detect if this was a page reload
+        const navigationEntries = window.performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+
+        if (navigationEntries.length > 0) {
+          const navigationType = navigationEntries[0].type;
+
+          // Only trigger GC on actual page reloads, not on initial load or navigation
+          if (navigationType === 'reload') {
+            await fetch('/api/gc/trigger', {
+              method: 'POST',
+              headers: ApiService.getHeaders()
+            });
+          }
+        }
+      } catch (error) {
+        // Silently fail - GC is a background optimization
+      }
+    };
+
+    checkIfReload();
+  }, []); // Run once on mount
+
   // Check authentication status first
   useEffect(() => {
     const checkAuthStatus = async () => {

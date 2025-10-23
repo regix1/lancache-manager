@@ -25,6 +25,7 @@ import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import LogAndCorruptionManager from './LogAndCorruptionManager';
 import ThemeManager from './ThemeManager';
+import GcManager from './GcManager';
 import AlertsManager from './AlertsManager';
 import GrafanaEndpoints from './GrafanaEndpoints';
 import { CollapsibleSection } from './CollapsibleSection';
@@ -928,6 +929,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             {/* Preferences Section */}
             <CollapsibleSection title="Preferences" icon={Settings}>
               <ThemeManager isAuthenticated={isAuthenticated} />
+              <div className="mt-6">
+                <GcManager isAuthenticated={isAuthenticated} />
+              </div>
             </CollapsibleSection>
           </>
         )}

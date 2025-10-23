@@ -7,22 +7,8 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
-        // Optimize SQLite for bulk inserts and concurrency
-        if (Database.IsSqlite())
-        {
-            try
-            {
-                Database.ExecuteSqlRaw("PRAGMA journal_mode = WAL;");          // Write-Ahead Logging for better concurrency
-                Database.ExecuteSqlRaw("PRAGMA synchronous = NORMAL;");        // Faster but still safe
-                Database.ExecuteSqlRaw("PRAGMA cache_size = 1000000;");        // 1GB cache (1000000 pages)
-                Database.ExecuteSqlRaw("PRAGMA temp_store = MEMORY;");         // Keep temp tables in memory
-                Database.ExecuteSqlRaw("PRAGMA busy_timeout = 5000;");         // Wait up to 5 seconds for locks
-            }
-            catch
-            {
-                // Ignore PRAGMA errors - they may fail if database is busy during initialization
-            }
-        }
+        // Removed all PRAGMA settings to test if they're causing the memory leak
+        // Testing with default SQLite configuration
     }
 
     public DbSet<Download> Downloads { get; set; }

@@ -153,7 +153,9 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         dbPathInitialized = true;
     }
 
-    options.UseSqlite($"Data Source={dbPath};Cache=Shared;Pooling=false");
+    // CRITICAL FIX: Simplified connection string - no cache sharing, no pooling
+    // Testing if basic connection string prevents memory leak
+    options.UseSqlite($"Data Source={dbPath}");
 });
 
 // Register HttpClientFactory for better HTTP client management
@@ -224,6 +226,9 @@ builder.Services.AddMemoryCache(options =>
 });
 builder.Services.AddSingleton<StatsCache>();
 
+// Add GC Settings Service for configurable garbage collection
+builder.Services.AddSingleton<GcSettingsService>();
+
 // Add Output Caching for API endpoints
 builder.Services.AddOutputCache(options =>
 {
@@ -271,6 +276,9 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors("AllowAll");
+
+// GC Middleware - must run BEFORE static files to catch all requests
+app.UseMiddleware<GcMiddleware>();
 
 // Serve static files
 app.UseDefaultFiles();
