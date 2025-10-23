@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Services;
+using LancacheManager.Security;
 
 namespace LancacheManager.Controllers;
 
@@ -19,6 +20,7 @@ public class GcController : ControllerBase
     }
 
     [HttpGet("settings")]
+    [RequireAuth]
     public IActionResult GetSettings()
     {
         try
@@ -38,6 +40,7 @@ public class GcController : ControllerBase
     }
 
     [HttpPost("settings")]
+    [RequireAuth]
     public async Task<IActionResult> UpdateSettings([FromBody] UpdateGcSettingsRequest request)
     {
         try
@@ -79,6 +82,7 @@ public class GcController : ControllerBase
     }
 
     [HttpPost("trigger")]
+    [RequireAuth]
     public IActionResult TriggerGarbageCollection()
     {
         try

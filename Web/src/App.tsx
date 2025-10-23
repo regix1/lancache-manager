@@ -44,14 +44,14 @@ const AppContent: React.FC = () => {
   const [hasShownScanSkippedModal, setHasShownScanSkippedModal] = useState(false);
   const { progress } = usePicsProgress({ pollingInterval: 5000 });
 
-  // Detect when automatic scan is skipped and show modal
+  // Detect when automatic scan is skipped and show modal (only for authenticated users)
   useEffect(() => {
-    if (progress?.automaticScanSkipped && !hasShownScanSkippedModal && !showAutomaticScanSkippedModal) {
+    if (progress?.automaticScanSkipped && !hasShownScanSkippedModal && !showAutomaticScanSkippedModal && authMode === 'authenticated') {
       console.log('[App] Automatic scan skipped detected, showing modal');
       setShowAutomaticScanSkippedModal(true);
       setHasShownScanSkippedModal(true);
     }
-  }, [progress?.automaticScanSkipped, hasShownScanSkippedModal, showAutomaticScanSkippedModal]);
+  }, [progress?.automaticScanSkipped, hasShownScanSkippedModal, showAutomaticScanSkippedModal, authMode]);
 
   // Fetch server timezone on mount
   useEffect(() => {
@@ -454,8 +454,8 @@ const AppContent: React.FC = () => {
 
   return (
     <>
-      {/* Automatic Scan Skipped Modal */}
-      {showAutomaticScanSkippedModal && (
+      {/* Automatic Scan Skipped Modal - Only show for authenticated users */}
+      {showAutomaticScanSkippedModal && authMode === 'authenticated' && (
         <FullScanRequiredModal
           onCancel={handleAutomaticScanSkippedClose}
           onConfirm={handleRunFullScan}
