@@ -572,7 +572,7 @@ public class PicsDataService
         {
             // Load existing data
             var existingData = await LoadPicsDataFromJsonAsync();
-            if (existingData == null)
+            if (existingData == null || existingData.Metadata == null)
             {
                 _logger.LogWarning("Cannot update change number - no existing PICS data found");
                 return;

@@ -61,7 +61,7 @@ public class StatsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting client stats");
-            return Ok(new List<object>());
+            return Ok(new List<ClientStats>());
         }
     }
 
@@ -129,7 +129,7 @@ public class StatsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting service stats");
-            return Ok(new List<object>());
+            return Ok(new List<ServiceStats>());
         }
     }
 
@@ -381,7 +381,7 @@ public class StatsController : ControllerBase
                         until = DateTime.UtcNow,
                         interval
                     },
-                    dataPoints = new List<object>(),
+                    dataPoints = new List<TimeSeriesDataPoint>(),
                     summary = new
                     {
                         totalHitBytes = 0L,
@@ -393,32 +393,32 @@ public class StatsController : ControllerBase
             }
             
             // Group downloads by time interval
-            var dataPoints = new List<object>();
+            var dataPoints = new List<TimeSeriesDataPoint>();
             var startTime = cutoffTime ?? downloads.Min(d => d.StartTimeUtc);
             var currentTime = startTime;
             var endTime = DateTime.UtcNow;
-            
+
             while (currentTime < endTime)
             {
                 var intervalEnd = currentTime.AddMinutes(intervalMinutes);
-                
+
                 var intervalDownloads = downloads
                     .Where(d => d.StartTimeUtc >= currentTime && d.StartTimeUtc < intervalEnd)
                     .ToList();
-                    
+
                 var hitBytes = intervalDownloads.Sum(d => d.CacheHitBytes);
                 var missBytes = intervalDownloads.Sum(d => d.CacheMissBytes);
                 var totalBytes = hitBytes + missBytes;
-                
-                dataPoints.Add(new
+
+                dataPoints.Add(new TimeSeriesDataPoint
                 {
-                    timestamp = currentTime,
-                    timestampEnd = intervalEnd,
-                    cacheHits = hitBytes,
-                    cacheMisses = missBytes,
-                    totalBytes,
-                    hitRatio = totalBytes > 0 ? (double)hitBytes / totalBytes : 0,
-                    downloads = intervalDownloads.Count
+                    Timestamp = currentTime,
+                    TimestampEnd = intervalEnd,
+                    CacheHits = hitBytes,
+                    CacheMisses = missBytes,
+                    TotalBytes = totalBytes,
+                    HitRatio = totalBytes > 0 ? (double)hitBytes / totalBytes : 0,
+                    Downloads = intervalDownloads.Count
                 });
                 
                 currentTime = intervalEnd;

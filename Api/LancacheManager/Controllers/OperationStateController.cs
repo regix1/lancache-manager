@@ -1,5 +1,6 @@
 using LancacheManager.Services;
 using Microsoft.AspNetCore.Mvc;
+using System.Text.Json;
 
 namespace LancacheManager.Controllers;
 
@@ -52,7 +53,7 @@ public class OperationStateController : ControllerBase
             {
                 Key = request.Key,
                 Type = request.Type ?? string.Empty,
-                Data = request.Data ?? new Dictionary<string, object>(),
+                Data = request.Data,
                 Status = request.Status,
                 Message = request.Message,
                 ExpiresAt = DateTime.UtcNow.AddMinutes(request.ExpirationMinutes ?? 30)
@@ -83,7 +84,7 @@ public class OperationStateController : ControllerBase
                 {
                     Key = key,
                     Type = "unknown",
-                    Data = new Dictionary<string, object>(),
+                    Data = JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
                     Status = request.Status,
                     Message = request.Message,
                     ExpiresAt = DateTime.UtcNow.AddMinutes(30)
@@ -174,7 +175,7 @@ public class SaveStateRequest
 {
     public string Key { get; set; } = string.Empty;
     public string? Type { get; set; }
-    public Dictionary<string, object>? Data { get; set; }
+    public JsonElement? Data { get; set; }
     public string? Status { get; set; }
     public string? Message { get; set; }
     public int? ExpirationMinutes { get; set; }

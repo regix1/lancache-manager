@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Security;
 using LancacheManager.Constants;
 using LancacheManager.Services;
+using LancacheManager.Models;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -35,7 +36,7 @@ public class ThemeController : ControllerBase
     {
         try
         {
-            var themes = new List<object>();
+            var themes = new List<ThemeInfo>();
 
             if (!Directory.Exists(_themesPath))
             {
@@ -56,7 +57,7 @@ public class ThemeController : ControllerBase
                 try
                 {
                     var themeId = Path.GetFileNameWithoutExtension(file);
-                    
+
                     // Skip high-contrast if it exists
                     if (themeId == "high-contrast")
                     {
@@ -89,15 +90,15 @@ public class ThemeController : ControllerBase
                         version = root.TryGetProperty("version", out var v) ? v.GetString() ?? "1.0.0" : "1.0.0";
                     }
 
-                    themes.Add(new
+                    themes.Add(new ThemeInfo
                     {
-                        id = themeId,
-                        name,
-                        description,
-                        author,
-                        version,
-                        isDefault = systemThemes.Contains(themeId),
-                        format = file.EndsWith(".toml") ? "toml" : "json"
+                        Id = themeId,
+                        Name = name,
+                        Description = description,
+                        Author = author,
+                        Version = version,
+                        IsDefault = systemThemes.Contains(themeId),
+                        Format = file.EndsWith(".toml") ? "toml" : "json"
                     });
                 }
                 catch (Exception ex)

@@ -56,7 +56,6 @@ public class OperationStateService : IHostedService
 
     public void SaveState(string key, OperationState state)
     {
-        state.Data ??= new Dictionary<string, object>();
         state.CreatedAt = state.CreatedAt == default ? DateTime.UtcNow : state.CreatedAt;
         if (state.ExpiresAt == default || state.ExpiresAt <= DateTime.UtcNow)
         {
@@ -75,11 +74,16 @@ public class OperationStateService : IHostedService
         }
 
         var state = GetOrCreateState(key);
+        var dataDict = state.GetDataAsDictionary();
 
         foreach (var kvp in updates)
         {
-            state.Data[kvp.Key] = kvp.Value;
+            dataDict[kvp.Key] = kvp.Value;
         }
+
+        // Convert back to JsonElement
+        var json = JsonSerializer.Serialize(dataDict);
+        state.Data = JsonSerializer.Deserialize<JsonElement>(json);
 
         if (updates.TryGetValue("status", out var statusObj) && statusObj is string statusString)
         {
@@ -141,7 +145,7 @@ public class OperationStateService : IHostedService
         {
             Key = key,
             Type = "unknown",
-            Data = new Dictionary<string, object>(),
+            Data = JsonSerializer.SerializeToElement(new Dictionary<string, object>()),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(24)
@@ -187,90 +191,57 @@ public class OperationStateService : IHostedService
             Type = string.IsNullOrWhiteSpace(persisted.Type) ? "unknown" : persisted.Type,
             Status = persisted.Status,
             Message = persisted.Message,
-            Data = ConvertDataToDictionary(persisted.Data),
+            Data = ConvertDataToJsonElement(persisted.Data),
             CreatedAt = persisted.CreatedAt,
             UpdatedAt = persisted.UpdatedAt,
             ExpiresAt = persisted.UpdatedAt.AddHours(24)
         };
     }
 
-    private static Dictionary<string, object> ConvertDataToDictionary(object? data)
+    private static JsonElement? ConvertDataToJsonElement(object? data)
     {
-        if (data is Dictionary<string, object> dictionary)
+        if (data == null)
         {
-            return new Dictionary<string, object>(dictionary);
+            return null;
         }
 
         if (data is JsonElement jsonElement)
         {
-            switch (jsonElement.ValueKind)
-            {
-                case JsonValueKind.Object:
-                    var result = new Dictionary<string, object>();
-                    foreach (var property in jsonElement.EnumerateObject())
-                    {
-                        result[property.Name] = property.Value.ValueKind switch
-                        {
-                            JsonValueKind.String => (object)(property.Value.GetString() ?? string.Empty),
-                            JsonValueKind.Number => property.Value.TryGetInt64(out var longValue)
-                                ? (object)longValue
-                                : (object)property.Value.GetDouble(),
-                            JsonValueKind.True => (object)true,
-                            JsonValueKind.False => (object)false,
-                            JsonValueKind.Null => (object?)null!,
-                            JsonValueKind.Undefined => (object?)null!,
-                            _ => (object)(property.Value.ToString() ?? string.Empty)
-                        };
-                    }
-                    return result;
-                case JsonValueKind.Array:
-                    return new Dictionary<string, object>
-                    {
-                        { "value", jsonElement.ToString() ?? string.Empty }
-                    };
-                case JsonValueKind.Null:
-                case JsonValueKind.Undefined:
-                    return new Dictionary<string, object>();
-                default:
-                    return new Dictionary<string, object>
-                    {
-                        { "value", jsonElement.ToString() ?? string.Empty }
-                    };
-            }
+            return jsonElement;
+        }
+
+        if (data is Dictionary<string, object> dictionary)
+        {
+            return JsonSerializer.SerializeToElement(dictionary);
         }
 
         if (data is string raw)
         {
             if (string.IsNullOrWhiteSpace(raw))
             {
-                return new Dictionary<string, object>();
+                return null;
             }
 
             try
             {
-                var parsed = JsonSerializer.Deserialize<Dictionary<string, object>>(raw);
-                if (parsed != null)
-                {
-                    return parsed;
-                }
+                return JsonSerializer.Deserialize<JsonElement>(raw);
             }
             catch
             {
-                // Ignore parse failures and fall back to empty dictionary below
+                // If it's not valid JSON, wrap it as a string value
+                return JsonSerializer.SerializeToElement(new Dictionary<string, string> { { "value", raw } });
             }
-
-            return new Dictionary<string, object>();
         }
 
-        if (data != null)
+        // For any other type, try to serialize it
+        try
         {
-            return new Dictionary<string, object>
-            {
-                { "value", data }
-            };
+            return JsonSerializer.SerializeToElement(data);
         }
-
-        return new Dictionary<string, object>();
+        catch
+        {
+            return null;
+        }
     }
 
     private void LoadStatesFromStateService()
@@ -403,9 +374,10 @@ public class OperationStateService : IHostedService
                 activeLogOperation.Data != null)
             {
                 _logger.LogInformation("Found activeLogProcessing operation");
+                var dataDict = activeLogOperation.GetDataAsDictionary();
 
                 // Check if the operation was processing when interrupted
-                if (activeLogOperation.Data.TryGetValue("isProcessing", out var isProcessingObj))
+                if (dataDict.TryGetValue("isProcessing", out var isProcessingObj))
                 {
                     bool isProcessing = false;
 
@@ -426,7 +398,7 @@ public class OperationStateService : IHostedService
                     {
                         // Check if the operation is actually complete (stuck at 99.9% or higher)
                         double percentComplete = 0;
-                        if (activeLogOperation.Data.TryGetValue("percentComplete", out var percentObj))
+                        if (dataDict.TryGetValue("percentComplete", out var percentObj))
                         {
                             if (percentObj is double dbl)
                                 percentComplete = dbl;
@@ -444,10 +416,11 @@ public class OperationStateService : IHostedService
                             _logger.LogInformation("Operation was near completion ({PercentComplete}%), marking as complete instead of resuming", percentComplete);
 
                             // Mark as complete
-                            activeLogOperation.Data["isProcessing"] = false;
-                            activeLogOperation.Data["status"] = "complete";
-                            activeLogOperation.Data["percentComplete"] = 100.0;
-                            activeLogOperation.Data["completedAt"] = DateTime.UtcNow;
+                            dataDict["isProcessing"] = false;
+                            dataDict["status"] = "complete";
+                            dataDict["percentComplete"] = 100.0;
+                            dataDict["completedAt"] = DateTime.UtcNow;
+                            activeLogOperation.Data = JsonSerializer.SerializeToElement(dataDict);
                             activeLogOperation.Status = "complete";
                             activeLogOperation.UpdatedAt = DateTime.UtcNow;
 
@@ -462,8 +435,9 @@ public class OperationStateService : IHostedService
                             _logger.LogInformation("Found interrupted log processing operation at {PercentComplete}%, marking for resume", percentComplete);
 
                             // Set resume flag to true
-                            activeLogOperation.Data["resume"] = true;
-                            activeLogOperation.Data["status"] = "resuming";
+                            dataDict["resume"] = true;
+                            dataDict["status"] = "resuming";
+                            activeLogOperation.Data = JsonSerializer.SerializeToElement(dataDict);
                             activeLogOperation.UpdatedAt = DateTime.UtcNow;
 
                             // Update the state in memory and persist it
@@ -521,10 +495,64 @@ public class OperationState
 {
     public string Key { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
-    public Dictionary<string, object> Data { get; set; } = new();
+    public JsonElement? Data { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ExpiresAt { get; set; }
     public string? Status { get; set; }
     public string? Message { get; set; }
+
+    /// <summary>
+    /// Helper method to get Data as a dictionary for backward compatibility
+    /// </summary>
+    public Dictionary<string, object> GetDataAsDictionary()
+    {
+        if (Data == null || Data.Value.ValueKind == JsonValueKind.Null || Data.Value.ValueKind == JsonValueKind.Undefined)
+            return new Dictionary<string, object>();
+
+        if (Data.Value.ValueKind == JsonValueKind.Object)
+        {
+            var dict = new Dictionary<string, object>();
+            foreach (var prop in Data.Value.EnumerateObject())
+            {
+                dict[prop.Name] = ConvertJsonElementToObject(prop.Value);
+            }
+            return dict;
+        }
+
+        return new Dictionary<string, object>();
+    }
+
+    /// <summary>
+    /// Helper method to get strongly-typed data
+    /// </summary>
+    public T? GetDataAs<T>() where T : class
+    {
+        if (Data == null || Data.Value.ValueKind == JsonValueKind.Null || Data.Value.ValueKind == JsonValueKind.Undefined)
+            return null;
+
+        try
+        {
+            return JsonSerializer.Deserialize<T>(Data.Value.GetRawText());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static object ConvertJsonElementToObject(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString() ?? string.Empty,
+            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null!,
+            JsonValueKind.Object => element.Deserialize<Dictionary<string, object>>() ?? new Dictionary<string, object>(),
+            JsonValueKind.Array => element.Deserialize<List<object>>() ?? new List<object>(),
+            _ => element.GetRawText()
+        };
+    }
 }

@@ -20,7 +20,6 @@ public class GcController : ControllerBase
     }
 
     [HttpGet("settings")]
-    [RequireAuth]
     public IActionResult GetSettings()
     {
         try

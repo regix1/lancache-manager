@@ -1393,7 +1393,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     /// <summary>
     /// Check if incremental scan is viable or if change gap is too large (will trigger full scan)
     /// </summary>
-    public async Task<object> CheckIncrementalViabilityAsync(CancellationToken ct)
+    public async Task<IncrementalViabilityCheck> CheckIncrementalViabilityAsync(CancellationToken ct)
     {
         try
         {
@@ -1443,15 +1443,15 @@ public class SteamKit2Service : IHostedService, IDisposable
                         incrementalChanges.RequiresFullUpdate, incrementalChanges.RequiresFullAppUpdate);
                 }
 
-                return new
+                return new IncrementalViabilityCheck
                 {
-                    isViable = !willRequireFullScan,
-                    lastChangeNumber = changeNumberToCheck,
-                    currentChangeNumber = currentChangeNumber,
-                    changeGap = changeGap,
-                    isLargeGap = willRequireFullScan,
-                    willTriggerFullScan = willRequireFullScan,
-                    estimatedAppsToScan = willRequireFullScan ? 270000 : (int)Math.Min(changeGap * 2, 50000) // Rough estimate
+                    IsViable = !willRequireFullScan,
+                    LastChangeNumber = changeNumberToCheck,
+                    CurrentChangeNumber = currentChangeNumber,
+                    ChangeGap = changeGap,
+                    IsLargeGap = willRequireFullScan,
+                    WillTriggerFullScan = willRequireFullScan,
+                    EstimatedAppsToScan = willRequireFullScan ? 270000 : (int)Math.Min(changeGap * 2, 50000) // Rough estimate
                 };
             }
             finally
@@ -1479,16 +1479,16 @@ public class SteamKit2Service : IHostedService, IDisposable
             catch { }
 
             // If we can't check viability, assume full scan is required for safety
-            return new
+            return new IncrementalViabilityCheck
             {
-                isViable = false,
-                lastChangeNumber = changeNumberForError,
-                currentChangeNumber = (uint)0,
-                changeGap = (uint)0,
-                isLargeGap = true,
-                willTriggerFullScan = true,
-                estimatedAppsToScan = 270000,
-                error = tex.Message
+                IsViable = false,
+                LastChangeNumber = changeNumberForError,
+                CurrentChangeNumber = 0,
+                ChangeGap = 0,
+                IsLargeGap = true,
+                WillTriggerFullScan = true,
+                EstimatedAppsToScan = 270000,
+                Error = tex.Message
             };
         }
         catch (Exception ex)
@@ -1505,21 +1505,21 @@ public class SteamKit2Service : IHostedService, IDisposable
             catch { }
 
             // If we can't check viability, assume full scan is required for safety
-            return new
+            return new IncrementalViabilityCheck
             {
-                isViable = false,
-                lastChangeNumber = changeNumberForError,
-                currentChangeNumber = (uint)0,
-                changeGap = (uint)0,
-                isLargeGap = true,
-                willTriggerFullScan = true,
-                estimatedAppsToScan = 270000,
-                error = ex.Message
+                IsViable = false,
+                LastChangeNumber = changeNumberForError,
+                CurrentChangeNumber = 0,
+                ChangeGap = 0,
+                IsLargeGap = true,
+                WillTriggerFullScan = true,
+                EstimatedAppsToScan = 270000,
+                Error = ex.Message
             };
         }
     }
 
-    public object GetProgress()
+    public SteamPicsProgress GetProgress()
     {
         // If never crawled, initialize to current time so next crawl is in the future
         if (_lastCrawlTime == DateTime.MinValue)
@@ -1537,7 +1537,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         var authMode = _stateService.GetSteamAuthMode();
         var isAuthenticated = authMode == "authenticated" && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
 
-        return new
+        return new SteamPicsProgress
         {
             IsRunning = IsRebuildRunning,
             Status = _currentStatus,

@@ -68,15 +68,15 @@ public class DownloadsController : ControllerBase
                     continue;
                 }
                 _logger.LogError(ex, "Database locked after retries");
-                return Ok(new List<object>());
+                return Ok(new List<Download>());
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting latest downloads");
-                return Ok(new List<object>());
+                return Ok(new List<Download>());
             }
         }
-        return Ok(new List<object>());
+        return Ok(new List<Download>());
     }
 
     [HttpGet("active")]
@@ -92,7 +92,7 @@ public class DownloadsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting active downloads");
-            return Ok(new List<object>());
+            return Ok(new List<Download>());
         }
     }
 }
