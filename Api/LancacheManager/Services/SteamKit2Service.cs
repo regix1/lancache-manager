@@ -243,6 +243,65 @@ public class SteamKit2Service : IHostedService, IDisposable
         SetupPeriodicCrawls();
     }
 
+    /// <summary>
+    /// Get the current Steam change number (used to update metadata after GitHub downloads)
+    /// </summary>
+    public async Task<uint> GetCurrentChangeNumberAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            // Ensure we're connected
+            bool wasConnected = _isLoggedOn && _steamClient?.IsConnected == true;
+            if (!wasConnected)
+            {
+                await ConnectAndLoginAsync(ct);
+            }
+
+            try
+            {
+                // Get current change number from Steam
+                var job = _steamApps!.PICSGetChangesSince(0, false, false);
+                var changes = await WaitForCallbackAsync(job, ct);
+                return changes.CurrentChangeNumber;
+            }
+            finally
+            {
+                // Keep connection alive for a short period if we just connected
+                if (!wasConnected && _steamClient?.IsConnected == true)
+                {
+                    _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
+                    StartIdleDisconnectTimer();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get current change number from Steam");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Update the last crawl time to now (used after manual data imports like GitHub downloads)
+    /// </summary>
+    public void UpdateLastCrawlTime()
+    {
+        _lastCrawlTime = DateTime.UtcNow;
+        _logger.LogInformation("Updated last crawl time to {Time} (prevents automatic scan from triggering)", _lastCrawlTime);
+    }
+
+    /// <summary>
+    /// Clear the automatic scan skipped flag (used after manual actions like GitHub downloads or forced scans)
+    /// </summary>
+    public void ClearAutomaticScanSkippedFlag()
+    {
+        if (_automaticScanSkipped)
+        {
+            _automaticScanSkipped = false;
+            _logger.LogInformation("Cleared automatic scan skipped flag");
+        }
+    }
+
     private void SetupPeriodicCrawls()
     {
         // Don't set up timer if interval is 0 (disabled)

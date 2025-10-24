@@ -386,12 +386,48 @@ public class GameInfoController : ControllerBase
             _logger.LogInformation("Applying depot mappings to existing downloads");
             await _steamKit2Service.ManuallyApplyDepotMappings();
 
+            // Get current change number from Steam and update JSON metadata
+            // This allows incremental scans to work from the current position going forward
+            try
+            {
+                _logger.LogInformation("Getting current Steam change number to update GitHub data metadata");
+                var currentChangeNumber = await _steamKit2Service.GetCurrentChangeNumberAsync(cancellationToken);
+                await _picsDataService.UpdateLastChangeNumberAsync(currentChangeNumber);
+                _logger.LogInformation("Updated JSON metadata with current change number {ChangeNumber} - incremental scans will now work", currentChangeNumber);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update change number in JSON metadata - incremental scans may not work until next full scan");
+            }
+
+            // Clear the automatic scan skipped flag since user took manual action
+            _steamKit2Service.ClearAutomaticScanSkippedFlag();
+
             // Enable periodic crawls now that we have initial data
             _steamKit2Service.EnablePeriodicCrawls();
 
+            // Trigger a simple incremental scan to catch recent updates (no viability check, just do it)
+            // This runs synchronously to avoid connection conflicts
+            var scanStarted = _steamKit2Service.TryStartRebuild(CancellationToken.None, incrementalOnly: true);
+
+            if (scanStarted)
+            {
+                _logger.LogInformation("Started incremental scan after GitHub download to catch recent updates");
+                // Update last crawl time after scan starts successfully
+                _steamKit2Service.UpdateLastCrawlTime();
+            }
+            else
+            {
+                _logger.LogWarning("Could not start incremental scan after GitHub download (another scan may be running)");
+                // Still update last crawl time to prevent immediate retry
+                _steamKit2Service.UpdateLastCrawlTime();
+            }
+
             return Ok(new
             {
-                message = "Pre-created depot data downloaded and imported successfully",
+                message = scanStarted
+                    ? "Pre-created depot data downloaded and imported successfully. Starting incremental scan to catch recent updates..."
+                    : "Pre-created depot data downloaded and imported successfully",
                 source = "GitHub",
                 url = githubUrl,
                 localPath = localPath,

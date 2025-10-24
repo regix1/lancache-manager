@@ -564,6 +564,51 @@ public class PicsDataService
     public string GetPicsJsonFilePath() => _picsJsonFile;
 
     /// <summary>
+    /// Update the LastChangeNumber in the JSON file metadata (used after GitHub downloads)
+    /// </summary>
+    public async Task UpdateLastChangeNumberAsync(uint newChangeNumber)
+    {
+        try
+        {
+            // Load existing data
+            var existingData = await LoadPicsDataFromJsonAsync();
+            if (existingData == null)
+            {
+                _logger.LogWarning("Cannot update change number - no existing PICS data found");
+                return;
+            }
+
+            // Update metadata
+            existingData.Metadata.LastChangeNumber = newChangeNumber;
+            existingData.Metadata.LastUpdated = DateTime.UtcNow;
+
+            // Save back to file
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            };
+
+            var jsonContent = JsonSerializer.Serialize(existingData, jsonOptions);
+
+            lock (_fileLock)
+            {
+                File.WriteAllText(_picsJsonFile, jsonContent);
+            }
+
+            // Clear cache
+            ClearCache();
+
+            _logger.LogInformation("Updated PICS JSON metadata: LastChangeNumber = {ChangeNumber}", newChangeNumber);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating change number in PICS JSON file");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Combine source information for depot mappings
     /// </summary>
     private string GetCombinedSource(string existingSource, string newSource)
