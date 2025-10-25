@@ -76,7 +76,7 @@ class ApiService {
     endTime?: number
   ): Promise<Download[]> {
     try {
-      const actualCount = count === 'unlimited' ? 9999 : count;
+      const actualCount = count === 'unlimited' ? 2147483647 : count;
       let url = `${API_BASE}/downloads/latest?count=${actualCount}`;
       if (startTime) url += `&startTime=${startTime}`;
       if (endTime) url += `&endTime=${endTime}`;

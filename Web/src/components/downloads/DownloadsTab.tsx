@@ -74,6 +74,7 @@ const DownloadsTab: React.FC = () => {
     latestDownloads = [],
     loading,
     mockMode,
+    apiDownloadCount,
     updateMockDataCount,
     updateApiDownloadCount
   } = useData();
@@ -1045,7 +1046,7 @@ const DownloadsTab: React.FC = () => {
               <span className="whitespace-nowrap">
                 ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'}
                 {filteredDownloads.length !== latestDownloads.length &&
-                  ` of ${latestDownloads.length} total`})
+                  ` of ${apiDownloadCount === 'unlimited' ? 'unlimited' : latestDownloads.length} total`})
               </span>
             </span>
             {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (

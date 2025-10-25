@@ -339,22 +339,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
               ) : (
                 <>
                   {!loading && latestDownloads.length > 0 && (
-                    <>
-                      <span className="text-xs text-themed-muted whitespace-nowrap">
-                        {groupedItems.displayedItems.length} of {groupedItems.totalGroups} groups
-                      </span>
-                      <span className="text-xs text-themed-muted whitespace-nowrap">•</span>
-                      <span className="text-xs text-themed-muted whitespace-nowrap">
-                        {stats.displayedDownloads} of {stats.totalDownloads} {stats.totalDownloads === 1 ? 'download' : 'downloads'}
-                      </span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${
-                          stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
-                        }`}
-                      >
-                        {formatPercent(stats.overallHitRate)} hit
-                      </span>
-                    </>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${
+                        stats.overallHitRate > 50 ? 'hit-rate-high' : 'hit-rate-warning'
+                      }`}
+                    >
+                      {formatPercent(stats.overallHitRate)} hit
+                    </span>
                   )}
                   <span className="text-xs text-themed-muted whitespace-nowrap">{getTimeRangeLabel}</span>
                 </>
