@@ -37,7 +37,10 @@ public class MemoryController : ControllerBase
 
         var gcMemoryInfo = GC.GetGCMemoryInfo();
         var totalMemory = GC.GetTotalMemory(false);
-        var process = System.Diagnostics.Process.GetCurrentProcess();
+
+        // MEMORY LEAK FIX: Dispose Process object to prevent leak
+        // Each call to GetCurrentProcess() creates a new object that must be disposed
+        using var process = System.Diagnostics.Process.GetCurrentProcess();
 
         // Calculate managed vs unmanaged memory
         var workingSetBytes = process.WorkingSet64;
