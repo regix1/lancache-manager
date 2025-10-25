@@ -106,6 +106,10 @@ ENV TZ=UTC
 ENV DOTNET_RUNNING_IN_CONTAINER=true
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
+# Use .NET 6 GC to fix .NET 7/8 memory leak regression on Linux
+# The standalone GC (libclrgc.so) ships with .NET 8 runtime for regression testing
+ENV DOTNET_GCName=libclrgc.so
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD curl -f http://localhost/health || exit 1
