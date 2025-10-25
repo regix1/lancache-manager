@@ -161,6 +161,8 @@ public class CacheManagementService
 
     public async Task RemoveServiceFromLogs(string service)
     {
+        // Use semaphore to ensure only one Rust process runs at a time
+        await _cacheLock.WaitAsync();
         try
         {
             // Invalidate cache since we're modifying logs
@@ -258,16 +260,22 @@ public class CacheManagementService
             _logger.LogError(ex, $"Error removing {service} from logs with Rust binary");
             throw;
         }
+        finally
+        {
+            _cacheLock.Release();
+        }
     }
 
     public async Task<Dictionary<string, long>> GetServiceLogCounts(bool forceRefresh = false)
     {
-        // Use Rust binary which has its own file-based caching with modification time validation
-        // No need for C# in-memory cache - Rust handles it efficiently
-        var counts = new Dictionary<string, long>();
-
+        // Use semaphore to ensure only one Rust process runs at a time
+        await _cacheLock.WaitAsync();
         try
         {
+            // Use Rust binary which has its own file-based caching with modification time validation
+            // No need for C# in-memory cache - Rust handles it efficiently
+            var counts = new Dictionary<string, long>();
+
             // Extract log directory - Rust will discover all log files (access.log, .1, .2.gz, etc.)
             var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
 
@@ -385,6 +393,8 @@ public class CacheManagementService
                     }
                 }
             }
+
+            return counts;
         }
         catch (Exception ex)
         {
@@ -392,7 +402,7 @@ public class CacheManagementService
             if (ex.Message.Contains("No such file or directory") || ex.Message.Contains("os error 2"))
             {
                 LogThrottledWarning($"Log file not accessible: {_logPath}. Returning empty service counts.");
-                return counts;
+                return new Dictionary<string, long>();
             }
 
             // Log the full exception details for debugging
@@ -400,8 +410,10 @@ public class CacheManagementService
                 ex.GetType().Name, ex.Message);
             throw;
         }
-
-        return counts;
+        finally
+        {
+            _cacheLock.Release();
+        }
     }
 
     /// <summary>
@@ -544,68 +556,77 @@ public class CacheManagementService
     /// </summary>
     public async Task<Dictionary<string, long>> GetCorruptionSummary(bool forceRefresh = false)
     {
-        var logDir = _pathResolver.GetLogsDirectory();
-        var cacheDir = _cachePath;
-        var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
-
-        var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
-
-        if (!File.Exists(rustBinaryPath))
+        // Use semaphore to ensure only one Rust process runs at a time
+        await _cacheLock.WaitAsync();
+        try
         {
-            var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-            _logger.LogError(errorMsg);
-            throw new FileNotFoundException(errorMsg);
+            var logDir = _pathResolver.GetLogsDirectory();
+            var cacheDir = _cachePath;
+            var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
+
+            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
+
+            if (!File.Exists(rustBinaryPath))
+            {
+                var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = rustBinaryPath,
+                Arguments = $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new Exception("Failed to start corruption_manager process");
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                await process.WaitForExitAsync();
+
+                var output = await outputTask;
+                var error = await errorTask;
+
+                _logger.LogInformation("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
+                    throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+                }
+
+                // Parse JSON output from Rust binary
+                var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (summaryData?.ServiceCounts == null)
+                {
+                    _logger.LogInformation("[CorruptionDetection] No service counts in result");
+                    return new Dictionary<string, long>();
+                }
+
+                var finalResult = summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
+                _logger.LogInformation("[CorruptionDetection] Summary generated: {Services}",
+                    string.Join(", ", finalResult.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+
+                // No caching needed - Rust binary is fast enough to run on every request
+                return finalResult;
+            }
         }
-
-        var startInfo = new ProcessStartInfo
+        finally
         {
-            FileName = rustBinaryPath,
-            Arguments = $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using (var process = Process.Start(startInfo))
-        {
-            if (process == null)
-            {
-                throw new Exception("Failed to start corruption_manager process");
-            }
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-
-            await process.WaitForExitAsync();
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            _logger.LogInformation("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
-                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
-            }
-
-            // Parse JSON output from Rust binary
-            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            if (summaryData?.ServiceCounts == null)
-            {
-                _logger.LogInformation("[CorruptionDetection] No service counts in result");
-                return new Dictionary<string, long>();
-            }
-
-            var finalResult = summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-            _logger.LogInformation("[CorruptionDetection] Summary generated: {Services}",
-                string.Join(", ", finalResult.Select(kvp => $"{kvp.Key}={kvp.Value}")));
-
-            // No caching needed - Rust binary is fast enough to run on every request
-            return finalResult;
+            _cacheLock.Release();
         }
     }
 
@@ -614,69 +635,78 @@ public class CacheManagementService
     /// </summary>
     public async Task RemoveCorruptedChunks(string service)
     {
-        _logger.LogInformation("[CorruptionDetection] RemoveCorruptedChunks for service: {Service}", service);
-
-        var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
-        var cacheDir = _cachePath;
-        var dataDir = _pathResolver.GetDataDirectory();
-        var progressPath = Path.Combine(dataDir, "corruption_removal_progress.json");
-
-        _logger.LogInformation("[CorruptionDetection] Removal params - logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
-            logDir, cacheDir, progressPath);
-
-        var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
-
-        if (!File.Exists(rustBinaryPath))
+        // Use semaphore to ensure only one Rust process runs at a time
+        await _cacheLock.WaitAsync();
+        try
         {
-            var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-            _logger.LogError(errorMsg);
-            throw new FileNotFoundException(errorMsg);
+            _logger.LogInformation("[CorruptionDetection] RemoveCorruptedChunks for service: {Service}", service);
+
+            var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
+            var cacheDir = _cachePath;
+            var dataDir = _pathResolver.GetDataDirectory();
+            var progressPath = Path.Combine(dataDir, "corruption_removal_progress.json");
+
+            _logger.LogInformation("[CorruptionDetection] Removal params - logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
+                logDir, cacheDir, progressPath);
+
+            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
+
+            if (!File.Exists(rustBinaryPath))
+            {
+                var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = rustBinaryPath,
+                Arguments = $"remove \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new Exception("Failed to start corruption_manager process");
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                await process.WaitForExitAsync();
+
+                var output = await outputTask;
+                var error = await errorTask;
+
+                _logger.LogInformation("[CorruptionDetection] Removal process exit code: {Code}", process.ExitCode);
+                _logger.LogInformation("[CorruptionDetection] Removal stdout: {Output}", output);
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogWarning("[CorruptionDetection] Removal stderr: {Error}", error);
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogError("[CorruptionDetection] Removal failed with exit code {Code}: {Error}", process.ExitCode, error);
+                    throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
+                }
+
+                _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service}", service);
+            }
+
+            // No corruption summary cache to invalidate (Rust runs fresh each time)
+            // Invalidate service count cache since corruption removal affects counts
+            await InvalidateServiceCountsCache();
         }
-
-        var startInfo = new ProcessStartInfo
+        finally
         {
-            FileName = rustBinaryPath,
-            Arguments = $"remove \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using (var process = Process.Start(startInfo))
-        {
-            if (process == null)
-            {
-                throw new Exception("Failed to start corruption_manager process");
-            }
-
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-
-            await process.WaitForExitAsync();
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            _logger.LogInformation("[CorruptionDetection] Removal process exit code: {Code}", process.ExitCode);
-            _logger.LogInformation("[CorruptionDetection] Removal stdout: {Output}", output);
-            if (!string.IsNullOrEmpty(error))
-            {
-                _logger.LogWarning("[CorruptionDetection] Removal stderr: {Error}", error);
-            }
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("[CorruptionDetection] Removal failed with exit code {Code}: {Error}", process.ExitCode, error);
-                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
-            }
-
-            _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service}", service);
+            _cacheLock.Release();
         }
-
-        // No corruption summary cache to invalidate (Rust runs fresh each time)
-        // Invalidate service count cache since corruption removal affects counts
-        await InvalidateServiceCountsCache();
     }
 
     /// <summary>
@@ -684,26 +714,30 @@ public class CacheManagementService
     /// </summary>
     public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false)
     {
-        _logger.LogInformation("[CorruptionDetection] GetCorruptionDetails for service: {Service}, forceRefresh: {ForceRefresh}",
-            service, forceRefresh);
-
-        var logDir = _pathResolver.GetLogsDirectory();
-        var cacheDir = _cachePath;
-        var dataDir = _pathResolver.GetDataDirectory();
-        var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
-        var outputJson = Path.Combine(dataDir, $"corruption_details_{service}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
-
-        var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
-
-        if (!File.Exists(rustBinaryPath))
-        {
-            var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-            _logger.LogError(errorMsg);
-            throw new FileNotFoundException(errorMsg);
-        }
-
+        // Use semaphore to ensure only one Rust process runs at a time
+        await _cacheLock.WaitAsync();
         try
         {
+            _logger.LogInformation("[CorruptionDetection] GetCorruptionDetails for service: {Service}, forceRefresh: {ForceRefresh}",
+                service, forceRefresh);
+
+            var logDir = _pathResolver.GetLogsDirectory();
+            var cacheDir = _cachePath;
+            var dataDir = _pathResolver.GetDataDirectory();
+            var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
+            var outputJson = Path.Combine(dataDir, $"corruption_details_{service}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
+
+            if (!File.Exists(rustBinaryPath))
+            {
+                var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            try
+            {
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
@@ -786,6 +820,11 @@ public class CacheManagementService
         {
             _logger.LogError(ex, "[CorruptionDetection] Error getting corruption details for service {Service}", service);
             throw;
+        }
+        }
+        finally
+        {
+            _cacheLock.Release();
         }
     }
 }
