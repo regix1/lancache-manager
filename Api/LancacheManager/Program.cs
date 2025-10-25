@@ -80,10 +80,31 @@ builder.Services.AddCors(options =>
 if (OperatingSystemDetector.IsWindows)
 {
     builder.Services.AddSingleton<IPathResolver, WindowsPathResolver>();
+    builder.Services.AddSingleton<IMemoryManager, WindowsMemoryManager>();
+    Console.WriteLine("Platform: Windows - Using WindowsMemoryManager");
 }
 else if (OperatingSystemDetector.IsLinux)
 {
     builder.Services.AddSingleton<IPathResolver, LinuxPathResolver>();
+    builder.Services.AddSingleton<IMemoryManager, LinuxMemoryManager>();
+    Console.WriteLine("Platform: Linux - Using LinuxMemoryManager with glibc malloc optimizations");
+
+    // Log environment variable overrides if present
+    var mallocArenaMax = Environment.GetEnvironmentVariable("MALLOC_ARENA_MAX");
+    var mallocTrimThreshold = Environment.GetEnvironmentVariable("MALLOC_TRIM_THRESHOLD_");
+
+    if (!string.IsNullOrEmpty(mallocArenaMax))
+    {
+        Console.WriteLine($"  MALLOC_ARENA_MAX environment override detected: {mallocArenaMax}");
+    }
+    if (!string.IsNullOrEmpty(mallocTrimThreshold))
+    {
+        Console.WriteLine($"  MALLOC_TRIM_THRESHOLD_ environment override detected: {mallocTrimThreshold}");
+    }
+    if (string.IsNullOrEmpty(mallocArenaMax) && string.IsNullOrEmpty(mallocTrimThreshold))
+    {
+        Console.WriteLine("  Using automatic malloc configuration (M_ARENA_MAX=4, M_TRIM_THRESHOLD=128KB)");
+    }
 }
 else
 {

@@ -9,13 +9,15 @@ namespace LancacheManager.Controllers;
 public class GcController : ControllerBase
 {
     private readonly GcSettingsService _gcSettingsService;
+    private readonly IMemoryManager _memoryManager;
     private readonly ILogger<GcController> _logger;
     private static DateTime _lastGcTriggerTime = DateTime.MinValue;
     private static readonly object _gcTriggerLock = new object();
 
-    public GcController(GcSettingsService gcSettingsService, ILogger<GcController> logger)
+    public GcController(GcSettingsService gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger)
     {
         _gcSettingsService = gcSettingsService;
+        _memoryManager = memoryManager;
         _logger = logger;
     }
 
@@ -116,11 +118,10 @@ public class GcController : ControllerBase
                 var process = System.Diagnostics.Process.GetCurrentProcess();
                 var beforeMB = process.WorkingSet64 / (1024.0 * 1024.0);
 
-                // Use proper pattern for releasing unmanaged SQLite memory
-                GC.Collect(2, GCCollectionMode.Aggressive, true, true);
-                GC.WaitForPendingFinalizers();
-                GC.Collect(2, GCCollectionMode.Aggressive, true, true);
-                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                // Use platform-specific memory manager for garbage collection
+                // On Linux, this includes malloc_trim to force glibc to return memory to OS
+                // On Windows, standard GC is sufficient
+                _memoryManager.PerformAggressiveGarbageCollection(_logger);
 
                 _lastGcTriggerTime = DateTime.UtcNow;
 

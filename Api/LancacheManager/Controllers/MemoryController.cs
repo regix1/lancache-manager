@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Security;
+using LancacheManager.Services;
 
 namespace LancacheManager.Controllers;
 
@@ -7,10 +8,12 @@ namespace LancacheManager.Controllers;
 [Route("api/[controller]")]
 public class MemoryController : ControllerBase
 {
+    private readonly IMemoryManager _memoryManager;
     private readonly ILogger<MemoryController> _logger;
 
-    public MemoryController(ILogger<MemoryController> logger)
+    public MemoryController(IMemoryManager memoryManager, ILogger<MemoryController> logger)
     {
+        _memoryManager = memoryManager;
         _logger = logger;
     }
 
@@ -26,9 +29,10 @@ public class MemoryController : ControllerBase
         if (forceGC)
         {
             _logger.LogWarning("Forcing garbage collection - this should only be used for diagnostics");
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
+            // Use platform-specific memory manager for garbage collection
+            // On Linux, this includes malloc_trim to force glibc to return memory to OS
+            // On Windows, standard GC is sufficient
+            _memoryManager.PerformAggressiveGarbageCollection(_logger);
         }
 
         var gcMemoryInfo = GC.GetGCMemoryInfo();

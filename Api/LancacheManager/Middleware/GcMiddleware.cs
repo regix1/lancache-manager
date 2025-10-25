@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using LancacheManager.Services;
-using Microsoft.Data.Sqlite;
 
 namespace LancacheManager.Middleware;
 
@@ -13,14 +12,16 @@ public class GcMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<GcMiddleware> _logger;
     private readonly GcSettingsService _gcSettingsService;
+    private readonly IMemoryManager _memoryManager;
     private static DateTime _lastGcTime = DateTime.MinValue;
     private static readonly object _gcLock = new object();
 
-    public GcMiddleware(RequestDelegate next, ILogger<GcMiddleware> logger, GcSettingsService gcSettingsService)
+    public GcMiddleware(RequestDelegate next, ILogger<GcMiddleware> logger, GcSettingsService gcSettingsService, IMemoryManager memoryManager)
     {
         _next = next;
         _logger = logger;
         _gcSettingsService = gcSettingsService;
+        _memoryManager = memoryManager;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -76,19 +77,10 @@ public class GcMiddleware
 
                 if (shouldRunGc && now - _lastGcTime >= minTimeBetweenChecks)
                 {
-                    // Force generation 2 collection to clean up unmanaged SQLite memory
-                    // Using the proper pattern for releasing unmanaged resources:
-                    // 1. Collect managed objects
-                    // 2. Wait for finalizers to run (releases unmanaged resources)
-                    // 3. Collect again to clean up finalized objects
-                    // 4. Clear SQLite connection pool to release native memory
-                    GC.Collect(2, GCCollectionMode.Aggressive, true, true);
-                    GC.WaitForPendingFinalizers();
-                    GC.Collect(2, GCCollectionMode.Aggressive, true, true);
-
-                    // CRITICAL: Clear SQLite connection pool to free native memory
-                    // This forces any pooled connections to be discarded and their unmanaged memory released
-                    SqliteConnection.ClearAllPools();
+                    // Use platform-specific memory manager for garbage collection
+                    // On Linux, this includes malloc_trim to force glibc to return memory to OS
+                    // On Windows, standard GC + SQLite pool clearing is sufficient
+                    _memoryManager.PerformAggressiveGarbageCollection(_logger);
 
                     _lastGcTime = DateTime.UtcNow;
 
