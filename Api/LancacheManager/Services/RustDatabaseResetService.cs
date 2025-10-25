@@ -117,8 +117,8 @@ public class RustDatabaseResetService
                 throw new Exception("Failed to start rust database reset process");
             }
 
-            // Monitor stdout
-            _ = Task.Run(async () =>
+            // Monitor stdout - track task for proper cleanup
+            var stdoutTask = Task.Run(async () =>
             {
                 while (!_rustProcess.StandardOutput.EndOfStream)
                 {
@@ -130,8 +130,8 @@ public class RustDatabaseResetService
                 }
             });
 
-            // Monitor stderr - log all as debug since warnings/errors would be in progress JSON
-            _ = Task.Run(async () =>
+            // Monitor stderr - log all as debug since warnings/errors would be in progress JSON, track task for proper cleanup
+            var stderrTask = Task.Run(async () =>
             {
                 while (!_rustProcess.StandardError.EndOfStream)
                 {
@@ -150,6 +150,20 @@ public class RustDatabaseResetService
 
             var exitCode = _rustProcess.ExitCode;
             _logger.LogInformation($"rust database reset exited with code {exitCode}");
+
+            // Wait for stdout/stderr reading tasks to complete
+            try
+            {
+                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Timeout waiting for stdout/stderr tasks to complete");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
+            }
 
             // Stop the progress monitoring task immediately
             _cancellationTokenSource.Cancel();
