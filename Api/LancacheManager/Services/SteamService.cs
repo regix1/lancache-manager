@@ -291,6 +291,7 @@ public class SteamService : IHostedService, IDisposable
 
             // Save depot mappings (if new entries were discovered)
             var existingMappings = await dbContext.SteamDepotMappings
+                .AsNoTracking()
                 .ToDictionaryAsync(m => (m.DepotId, m.AppId));
 
             var added = 0;
