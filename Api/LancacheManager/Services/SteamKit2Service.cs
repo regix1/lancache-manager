@@ -409,7 +409,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                         _logger.LogInformation("Checking incremental scan viability before starting scheduled scan");
                         var viability = await CheckIncrementalViabilityAsync(_cancellationTokenSource.Token);
                         var viabilityObj = viability as dynamic;
-                        if (viabilityObj?.willTriggerFullScan == true)
+                        if (viabilityObj?.WillTriggerFullScan == true)
                         {
                             _logger.LogWarning("Scheduled incremental scan skipped - Steam requires full scan (change gap too large). User must manually trigger a full scan.");
                             _automaticScanSkipped = true;
