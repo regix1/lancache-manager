@@ -5,6 +5,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown, DropdownOption } from '../ui/EnhancedDropdown';
 import { API_BASE } from '../../utils/constants';
+import authService from '../../services/auth.service';
 
 interface GcSettings {
   aggressiveness: string;
@@ -57,7 +58,9 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/gc/settings`);
+      const response = await fetch(`${API_BASE}/gc/settings`, {
+        headers: authService.getAuthHeaders()
+      });
       if (response.ok) {
         const data = await response.json();
         setSettings(data);
@@ -80,6 +83,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       const response = await fetch(`${API_BASE}/gc/settings`, {
         method: 'POST',
         headers: {
+          ...authService.getAuthHeaders(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(settings)
