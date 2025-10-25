@@ -8,7 +8,7 @@ namespace LancacheManager.Services;
 /// Service for collecting and exposing LanCache-specific metrics to Prometheus/Grafana
 /// Uses OpenTelemetry Metrics API for instrumentation
 /// </summary>
-public class LancacheMetricsService
+public class LancacheMetricsService : BackgroundService
 {
     private readonly Meter _meter;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -126,32 +126,31 @@ public class LancacheMetricsService
             description: "Average download size in bytes"
         );
 
-        // Start background task to update gauges
-        _logger.LogInformation("Starting background metrics update task");
-        Task.Run(async () => await UpdateGaugesAsync());
-
         _logger.LogInformation("LancacheMetricsService initialization complete");
     }
 
     /// <summary>
-    /// Background task to periodically update gauge values from database
-    /// Runs every 30 seconds to keep metrics fresh
+    /// Background task implementation to periodically update gauge values from database
+    /// Runs every 30 seconds to keep metrics fresh with proper cancellation support
     /// </summary>
-    private async Task UpdateGaugesAsync()
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("UpdateGaugesAsync background task started");
+        _logger.LogInformation("LancacheMetricsService background task started");
+
+        // Wait for app to initialize
+        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
 
         // Update metrics immediately on first run, then every 30 seconds
         bool isFirstRun = true;
         int updateCount = 0;
 
-        while (true)
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 if (!isFirstRun)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(30));
+                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                 }
                 isFirstRun = false;
                 updateCount++;
@@ -222,10 +221,17 @@ public class LancacheMetricsService
                         totalDownloads, totalBytes, activeCount, cacheInfo.UsedCacheSize);
                 }
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                // Expected during shutdown
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to update gauge metrics - this will cause /metrics to return empty");
             }
         }
+
+        _logger.LogInformation("LancacheMetricsService background task stopped");
     }
 }

@@ -215,8 +215,9 @@ builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddScoped<StatsService>();
 builder.Services.AddSingleton<PicsDataService>();
 
-// Register metrics service for Prometheus/Grafana
+// Register metrics service for Prometheus/Grafana as both singleton and hosted service
 builder.Services.AddSingleton<LancacheMetricsService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<LancacheMetricsService>());
 
 // Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
 builder.Services.AddSingleton<RustLogProcessorService>();
@@ -430,9 +431,7 @@ using (var scope = app.Services.CreateScope())
         var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
         await statsCache.RefreshFromDatabase(dbContext);
 
-        // Initialize metrics service to start background metric collection
-        var metricsService = scope.ServiceProvider.GetRequiredService<LancacheMetricsService>();
-        logger.LogInformation("LancacheMetricsService initialized");
+        // Note: LancacheMetricsService will start automatically as IHostedService
 
         // Log depot count for diagnostics
         try
