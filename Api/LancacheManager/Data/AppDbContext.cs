@@ -7,8 +7,6 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
-        // Removed all PRAGMA settings to test if they're causing the memory leak
-        // Testing with default SQLite configuration
     }
 
     public DbSet<Download> Downloads { get; set; }
@@ -16,7 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<ServiceStats> ServiceStats { get; set; }
     public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
     public DbSet<LogEntryRecord> LogEntries { get; set; }
-    
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Primary keys

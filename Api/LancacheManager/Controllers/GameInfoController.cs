@@ -15,17 +15,20 @@ public class GameInfoController : ControllerBase
     private readonly SteamKit2Service _steamKit2Service;
     private readonly PicsDataService _picsDataService;
     private readonly ILogger<GameInfoController> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public GameInfoController(
         AppDbContext context,
         SteamKit2Service steamKit2Service,
         PicsDataService picsDataService,
-        ILogger<GameInfoController> logger)
+        ILogger<GameInfoController> logger,
+        IHttpClientFactory httpClientFactory)
     {
         _context = context;
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
     }
 
 
@@ -323,7 +326,7 @@ public class GameInfoController : ControllerBase
 
             const string githubUrl = "https://raw.githubusercontent.com/regix1/lancache-pics/main/output/pics_depot_mappings.json";
 
-            using var httpClient = new HttpClient();
+            using var httpClient = _httpClientFactory.CreateClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
             httpClient.Timeout = TimeSpan.FromMinutes(5); // 5 minute timeout for large file
 

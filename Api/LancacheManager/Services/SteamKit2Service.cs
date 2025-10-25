@@ -25,6 +25,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private readonly SteamService _steamService;
     private readonly IPathResolver _pathResolver;
     private readonly StateService _stateService;
+    private readonly IHttpClientFactory _httpClientFactory;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -84,7 +85,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         SteamService steamService,
         PicsDataService picsDataService,
         IPathResolver pathResolver,
-        StateService stateService)
+        StateService stateService,
+        IHttpClientFactory httpClientFactory)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -92,6 +94,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         _picsDataService = picsDataService;
         _pathResolver = pathResolver;
         _stateService = stateService;
+        _httpClientFactory = httpClientFactory;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -1284,7 +1287,8 @@ public class SteamKit2Service : IHostedService, IDisposable
     /// </summary>
     private async Task<List<uint>> TryGetAllAppIdsFromWebApiAsync()
     {
-        using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
+        using var http = _httpClientFactory.CreateClient();
+        http.Timeout = TimeSpan.FromMinutes(2);
         var json = await http.GetStringAsync("https://api.steampowered.com/ISteamApps/GetAppList/v2/");
         using var doc = JsonDocument.Parse(json);
 

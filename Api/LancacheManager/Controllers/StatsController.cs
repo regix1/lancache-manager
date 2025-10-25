@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Services;
 using LancacheManager.Data;
@@ -23,7 +22,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("clients")]
-    [ResponseCache(Duration = 10)] // Cache for 10 seconds
     public async Task<IActionResult> GetClients([FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
@@ -66,7 +64,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("services")]
-    [ResponseCache(Duration = 10)] // Cache for 10 seconds
     public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null)
     {
         try
@@ -134,7 +131,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    [OutputCache(PolicyName = "dashboard")]
     public async Task<IActionResult> GetDashboardStats([FromQuery] string period = "24h")
     {
         try
@@ -250,7 +246,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("cache-effectiveness")]
-    [ResponseCache(Duration = 10)] // Cache for 10 seconds
     public async Task<IActionResult> GetCacheEffectiveness([FromQuery] string period = "24h")
     {
         try
@@ -345,7 +340,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("timeline")]
-    [ResponseCache(Duration = 30)] // Cache for 30 seconds
     public async Task<IActionResult> GetTimelineStats(
         [FromQuery] string period = "24h",
         [FromQuery] string interval = "hourly")
@@ -460,7 +454,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("bandwidth-saved")]
-    [ResponseCache(Duration = 10)]
     public async Task<IActionResult> GetBandwidthSaved([FromQuery] string period = "all")
     {
         try
@@ -516,7 +509,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("top-games")]
-    [ResponseCache(Duration = 30)]
     public async Task<IActionResult> GetTopGames([FromQuery] int limit = 10, [FromQuery] string period = "7d")
     {
         try
