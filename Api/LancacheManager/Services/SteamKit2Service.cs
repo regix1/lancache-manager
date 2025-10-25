@@ -1770,7 +1770,7 @@ public class SteamKit2Service : IHostedService, IDisposable
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            var existingMappings = await context.SteamDepotMappings.ToListAsync();
+            var existingMappings = await context.SteamDepotMappings.AsNoTracking().ToListAsync();
 
             foreach (var mapping in existingMappings)
             {

@@ -240,7 +240,7 @@ public class SteamService : IHostedService, IDisposable
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             // Load depot mappings from database and bucket by depot
-            var depotMappings = await dbContext.SteamDepotMappings.ToListAsync();
+            var depotMappings = await dbContext.SteamDepotMappings.AsNoTracking().ToListAsync();
 
             var grouped = new Dictionary<uint, HashSet<uint>>();
             foreach (var mapping in depotMappings)

@@ -106,9 +106,23 @@ ENV TZ=UTC
 ENV DOTNET_RUNNING_IN_CONTAINER=true
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 
-# Use .NET 6 GC to fix .NET 7/8 memory leak regression on Linux
-# The standalone GC (libclrgc.so) ships with .NET 8 runtime for regression testing
+# GC Configuration for memory leak mitigation
+# Region-based GC in .NET 7/8 has known regression issues with memory fragmentation
+# These settings help mitigate the issue without hard-coding thread counts
+
+# Use .NET 6 GC to avoid region-based GC regression
 ENV DOTNET_GCName=libclrgc.so
+
+# Aggressive memory conservation mode (1-9, 9 is most aggressive)
+# Helps return memory to OS more frequently
+ENV DOTNET_GCConserveMemory=9
+
+# Lower the threshold for triggering Gen2 collections (default is 75)
+# This helps prevent excessive heap growth
+ENV DOTNET_GCHighMemPercent=50
+
+# Enable server GC for better throughput (auto-detects CPU count)
+ENV DOTNET_gcServer=1
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
