@@ -81,6 +81,7 @@ pub fn write_progress_with_retry<T: Serialize>(
 }
 
 /// Helper to create a timestamp string in RFC3339 format
+#[allow(dead_code)]
 pub fn current_timestamp() -> String {
     Utc::now().to_rfc3339()
 }

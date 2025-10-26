@@ -220,3 +220,26 @@ export interface CorruptedChunkDetail {
   miss_count: number;
   cache_file_path: string;
 }
+
+export interface GameCacheInfo {
+  game_app_id: number;
+  game_name: string;
+  cache_files_found: number;
+  total_size_bytes: number;
+  depot_ids: number[];
+  sample_urls: string[];
+}
+
+export interface GameCacheDetectionResult {
+  totalGamesDetected: number;
+  games: GameCacheInfo[];
+}
+
+export interface GameCacheRemovalReport {
+  game_app_id: number;
+  game_name: string;
+  cache_files_deleted: number;
+  total_bytes_freed: number;
+  empty_dirs_removed: number;
+  depot_ids: number[];
+}

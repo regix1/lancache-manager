@@ -39,6 +39,15 @@ public class WindowsPathResolver : IPathResolver
     public string GetRustCorruptionManagerPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "corruption_manager.exe");
 
+    public string GetRustGameDetectorPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "game_cache_detector.exe");
+
+    public string GetRustGameRemoverPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "game_cache_remover.exe");
+
+    public string GetDatabasePath() =>
+        Path.Combine(GetDataDirectory(), "LancacheManager.db");
+
     /// <summary>
     /// Resolves a relative path to an absolute path based on the operating system
     /// </summary>

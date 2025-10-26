@@ -23,6 +23,14 @@ path = "src/cache_cleaner.rs"
 name = "corruption_manager"
 path = "src/corruption_manager.rs"
 
+[[bin]]
+name = "game_cache_detector"
+path = "src/game_cache_detector.rs"
+
+[[bin]]
+name = "game_cache_remover"
+path = "src/game_cache_remover.rs"
+
 [dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }
 regex = "1.12"

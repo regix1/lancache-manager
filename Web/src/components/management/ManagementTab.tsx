@@ -24,6 +24,7 @@ import SteamLoginManager from './SteamLoginManager';
 import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import LogAndCorruptionManager from './LogAndCorruptionManager';
+import GameCacheDetector from './GameCacheDetector';
 import ThemeManager from './ThemeManager';
 import GcManager from './GcManager';
 import AlertsManager from './AlertsManager';
@@ -932,6 +933,13 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 }
                 onReloadRef={logAndCorruptionReloadRef}
                 onClearOperationRef={logAndCorruptionClearOpRef}
+              />
+
+              <GameCacheDetector
+                mockMode={mockMode}
+                isAuthenticated={authMode === 'authenticated'}
+                onError={addError}
+                onSuccess={setSuccess}
               />
             </CollapsibleSection>
 

@@ -827,4 +827,285 @@ public class CacheManagementService
             _cacheLock.Release();
         }
     }
+
+    // Helper classes for game cache detection and removal
+    public class GameCacheInfo
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("game_app_id")]
+        public uint GameAppId { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("game_name")]
+        public string GameName { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("cache_files_found")]
+        public int CacheFilesFound { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("total_size_bytes")]
+        public ulong TotalSizeBytes { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("depot_ids")]
+        public List<uint> DepotIds { get; set; } = new List<uint>();
+
+        [System.Text.Json.Serialization.JsonPropertyName("sample_urls")]
+        public List<string> SampleUrls { get; set; } = new List<string>();
+    }
+
+    public class GameCacheRemovalReport
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("game_app_id")]
+        public uint GameAppId { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("game_name")]
+        public string GameName { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("cache_files_deleted")]
+        public int CacheFilesDeleted { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("total_bytes_freed")]
+        public ulong TotalBytesFreed { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("empty_dirs_removed")]
+        public int EmptyDirsRemoved { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("depot_ids")]
+        public List<uint> DepotIds { get; set; } = new List<uint>();
+    }
+
+    private class GameDetectionReport
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("total_games_detected")]
+        public int TotalGamesDetected { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("games")]
+        public List<GameCacheInfo> Games { get; set; } = new List<GameCacheInfo>();
+    }
+
+    /// <summary>
+    /// Detect which games have files in the cache directory
+    /// </summary>
+    public async Task<List<GameCacheInfo>> DetectGamesInCache()
+    {
+        await _cacheLock.WaitAsync();
+        try
+        {
+            _logger.LogInformation("[GameDetection] Starting game cache detection");
+
+            var dataDir = _pathResolver.GetDataDirectory();
+            var dbPath = _pathResolver.GetDatabasePath();
+            var outputJson = Path.Combine(dataDir, $"game_detection_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+            var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
+
+            if (!File.Exists(rustBinaryPath))
+            {
+                var errorMsg = $"Game cache detector binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            if (!File.Exists(dbPath))
+            {
+                var errorMsg = $"Database not found at {dbPath}";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = rustBinaryPath,
+                Arguments = $"\"{dbPath}\" \"{_cachePath}\" \"{outputJson}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            _logger.LogInformation("[GameDetection] Running detection: {Binary} {Args}", rustBinaryPath, startInfo.Arguments);
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new Exception("Failed to start game_cache_detector process");
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                await process.WaitForExitAsync();
+
+                var output = await outputTask;
+                var error = await errorTask;
+
+                _logger.LogInformation("[GameDetection] Process exit code: {Code}", process.ExitCode);
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogInformation("[GameDetection] Process stderr: {Error}", error);
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogError("[GameDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
+                    throw new Exception($"game_cache_detector failed with exit code {process.ExitCode}: {error}");
+                }
+
+                // Read the generated JSON file
+                if (!File.Exists(outputJson))
+                {
+                    _logger.LogError("[GameDetection] Output JSON file not found: {Path}", outputJson);
+                    throw new FileNotFoundException($"Game detection output file not found: {outputJson}");
+                }
+
+                var jsonContent = await File.ReadAllTextAsync(outputJson);
+                _logger.LogInformation("[GameDetection] Read JSON output, length: {Length}", jsonContent.Length);
+
+                // Parse the report
+                var report = JsonSerializer.Deserialize<GameDetectionReport>(jsonContent,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (report?.Games == null)
+                {
+                    _logger.LogInformation("[GameDetection] No games found in report");
+                    return new List<GameCacheInfo>();
+                }
+
+                _logger.LogInformation("[GameDetection] Found {Count} games with cache files", report.TotalGamesDetected);
+
+                // Clean up temporary JSON file
+                try
+                {
+                    File.Delete(outputJson);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[GameDetection] Failed to delete temporary JSON file: {Path}", outputJson);
+                }
+
+                return report.Games;
+            }
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Remove all cache files for a specific game
+    /// </summary>
+    public async Task<GameCacheRemovalReport> RemoveGameFromCache(uint gameAppId)
+    {
+        await _cacheLock.WaitAsync();
+        try
+        {
+            _logger.LogInformation("[GameRemoval] Starting game cache removal for AppID {AppId}", gameAppId);
+
+            var dataDir = _pathResolver.GetDataDirectory();
+            var dbPath = _pathResolver.GetDatabasePath();
+            var logsDir = _pathResolver.GetLogsDirectory();
+            var outputJson = Path.Combine(dataDir, $"game_removal_{gameAppId}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+            var rustBinaryPath = _pathResolver.GetRustGameRemoverPath();
+
+            if (!File.Exists(rustBinaryPath))
+            {
+                var errorMsg = $"Game cache remover binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            if (!File.Exists(dbPath))
+            {
+                var errorMsg = $"Database not found at {dbPath}";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            if (!Directory.Exists(logsDir))
+            {
+                var errorMsg = $"Logs directory not found at {logsDir}";
+                _logger.LogError(errorMsg);
+                throw new DirectoryNotFoundException(errorMsg);
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = rustBinaryPath,
+                Arguments = $"\"{dbPath}\" \"{logsDir}\" \"{_cachePath}\" {gameAppId} \"{outputJson}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            _logger.LogInformation("[GameRemoval] Running removal: {Binary} {Args}", rustBinaryPath, startInfo.Arguments);
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new Exception("Failed to start game_cache_remover process");
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+
+                await process.WaitForExitAsync();
+
+                var output = await outputTask;
+                var error = await errorTask;
+
+                _logger.LogInformation("[GameRemoval] Process exit code: {Code}", process.ExitCode);
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogInformation("[GameRemoval] Process stderr: {Error}", error);
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogError("[GameRemoval] Failed with exit code {Code}: {Error}", process.ExitCode, error);
+                    throw new Exception($"game_cache_remover failed with exit code {process.ExitCode}: {error}");
+                }
+
+                // Read the generated JSON file
+                if (!File.Exists(outputJson))
+                {
+                    _logger.LogError("[GameRemoval] Output JSON file not found: {Path}", outputJson);
+                    throw new FileNotFoundException($"Game removal output file not found: {outputJson}");
+                }
+
+                var jsonContent = await File.ReadAllTextAsync(outputJson);
+                _logger.LogInformation("[GameRemoval] Read JSON output, length: {Length}", jsonContent.Length);
+
+                // Parse the report
+                var report = JsonSerializer.Deserialize<GameCacheRemovalReport>(jsonContent,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (report == null)
+                {
+                    _logger.LogError("[GameRemoval] Failed to parse removal report");
+                    throw new Exception("Failed to parse game removal report");
+                }
+
+                _logger.LogInformation("[GameRemoval] Removed {Files} files ({Bytes} bytes) for game {AppId}",
+                    report.CacheFilesDeleted, report.TotalBytesFreed, gameAppId);
+
+                // Clean up temporary JSON file
+                try
+                {
+                    File.Delete(outputJson);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[GameRemoval] Failed to delete temporary JSON file: {Path}", outputJson);
+                }
+
+                return report;
+            }
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
 }
