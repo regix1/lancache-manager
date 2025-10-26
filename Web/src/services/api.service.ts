@@ -420,7 +420,7 @@ class ApiService {
   // Get configuration info
   static async getConfig(): Promise<Config> {
     const res = await fetch(`${API_BASE}/management/config`, {
-      signal: AbortSignal.timeout(300000), // 5 minute timeout for large log files
+      // No timeout - can take time for large log file scanning
       headers: this.getHeaders()
     });
     return await this.handleResponse<Config>(res);
