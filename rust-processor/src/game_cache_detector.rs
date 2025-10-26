@@ -115,6 +115,7 @@ fn detect_cache_files_for_game(
     // Scan cache directory for actual files
     let mut found_files = HashSet::new();
     let mut total_size: u64 = 0;
+    let mut checked_first_path = false;
 
     for (service, urls) in &service_urls {
         for url in urls {
@@ -124,6 +125,18 @@ fn detect_cache_files_for_game(
                 let end = start + 1_048_575;
 
                 let cache_path = calculate_cache_path(cache_dir, service, url, start, end);
+
+                // Debug: Show first cache path being checked for this game
+                if !checked_first_path {
+                    let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
+                    let hash = calculate_md5(&cache_key);
+                    eprintln!("    [DEBUG] First check - Service: {}, URL: {}", service, url);
+                    eprintln!("    [DEBUG] Cache key: {}", cache_key);
+                    eprintln!("    [DEBUG] MD5 hash: {}", hash);
+                    eprintln!("    [DEBUG] Looking for: {}", cache_path.display());
+                    eprintln!("    [DEBUG] Exists: {}", cache_path.exists());
+                    checked_first_path = true;
+                }
 
                 if cache_path.exists() {
                     let size = get_file_size(&cache_path);
