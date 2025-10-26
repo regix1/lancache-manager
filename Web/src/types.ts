@@ -241,5 +241,6 @@ export interface GameCacheRemovalReport {
   cache_files_deleted: number;
   total_bytes_freed: number;
   empty_dirs_removed: number;
+  log_entries_removed: number;
   depot_ids: number[];
 }
