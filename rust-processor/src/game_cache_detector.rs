@@ -100,8 +100,10 @@ fn detect_cache_files_for_game(
 
     for record in records {
         unique_urls.insert(record.last_url.clone());
+        // Lowercase service name to match cache file format
+        let service_lower = record.service.to_lowercase();
         service_urls
-            .entry(record.service.clone())
+            .entry(service_lower)
             .or_insert_with(HashSet::new)
             .insert(record.last_url.clone());
 

@@ -126,6 +126,12 @@ public class GameCacheDetectionService
                 var output = await outputTask;
                 var error = await errorTask;
 
+                // Log diagnostic output from stderr (contains scan progress and stats)
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    _logger.LogInformation("[GameDetection] Diagnostic output:\n{DiagnosticOutput}", error);
+                }
+
                 if (process.ExitCode != 0)
                 {
                     _logger.LogError("[GameDetection] Process failed with exit code {ExitCode}. Error: {Error}",
