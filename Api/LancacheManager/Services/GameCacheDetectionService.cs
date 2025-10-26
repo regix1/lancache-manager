@@ -13,7 +13,6 @@ public class GameCacheDetectionService
     private readonly ILogger<GameCacheDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly OperationStateService _operationStateService;
-    private readonly string _cachePath;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
 
     public class DetectionOperation
@@ -30,13 +29,11 @@ public class GameCacheDetectionService
     public GameCacheDetectionService(
         ILogger<GameCacheDetectionService> logger,
         IPathResolver pathResolver,
-        OperationStateService operationStateService,
-        IConfiguration configuration)
+        OperationStateService operationStateService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _operationStateService = operationStateService;
-        _cachePath = configuration.GetValue<string>("LanCache:CachePath") ?? "/cache";
 
         // Restore any interrupted operations on startup
         RestoreInterruptedOperations();
@@ -98,10 +95,14 @@ public class GameCacheDetectionService
                 throw new FileNotFoundException($"Database not found at {dbPath}");
             }
 
+            var cachePath = _pathResolver.GetCacheDirectory();
+
+            _logger.LogInformation("[GameDetection] Using cache path: {CachePath}", cachePath);
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
-                Arguments = $"\"{dbPath}\" \"{_cachePath}\" \"{outputJson}\"",
+                Arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
