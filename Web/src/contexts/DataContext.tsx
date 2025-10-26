@@ -6,12 +6,11 @@ import React, {
   useRef,
   type ReactNode
 } from 'react';
-import * as signalR from '@microsoft/signalr';
 import ApiService from '@services/api.service';
 import MockDataService from '@/test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
 import { usePollingRate } from './PollingRateContext';
-import { SIGNALR_BASE } from '@utils/constants';
+import { useSignalR } from './SignalRContext';
 
 interface CacheInfo {
   totalCacheSize: number;
@@ -178,7 +177,6 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const fastIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const mediumIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const slowIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const signalRConnection = useRef<signalR.HubConnection | null>(null);
   const lastFastFetchTime = useRef<number>(0);
   const lastMediumFetchTime = useRef<number>(0);
   const lastSlowFetchTime = useRef<number>(0);
@@ -187,6 +185,9 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const currentTimeRangeRef = useRef<string>(timeRange);
   const getTimeRangeParamsRef = useRef(getTimeRangeParams);
   const getPollingIntervalRef = useRef(getPollingInterval);
+
+  // Use centralized SignalR connection
+  const signalR = useSignalR();
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -484,72 +485,55 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     return 30000; // 30 seconds for service chart
   };
 
-  // SignalR connection for real-time updates
+  // Subscribe to SignalR events for real-time updates
   useEffect(() => {
-    // Don't set up SignalR in mock mode
+    // Don't subscribe in mock mode
     if (mockMode) {
-      // Clean up any existing connection
-      if (signalRConnection.current) {
-        signalRConnection.current.stop();
-        signalRConnection.current = null;
-      }
       return;
     }
 
-    const setupSignalR = async () => {
-      try {
-        const connection = new signalR.HubConnectionBuilder()
-          .withUrl(`${SIGNALR_BASE}/downloads`)
-          .withAutomaticReconnect([0, 1000, 2000, 5000, 10000])
-          .configureLogging(signalR.LogLevel.Warning)
-          .build();
+    // Handler for DownloadsRefresh event
+    const handleDownloadsRefresh = () => {
+      // Respect the user's polling rate preference
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastSignalRRefreshTime.current;
 
-        connection.on('DownloadsRefresh', () => {
-          // Respect the user's polling rate preference
-          const now = Date.now();
-          const timeSinceLastRefresh = now - lastSignalRRefreshTime.current;
+      // Use the current polling rate from ref to avoid stale closure
+      const pollingInterval = getPollingIntervalRef.current();
 
-          // Use the current polling rate from ref to avoid stale closure
-          const pollingInterval = getPollingIntervalRef.current();
+      // Respect user's polling interval but use a minimum threshold for responsiveness
+      // This prevents excessive updates while still being responsive
+      const minDebounceTime = Math.min(1000, pollingInterval); // At most 1 second debounce
 
-          // Respect user's polling interval but use a minimum threshold for responsiveness
-          // This prevents excessive updates while still being responsive
-          const minDebounceTime = Math.min(1000, pollingInterval); // At most 1 second debounce
-
-          if (timeSinceLastRefresh < minDebounceTime) {
-            console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${minDebounceTime}ms)`);
-            return;
-          }
-
-          lastSignalRRefreshTime.current = now;
-          console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${minDebounceTime}ms)`);
-
-          // Fetch fresh data when downloads are updated
-          // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)
-          fetchFastData();
-          // Also fetch service stats so the chart updates in real-time
-          fetchSlowData();
-          // And client stats for the top clients table
-          fetchMediumData();
-        });
-
-        await connection.start();
-        console.log('[DataContext] SignalR connected for real-time updates');
-        signalRConnection.current = connection;
-      } catch (error) {
-        console.error('[DataContext] SignalR connection failed:', error);
+      if (timeSinceLastRefresh < minDebounceTime) {
+        console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${minDebounceTime}ms)`);
+        return;
       }
+
+      lastSignalRRefreshTime.current = now;
+      console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${minDebounceTime}ms)`);
+
+      // Fetch fresh data when downloads are updated
+      // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)
+      fetchFastData();
+      // Also fetch service stats so the chart updates in real-time
+      fetchSlowData();
+      // And client stats for the top clients table
+      fetchMediumData();
     };
 
-    setupSignalR();
+    // Subscribe to the event
+    signalR.on('DownloadsRefresh', handleDownloadsRefresh);
 
+    console.log('[DataContext] Subscribed to SignalR DownloadsRefresh events');
+
+    // Cleanup: unsubscribe when component unmounts or dependencies change
     return () => {
-      if (signalRConnection.current) {
-        signalRConnection.current.stop();
-        signalRConnection.current = null;
-      }
+      signalR.off('DownloadsRefresh', handleDownloadsRefresh);
+      console.log('[DataContext] Unsubscribed from SignalR DownloadsRefresh events');
     };
-  }, [mockMode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency
 
   // Initial load and separate refresh intervals for different data types
   useEffect(() => {

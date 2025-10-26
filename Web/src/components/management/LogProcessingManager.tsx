@@ -2,12 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Zap, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
-import * as signalR from '@microsoft/signalr';
+import { useSignalR } from '@contexts/SignalRContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
-import { SIGNALR_BASE } from '@utils/constants';
 import type { ProcessingStatus as ApiProcessingStatus } from '../../types';
 import DepotMappingManager from './DepotMappingManager';
 
@@ -45,7 +44,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [signalRConnected, setSignalRConnected] = useState(false);
   const [steamAuthMode, setSteamAuthMode] = useState<'anonymous' | 'authenticated'>('anonymous');
   const [confirmModal, setConfirmModal] = useState<
     | {
@@ -58,17 +56,18 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   >(null);
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
-  const signalRConnection = useRef<signalR.HubConnection | null>(null);
+  const signalR = useSignalR();
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
-  const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
   const onBackgroundOperationRef = useRef(onBackgroundOperation);
+  const onDataRefreshRef = useRef(onDataRefresh);
   const mockModeRef = useRef(mockMode);
 
   // Keep the refs up to date
   useEffect(() => {
     onBackgroundOperationRef.current = onBackgroundOperation;
+    onDataRefreshRef.current = onDataRefresh;
     mockModeRef.current = mockMode;
-  }, [onBackgroundOperation, mockMode]);
+  }, [onBackgroundOperation, onDataRefresh, mockMode]);
 
   // Load Steam auth status
   useEffect(() => {
@@ -140,34 +139,16 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
   useEffect(() => {
     if (mockMode) {
-      // Don't setup SignalR or polling in mock mode
-      // Clear any pending reconnect attempts
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-        reconnectTimeout.current = null;
-      }
-
-      // Stop existing SignalR connection if any
-      if (signalRConnection.current) {
-        signalRConnection.current.stop();
-        signalRConnection.current = null;
-      }
-
+      // Don't subscribe in mock mode
       return;
     }
 
     restoreLogProcessing();
-    setupSignalR();
 
     return () => {
       if (pollingInterval.current) {
         clearInterval(pollingInterval.current);
-      }
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-      }
-      if (signalRConnection.current) {
-        signalRConnection.current.stop();
+        pollingInterval.current = null;
       }
     };
   }, [mockMode]);
@@ -225,162 +206,160 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   };
 
-  const setupSignalR = async () => {
-    try {
-      const connection = new signalR.HubConnectionBuilder()
-        .withUrl(`${SIGNALR_BASE}/downloads`)
-        .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
-        .configureLogging(signalR.LogLevel.Information)
-        .build();
+  // Subscribe to SignalR events for log processing
+  // Note: signalR.on/off are stable functions, so we only need to subscribe once
+  useEffect(() => {
+    if (mockMode) {
+      return;
+    }
 
-      // IMPORTANT: Add all event handlers BEFORE starting the connection
-      connection.on('ProcessingProgress', async (progress: any) => {
-        console.log('SignalR ProcessingProgress received:', progress);
-        const currentProgress = progress.percentComplete || progress.progress || 0;
-        const status = progress.status || 'processing';
+    // Handler for ProcessingProgress event
+    const handleProcessingProgress = async (progress: any) => {
+      console.log('SignalR ProcessingProgress received:', progress);
+      const currentProgress = progress.percentComplete || progress.progress || 0;
+      const status = progress.status || 'processing';
 
-        const processedEntries = parseMetric(progress.entriesProcessed);
-        const totalLines = parseMetric(progress.totalLines);
+      const processedEntries = parseMetric(progress.entriesProcessed);
+      const totalLines = parseMetric(progress.totalLines);
 
-        // Always set isProcessingLogs to true when we receive progress updates (unless complete)
-        if (status !== 'complete') {
-          setIsProcessingLogs(true);
-        }
+      // Always set isProcessingLogs to true when we receive progress updates (unless complete)
+      if (status !== 'complete') {
+        setIsProcessingLogs(true);
+      }
 
-        setProcessingStatus(() => {
-          // Only mark as complete when status is explicitly 'complete', not just based on percentage
-          if (status === 'complete') {
-            if (pollingInterval.current) {
-              clearInterval(pollingInterval.current);
-              pollingInterval.current = null;
-            }
-            return {
-              message: 'Processing Complete!',
-              detailMessage: formatProgressDetail(processedEntries, totalLines),
-              progress: 100,
-              status: 'complete'
-            };
+      setProcessingStatus(() => {
+        // Only mark as complete when status is explicitly 'complete', not just based on percentage
+        if (status === 'complete') {
+          if (pollingInterval.current) {
+            clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
           }
-
-          if (status === 'finalizing') {
-            return {
-              message: progress.message || 'Finalizing log processing...',
-              detailMessage: formatProgressDetail(processedEntries, totalLines),
-              progress: currentProgress,
-              status: 'finalizing'
-            };
-          }
-
           return {
-            message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
+            message: 'Processing Complete!',
             detailMessage: formatProgressDetail(processedEntries, totalLines),
-            progress: Math.min(99.9, currentProgress), // Cap at 99.9% until truly complete
-            status: 'processing'
+            progress: 100,
+            status: 'complete'
           };
+        }
+
+        if (status === 'finalizing') {
+          return {
+            message: progress.message || 'Finalizing log processing...',
+            detailMessage: formatProgressDetail(processedEntries, totalLines),
+            progress: currentProgress,
+            status: 'finalizing'
+          };
+        }
+
+        return {
+          message: `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`,
+          detailMessage: formatProgressDetail(processedEntries, totalLines),
+          progress: Math.min(99.9, currentProgress), // Cap at 99.9% until truly complete
+          status: 'processing'
+        };
+      });
+
+      await logProcessingOp.update({
+        lastProgress: progress.percentComplete || progress.progress || 0,
+        mbProcessed: progress.mbProcessed,
+        mbTotal: progress.mbTotal,
+        entriesProcessed: processedEntries,
+        linesProcessed: totalLines,
+        status
+      });
+    };
+
+    // Handler for BulkProcessingComplete event
+    const handleBulkProcessingComplete = async (result: any) => {
+      console.log('SignalR BulkProcessingComplete received:', result);
+      // Stop polling immediately when we receive completion signal
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
+      }
+
+      setProcessingStatus({
+        message: 'Processing Complete!',
+        detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes.`,
+        progress: 100,
+        status: 'complete'
+      });
+
+      // Don't set isProcessingLogs to false here - keep modal visible
+      // The timeout below will handle clearing everything after 3 seconds
+      await logProcessingOp.clear();
+
+      // Mark setup as completed (persistent flag for guest mode eligibility)
+      try {
+        await fetch('/api/management/mark-setup-completed', {
+          method: 'POST',
+          headers: ApiService.getHeaders()
         });
+      } catch (error) {
+        console.warn('Failed to mark setup as completed:', error);
+      }
 
-        await logProcessingOp.update({
-          lastProgress: progress.percentComplete || progress.progress || 0,
-          mbProcessed: progress.mbProcessed,
-          mbTotal: progress.mbTotal,
-          entriesProcessed: processedEntries,
-          linesProcessed: totalLines,
-          status
-        });
-      });
+      // Show completion for 3 seconds, then stop completely
+      setTimeout(async () => {
+        setProcessingStatus(null);
+        setIsProcessingLogs(false);  // Now set to false to hide modal and re-enable buttons
+        onDataRefreshRef.current?.();
+      }, 3000);
+    };
 
-      connection.on('BulkProcessingComplete', async (result: any) => {
-        console.log('SignalR BulkProcessingComplete received:', result);
-        // Stop polling immediately when we receive completion signal
-        if (pollingInterval.current) {
-          clearInterval(pollingInterval.current);
-          pollingInterval.current = null;
-        }
+    // Handler for DownloadsRefresh event (silent background processing)
+    const handleDownloadsRefresh = async () => {
+      // Silently refresh data without showing progress bars or notifications
+      // This is triggered by the LiveLogMonitorService background processing
+      onDataRefreshRef.current?.();
+    };
 
-        setProcessingStatus({
-          message: 'Processing Complete!',
-          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString()} entries from ${result.linesProcessed?.toLocaleString()} lines in ${result.elapsed?.toFixed(1)} minutes.`,
-          progress: 100,
-          status: 'complete'
-        });
+    // Subscribe to events
+    signalR.on('ProcessingProgress', handleProcessingProgress);
+    signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
+    signalR.on('DownloadsRefresh', handleDownloadsRefresh);
 
-        // Don't set isProcessingLogs to false here - keep modal visible
-        // The timeout below will handle clearing everything after 3 seconds
-        await logProcessingOp.clear();
+    console.log('[LogProcessingManager] Subscribed to SignalR events');
 
-        // Mark setup as completed (persistent flag for guest mode eligibility)
-        try {
-          await fetch('/api/management/mark-setup-completed', {
-            method: 'POST',
-            headers: ApiService.getHeaders()
-          });
-        } catch (error) {
-          console.warn('Failed to mark setup as completed:', error);
-        }
+    // If SignalR disconnects and we're processing, fall back to polling
+    // Note: This is handled by monitoring signalR.isConnected in another effect
 
-        // Show completion for 3 seconds, then stop completely
-        setTimeout(async () => {
-          setProcessingStatus(null);
-          setIsProcessingLogs(false);  // Now set to false to hide modal and re-enable buttons
-          onDataRefresh?.();
-        }, 3000);
-      });
+    // Cleanup: unsubscribe from events
+    return () => {
+      signalR.off('ProcessingProgress', handleProcessingProgress);
+      signalR.off('BulkProcessingComplete', handleBulkProcessingComplete);
+      signalR.off('DownloadsRefresh', handleDownloadsRefresh);
+      console.log('[LogProcessingManager] Unsubscribed from SignalR events');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency
 
-      // Listen for silent background processing updates (live mode)
-      connection.on('DownloadsRefresh', async () => {
-        // Silently refresh data without showing progress bars or notifications
-        // This is triggered by the LiveLogMonitorService background processing
-        onDataRefresh?.();
-      });
+  // Monitor SignalR connection and use polling as fallback when disconnected
+  useEffect(() => {
+    if (mockMode || !isProcessingLogs) {
+      return;
+    }
 
-      connection.onreconnecting(() => {
-        console.log('SignalR reconnecting...');
-        setSignalRConnected(false);
-      });
-
-      connection.onreconnected(() => {
-        console.log('SignalR reconnected successfully');
-        setSignalRConnected(true);
-      });
-
-      connection.onclose((error) => {
-        console.error('SignalR disconnected:', error);
-        setSignalRConnected(false);
-
-        // Don't reconnect if we're in mock mode
-        if (mockModeRef.current) {
-          return;
-        }
-
-        if (isProcessingLogs) {
-          console.log('Starting polling fallback due to SignalR disconnect');
-          startProcessingPolling();
-        }
-
-        reconnectTimeout.current = setTimeout(() => {
-          // Check again before reconnecting in case mode changed
-          if (mockModeRef.current) {
-            return;
-          }
-          console.log('Attempting to reconnect SignalR...');
-          setupSignalR();
-        }, 5000);
-      });
-
-      console.log('Starting SignalR connection...');
-      await connection.start();
-      console.log('SignalR connection started successfully, connection ID:', connection.connectionId);
-      signalRConnection.current = connection;
-      setSignalRConnected(true);
-    } catch (err) {
-      console.error('SignalR connection failed, falling back to polling:', err);
-      setSignalRConnected(false);
-
-      if (isProcessingLogs) {
-        startProcessingPolling();
+    // If SignalR is not connected and we're processing, use polling
+    if (!signalR.isConnected) {
+      console.log('[LogProcessingManager] SignalR disconnected, starting polling fallback');
+      startProcessingPolling();
+    } else {
+      // SignalR is connected, stop polling if active
+      if (pollingInterval.current) {
+        console.log('[LogProcessingManager] SignalR connected, stopping polling fallback');
+        clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
       }
     }
-  };
+
+    return () => {
+      if (pollingInterval.current) {
+        clearInterval(pollingInterval.current);
+        pollingInterval.current = null;
+      }
+    };
+  }, [mockMode, isProcessingLogs, signalR.isConnected]);
 
   const startProcessingPolling = () => {
     if (pollingInterval.current) {
@@ -570,7 +549,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             onSuccess?.(result.message);
           }
 
-          if (!signalRConnected) {
+          if (!signalR.isConnected) {
             // Start polling immediately when SignalR is not connected
             startProcessingPolling();
           }

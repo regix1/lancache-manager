@@ -2,6 +2,7 @@ import React, { useState, Suspense, lazy, useEffect } from 'react';
 import { DataProvider, useData } from '@contexts/DataContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { PollingRateProvider } from '@contexts/PollingRateContext';
+import { SignalRProvider } from '@contexts/SignalRContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -81,10 +82,14 @@ const AppContent: React.FC = () => {
 
           // Only trigger GC on actual page reloads, not on initial load or navigation
           if (navigationType === 'reload') {
-            await fetch('/api/gc/trigger', {
+            const response = await fetch('/api/gc/trigger', {
               method: 'POST',
               headers: ApiService.getHeaders()
             });
+            // Don't log errors - this is optional optimization
+            if (response.ok) {
+              console.log('[App] Triggered server GC after reload');
+            }
           }
         }
       } catch (error) {
@@ -488,9 +493,11 @@ const App: React.FC = () => {
     <ErrorBoundary>
       <PollingRateProvider>
         <TimeFilterProvider>
-          <DataProvider>
-            <AppContent />
-          </DataProvider>
+          <SignalRProvider>
+            <DataProvider>
+              <AppContent />
+            </DataProvider>
+          </SignalRProvider>
         </TimeFilterProvider>
       </PollingRateProvider>
     </ErrorBoundary>

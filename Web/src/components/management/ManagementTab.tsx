@@ -12,8 +12,8 @@ import {
   Plug,
   Settings
 } from 'lucide-react';
-import * as signalR from '@microsoft/signalr';
 import { useData } from '@contexts/DataContext';
+import { useSignalR } from '@contexts/SignalRContext';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import operationStateService from '@services/operationState.service';
@@ -33,7 +33,6 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
-import { SIGNALR_BASE } from '@utils/constants';
 
 interface DepotMappingProgress {
   isProcessing: boolean;
@@ -408,6 +407,7 @@ interface ManagementTabProps {
 
 const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
   const { mockMode, setMockMode, fetchData } = useData();
+  const signalR = useSignalR();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [alerts, setAlerts] = useState<{
@@ -424,7 +424,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   }>({});
 
   const [depotMappingProgress, setDepotMappingProgress] = useState<DepotMappingProgress | null>(null);
-  const signalRConnection = useRef<signalR.HubConnection | null>(null);
 
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
@@ -465,6 +464,18 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     setAlerts((prev) => ({ ...prev, success: null }));
   }, []);
 
+  // Refs for callbacks to avoid dependency issues in SignalR subscriptions
+  const addErrorRef = useRef(addError);
+  const setSuccessRef = useRef(setSuccess);
+  const refreshLogAndCorruptionRef = useRef(refreshLogAndCorruption);
+
+  // Keep refs up to date
+  useEffect(() => {
+    addErrorRef.current = addError;
+    setSuccessRef.current = setSuccess;
+    refreshLogAndCorruptionRef.current = refreshLogAndCorruption;
+  }, [addError, setSuccess, refreshLogAndCorruption]);
+
   // Initialize with migration
   useEffect(() => {
     const initialize = async () => {
@@ -480,156 +491,154 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     initialize();
   }, [setSuccess]);
 
-  // Setup SignalR for depot mapping progress
+  // Subscribe to SignalR events for depot mapping and management operations
   useEffect(() => {
     if (mockMode) {
-      // Don't setup SignalR in mock mode
+      // Don't subscribe in mock mode
       return;
     }
 
-    const setupSignalR = async () => {
-      try {
-        const connection = new signalR.HubConnectionBuilder()
-          .withUrl(`${SIGNALR_BASE}/downloads`)
-          .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
-          .configureLogging(signalR.LogLevel.Information)
-          .build();
+    // Depot mapping event handlers
+    const handleDepotMappingStarted = (payload: any) => {
+      console.log('SignalR DepotMappingStarted received:', payload);
+      setDepotMappingProgress({
+        isProcessing: true,
+        totalMappings: 0,
+        processedMappings: 0,
+        percentComplete: 0,
+        status: 'starting',
+        message: payload.message || 'Starting depot mapping post-processing...'
+      });
+    };
 
-        // Depot mapping event handlers
-        connection.on('DepotMappingStarted', (payload: any) => {
-          console.log('SignalR DepotMappingStarted received:', payload);
-          setDepotMappingProgress({
-            isProcessing: true,
-            totalMappings: 0,
-            processedMappings: 0,
-            percentComplete: 0,
-            status: 'starting',
-            message: payload.message || 'Starting depot mapping post-processing...'
-          });
-        });
+    const handleDepotMappingProgress = (payload: any) => {
+      console.log('SignalR DepotMappingProgress received:', payload);
+      setDepotMappingProgress({
+        isProcessing: payload.isProcessing,
+        totalMappings: payload.totalMappings,
+        processedMappings: payload.processedMappings,
+        mappingsApplied: payload.mappingsApplied,
+        percentComplete: payload.percentComplete,
+        status: payload.status,
+        message: payload.message
+      });
 
-        connection.on('DepotMappingProgress', (payload: any) => {
-          console.log('SignalR DepotMappingProgress received:', payload);
-          setDepotMappingProgress({
-            isProcessing: payload.isProcessing,
-            totalMappings: payload.totalMappings,
-            processedMappings: payload.processedMappings,
-            mappingsApplied: payload.mappingsApplied,
-            percentComplete: payload.percentComplete,
-            status: payload.status,
-            message: payload.message
-          });
-
-          // Clear progress when complete
-          if (!payload.isProcessing || payload.status === 'complete') {
-            setTimeout(() => {
-              setDepotMappingProgress(null);
-            }, 5000);
-          }
-        });
-
-        connection.on('DepotPostProcessingFailed', (payload: any) => {
+      // Clear progress when complete
+      if (!payload.isProcessing || payload.status === 'complete') {
+        setTimeout(() => {
           setDepotMappingProgress(null);
-          addError(payload?.error
-            ? `Depot mapping post-processing failed: ${payload.error}`
-            : 'Depot mapping post-processing failed.');
-        });
+        }, 5000);
+      }
+    };
 
-        // Listen for database reset progress
-        connection.on('DatabaseResetProgress', (payload: any) => {
-          console.log('SignalR DatabaseResetProgress received:', payload);
-          if (payload.status === 'complete') {
-            setSuccess('Database reset completed successfully - reloading page...');
-            // Wait longer to ensure database is fully reset before reload
-            setTimeout(() => {
-              // Force hard reload to ensure fresh data (bypasses cache)
-              window.location.reload();
-            }, 2500);
-          } else if (payload.status === 'error') {
-            addError(`Database reset failed: ${payload.message}`);
-          }
-          // You can add more UI updates here if needed (progress bar, etc.)
-        });
+    const handleDepotPostProcessingFailed = (payload: any) => {
+      setDepotMappingProgress(null);
+      addErrorRef.current(payload?.error
+        ? `Depot mapping post-processing failed: ${payload.error}`
+        : 'Depot mapping post-processing failed.');
+    };
 
-        // Listen for log processing completion
-        connection.on('BulkProcessingComplete', async (result: any) => {
-          console.log('Log processing complete:', result);
-          // Log processing is done, depot mapping can be triggered manually if needed
-        });
+    const handleDatabaseResetProgress = (payload: any) => {
+      console.log('SignalR DatabaseResetProgress received:', payload);
+      if (payload.status === 'complete') {
+        setSuccessRef.current('Database reset completed successfully - reloading page...');
+        // Wait longer to ensure database is fully reset before reload
+        setTimeout(() => {
+          // Force hard reload to ensure fresh data (bypasses cache)
+          window.location.reload();
+        }, 2500);
+      } else if (payload.status === 'error') {
+        addErrorRef.current(`Database reset failed: ${payload.message}`);
+      }
+    };
 
-        // Listen for log removal progress
-        connection.on('LogRemovalProgress', (payload: any) => {
-          console.log('SignalR LogRemovalProgress received:', payload);
-          // Update UI with progress if needed
-        });
+    const handleBulkProcessingComplete = async (result: any) => {
+      console.log('Log processing complete:', result);
+      // Log processing is done, depot mapping can be triggered manually if needed
+    };
 
-        // Listen for log removal completion
-        connection.on('LogRemovalComplete', async (payload: any) => {
-          console.log('SignalR LogRemovalComplete received:', payload);
-          if (payload.success) {
-            console.log(`Service ${payload.service} removal completed successfully`);
+    const handleLogRemovalProgress = (payload: any) => {
+      console.log('SignalR LogRemovalProgress received:', payload);
+      // Update UI with progress if needed
+    };
 
-            // Clear LogAndCorruptionManager operation state
-            if (logAndCorruptionClearOpRef.current) {
-              await logAndCorruptionClearOpRef.current();
-            }
+    const handleLogRemovalComplete = async (payload: any) => {
+      console.log('SignalR LogRemovalComplete received:', payload);
+      if (payload.success) {
+        console.log(`Service ${payload.service} removal completed successfully`);
 
-            // Clear parent operation state
-            setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
-
-            // Refresh LogAndCorruptionManager
-            await refreshLogAndCorruption();
-          } else {
-            console.error(`Service ${payload.service} removal failed:`, payload.message);
-            addError(`Failed to remove ${payload.service} logs: ${payload.message}`);
-
-            // Clear operation states on failure too
-            if (logAndCorruptionClearOpRef.current) {
-              await logAndCorruptionClearOpRef.current();
-            }
-            setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
-          }
-        });
-
-        await connection.start();
-        signalRConnection.current = connection;
-        console.log('ManagementTab SignalR connection established');
-
-        // Check for existing depot mapping status after connection is established
-        try {
-          const response = await fetch('/api/management/depot-mapping-status');
-          if (response.ok) {
-            const status = await response.json();
-            if (status.isProcessing) {
-              console.log('Recovering depot mapping state:', status);
-              setDepotMappingProgress({
-                isProcessing: status.isProcessing,
-                totalMappings: status.totalMappings || 0,
-                processedMappings: status.processedMappings || 0,
-                mappingsApplied: status.mappingsApplied,
-                percentComplete: status.percentComplete || 0,
-                status: status.status || 'processing',
-                message: status.message || 'Depot mapping in progress...'
-              });
-            }
-          }
-        } catch (err) {
-          console.warn('Failed to check depot mapping status on mount:', err);
+        // Clear LogAndCorruptionManager operation state
+        if (logAndCorruptionClearOpRef.current) {
+          await logAndCorruptionClearOpRef.current();
         }
 
+        // Clear parent operation state
+        setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
+
+        // Refresh LogAndCorruptionManager
+        await refreshLogAndCorruptionRef.current();
+      } else {
+        console.error(`Service ${payload.service} removal failed:`, payload.message);
+        addErrorRef.current(`Failed to remove ${payload.service} logs: ${payload.message}`);
+
+        // Clear operation states on failure too
+        if (logAndCorruptionClearOpRef.current) {
+          await logAndCorruptionClearOpRef.current();
+        }
+        setBackgroundOperations((prev) => ({ ...prev, serviceRemoval: null }));
+      }
+    };
+
+    // Subscribe to all events
+    signalR.on('DepotMappingStarted', handleDepotMappingStarted);
+    signalR.on('DepotMappingProgress', handleDepotMappingProgress);
+    signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
+    signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
+    signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
+    signalR.on('LogRemovalProgress', handleLogRemovalProgress);
+    signalR.on('LogRemovalComplete', handleLogRemovalComplete);
+
+    console.log('[ManagementTab] Subscribed to SignalR events');
+
+    // Check for existing depot mapping status after subscription
+    const checkDepotMappingStatus = async () => {
+      try {
+        const response = await fetch('/api/management/depot-mapping-status');
+        if (response.ok) {
+          const status = await response.json();
+          if (status.isProcessing) {
+            console.log('Recovering depot mapping state:', status);
+            setDepotMappingProgress({
+              isProcessing: status.isProcessing,
+              totalMappings: status.totalMappings || 0,
+              processedMappings: status.processedMappings || 0,
+              mappingsApplied: status.mappingsApplied,
+              percentComplete: status.percentComplete || 0,
+              status: status.status || 'processing',
+              message: status.message || 'Depot mapping in progress...'
+            });
+          }
+        }
       } catch (err) {
-        console.error('ManagementTab SignalR connection failed:', err);
+        console.warn('Failed to check depot mapping status on mount:', err);
       }
     };
 
-    setupSignalR();
+    checkDepotMappingStatus();
 
+    // Cleanup: unsubscribe from all events
     return () => {
-      if (signalRConnection.current) {
-        signalRConnection.current.stop();
-      }
+      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
+      signalR.off('DepotMappingProgress', handleDepotMappingProgress);
+      signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
+      signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
+      signalR.off('BulkProcessingComplete', handleBulkProcessingComplete);
+      signalR.off('LogRemovalProgress', handleLogRemovalProgress);
+      signalR.off('LogRemovalComplete', handleLogRemovalComplete);
+      console.log('[ManagementTab] Unsubscribed from SignalR events');
     };
-  }, [mockMode, addError, setSuccess, refreshLogAndCorruption]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency
 
   return (
     <>
