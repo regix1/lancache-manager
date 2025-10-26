@@ -52,6 +52,22 @@ fn calculate_cache_path(cache_dir: &Path, service: &str, url: &str, start: u64, 
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
+fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
+    // Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
+    let cache_key = format!("{}{}", service, url);
+    let hash = calculate_md5(&cache_key);
+
+    let len = hash.len();
+    if len < 4 {
+        return cache_dir.join(&hash);
+    }
+
+    let last_2 = &hash[len - 2..];
+    let middle_2 = &hash[len - 4..len - 2];
+
+    cache_dir.join(last_2).join(middle_2).join(&hash)
+}
+
 fn get_file_size(path: &Path) -> u64 {
     fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
@@ -113,35 +129,44 @@ fn detect_cache_files_for_game(
     }
 
     // Scan cache directory for actual files
+    // Try two formats: without bytes range (current lancache format), then with bytes range (fallback)
     let mut found_files = HashSet::new();
     let mut total_size: u64 = 0;
     let mut checked_first_path = false;
 
     for (service, urls) in &service_urls {
         for url in urls {
-            // Check first 100 chunks (100MB) for each URL
-            for chunk in 0..100 {
-                let start = chunk * 1_048_576;
-                let end = start + 1_048_575;
+            // First try: without bytes range (standard lancache format)
+            let cache_path_no_range = calculate_cache_path_no_range(cache_dir, service, url);
 
-                let cache_path = calculate_cache_path(cache_dir, service, url, start, end);
+            // Debug: Show first cache path being checked for this game
+            if !checked_first_path {
+                let cache_key = format!("{}{}", service, url);
+                let hash = calculate_md5(&cache_key);
+                eprintln!("    [DEBUG] First check - Service: {}, URL: {}", service, url);
+                eprintln!("    [DEBUG] Primary format (no range) - Cache key: {}", cache_key);
+                eprintln!("    [DEBUG] MD5 hash: {}", hash);
+                eprintln!("    [DEBUG] Looking for: {}", cache_path_no_range.display());
+                eprintln!("    [DEBUG] Exists: {}", cache_path_no_range.exists());
+                checked_first_path = true;
+            }
 
-                // Debug: Show first cache path being checked for this game
-                if !checked_first_path {
-                    let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
-                    let hash = calculate_md5(&cache_key);
-                    eprintln!("    [DEBUG] First check - Service: {}, URL: {}", service, url);
-                    eprintln!("    [DEBUG] Cache key: {}", cache_key);
-                    eprintln!("    [DEBUG] MD5 hash: {}", hash);
-                    eprintln!("    [DEBUG] Looking for: {}", cache_path.display());
-                    eprintln!("    [DEBUG] Exists: {}", cache_path.exists());
-                    checked_first_path = true;
-                }
+            if cache_path_no_range.exists() {
+                let size = get_file_size(&cache_path_no_range);
+                total_size += size;
+                found_files.insert(cache_path_no_range);
+            } else {
+                // Fallback: check first 100 chunks with bytes range (for backwards compatibility)
+                for chunk in 0..100 {
+                    let start = chunk * 1_048_576;
+                    let end = start + 1_048_575;
+                    let cache_path = calculate_cache_path(cache_dir, service, url, start, end);
 
-                if cache_path.exists() {
-                    let size = get_file_size(&cache_path);
-                    total_size += size;
-                    found_files.insert(cache_path);
+                    if cache_path.exists() {
+                        let size = get_file_size(&cache_path);
+                        total_size += size;
+                        found_files.insert(cache_path);
+                    }
                 }
             }
         }
