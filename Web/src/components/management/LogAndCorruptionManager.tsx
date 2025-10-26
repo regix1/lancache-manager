@@ -376,9 +376,18 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
         {/* Corruption Detection Section */}
         <div className="mb-6">
-          <p className="text-themed-muted text-sm mb-4">
-            Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+ occurrences) in access logs
-          </p>
+          <div className="flex items-start gap-2 mb-4">
+            <AlertTriangle className="w-5 h-5 text-themed-warning flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-themed-primary text-sm font-medium mb-1">
+                Corrupted Cache Detection & Removal
+              </p>
+              <p className="text-themed-muted text-sm">
+                Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+ occurrences) in access logs.
+                Removal will <strong>delete cache files</strong> from disk AND <strong>remove log entries</strong> for these chunks.
+              </p>
+            </div>
+          </div>
 
           {loadError && (
             <Alert color="red" className="mb-4">
@@ -434,16 +443,18 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                           </span>
                         </div>
                       </div>
-                      <Button
-                        onClick={() => handleRemoveCorruption(service)}
-                        disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated'}
-                        variant="filled"
-                        color="red"
-                        size="sm"
-                        loading={removingCorruption === service}
-                      >
-                        {removingCorruption !== service ? 'Remove All' : 'Removing...'}
-                      </Button>
+                      <Tooltip content="Delete cache files and remove log entries for corrupted chunks">
+                        <Button
+                          onClick={() => handleRemoveCorruption(service)}
+                          disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated'}
+                          variant="filled"
+                          color="red"
+                          size="sm"
+                          loading={removingCorruption === service}
+                        >
+                          {removingCorruption !== service ? 'Remove All' : 'Removing...'}
+                        </Button>
+                      </Tooltip>
                     </div>
 
                     {/* Expandable Details Section */}
@@ -510,8 +521,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           <div>
             <p className="text-xs font-medium mb-2">Important:</p>
             <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-              <li>Log removal requires write permissions to logs directory</li>
-              <li>Corruption removal will delete cache files and remove log entries</li>
+              <li><strong>Log removal:</strong> Removes entries from access.log (cache files remain intact)</li>
+              <li><strong>Corruption removal:</strong> Deletes BOTH cache files AND log entries for corrupted chunks</li>
+              <li>Both require write permissions to logs/cache directories</li>
               <li>These actions cannot be undone</li>
             </ul>
           </div>
@@ -582,9 +594,19 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Remove all corrupted cache chunks for <strong>{pendingCorruptionRemoval}</strong>? This will delete cache files
-            and log entries for chunks with repeated MISS/UNKNOWN requests.
+            Remove all corrupted cache chunks for <strong>{pendingCorruptionRemoval}</strong>?
           </p>
+
+          <Alert color="red">
+            <div>
+              <p className="text-sm font-medium mb-2">This will DELETE:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li><strong>Cache files</strong> from disk for corrupted chunks (3+ MISS/UNKNOWN)</li>
+                <li><strong>Log entries</strong> from access.log for these chunks</li>
+                <li><strong>Empty directories</strong> left after file removal</li>
+              </ul>
+            </div>
+          </Alert>
 
           <Alert color="yellow">
             <div>
@@ -593,6 +615,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 <li>This action cannot be undone</li>
                 <li>May take several minutes for large cache directories</li>
                 <li>Valid {pendingCorruptionRemoval} cache files will remain intact</li>
+                <li>Removes approximately {corruptionSummary[pendingCorruptionRemoval || ''] || 0} corrupted chunks</li>
               </ul>
             </div>
           </Alert>
@@ -607,7 +630,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               onClick={confirmRemoveCorruption}
               leftSection={<AlertTriangle className="w-4 h-4" />}
             >
-              Remove Corrupted Chunks
+              Delete Cache Files & Log Entries
             </Button>
           </div>
         </div>

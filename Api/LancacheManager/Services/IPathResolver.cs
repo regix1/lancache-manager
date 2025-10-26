@@ -65,4 +65,19 @@ public interface IPathResolver
     /// Gets the path to the Rust corruption manager executable
     /// </summary>
     string GetRustCorruptionManagerPath();
+
+    /// <summary>
+    /// Gets the path to the Rust game cache detector executable
+    /// </summary>
+    string GetRustGameDetectorPath();
+
+    /// <summary>
+    /// Gets the path to the Rust game cache remover executable
+    /// </summary>
+    string GetRustGameRemoverPath();
+
+    /// <summary>
+    /// Gets the path to the database file
+    /// </summary>
+    string GetDatabasePath();
 }

@@ -38,6 +38,17 @@ fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<(
     progress_utils::write_progress_json(progress_path, &progress)
 }
 
+fn build_cache_path(cache_dir: &Path, hash: &str) -> Option<PathBuf> {
+    let len = hash.len();
+    if len < 4 {
+        return None;
+    }
+
+    let last_2 = &hash[len - 2..];
+    let middle_2 = &hash[len - 4..len - 2];
+    Some(cache_dir.join(last_2).join(middle_2).join(hash))
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
@@ -171,14 +182,15 @@ fn main() -> Result<()> {
             let parser = LogParser::new(chrono_tz::UTC);
             let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
 
-            // PASS 1: Scan all logs to identify corrupted URLs
+            // PASS 1: Scan all logs to identify corrupted URLs AND their sizes
             let mut miss_tracker: HashMap<String, usize> = HashMap::new();
+            let mut url_sizes: HashMap<String, i64> = HashMap::new(); // Track max response size per URL
             let mut entries_processed: usize = 0;
             let miss_threshold: usize = 3; // Same threshold as corruption_detector
 
             write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks", log_files.len()))?;
 
-            // First pass: identify all corrupted URLs
+            // First pass: identify all corrupted URLs AND track their response sizes
             for (file_index, log_file) in log_files.iter().enumerate() {
                 eprintln!("  Scanning file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
@@ -203,12 +215,21 @@ fn main() -> Result<()> {
                                     *miss_tracker.entry(entry.url.clone()).or_insert(0) += 1;
                                     entries_processed += 1;
 
+                                    // Track the maximum response size for this URL
+                                    // (same URL might have different sizes in different requests)
+                                    url_sizes.entry(entry.url.clone())
+                                        .and_modify(|size| *size = (*size).max(entry.bytes_served))
+                                        .or_insert(entry.bytes_served);
+
                                     // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
                                     if entries_processed % 100_000 == 0 {
                                         let before_size = miss_tracker.len();
                                         miss_tracker.retain(|_, count| *count >= miss_threshold - 1);
+                                        // Also clean up url_sizes for URLs we're not tracking anymore
+                                        url_sizes.retain(|url, _| miss_tracker.contains_key(url));
                                         // Actually release memory back to the system
                                         miss_tracker.shrink_to_fit();
+                                        url_sizes.shrink_to_fit();
                                         let after_size = miss_tracker.len();
                                         if before_size > after_size {
                                             eprintln!("    Memory cleanup: Removed {} low-count entries (kept {})",
@@ -228,20 +249,29 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Build set of corrupted URLs (those with threshold+ misses)
-            let corrupted_urls: std::collections::HashSet<String> = miss_tracker
+            // Build map of corrupted URLs with their response sizes (those with threshold+ misses)
+            let corrupted_urls_with_sizes: HashMap<String, i64> = miss_tracker
                 .iter()
                 .filter(|(_, &count)| count >= miss_threshold)
-                .map(|(url, _)| url.clone())
+                .map(|(url, _)| {
+                    let size = url_sizes.get(url).copied().unwrap_or(0);
+                    (url.clone(), size)
+                })
                 .collect();
 
-            eprintln!("Found {} corrupted chunks for {}", corrupted_urls.len(), service);
+            eprintln!("Found {} corrupted URLs for {}", corrupted_urls_with_sizes.len(), service);
 
-            if corrupted_urls.is_empty() {
+            if corrupted_urls_with_sizes.is_empty() {
                 eprintln!("No corrupted chunks found, nothing to remove");
                 write_progress(&progress_path, "complete", "No corrupted chunks found")?;
                 return Ok(());
             }
+
+            // Build set for fast lookup during log filtering
+            let corrupted_urls: std::collections::HashSet<String> = corrupted_urls_with_sizes
+                .keys()
+                .cloned()
+                .collect();
 
             // PASS 2: Filter log files, removing ALL lines with corrupted URLs
             eprintln!("Step 2: Filtering log files to remove corrupted chunks...");
@@ -323,34 +353,54 @@ fn main() -> Result<()> {
                 }
             }
 
-            write_progress(&progress_path, "removing_cache", &format!("Removing {} cache files", corrupted_urls.len()))?;
+            write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} corrupted URLs", corrupted_urls_with_sizes.len()))?;
 
-            // Step 3: Delete cache files from disk
+            // Step 3: Delete ALL cache file chunks from disk (not just the first 1MB!)
             eprintln!("Step 3: Deleting cache files...");
             let mut deleted_count = 0;
-            for url in &corrupted_urls {
-                // Calculate cache file path for the first 1MB slice
-                let cache_key = format!("{}{}bytes=0-1048575", service_lower, url);
-                let hash = format!("{:x}", md5::compute(cache_key.as_bytes()));
+            let slice_size: i64 = 1_048_576; // 1MB
 
-                let len = hash.len();
-                if len >= 4 {
-                    let last_2 = &hash[len - 2..];
-                    let middle_2 = &hash[len - 4..len - 2];
-                    let cache_file = cache_dir.join(last_2).join(middle_2).join(&hash);
+            for (url, response_size) in &corrupted_urls_with_sizes {
+                // Calculate ALL chunks for this URL based on response size
+                // This matches the C# logic: CalculateRanges(ResponseSizeBytes)
 
-                    if cache_file.exists() {
-                        match std::fs::remove_file(&cache_file) {
-                            Ok(_) => {
-                                deleted_count += 1;
-                                if deleted_count % 100 == 0 {
-                                    eprintln!("  Deleted {} cache files...", deleted_count);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("  Warning: Failed to delete {}: {}", cache_file.display(), e);
+                if *response_size == 0 {
+                    // If no response size, assume at least first chunk exists
+                    let cache_key = format!("{}{}bytes=0-1048575", service_lower, url);
+                    let hash = format!("{:x}", md5::compute(cache_key.as_bytes()));
+
+                    if let Some(cache_file) = build_cache_path(&cache_dir, &hash) {
+                        if cache_file.exists() {
+                            match std::fs::remove_file(&cache_file) {
+                                Ok(_) => deleted_count += 1,
+                                Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_file.display(), e),
                             }
                         }
+                    }
+                } else {
+                    // Calculate all 1MB slices based on actual response size
+                    let mut start: i64 = 0;
+                    while start < *response_size {
+                        let end = (start + slice_size - 1).min(*response_size - 1 + slice_size - 1);
+
+                        let cache_key = format!("{}{}bytes={}-{}", service_lower, url, start, end);
+                        let hash = format!("{:x}", md5::compute(cache_key.as_bytes()));
+
+                        if let Some(cache_file) = build_cache_path(&cache_dir, &hash) {
+                            if cache_file.exists() {
+                                match std::fs::remove_file(&cache_file) {
+                                    Ok(_) => {
+                                        deleted_count += 1;
+                                        if deleted_count % 100 == 0 {
+                                            eprintln!("  Deleted {} cache files...", deleted_count);
+                                        }
+                                    }
+                                    Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_file.display(), e),
+                                }
+                            }
+                        }
+
+                        start += slice_size;
                     }
                 }
             }
@@ -358,7 +408,7 @@ fn main() -> Result<()> {
             eprintln!("Deleted {} cache files", deleted_count);
             eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
 
-            write_progress(&progress_path, "complete", &format!("Removed {} corrupted chunks for {} ({} cache files deleted, {} log lines removed)", corrupted_urls.len(), service, deleted_count, total_lines_removed))?;
+            write_progress(&progress_path, "complete", &format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed))?;
             eprintln!("Removal completed successfully");
         }
 

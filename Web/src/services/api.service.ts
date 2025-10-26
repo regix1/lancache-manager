@@ -10,7 +10,9 @@ import type {
   ClearCacheResponse,
   Config,
   DashboardStats,
-  CorruptedChunkDetail
+  CorruptedChunkDetail,
+  GameCacheDetectionResult,
+  GameCacheRemovalReport
 } from '../types';
 
 class ApiService {
@@ -649,6 +651,35 @@ class ApiService {
       return await this.handleResponse<CorruptedChunkDetail[]>(res);
     } catch (error) {
       console.error('getCorruptionDetails error:', error);
+      throw error;
+    }
+  }
+
+  // Detect which games have files in the cache directory
+  static async detectGamesInCache(): Promise<GameCacheDetectionResult> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/detect-games`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(120000) // 2 minute timeout for cache scanning
+      });
+      return await this.handleResponse<GameCacheDetectionResult>(res);
+    } catch (error) {
+      console.error('detectGamesInCache error:', error);
+      throw error;
+    }
+  }
+
+  // Remove all cache files for a specific game (requires auth)
+  static async removeGameFromCache(gameAppId: number): Promise<{ message: string; report: GameCacheRemovalReport }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/game/${gameAppId}`, {
+        method: 'DELETE',
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(120000) // 2 minute timeout for cache removal
+      });
+      return await this.handleResponse<{ message: string; report: GameCacheRemovalReport }>(res);
+    } catch (error) {
+      console.error('removeGameFromCache error:', error);
       throw error;
     }
   }

@@ -1024,6 +1024,57 @@ public class ManagementController : ControllerBase
             return StatusCode(500, new { error = "Failed to clear depot mappings", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Detect which games have files in the cache directory
+    /// </summary>
+    [HttpGet("cache/detect-games")]
+    public async Task<IActionResult> DetectGamesInCache()
+    {
+        try
+        {
+            _logger.LogInformation("Starting game cache detection");
+
+            var games = await _cacheService.DetectGamesInCache();
+
+            return Ok(new
+            {
+                totalGamesDetected = games.Count,
+                games
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error detecting games in cache");
+            return StatusCode(500, new { error = "Failed to detect games in cache", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Remove all cache files for a specific game
+    /// </summary>
+    [HttpDelete("cache/game/{gameAppId}")]
+    [RequireAuth]
+    public async Task<IActionResult> RemoveGameFromCache(uint gameAppId)
+    {
+        try
+        {
+            _logger.LogInformation("Removing game {AppId} from cache", gameAppId);
+
+            var report = await _cacheService.RemoveGameFromCache(gameAppId);
+
+            return Ok(new
+            {
+                message = $"Successfully removed {report.GameName} from cache",
+                report
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing game {AppId} from cache", gameAppId);
+            return StatusCode(500, new { error = $"Failed to remove game {gameAppId} from cache", details = ex.Message });
+        }
+    }
 }
 
 // Request model for removing service
