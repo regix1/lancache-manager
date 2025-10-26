@@ -39,6 +39,39 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, []);
 
+  // Check for active operations on mount
+  useEffect(() => {
+    const checkForActiveOperation = async () => {
+      if (mockMode) return;
+
+      try {
+        const result = await ApiService.getActiveGameDetection();
+
+        if (result.hasActiveOperation && result.operation) {
+          // Resume polling for this operation
+          setLoading(true);
+          setError(null);
+
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+
+          pollingIntervalRef.current = setInterval(() => {
+            pollDetectionStatus(result.operation!.operationId);
+          }, 2000);
+
+          // Poll immediately
+          pollDetectionStatus(result.operation.operationId);
+        }
+      } catch (err) {
+        console.error('Error checking for active operation:', err);
+        // Don't show error to user - this is a background check
+      }
+    };
+
+    checkForActiveOperation();
+  }, [mockMode]); // Only run on mount or when mockMode changes
+
   const pollDetectionStatus = async (operationId: string) => {
     try {
       const status = await ApiService.getGameDetectionStatus(operationId);

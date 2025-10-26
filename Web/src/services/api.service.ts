@@ -684,6 +684,20 @@ class ApiService {
     }
   }
 
+  // Get active game cache detection operation (if any)
+  static async getActiveGameDetection(): Promise<{ hasActiveOperation: boolean; operation?: GameDetectionStatus }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/detect-games-active`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(5000)
+      });
+      return await this.handleResponse<{ hasActiveOperation: boolean; operation?: GameDetectionStatus }>(res);
+    } catch (error) {
+      console.error('getActiveGameDetection error:', error);
+      throw error;
+    }
+  }
+
   // Remove all cache files for a specific game (requires auth)
   static async removeGameFromCache(gameAppId: number): Promise<{ message: string; report: GameCacheRemovalReport }> {
     try {

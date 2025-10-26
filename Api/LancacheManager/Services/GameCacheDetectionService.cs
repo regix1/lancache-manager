@@ -12,6 +12,7 @@ public class GameCacheDetectionService
 {
     private readonly ILogger<GameCacheDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
+    private readonly OperationStateService _operationStateService;
     private readonly string _cachePath;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
 
@@ -29,11 +30,16 @@ public class GameCacheDetectionService
     public GameCacheDetectionService(
         ILogger<GameCacheDetectionService> logger,
         IPathResolver pathResolver,
+        OperationStateService operationStateService,
         IConfiguration configuration)
     {
         _logger = logger;
         _pathResolver = pathResolver;
+        _operationStateService = operationStateService;
         _cachePath = configuration.GetValue<string>("LanCache:CachePath") ?? "/cache";
+
+        // Restore any interrupted operations on startup
+        RestoreInterruptedOperations();
     }
 
     public string StartDetectionAsync()
@@ -48,6 +54,16 @@ public class GameCacheDetectionService
         };
 
         _operations[operationId] = operation;
+
+        // Save to OperationStateService for persistence
+        _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
+        {
+            Key = $"gameDetection_{operationId}",
+            Type = "gameDetection",
+            Status = "running",
+            Message = operation.Message,
+            Data = JsonSerializer.SerializeToElement(new { operationId })
+        });
 
         // Start detection in background
         _ = Task.Run(async () => await RunDetectionAsync(operationId));
@@ -135,6 +151,14 @@ public class GameCacheDetectionService
                 operation.Games = result.Games;
                 operation.TotalGamesDetected = result.TotalGamesDetected;
 
+                // Update persisted state
+                _operationStateService.UpdateState($"gameDetection_{operationId}", new Dictionary<string, object>
+                {
+                    ["Status"] = "complete",
+                    ["Message"] = operation.Message,
+                    ["TotalGamesDetected"] = result.TotalGamesDetected
+                });
+
                 _logger.LogInformation("[GameDetection] Completed: {Count} games detected", result.TotalGamesDetected);
 
                 // Clean up output file
@@ -154,6 +178,14 @@ public class GameCacheDetectionService
             operation.Status = "failed";
             operation.Error = ex.Message;
             operation.Message = $"Detection failed: {ex.Message}";
+
+            // Update persisted state
+            _operationStateService.UpdateState($"gameDetection_{operationId}", new Dictionary<string, object>
+            {
+                ["Status"] = "failed",
+                ["Message"] = operation.Message,
+                ["Error"] = ex.Message
+            });
         }
     }
 
@@ -173,6 +205,48 @@ public class GameCacheDetectionService
         foreach (var operationId in oldOperations)
         {
             _operations.TryRemove(operationId, out _);
+        }
+    }
+
+    public DetectionOperation? GetActiveOperation()
+    {
+        return _operations.Values.FirstOrDefault(op => op.Status == "running");
+    }
+
+    private void RestoreInterruptedOperations()
+    {
+        try
+        {
+            var allStates = _operationStateService.GetAllStates();
+            var gameDetectionStates = allStates.Where(s => s.Type == "gameDetection" && s.Status == "running");
+
+            foreach (var state in gameDetectionStates)
+            {
+                if (state.Data.HasValue && state.Data.Value.TryGetProperty("operationId", out var opIdElement))
+                {
+                    var operationId = opIdElement.GetString();
+                    if (!string.IsNullOrEmpty(operationId))
+                    {
+                        var operation = new DetectionOperation
+                        {
+                            OperationId = operationId,
+                            StartTime = state.CreatedAt,
+                            Status = "running",
+                            Message = state.Message ?? "Resuming game cache detection..."
+                        };
+
+                        _operations[operationId] = operation;
+                        _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", operationId);
+
+                        // Restart the detection task
+                        _ = Task.Run(async () => await RunDetectionAsync(operationId));
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[GameDetection] Error restoring interrupted operations");
         }
     }
 

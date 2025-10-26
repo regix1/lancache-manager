@@ -1066,6 +1066,22 @@ public class ManagementController : ControllerBase
     }
 
     /// <summary>
+    /// Get the active game cache detection operation (if any)
+    /// </summary>
+    [HttpGet("cache/detect-games-active")]
+    public IActionResult GetActiveGameDetection()
+    {
+        var activeOperation = _gameCacheDetectionService.GetActiveOperation();
+
+        if (activeOperation == null)
+        {
+            return Ok(new { hasActiveOperation = false });
+        }
+
+        return Ok(new { hasActiveOperation = true, operation = activeOperation });
+    }
+
+    /// <summary>
     /// Remove all cache files for a specific game
     /// </summary>
     [HttpDelete("cache/game/{gameAppId}")]
