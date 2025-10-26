@@ -407,7 +407,7 @@ class ApiService {
     try {
       const url = `${API_BASE}/management/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
       const res = await fetch(url, {
-        signal: AbortSignal.timeout(300000), // 5 minute timeout for large log files
+        // No timeout - can take hours for massive log files
         headers: this.getHeaders()
       });
       return await this.handleResponse<Record<string, number>>(res);
@@ -614,8 +614,8 @@ class ApiService {
     try {
       const url = `${API_BASE}/management/corruption/summary${forceRefresh ? '?forceRefresh=true' : ''}`;
       const res = await fetch(url, {
-        headers: this.getHeaders(),
-        signal: AbortSignal.timeout(300000) // 5 minute timeout for large log files
+        // No timeout - can take hours for massive log files
+        headers: this.getHeaders()
       });
       return await this.handleResponse<Record<string, number>>(res);
     } catch (error) {
@@ -659,8 +659,8 @@ class ApiService {
   static async detectGamesInCache(): Promise<GameCacheDetectionResult> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/detect-games`, {
-        headers: this.getHeaders(),
-        signal: AbortSignal.timeout(120000) // 2 minute timeout for cache scanning
+        // No timeout - can take hours for massive databases and cache directories
+        headers: this.getHeaders()
       });
       return await this.handleResponse<GameCacheDetectionResult>(res);
     } catch (error) {

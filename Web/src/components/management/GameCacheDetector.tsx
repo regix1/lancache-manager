@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { HardDrive, Loader, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen } from 'lucide-react';
+import { HardDrive, Loader, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -132,9 +132,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           </div>
 
           {/* Error Alert */}
-          {error && (
+          {error && !loading && (
             <Alert color="red">
-              {error}
+              <div>
+                <p className="text-sm font-medium mb-1">Failed to detect games in cache</p>
+                <p className="text-xs opacity-75">{error}</p>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleDetect}
+                  className="mt-2"
+                  leftSection={<RefreshCw className="w-3 h-3" />}
+                >
+                  Try Again
+                </Button>
+              </div>
             </Alert>
           )}
 
@@ -149,8 +161,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           {loading && (
             <div className="flex flex-col items-center justify-center py-8 gap-3">
               <Loader className="w-6 h-6 animate-spin text-themed-accent" />
-              <p className="text-sm text-themed-secondary">Scanning cache directory...</p>
-              <p className="text-xs text-themed-muted">This may take a moment</p>
+              <p className="text-sm text-themed-secondary">Scanning database and cache directory...</p>
+              <p className="text-xs text-themed-muted">This may take several minutes for large databases and cache directories</p>
             </div>
           )}
 
