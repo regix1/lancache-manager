@@ -16,6 +16,7 @@ struct GameCacheInfo {
     total_size_bytes: u64,
     depot_ids: Vec<u32>,
     sample_urls: Vec<String>,
+    cache_file_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -174,6 +175,12 @@ fn detect_cache_files_for_game(
 
     let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
 
+    // Convert cache file paths to strings for output
+    let cache_file_paths: Vec<String> = found_files
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+
     Ok(GameCacheInfo {
         game_app_id,
         game_name,
@@ -181,6 +188,7 @@ fn detect_cache_files_for_game(
         total_size_bytes: total_size,
         depot_ids: depot_ids.into_iter().collect(),
         sample_urls,
+        cache_file_paths,
     })
 }
 

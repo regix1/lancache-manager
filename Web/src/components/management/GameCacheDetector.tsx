@@ -380,6 +380,33 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                             </div>
                           </div>
                         )}
+
+                        {/* Cache File Paths */}
+                        {game.cache_file_paths && game.cache_file_paths.length > 0 && (
+                          <div>
+                            <p className="text-xs text-themed-muted mb-1.5 font-medium">
+                              Cache File Locations ({game.cache_file_paths.length}):
+                            </p>
+                            <div className="space-y-1 max-h-48 overflow-y-auto">
+                              {game.cache_file_paths.map((path, idx) => (
+                                <div
+                                  key={idx}
+                                  className="p-2 rounded border"
+                                  style={{
+                                    backgroundColor: 'var(--theme-bg-secondary)',
+                                    borderColor: 'var(--theme-border-primary)'
+                                  }}
+                                >
+                                  <Tooltip content={path}>
+                                    <span className="text-xs font-mono text-themed-primary truncate block">
+                                      {path}
+                                    </span>
+                                  </Tooltip>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

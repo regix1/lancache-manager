@@ -228,6 +228,7 @@ export interface GameCacheInfo {
   total_size_bytes: number;
   depot_ids: number[];
   sample_urls: string[];
+  cache_file_paths: string[];
 }
 
 export interface GameCacheDetectionResult {
