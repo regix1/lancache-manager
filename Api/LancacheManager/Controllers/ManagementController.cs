@@ -11,6 +11,7 @@ public class ManagementController : ControllerBase
     private readonly CacheManagementService _cacheService;
     private readonly DatabaseService _dbService;
     private readonly CacheClearingService _cacheClearingService;
+    private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ManagementController> _logger;
     private readonly IPathResolver _pathResolver;
@@ -25,6 +26,7 @@ public class ManagementController : ControllerBase
         CacheManagementService cacheService,
         DatabaseService dbService,
         CacheClearingService cacheClearingService,
+        GameCacheDetectionService gameCacheDetectionService,
         IConfiguration configuration,
         ILogger<ManagementController> logger,
         IPathResolver pathResolver,
@@ -38,6 +40,7 @@ public class ManagementController : ControllerBase
         _cacheService = cacheService;
         _dbService = dbService;
         _cacheClearingService = cacheClearingService;
+        _gameCacheDetectionService = gameCacheDetectionService;
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
@@ -1026,28 +1029,40 @@ public class ManagementController : ControllerBase
     }
 
     /// <summary>
-    /// Detect which games have files in the cache directory
+    /// Start game cache detection as a background operation
     /// </summary>
-    [HttpGet("cache/detect-games")]
-    public async Task<IActionResult> DetectGamesInCache()
+    [HttpPost("cache/detect-games")]
+    public IActionResult StartGameCacheDetection()
     {
         try
         {
-            _logger.LogInformation("Starting game cache detection");
+            _logger.LogInformation("Starting game cache detection (background)");
 
-            var games = await _cacheService.DetectGamesInCache();
+            var operationId = _gameCacheDetectionService.StartDetectionAsync();
 
-            return Ok(new
-            {
-                totalGamesDetected = games.Count,
-                games
-            });
+            return Ok(new { operationId });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error detecting games in cache");
-            return StatusCode(500, new { error = "Failed to detect games in cache", details = ex.Message });
+            _logger.LogError(ex, "Error starting game cache detection");
+            return StatusCode(500, new { error = "Failed to start game cache detection", details = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Get the status of a game cache detection operation
+    /// </summary>
+    [HttpGet("cache/detect-games/{operationId}")]
+    public IActionResult GetGameDetectionStatus(string operationId)
+    {
+        var status = _gameCacheDetectionService.GetOperationStatus(operationId);
+
+        if (status == null)
+        {
+            return NotFound(new { error = "Operation not found" });
+        }
+
+        return Ok(status);
     }
 
     /// <summary>

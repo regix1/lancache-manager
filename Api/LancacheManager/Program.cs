@@ -232,6 +232,9 @@ builder.Services.AddSingleton<RustLogRemovalService>();
 builder.Services.AddSingleton<CacheClearingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());
 
+// Register GameCacheDetectionService
+builder.Services.AddSingleton<GameCacheDetectionService>();
+
 // Register OperationStateService
 builder.Services.AddSingleton<OperationStateService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<OperationStateService>());

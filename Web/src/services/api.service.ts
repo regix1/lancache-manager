@@ -11,7 +11,7 @@ import type {
   Config,
   DashboardStats,
   CorruptedChunkDetail,
-  GameCacheDetectionResult,
+  GameDetectionStatus,
   GameCacheRemovalReport
 } from '../types';
 
@@ -655,16 +655,31 @@ class ApiService {
     }
   }
 
-  // Detect which games have files in the cache directory
-  static async detectGamesInCache(): Promise<GameCacheDetectionResult> {
+  // Start game cache detection as background operation
+  static async startGameCacheDetection(): Promise<{ operationId: string }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/detect-games`, {
-        // No timeout - can take hours for massive databases and cache directories
-        headers: this.getHeaders()
+        method: 'POST',
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(10000) // Short timeout since it returns immediately
       });
-      return await this.handleResponse<GameCacheDetectionResult>(res);
+      return await this.handleResponse<{ operationId: string }>(res);
     } catch (error) {
-      console.error('detectGamesInCache error:', error);
+      console.error('startGameCacheDetection error:', error);
+      throw error;
+    }
+  }
+
+  // Get status of game cache detection operation
+  static async getGameDetectionStatus(operationId: string): Promise<GameDetectionStatus> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/detect-games/${operationId}`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(5000)
+      });
+      return await this.handleResponse<GameDetectionStatus>(res);
+    } catch (error) {
+      console.error('getGameDetectionStatus error:', error);
       throw error;
     }
   }

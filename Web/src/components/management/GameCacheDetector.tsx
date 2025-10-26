@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HardDrive, Loader, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
@@ -28,6 +28,55 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [removingGameId, setRemovingGameId] = useState<number | null>(null);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const pollDetectionStatus = async (operationId: string) => {
+    try {
+      const status = await ApiService.getGameDetectionStatus(operationId);
+
+      if (status.status === 'complete') {
+        // Detection complete
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+
+        setLoading(false);
+
+        if (status.games && status.totalGamesDetected !== undefined) {
+          setGames(status.games);
+          setTotalGames(status.totalGamesDetected);
+          if (status.totalGamesDetected > 0) {
+            onSuccess?.(`Detected ${status.totalGamesDetected} game${status.totalGamesDetected !== 1 ? 's' : ''} with cache files`);
+          }
+        }
+      } else if (status.status === 'failed') {
+        // Detection failed
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+
+        setLoading(false);
+        const errorMsg = status.error || 'Detection failed';
+        setError(errorMsg);
+        onError?.(errorMsg);
+      }
+      // If status is 'running', continue polling
+    } catch (err: any) {
+      console.error('Error polling detection status:', err);
+      // Continue polling even on error - might be temporary network issue
+    }
+  };
 
   const handleDetect = async () => {
     if (mockMode) {
@@ -42,18 +91,24 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setTotalGames(0);
 
     try {
-      const result = await ApiService.detectGamesInCache();
-      setGames(result.games);
-      setTotalGames(result.totalGamesDetected);
-      if (result.totalGamesDetected > 0) {
-        onSuccess?.(`Detected ${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''} with cache files`);
+      // Start background detection
+      const result = await ApiService.startGameCacheDetection();
+
+      // Start polling for status
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
       }
+      pollingIntervalRef.current = setInterval(() => {
+        pollDetectionStatus(result.operationId);
+      }, 2000); // Poll every 2 seconds
+
+      // Poll immediately
+      pollDetectionStatus(result.operationId);
     } catch (err: any) {
-      const errorMsg = err.message || 'Failed to detect games in cache';
+      const errorMsg = err.message || 'Failed to start game detection';
       setError(errorMsg);
       onError?.(errorMsg);
       console.error('Game detection error:', err);
-    } finally {
       setLoading(false);
     }
   };

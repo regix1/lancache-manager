@@ -235,6 +235,16 @@ export interface GameCacheDetectionResult {
   games: GameCacheInfo[];
 }
 
+export interface GameDetectionStatus {
+  operationId: string;
+  startTime: string;
+  status: 'running' | 'complete' | 'failed';
+  message?: string;
+  games?: GameCacheInfo[];
+  totalGamesDetected?: number;
+  error?: string;
+}
+
 export interface GameCacheRemovalReport {
   game_app_id: number;
   game_name: string;
