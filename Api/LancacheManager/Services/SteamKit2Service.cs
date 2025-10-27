@@ -349,6 +349,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                                 _automaticScanSkipped = true;
                                 return;
                             }
+                            // Viability check passed - reset the flag since incremental is now viable
+                            _automaticScanSkipped = false;
                             _logger.LogInformation("Incremental scan is viable, proceeding with automatic scan");
                         }
                         catch (Exception ex)
@@ -418,6 +420,8 @@ public class SteamKit2Service : IHostedService, IDisposable
                             _automaticScanSkipped = true;
                             return;
                         }
+                        // Viability check passed - reset the flag since incremental is now viable
+                        _automaticScanSkipped = false;
                         _logger.LogInformation("Incremental scan is viable, proceeding with scheduled scan");
                     }
                     catch (Exception ex)

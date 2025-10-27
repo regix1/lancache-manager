@@ -87,6 +87,8 @@ public class GameInfoController : ControllerBase
                     else
                     {
                         _logger.LogInformation("Incremental scan is viable - proceeding with scan");
+                        // Clear the automatic scan skipped flag since incremental is now viable
+                        _steamKit2Service.ClearAutomaticScanSkippedFlag();
                     }
                 }
                 catch (Exception ex)
