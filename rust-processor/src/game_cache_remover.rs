@@ -78,68 +78,64 @@ fn get_game_name_from_db(db_path: &Path, game_app_id: u32) -> Result<String> {
     Ok(game_name)
 }
 
-fn scan_logs_for_game(log_dir: &Path, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
-    eprintln!("Scanning logs for game AppID {}...", game_app_id);
+fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
+    eprintln!("Querying database for game URLs and depot IDs...");
 
-    let parser = LogParser::new(chrono_tz::UTC);
-    let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
+    let conn = Connection::open(db_path)
+        .context("Failed to open database")?;
 
-    // Map: URL -> (service, max_bytes, depot_ids)
-    let mut url_data: HashMap<String, (String, i64, HashSet<u32>)> = HashMap::new();
+    // Use same query pattern as detector - get all records for this game
+    let mut stmt = conn.prepare(
+        "SELECT Service, LastUrl, DepotId, CacheHitBytes + CacheMissBytes as TotalBytes
+         FROM Downloads
+         WHERE GameAppId = ? AND LastUrl IS NOT NULL"
+    )?;
 
-    for (file_index, log_file) in log_files.iter().enumerate() {
-        eprintln!("  Reading file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
+    // Build service_urls map just like the detector does
+    let mut service_urls: HashMap<String, HashMap<String, (i64, HashSet<u32>)>> = HashMap::new();
 
-        let scan_result = (|| -> Result<()> {
-            let mut log_reader = LogFileReader::open(&log_file.path)?;
-            let mut line = String::new();
+    let rows = stmt.query_map([game_app_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,        // Service
+            row.get::<_, String>(1)?,        // LastUrl
+            row.get::<_, Option<u32>>(2)?,   // DepotId (can be NULL)
+            row.get::<_, i64>(3)?,           // TotalBytes
+        ))
+    })?;
 
-            loop {
-                line.clear();
-                let bytes_read = log_reader.read_line(&mut line)?;
-                if bytes_read == 0 {
-                    break;
-                }
+    for row in rows {
+        let (service, url, depot_id_opt, total_bytes) = row?;
 
-                if let Some(entry) = parser.parse_line(line.trim()) {
-                    // Skip health checks
-                    if service_utils::should_skip_url(&entry.url) {
-                        continue;
-                    }
+        // Lowercase service name to match cache file format (same as detector)
+        let service_lower = service.to_lowercase();
 
-                    // Check if this entry matches our game (via depot_id pattern)
-                    // For Steam, extract depot_id from URL and map to game
-                    let matches_game = if entry.service.to_lowercase() == "steam" {
-                        // Extract depot_id from URL and check if it's for this game
-                        // We'll use database to get valid depot_ids for this game
-                        entry.depot_id.is_some()
-                    } else {
-                        false
-                    };
+        let url_map = service_urls
+            .entry(service_lower.clone())
+            .or_insert_with(HashMap::new);
 
-                    if matches_game {
-                        let depot_id = entry.depot_id.unwrap();
+        let entry = url_map
+            .entry(url.clone())
+            .or_insert_with(|| (0, HashSet::new()));
 
-                        let entry_data = url_data.entry(entry.url.clone())
-                            .or_insert_with(|| (entry.service.clone(), 0, HashSet::new()));
+        // Track max bytes
+        entry.0 = entry.0.max(total_bytes);
 
-                        // Track max response size
-                        entry_data.1 = entry_data.1.max(entry.bytes_served);
-
-                        // Track depot ID
-                        entry_data.2.insert(depot_id);
-                    }
-                }
-            }
-            Ok(())
-        })();
-
-        if let Err(e) = scan_result {
-            eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
-            continue;
+        // Track depot ID if present
+        if let Some(depot_id) = depot_id_opt {
+            entry.1.insert(depot_id);
         }
     }
 
+    // Flatten to URL -> (service, bytes, depot_ids) format
+    let mut url_data: HashMap<String, (String, i64, HashSet<u32>)> = HashMap::new();
+
+    for (service, urls) in service_urls {
+        for (url, (bytes, depot_ids)) in urls {
+            url_data.insert(url, (service.clone(), bytes, depot_ids));
+        }
+    }
+
+    eprintln!("  Found {} unique URLs for game AppID {}", url_data.len(), game_app_id);
     Ok(url_data)
 }
 
@@ -163,18 +159,42 @@ fn remove_cache_files_for_game(
     let mut parent_dirs: HashSet<PathBuf> = HashSet::new();
     let slice_size: i64 = 1_048_576; // 1MB
 
-    for (url, (service, total_bytes, _depot_ids)) in url_data {
+    eprintln!("[DEBUG] Starting cache file removal");
+    eprintln!("[DEBUG] Cache directory: {}", cache_dir.display());
+    eprintln!("[DEBUG] Total URLs to process: {}", url_data.len());
+
+    for (url, (service, total_bytes, depot_ids)) in url_data {
+        eprintln!("\n[DEBUG] Processing URL: {}", url);
+        eprintln!("[DEBUG]   Service: {}", service);
+        eprintln!("[DEBUG]   Total bytes: {}", total_bytes);
+        eprintln!("[DEBUG]   Depot IDs: {:?}", depot_ids);
+
         // Lowercase service name to match cache format
         let service_lower = service.to_lowercase();
+        eprintln!("[DEBUG]   Service (lowercase): {}", service_lower);
 
         // FIRST: Try the no-range format (standard lancache format)
+        let cache_key_no_range = format!("{}{}", service_lower, url);
+        let hash_no_range = calculate_md5(&cache_key_no_range);
         let cache_path_no_range = calculate_cache_path_no_range(cache_dir, &service_lower, url);
+
+        eprintln!("[DEBUG]   Trying no-range format:");
+        eprintln!("[DEBUG]     Cache key: {}", cache_key_no_range);
+        eprintln!("[DEBUG]     MD5 hash: {}", hash_no_range);
+        eprintln!("[DEBUG]     Path: {}", cache_path_no_range.display());
+        eprintln!("[DEBUG]     Exists: {}", cache_path_no_range.exists());
 
         if cache_path_no_range.exists() {
             // Found file with no-range format - delete it
-            if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
-                bytes_freed += metadata.len();
-            }
+            let file_size = if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
+                let size = metadata.len();
+                eprintln!("[DEBUG]     File size: {} bytes", size);
+                bytes_freed += size;
+                size
+            } else {
+                eprintln!("[DEBUG]     WARNING: Could not get file metadata");
+                0
+            };
 
             match fs::remove_file(&cache_path_no_range) {
                 Ok(_) => {
@@ -182,17 +202,28 @@ fn remove_cache_files_for_game(
                     if let Some(parent) = cache_path_no_range.parent() {
                         parent_dirs.insert(parent.to_path_buf());
                     }
+                    eprintln!("[DEBUG]     SUCCESS: Deleted file ({} bytes)", file_size);
                     eprintln!("  Deleted (no-range): {}", cache_path_no_range.display());
                 }
                 Err(e) => {
+                    eprintln!("[DEBUG]     ERROR: Failed to delete: {}", e);
                     eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
                 }
             }
         } else {
+            eprintln!("[DEBUG]     File not found, trying chunked format...");
             // FALLBACK: Try the chunked format with bytes range
+            eprintln!("[DEBUG]   Trying chunked format with bytes range:");
             if *total_bytes == 0 {
                 // If no size info, check at least the first chunk
+                let cache_key_chunked = format!("{}{}bytes=0-1048575", service_lower, url);
+                let hash_chunked = calculate_md5(&cache_key_chunked);
                 let cache_path = calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575);
+
+                eprintln!("[DEBUG]     Cache key (chunk 0): {}", cache_key_chunked);
+                eprintln!("[DEBUG]     MD5 hash: {}", hash_chunked);
+                eprintln!("[DEBUG]     Path: {}", cache_path.display());
+                eprintln!("[DEBUG]     Exists: {}", cache_path.exists());
 
                 if cache_path.exists() {
                     if let Ok(metadata) = fs::metadata(&cache_path) {
@@ -214,11 +245,20 @@ fn remove_cache_files_for_game(
                 }
             } else {
                 // Calculate ALL chunks based on actual download size
+                eprintln!("[DEBUG]     Checking multiple chunks based on total_bytes: {}", total_bytes);
                 let mut start: i64 = 0;
+                let mut chunk_num = 0;
                 while start < *total_bytes {
                     let end = (start + slice_size - 1).min(*total_bytes - 1 + slice_size - 1);
 
+                    let cache_key_chunked = format!("{}{}bytes={}-{}", service_lower, url, start, end);
+                    let hash_chunked = calculate_md5(&cache_key_chunked);
                     let cache_path = calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64);
+
+                    if chunk_num < 3 || cache_path.exists() {
+                        eprintln!("[DEBUG]     Chunk {}: key={}, hash={}, path={}, exists={}",
+                            chunk_num, cache_key_chunked, hash_chunked, cache_path.display(), cache_path.exists());
+                    }
 
                     if cache_path.exists() {
                         if let Ok(metadata) = fs::metadata(&cache_path) {
@@ -245,10 +285,16 @@ fn remove_cache_files_for_game(
                     }
 
                     start += slice_size;
+                    chunk_num += 1;
                 }
             }
         }
     }
+
+    eprintln!("\n[DEBUG] Cache file removal complete:");
+    eprintln!("[DEBUG]   Total files deleted: {}", deleted_files);
+    eprintln!("[DEBUG]   Total bytes freed: {}", bytes_freed);
+    eprintln!("[DEBUG]   Parent directories to check: {}", parent_dirs.len());
 
     Ok((deleted_files, bytes_freed, parent_dirs))
 }
@@ -429,13 +475,8 @@ fn main() -> Result<()> {
     let valid_depot_ids = get_game_depot_ids(&db_path, game_app_id)?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
-    // Scan logs to find all URLs for this game
-    let mut url_data = scan_logs_for_game(&log_dir, game_app_id)?;
-
-    // Filter to only URLs that match this game's depot IDs
-    url_data.retain(|_url, (_service, _bytes, depot_ids)| {
-        depot_ids.iter().any(|depot_id| valid_depot_ids.contains(depot_id))
-    });
+    // Query database directly for URLs - much faster than scanning logs!
+    let url_data = get_game_urls_from_db(&db_path, game_app_id)?;
 
     if url_data.is_empty() {
         eprintln!("No URLs found in logs for game AppID {}", game_app_id);
