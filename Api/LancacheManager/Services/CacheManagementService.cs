@@ -641,13 +641,14 @@ public class CacheManagementService
         {
             _logger.LogInformation("[CorruptionDetection] RemoveCorruptedChunks for service: {Service}", service);
 
+            var dbPath = _pathResolver.GetDatabasePath();
             var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
             var cacheDir = _cachePath;
             var dataDir = _pathResolver.GetDataDirectory();
             var progressPath = Path.Combine(dataDir, "corruption_removal_progress.json");
 
-            _logger.LogInformation("[CorruptionDetection] Removal params - logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
-                logDir, cacheDir, progressPath);
+            _logger.LogInformation("[CorruptionDetection] Removal params - db: {DbPath}, logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
+                dbPath, logDir, cacheDir, progressPath);
 
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
@@ -661,7 +662,7 @@ public class CacheManagementService
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
-                Arguments = $"remove \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"",
+                Arguments = $"remove \"{dbPath}\" \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
