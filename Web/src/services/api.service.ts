@@ -703,8 +703,8 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/management/cache/game/${gameAppId}`, {
         method: 'DELETE',
-        headers: this.getHeaders(),
-        signal: AbortSignal.timeout(120000) // 2 minute timeout for cache removal
+        headers: this.getHeaders()
+        // No timeout - wait for backend to complete and return response
       });
       return await this.handleResponse<{ message: string; report: GameCacheRemovalReport }>(res);
     } catch (error) {
