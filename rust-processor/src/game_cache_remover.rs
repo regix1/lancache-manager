@@ -150,6 +150,19 @@ fn get_game_depot_ids(db_path: &Path, game_app_id: u32) -> Result<HashSet<u32>> 
     Ok(depot_ids)
 }
 
+fn delete_game_from_database(db_path: &Path, game_app_id: u32) -> Result<usize> {
+    eprintln!("Deleting database records for game AppID {}...", game_app_id);
+
+    let conn = Connection::open(db_path)
+        .context("Failed to open database")?;
+
+    let mut stmt = conn.prepare("DELETE FROM Downloads WHERE GameAppId = ?")?;
+    let deleted_count = stmt.execute([game_app_id])?;
+
+    eprintln!("  Deleted {} database records", deleted_count);
+    Ok(deleted_count)
+}
+
 fn remove_cache_files_for_game(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64, HashSet<u32>)>,
@@ -159,42 +172,18 @@ fn remove_cache_files_for_game(
     let mut parent_dirs: HashSet<PathBuf> = HashSet::new();
     let slice_size: i64 = 1_048_576; // 1MB
 
-    eprintln!("[DEBUG] Starting cache file removal");
-    eprintln!("[DEBUG] Cache directory: {}", cache_dir.display());
-    eprintln!("[DEBUG] Total URLs to process: {}", url_data.len());
-
-    for (url, (service, total_bytes, depot_ids)) in url_data {
-        eprintln!("\n[DEBUG] Processing URL: {}", url);
-        eprintln!("[DEBUG]   Service: {}", service);
-        eprintln!("[DEBUG]   Total bytes: {}", total_bytes);
-        eprintln!("[DEBUG]   Depot IDs: {:?}", depot_ids);
-
+    for (url, (service, total_bytes, _depot_ids)) in url_data {
         // Lowercase service name to match cache format
         let service_lower = service.to_lowercase();
-        eprintln!("[DEBUG]   Service (lowercase): {}", service_lower);
 
         // FIRST: Try the no-range format (standard lancache format)
-        let cache_key_no_range = format!("{}{}", service_lower, url);
-        let hash_no_range = calculate_md5(&cache_key_no_range);
         let cache_path_no_range = calculate_cache_path_no_range(cache_dir, &service_lower, url);
-
-        eprintln!("[DEBUG]   Trying no-range format:");
-        eprintln!("[DEBUG]     Cache key: {}", cache_key_no_range);
-        eprintln!("[DEBUG]     MD5 hash: {}", hash_no_range);
-        eprintln!("[DEBUG]     Path: {}", cache_path_no_range.display());
-        eprintln!("[DEBUG]     Exists: {}", cache_path_no_range.exists());
 
         if cache_path_no_range.exists() {
             // Found file with no-range format - delete it
-            let file_size = if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
-                let size = metadata.len();
-                eprintln!("[DEBUG]     File size: {} bytes", size);
-                bytes_freed += size;
-                size
-            } else {
-                eprintln!("[DEBUG]     WARNING: Could not get file metadata");
-                0
-            };
+            if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
+                bytes_freed += metadata.len();
+            }
 
             match fs::remove_file(&cache_path_no_range) {
                 Ok(_) => {
@@ -202,28 +191,17 @@ fn remove_cache_files_for_game(
                     if let Some(parent) = cache_path_no_range.parent() {
                         parent_dirs.insert(parent.to_path_buf());
                     }
-                    eprintln!("[DEBUG]     SUCCESS: Deleted file ({} bytes)", file_size);
                     eprintln!("  Deleted (no-range): {}", cache_path_no_range.display());
                 }
                 Err(e) => {
-                    eprintln!("[DEBUG]     ERROR: Failed to delete: {}", e);
                     eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
                 }
             }
         } else {
-            eprintln!("[DEBUG]     File not found, trying chunked format...");
             // FALLBACK: Try the chunked format with bytes range
-            eprintln!("[DEBUG]   Trying chunked format with bytes range:");
             if *total_bytes == 0 {
                 // If no size info, check at least the first chunk
-                let cache_key_chunked = format!("{}{}bytes=0-1048575", service_lower, url);
-                let hash_chunked = calculate_md5(&cache_key_chunked);
                 let cache_path = calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575);
-
-                eprintln!("[DEBUG]     Cache key (chunk 0): {}", cache_key_chunked);
-                eprintln!("[DEBUG]     MD5 hash: {}", hash_chunked);
-                eprintln!("[DEBUG]     Path: {}", cache_path.display());
-                eprintln!("[DEBUG]     Exists: {}", cache_path.exists());
 
                 if cache_path.exists() {
                     if let Ok(metadata) = fs::metadata(&cache_path) {
@@ -245,20 +223,11 @@ fn remove_cache_files_for_game(
                 }
             } else {
                 // Calculate ALL chunks based on actual download size
-                eprintln!("[DEBUG]     Checking multiple chunks based on total_bytes: {}", total_bytes);
                 let mut start: i64 = 0;
-                let mut chunk_num = 0;
                 while start < *total_bytes {
                     let end = (start + slice_size - 1).min(*total_bytes - 1 + slice_size - 1);
 
-                    let cache_key_chunked = format!("{}{}bytes={}-{}", service_lower, url, start, end);
-                    let hash_chunked = calculate_md5(&cache_key_chunked);
                     let cache_path = calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64);
-
-                    if chunk_num < 3 || cache_path.exists() {
-                        eprintln!("[DEBUG]     Chunk {}: key={}, hash={}, path={}, exists={}",
-                            chunk_num, cache_key_chunked, hash_chunked, cache_path.display(), cache_path.exists());
-                    }
 
                     if cache_path.exists() {
                         if let Ok(metadata) = fs::metadata(&cache_path) {
@@ -285,16 +254,10 @@ fn remove_cache_files_for_game(
                     }
 
                     start += slice_size;
-                    chunk_num += 1;
                 }
             }
         }
     }
-
-    eprintln!("\n[DEBUG] Cache file removal complete:");
-    eprintln!("[DEBUG]   Total files deleted: {}", deleted_files);
-    eprintln!("[DEBUG]   Total bytes freed: {}", bytes_freed);
-    eprintln!("[DEBUG]   Parent directories to check: {}", parent_dirs.len());
 
     Ok((deleted_files, bytes_freed, parent_dirs))
 }
@@ -509,6 +472,10 @@ fn main() -> Result<()> {
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let log_entries_removed = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids)?;
+
+    // Delete database records for this game
+    eprintln!("\nRemoving database records...");
+    let _db_records_deleted = delete_game_from_database(&db_path, game_app_id)?;
 
     // Collect all depot IDs
     let mut all_depot_ids: HashSet<u32> = HashSet::new();
