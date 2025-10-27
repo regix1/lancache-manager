@@ -156,11 +156,19 @@ fn delete_game_from_database(db_path: &Path, game_app_id: u32) -> Result<usize> 
     let conn = Connection::open(db_path)
         .context("Failed to open database")?;
 
-    let mut stmt = conn.prepare("DELETE FROM Downloads WHERE GameAppId = ?")?;
-    let deleted_count = stmt.execute([game_app_id])?;
+    // First, delete LogEntries that reference these downloads (foreign key constraint)
+    let mut log_entries_stmt = conn.prepare(
+        "DELETE FROM LogEntries WHERE DownloadId IN (SELECT Id FROM Downloads WHERE GameAppId = ?)"
+    )?;
+    let log_entries_deleted = log_entries_stmt.execute([game_app_id])?;
+    eprintln!("  Deleted {} log entry records", log_entries_deleted);
 
-    eprintln!("  Deleted {} database records", deleted_count);
-    Ok(deleted_count)
+    // Now safe to delete the downloads
+    let mut downloads_stmt = conn.prepare("DELETE FROM Downloads WHERE GameAppId = ?")?;
+    let downloads_deleted = downloads_stmt.execute([game_app_id])?;
+
+    eprintln!("  Deleted {} download records", downloads_deleted);
+    Ok(downloads_deleted)
 }
 
 fn remove_cache_files_for_game(
