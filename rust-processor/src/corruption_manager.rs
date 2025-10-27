@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use rusqlite::Connection;
 use serde::Serialize;
 use std::env;
 use std::fs::File;
@@ -38,15 +39,101 @@ fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<(
     progress_utils::write_progress_json(progress_path, &progress)
 }
 
-fn build_cache_path(cache_dir: &Path, hash: &str) -> Option<PathBuf> {
+fn calculate_md5(cache_key: &str) -> String {
+    format!("{:x}", md5::compute(cache_key.as_bytes()))
+}
+
+fn calculate_cache_path(cache_dir: &Path, service: &str, url: &str, start: u64, end: u64) -> PathBuf {
+    let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
+    let hash = calculate_md5(&cache_key);
+
     let len = hash.len();
     if len < 4 {
-        return None;
+        return cache_dir.join(&hash);
     }
 
     let last_2 = &hash[len - 2..];
     let middle_2 = &hash[len - 4..len - 2];
-    Some(cache_dir.join(last_2).join(middle_2).join(hash))
+
+    cache_dir.join(last_2).join(middle_2).join(&hash)
+}
+
+fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
+    // Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
+    let cache_key = format!("{}{}", service, url);
+    let hash = calculate_md5(&cache_key);
+
+    let len = hash.len();
+    if len < 4 {
+        return cache_dir.join(&hash);
+    }
+
+    let last_2 = &hash[len - 2..];
+    let middle_2 = &hash[len - 4..len - 2];
+
+    cache_dir.join(last_2).join(middle_2).join(&hash)
+}
+
+fn delete_corrupted_from_database(
+    db_path: &Path,
+    service: &str,
+    corrupted_urls: &std::collections::HashSet<String>,
+) -> Result<(usize, usize)> {
+    eprintln!("Deleting corrupted database records for service: {}", service);
+
+    let conn = Connection::open(db_path)
+        .context("Failed to open database")?;
+
+    let service_lower = service.to_lowercase();
+
+    // Build placeholders for SQL IN clause
+    // We'll delete records where Service matches AND URL is in our corrupted set
+    let mut total_log_entries_deleted = 0;
+    let mut total_downloads_deleted = 0;
+
+    // Process in batches to avoid SQL parameter limits (SQLite has a default limit of 999)
+    let batch_size = 500;
+    let urls: Vec<&String> = corrupted_urls.iter().collect();
+
+    for chunk in urls.chunks(batch_size) {
+        // Build placeholders: ?, ?, ?, ...
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+
+        // First, delete LogEntries that reference these downloads (foreign key constraint)
+        let log_entries_query = format!(
+            "DELETE FROM LogEntries WHERE DownloadId IN (
+                SELECT Id FROM Downloads WHERE LOWER(Service) = ? AND LastUrl IN ({})
+            )",
+            placeholders
+        );
+
+        let mut log_stmt = conn.prepare(&log_entries_query)?;
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&service_lower];
+        for url in chunk {
+            params.push(url);
+        }
+        let log_deleted = log_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
+        total_log_entries_deleted += log_deleted;
+
+        // Now delete the downloads themselves
+        let downloads_query = format!(
+            "DELETE FROM Downloads WHERE LOWER(Service) = ? AND LastUrl IN ({})",
+            placeholders
+        );
+
+        let mut downloads_stmt = conn.prepare(&downloads_query)?;
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&service_lower];
+        for url in chunk {
+            params.push(url);
+        }
+        let downloads_deleted = downloads_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
+        total_downloads_deleted += downloads_deleted;
+    }
+
+    eprintln!("  Deleted {} log entry records", total_log_entries_deleted);
+    eprintln!("  Deleted {} download records", total_downloads_deleted);
+
+    Ok((total_downloads_deleted, total_log_entries_deleted))
 }
 
 fn main() -> Result<()> {
@@ -56,18 +143,19 @@ fn main() -> Result<()> {
         eprintln!("Usage:");
         eprintln!("  {} detect <log_dir> <cache_dir> <output_json> [timezone]", args[0]);
         eprintln!("  {} summary <log_dir> <cache_dir> [timezone] [threshold]", args[0]);
-        eprintln!("  {} remove <log_dir> <cache_dir> <service> <progress_json>", args[0]);
+        eprintln!("  {} remove <database_path> <log_dir> <cache_dir> <service> <progress_json>", args[0]);
         eprintln!();
         eprintln!("Commands:");
         eprintln!("  detect  - Find corrupted chunks and output detailed JSON report");
         eprintln!("  summary - Quick JSON summary of corrupted chunk counts per service");
-        eprintln!("  remove  - Delete cache files and log entries for a specific service");
+        eprintln!("  remove  - Delete database records, cache files, and log entries for corrupted chunks");
         eprintln!();
         eprintln!("Arguments:");
+        eprintln!("  database_path - Path to LancacheManager.db");
         eprintln!("  log_dir      - Directory containing log files (e.g., /logs or H:/logs)");
         eprintln!("  cache_dir    - Cache directory root path (e.g., /cache or H:/cache)");
         eprintln!("  output_json  - Path to output JSON file");
-        eprintln!("  service      - Service name to remove (e.g., steam, epic)");
+        eprintln!("  service      - Service name to remove corrupted chunks for (e.g., steam, epic)");
         eprintln!("  progress_json - Path to progress JSON file for removal tracking");
         eprintln!("  timezone     - Optional timezone (default: UTC)");
         eprintln!("  threshold    - Optional miss threshold (default: 3)");
@@ -150,17 +238,19 @@ fn main() -> Result<()> {
         }
 
         "remove" => {
-            if args.len() < 6 {
-                eprintln!("Usage: {} remove <log_dir> <cache_dir> <service> <progress_json>", args[0]);
+            if args.len() < 7 {
+                eprintln!("Usage: {} remove <database_path> <log_dir> <cache_dir> <service> <progress_json>", args[0]);
                 std::process::exit(1);
             }
 
-            let log_dir = PathBuf::from(&args[2]);
-            let cache_dir = PathBuf::from(&args[3]);
-            let service = &args[4];
-            let progress_path = PathBuf::from(&args[5]);
+            let db_path = PathBuf::from(&args[2]);
+            let log_dir = PathBuf::from(&args[3]);
+            let cache_dir = PathBuf::from(&args[4]);
+            let service = &args[5];
+            let progress_path = PathBuf::from(&args[6]);
 
             eprintln!("Removing corrupted chunks for service: {}", service);
+            eprintln!("  Database: {}", db_path.display());
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
 
@@ -355,52 +445,61 @@ fn main() -> Result<()> {
 
             write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} corrupted URLs", corrupted_urls_with_sizes.len()))?;
 
-            // Step 3: Delete ALL cache file chunks from disk (not just the first 1MB!)
+            // Step 3: Delete ALL cache file chunks from disk
+            // IMPORTANT: Use same logic as game_cache_remover - try no-range format first!
             eprintln!("Step 3: Deleting cache files...");
             let mut deleted_count = 0;
             let slice_size: i64 = 1_048_576; // 1MB
 
             for (url, response_size) in &corrupted_urls_with_sizes {
-                // Calculate ALL chunks for this URL based on response size
-                // This matches the C# logic: CalculateRanges(ResponseSizeBytes)
+                // FIRST: Try the no-range format (standard lancache format)
+                let cache_path_no_range = calculate_cache_path_no_range(&cache_dir, &service_lower, url);
 
-                if *response_size == 0 {
-                    // If no response size, assume at least first chunk exists
-                    let cache_key = format!("{}{}bytes=0-1048575", service_lower, url);
-                    let hash = format!("{:x}", md5::compute(cache_key.as_bytes()));
-
-                    if let Some(cache_file) = build_cache_path(&cache_dir, &hash) {
-                        if cache_file.exists() {
-                            match std::fs::remove_file(&cache_file) {
-                                Ok(_) => deleted_count += 1,
-                                Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_file.display(), e),
+                if cache_path_no_range.exists() {
+                    // Found file with no-range format - delete it
+                    match std::fs::remove_file(&cache_path_no_range) {
+                        Ok(_) => {
+                            deleted_count += 1;
+                            if deleted_count % 100 == 0 {
+                                eprintln!("  Deleted {} cache files...", deleted_count);
                             }
                         }
+                        Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e),
                     }
                 } else {
-                    // Calculate all 1MB slices based on actual response size
-                    let mut start: i64 = 0;
-                    while start < *response_size {
-                        let end = (start + slice_size - 1).min(*response_size - 1 + slice_size - 1);
+                    // FALLBACK: Try the chunked format with bytes range
+                    if *response_size == 0 {
+                        // If no response size, check at least the first chunk
+                        let cache_path = calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
 
-                        let cache_key = format!("{}{}bytes={}-{}", service_lower, url, start, end);
-                        let hash = format!("{:x}", md5::compute(cache_key.as_bytes()));
+                        if cache_path.exists() {
+                            match std::fs::remove_file(&cache_path) {
+                                Ok(_) => deleted_count += 1,
+                                Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e),
+                            }
+                        }
+                    } else {
+                        // Calculate ALL chunks based on actual response size
+                        let mut start: i64 = 0;
+                        while start < *response_size {
+                            let end = (start + slice_size - 1).min(*response_size - 1 + slice_size - 1);
 
-                        if let Some(cache_file) = build_cache_path(&cache_dir, &hash) {
-                            if cache_file.exists() {
-                                match std::fs::remove_file(&cache_file) {
+                            let cache_path = calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
+
+                            if cache_path.exists() {
+                                match std::fs::remove_file(&cache_path) {
                                     Ok(_) => {
                                         deleted_count += 1;
                                         if deleted_count % 100 == 0 {
                                             eprintln!("  Deleted {} cache files...", deleted_count);
                                         }
                                     }
-                                    Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_file.display(), e),
+                                    Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e),
                                 }
                             }
-                        }
 
-                        start += slice_size;
+                            start += slice_size;
+                        }
                     }
                 }
             }
@@ -408,7 +507,19 @@ fn main() -> Result<()> {
             eprintln!("Deleted {} cache files", deleted_count);
             eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
 
-            write_progress(&progress_path, "complete", &format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed))?;
+            // Step 4: Delete database records for corrupted downloads
+            eprintln!("Step 4: Deleting database records...");
+            write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks")?;
+
+            let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&db_path, service, &corrupted_urls)?;
+
+            write_progress(&progress_path, "complete", &format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed, {} downloads deleted, {} log entries deleted)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed, downloads_deleted, log_entries_deleted))?;
+            eprintln!("\n=== Corruption Removal Summary ===");
+            eprintln!("Corrupted URLs removed: {}", corrupted_urls_with_sizes.len());
+            eprintln!("Cache files deleted: {}", deleted_count);
+            eprintln!("Log lines removed: {}", total_lines_removed);
+            eprintln!("Database downloads deleted: {}", downloads_deleted);
+            eprintln!("Database log entries deleted: {}", log_entries_deleted);
             eprintln!("Removal completed successfully");
         }
 
