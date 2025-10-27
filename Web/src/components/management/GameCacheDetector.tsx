@@ -13,13 +13,15 @@ interface GameCacheDetectorProps {
   isAuthenticated?: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
+  onDataRefresh?: () => void;
 }
 
 const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   mockMode = false,
   isAuthenticated = false,
   onError,
-  onSuccess
+  onSuccess,
+  onDataRefresh
 }) => {
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
@@ -169,6 +171,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Remove from the list
       setGames((prev) => prev.filter((g) => g.game_app_id !== gameToRemove.game_app_id));
       setTotalGames((prev) => prev - 1);
+
+      // Trigger a refetch of all data to update Downloads tab
+      onDataRefresh?.();
 
       setGameToRemove(null);
     } catch (err: any) {

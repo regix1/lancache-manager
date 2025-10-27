@@ -940,6 +940,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 isAuthenticated={authMode === 'authenticated'}
                 onError={addError}
                 onSuccess={setSuccess}
+                onDataRefresh={fetchData}
               />
             </CollapsibleSection>
 

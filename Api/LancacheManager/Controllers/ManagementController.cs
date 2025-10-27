@@ -1094,10 +1094,15 @@ public class ManagementController : ControllerBase
 
             var report = await _cacheService.RemoveGameFromCache(gameAppId);
 
+            // Add cache-busting headers to force frontend to refetch downloads
+            Response.Headers.Add("X-Cache-Invalidate", "downloads");
+            Response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
+
             return Ok(new
             {
                 message = $"Successfully removed {report.GameName} from cache",
-                report
+                report,
+                cacheInvalidated = true
             });
         }
         catch (Exception ex)
