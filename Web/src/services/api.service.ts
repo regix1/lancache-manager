@@ -246,8 +246,8 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/management/cache/clear-all`, {
         method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        signal: AbortSignal.timeout(10000)
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+        // No timeout - Rust backend handles efficiently
       });
       return await this.handleResponse<ClearCacheResponse>(res);
     } catch (error) {
@@ -313,8 +313,8 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/management/database`, {
         method: 'DELETE',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        signal: AbortSignal.timeout(60000)
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+        // No timeout - Rust backend handles efficiently
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -328,8 +328,8 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/management/reset-logs?position=${position}`, {
         method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        signal: AbortSignal.timeout(60000)
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+        // No timeout - may need to read entire log file to count lines
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -343,8 +343,8 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/management/process-all-logs`, {
         method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        signal: AbortSignal.timeout(120000)
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+        // No timeout - Rust log processor handles large files efficiently
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -392,8 +392,8 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/logs/remove-service`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ service }),
-        signal: AbortSignal.timeout(120000)
+        body: JSON.stringify({ service })
+        // No timeout - Rust log filtering handles large files efficiently
       });
       return await this.handleResponse(res);
     } catch (error) {
@@ -630,8 +630,8 @@ class ApiService {
       const res = await fetch(`${API_BASE}/management/corruption/remove`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ service }),
-        signal: AbortSignal.timeout(300000) // 5 minute timeout
+        body: JSON.stringify({ service })
+        // No timeout - Rust corruption remover handles large operations efficiently
       });
       return await this.handleResponse<{ message: string; service: string }>(res);
     } catch (error) {
