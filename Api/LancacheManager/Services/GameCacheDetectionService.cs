@@ -158,12 +158,14 @@ public class GameCacheDetectionService
                 operation.Games = result.Games;
                 operation.TotalGamesDetected = result.TotalGamesDetected;
 
-                // Update persisted state
-                _operationStateService.UpdateState($"gameDetection_{operationId}", new Dictionary<string, object>
+                // Update persisted state with complete status
+                _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
                 {
-                    ["Status"] = "complete",
-                    ["Message"] = operation.Message,
-                    ["TotalGamesDetected"] = result.TotalGamesDetected
+                    Key = $"gameDetection_{operationId}",
+                    Type = "gameDetection",
+                    Status = "complete",
+                    Message = operation.Message,
+                    Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected = result.TotalGamesDetected })
                 });
 
                 _logger.LogInformation("[GameDetection] Completed: {Count} games detected", result.TotalGamesDetected);
@@ -186,12 +188,14 @@ public class GameCacheDetectionService
             operation.Error = ex.Message;
             operation.Message = $"Detection failed: {ex.Message}";
 
-            // Update persisted state
-            _operationStateService.UpdateState($"gameDetection_{operationId}", new Dictionary<string, object>
+            // Update persisted state with failed status
+            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
             {
-                ["Status"] = "failed",
-                ["Message"] = operation.Message,
-                ["Error"] = ex.Message
+                Key = $"gameDetection_{operationId}",
+                Type = "gameDetection",
+                Status = "failed",
+                Message = operation.Message,
+                Data = JsonSerializer.SerializeToElement(new { operationId, error = ex.Message })
             });
         }
     }
@@ -225,7 +229,13 @@ public class GameCacheDetectionService
         try
         {
             var allStates = _operationStateService.GetAllStates();
-            var gameDetectionStates = allStates.Where(s => s.Type == "gameDetection" && s.Status == "running");
+
+            // Only restore operations that are recent (within last 5 minutes) to avoid re-running old completed operations
+            var recentCutoff = DateTime.UtcNow.AddMinutes(-5);
+            var gameDetectionStates = allStates.Where(s =>
+                s.Type == "gameDetection" &&
+                s.Status == "running" &&
+                s.CreatedAt > recentCutoff);
 
             foreach (var state in gameDetectionStates)
             {
