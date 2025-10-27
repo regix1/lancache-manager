@@ -351,7 +351,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   ? 'Rsync with empty directory (network storage)'
                   : deleteMode === 'full'
                   ? 'Bulk directory removal (faster)'
-                  : 'Individual file deletion (with count)'}
+                  : 'Individual file deletion (slower, keeps structure)'}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -362,7 +362,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 onClick={() => handleDeleteModeChange('preserve')}
                 disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
-                Preserve
+                Safe Mode
               </Button>
               <Button
                 size="sm"
@@ -371,7 +371,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 onClick={() => handleDeleteModeChange('full')}
                 disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
               >
-                Bulk
+                Fast Mode
               </Button>
               {rsyncAvailable && (
                 <Button
