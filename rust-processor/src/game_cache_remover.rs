@@ -48,6 +48,22 @@ fn calculate_cache_path(cache_dir: &Path, service: &str, url: &str, start: u64, 
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
+fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
+    // Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
+    let cache_key = format!("{}{}", service, url);
+    let hash = calculate_md5(&cache_key);
+
+    let len = hash.len();
+    if len < 4 {
+        return cache_dir.join(&hash);
+    }
+
+    let last_2 = &hash[len - 2..];
+    let middle_2 = &hash[len - 4..len - 2];
+
+    cache_dir.join(last_2).join(middle_2).join(&hash)
+}
+
 fn get_game_name_from_db(db_path: &Path, game_app_id: u32) -> Result<String> {
     let conn = Connection::open(db_path)
         .context("Failed to open database")?;
@@ -148,34 +164,35 @@ fn remove_cache_files_for_game(
     let slice_size: i64 = 1_048_576; // 1MB
 
     for (url, (service, total_bytes, _depot_ids)) in url_data {
-        if *total_bytes == 0 {
-            // If no size info, check at least the first chunk
-            let cache_path = calculate_cache_path(cache_dir, service, url, 0, 1_048_575);
+        // Lowercase service name to match cache format
+        let service_lower = service.to_lowercase();
 
-            if cache_path.exists() {
-                if let Ok(metadata) = fs::metadata(&cache_path) {
-                    bytes_freed += metadata.len();
+        // FIRST: Try the no-range format (standard lancache format)
+        let cache_path_no_range = calculate_cache_path_no_range(cache_dir, &service_lower, url);
+
+        if cache_path_no_range.exists() {
+            // Found file with no-range format - delete it
+            if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
+                bytes_freed += metadata.len();
+            }
+
+            match fs::remove_file(&cache_path_no_range) {
+                Ok(_) => {
+                    deleted_files += 1;
+                    if let Some(parent) = cache_path_no_range.parent() {
+                        parent_dirs.insert(parent.to_path_buf());
+                    }
+                    eprintln!("  Deleted (no-range): {}", cache_path_no_range.display());
                 }
-
-                match fs::remove_file(&cache_path) {
-                    Ok(_) => {
-                        deleted_files += 1;
-                        if let Some(parent) = cache_path.parent() {
-                            parent_dirs.insert(parent.to_path_buf());
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                    }
+                Err(e) => {
+                    eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
                 }
             }
         } else {
-            // Calculate ALL chunks based on actual download size
-            let mut start: i64 = 0;
-            while start < *total_bytes {
-                let end = (start + slice_size - 1).min(*total_bytes - 1 + slice_size - 1);
-
-                let cache_path = calculate_cache_path(cache_dir, service, url, start as u64, end as u64);
+            // FALLBACK: Try the chunked format with bytes range
+            if *total_bytes == 0 {
+                // If no size info, check at least the first chunk
+                let cache_path = calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575);
 
                 if cache_path.exists() {
                     if let Ok(metadata) = fs::metadata(&cache_path) {
@@ -185,23 +202,50 @@ fn remove_cache_files_for_game(
                     match fs::remove_file(&cache_path) {
                         Ok(_) => {
                             deleted_files += 1;
-
                             if let Some(parent) = cache_path.parent() {
                                 parent_dirs.insert(parent.to_path_buf());
                             }
-
-                            if deleted_files % 100 == 0 {
-                                eprintln!("  Deleted {} cache files... ({:.2} MB freed)",
-                                    deleted_files, bytes_freed as f64 / 1_048_576.0);
-                            }
+                            eprintln!("  Deleted (chunked, first): {}", cache_path.display());
                         }
                         Err(e) => {
                             eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
                         }
                     }
                 }
+            } else {
+                // Calculate ALL chunks based on actual download size
+                let mut start: i64 = 0;
+                while start < *total_bytes {
+                    let end = (start + slice_size - 1).min(*total_bytes - 1 + slice_size - 1);
 
-                start += slice_size;
+                    let cache_path = calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64);
+
+                    if cache_path.exists() {
+                        if let Ok(metadata) = fs::metadata(&cache_path) {
+                            bytes_freed += metadata.len();
+                        }
+
+                        match fs::remove_file(&cache_path) {
+                            Ok(_) => {
+                                deleted_files += 1;
+
+                                if let Some(parent) = cache_path.parent() {
+                                    parent_dirs.insert(parent.to_path_buf());
+                                }
+
+                                if deleted_files % 100 == 0 {
+                                    eprintln!("  Deleted {} cache files... ({:.2} MB freed)",
+                                        deleted_files, bytes_freed as f64 / 1_048_576.0);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                            }
+                        }
+                    }
+
+                    start += slice_size;
+                }
             }
         }
     }
