@@ -84,11 +84,13 @@ fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<Str
     let conn = Connection::open(db_path)
         .context("Failed to open database")?;
 
-    // Use same query pattern as detector - get all records for this game
+    // CRITICAL FIX: Query LogEntries instead of Downloads to get ALL URLs
+    // This matches the detector logic and ensures we delete ALL cache files
     let mut stmt = conn.prepare(
-        "SELECT Service, LastUrl, DepotId, CacheHitBytes + CacheMissBytes as TotalBytes
-         FROM Downloads
-         WHERE GameAppId = ? AND LastUrl IS NOT NULL"
+        "SELECT DISTINCT le.Service, le.Url, le.DepotId, le.BytesServed
+         FROM LogEntries le
+         INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
+         WHERE sdm.AppId = ? AND le.Url IS NOT NULL"
     )?;
 
     // Build service_urls map just like the detector does
@@ -97,14 +99,14 @@ fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<Str
     let rows = stmt.query_map([game_app_id], |row| {
         Ok((
             row.get::<_, String>(0)?,        // Service
-            row.get::<_, String>(1)?,        // LastUrl
+            row.get::<_, String>(1)?,        // Url
             row.get::<_, Option<u32>>(2)?,   // DepotId (can be NULL)
-            row.get::<_, i64>(3)?,           // TotalBytes
+            row.get::<_, i64>(3)?,           // BytesServed
         ))
     })?;
 
     for row in rows {
-        let (service, url, depot_id_opt, total_bytes) = row?;
+        let (service, url, depot_id_opt, bytes_served) = row?;
 
         // Lowercase service name to match cache file format (same as detector)
         let service_lower = service.to_lowercase();
@@ -118,9 +120,47 @@ fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<Str
             .or_insert_with(|| (0, HashSet::new()));
 
         // Track max bytes
-        entry.0 = entry.0.max(total_bytes);
+        entry.0 = entry.0.max(bytes_served);
 
         // Track depot ID if present
+        if let Some(depot_id) = depot_id_opt {
+            entry.1.insert(depot_id);
+        }
+    }
+
+    // Also get URLs for unknown games (depots not in mappings)
+    let mut unknown_stmt = conn.prepare(
+        "SELECT DISTINCT le.Service, le.Url, le.DepotId, le.BytesServed
+         FROM LogEntries le
+         WHERE le.DepotId IS NOT NULL
+         AND le.Url IS NOT NULL
+         AND le.DepotId = ?
+         AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)"
+    )?;
+
+    let unknown_rows = unknown_stmt.query_map([game_app_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<u32>>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+
+    for row in unknown_rows {
+        let (service, url, depot_id_opt, bytes_served) = row?;
+        let service_lower = service.to_lowercase();
+
+        let url_map = service_urls
+            .entry(service_lower.clone())
+            .or_insert_with(HashMap::new);
+
+        let entry = url_map
+            .entry(url.clone())
+            .or_insert_with(|| (0, HashSet::new()));
+
+        entry.0 = entry.0.max(bytes_served);
+
         if let Some(depot_id) = depot_id_opt {
             entry.1.insert(depot_id);
         }
@@ -141,11 +181,26 @@ fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<Str
 
 fn get_game_depot_ids(db_path: &Path, game_app_id: u32) -> Result<HashSet<u32>> {
     let conn = Connection::open(db_path)?;
-    let mut stmt = conn.prepare("SELECT DISTINCT DepotId FROM Downloads WHERE GameAppId = ? AND DepotId IS NOT NULL")?;
 
-    let depot_ids: HashSet<u32> = stmt.query_map([game_app_id], |row| row.get::<_, u32>(0))?
+    // Get depot IDs from SteamDepotMappings for mapped games
+    let mut mapped_stmt = conn.prepare(
+        "SELECT DISTINCT DepotId FROM SteamDepotMappings WHERE AppId = ?"
+    )?;
+
+    let mut depot_ids: HashSet<u32> = mapped_stmt.query_map([game_app_id], |row| row.get::<_, u32>(0))?
         .filter_map(|r| r.ok())
         .collect();
+
+    // Also check Downloads table for any additional depot IDs
+    let mut downloads_stmt = conn.prepare(
+        "SELECT DISTINCT DepotId FROM Downloads WHERE GameAppId = ? AND DepotId IS NOT NULL"
+    )?;
+
+    let download_depot_ids: HashSet<u32> = downloads_stmt.query_map([game_app_id], |row| row.get::<_, u32>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    depot_ids.extend(download_depot_ids);
 
     Ok(depot_ids)
 }

@@ -30,7 +30,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [removingGameId, setRemovingGameId] = useState<number | null>(null);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
+  const [expandingGameId, setExpandingGameId] = useState<number | null>(null);
+  const [showAllPaths, setShowAllPaths] = useState<Record<number, boolean>>({});
+  const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const MAX_INITIAL_PATHS = 50; // Only show 50 paths initially to prevent lag
+  const MAX_INITIAL_URLS = 20; // Only show 20 URLs initially
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -187,7 +193,30 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const toggleGameDetails = (gameId: number) => {
-    setExpandedGameId(expandedGameId === gameId ? null : gameId);
+    // If already expanded, collapse immediately
+    if (expandedGameId === gameId) {
+      setExpandedGameId(null);
+      setShowAllPaths(prev => ({ ...prev, [gameId]: false })); // Reset show all when collapsing
+      setShowAllUrls(prev => ({ ...prev, [gameId]: false }));
+      return;
+    }
+
+    // Show loading state for expansion
+    setExpandingGameId(gameId);
+
+    // Use setTimeout to allow the loading spinner to render before heavy DOM updates
+    setTimeout(() => {
+      setExpandedGameId(gameId);
+      setExpandingGameId(null);
+    }, 50); // Small delay to let spinner show
+  };
+
+  const toggleShowAllPaths = (gameId: number) => {
+    setShowAllPaths(prev => ({ ...prev, [gameId]: !prev[gameId] }));
+  };
+
+  const toggleShowAllUrls = (gameId: number) => {
+    setShowAllUrls(prev => ({ ...prev, [gameId]: !prev[gameId] }));
   };
 
   const formatBytes = (bytes: number): string => {
@@ -288,9 +317,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         variant="subtle"
                         size="sm"
                         className="flex-shrink-0"
-                        disabled={!!removingGameId}
+                        disabled={!!removingGameId || expandingGameId === game.game_app_id}
                       >
-                        {expandedGameId === game.game_app_id ? (
+                        {expandingGameId === game.game_app_id ? (
+                          <Loader className="w-4 h-4 animate-spin" />
+                        ) : expandedGameId === game.game_app_id ? (
                           <ChevronUp className="w-4 h-4" />
                         ) : (
                           <ChevronDown className="w-4 h-4" />
@@ -334,8 +365,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       </Tooltip>
                     </div>
 
+                    {/* Loading State for Expansion */}
+                    {expandingGameId === game.game_app_id && (
+                      <div className="border-t px-3 py-4 flex items-center justify-center" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                        <div className="flex items-center gap-2 text-themed-muted">
+                          <Loader className="w-4 h-4 animate-spin" />
+                          <span className="text-sm">Loading details...</span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Expandable Details Section */}
-                    {expandedGameId === game.game_app_id && (
+                    {expandedGameId === game.game_app_id && expandingGameId !== game.game_app_id && (
                       <div className="border-t px-3 py-3 space-y-3" style={{ borderColor: 'var(--theme-border-secondary)' }}>
                         {/* Depot IDs */}
                         {game.depot_ids.length > 0 && (
@@ -362,11 +403,29 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         {/* Sample URLs */}
                         {game.sample_urls.length > 0 && (
                           <div>
-                            <p className="text-xs text-themed-muted mb-1.5 font-medium">
-                              Sample URLs ({game.sample_urls.length}):
-                            </p>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-xs text-themed-muted font-medium">
+                                Sample URLs ({game.sample_urls.length}):
+                              </p>
+                              {game.sample_urls.length > MAX_INITIAL_URLS && (
+                                <Button
+                                  variant="subtle"
+                                  size="xs"
+                                  onClick={() => toggleShowAllUrls(game.game_app_id)}
+                                  className="text-xs"
+                                >
+                                  {showAllUrls[game.game_app_id]
+                                    ? `Show less`
+                                    : `Show all ${game.sample_urls.length}`
+                                  }
+                                </Button>
+                              )}
+                            </div>
                             <div className="space-y-1 max-h-48 overflow-y-auto">
-                              {game.sample_urls.map((url, idx) => (
+                              {(showAllUrls[game.game_app_id]
+                                ? game.sample_urls
+                                : game.sample_urls.slice(0, MAX_INITIAL_URLS)
+                              ).map((url, idx) => (
                                 <div
                                   key={idx}
                                   className="p-2 rounded border"
@@ -383,17 +442,40 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                                 </div>
                               ))}
                             </div>
+                            {!showAllUrls[game.game_app_id] && game.sample_urls.length > MAX_INITIAL_URLS && (
+                              <p className="text-xs text-themed-muted mt-2 italic">
+                                Showing {MAX_INITIAL_URLS} of {game.sample_urls.length} URLs
+                              </p>
+                            )}
                           </div>
                         )}
 
                         {/* Cache File Paths */}
                         {game.cache_file_paths && game.cache_file_paths.length > 0 && (
                           <div>
-                            <p className="text-xs text-themed-muted mb-1.5 font-medium">
-                              Cache File Locations ({game.cache_file_paths.length}):
-                            </p>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-xs text-themed-muted font-medium">
+                                Cache File Locations ({game.cache_file_paths.length.toLocaleString()}):
+                              </p>
+                              {game.cache_file_paths.length > MAX_INITIAL_PATHS && (
+                                <Button
+                                  variant="subtle"
+                                  size="xs"
+                                  onClick={() => toggleShowAllPaths(game.game_app_id)}
+                                  className="text-xs"
+                                >
+                                  {showAllPaths[game.game_app_id]
+                                    ? `Show less`
+                                    : `Show all ${game.cache_file_paths.length.toLocaleString()}`
+                                  }
+                                </Button>
+                              )}
+                            </div>
                             <div className="space-y-1 max-h-48 overflow-y-auto">
-                              {game.cache_file_paths.map((path, idx) => (
+                              {(showAllPaths[game.game_app_id]
+                                ? game.cache_file_paths
+                                : game.cache_file_paths.slice(0, MAX_INITIAL_PATHS)
+                              ).map((path, idx) => (
                                 <div
                                   key={idx}
                                   className="p-2 rounded border"
@@ -410,6 +492,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                                 </div>
                               ))}
                             </div>
+                            {!showAllPaths[game.game_app_id] && game.cache_file_paths.length > MAX_INITIAL_PATHS && (
+                              <p className="text-xs text-themed-muted mt-2 italic">
+                                Showing {MAX_INITIAL_PATHS} of {game.cache_file_paths.length.toLocaleString()} paths
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
