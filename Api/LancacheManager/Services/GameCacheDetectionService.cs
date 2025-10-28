@@ -15,6 +15,10 @@ public class GameCacheDetectionService
     private readonly OperationStateService _operationStateService;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
 
+    // Cache for detection results - persists until backend restart
+    private DetectionOperation? _cachedDetectionResult = null;
+    private readonly object _cacheLock = new object();
+
     public class DetectionOperation
     {
         public string OperationId { get; set; } = string.Empty;
@@ -158,6 +162,13 @@ public class GameCacheDetectionService
                 operation.Games = result.Games;
                 operation.TotalGamesDetected = result.TotalGamesDetected;
 
+                // Cache the completed detection result
+                lock (_cacheLock)
+                {
+                    _cachedDetectionResult = operation;
+                    _logger.LogInformation("[GameDetection] Results cached - {Count} games detected", result.TotalGamesDetected);
+                }
+
                 // Update persisted state with complete status
                 _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
                 {
@@ -222,6 +233,23 @@ public class GameCacheDetectionService
     public DetectionOperation? GetActiveOperation()
     {
         return _operations.Values.FirstOrDefault(op => op.Status == "running");
+    }
+
+    public DetectionOperation? GetCachedDetection()
+    {
+        lock (_cacheLock)
+        {
+            return _cachedDetectionResult;
+        }
+    }
+
+    public void InvalidateCache()
+    {
+        lock (_cacheLock)
+        {
+            _logger.LogInformation("[GameDetection] Cache invalidated");
+            _cachedDetectionResult = null;
+        }
     }
 
     private void RestoreInterruptedOperations()

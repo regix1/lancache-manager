@@ -920,6 +920,14 @@ public class CacheManagementService
                 var error = await errorTask;
 
                 _logger.LogInformation("[GameRemoval] Process exit code: {Code}", process.ExitCode);
+
+                // Log stdout (completion messages and summary)
+                if (!string.IsNullOrEmpty(output))
+                {
+                    _logger.LogInformation("[GameRemoval] Process output:\n{Output}", output);
+                }
+
+                // Log stderr (diagnostic messages)
                 if (!string.IsNullOrEmpty(error))
                 {
                     _logger.LogInformation("[GameRemoval] Process stderr: {Error}", error);

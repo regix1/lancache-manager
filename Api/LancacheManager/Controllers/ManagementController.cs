@@ -1032,15 +1032,26 @@ public class ManagementController : ControllerBase
     /// Start game cache detection as a background operation
     /// </summary>
     [HttpPost("cache/detect-games")]
-    public IActionResult StartGameCacheDetection()
+    public IActionResult StartGameCacheDetection([FromQuery] bool forceRefresh = false)
     {
         try
         {
-            _logger.LogInformation("Starting game cache detection (background)");
+            // Check if we have cached results and should use them
+            if (!forceRefresh)
+            {
+                var cachedResult = _gameCacheDetectionService.GetCachedDetection();
+                if (cachedResult != null && cachedResult.Status == "complete")
+                {
+                    _logger.LogInformation("Returning cached game detection results ({Count} games)", cachedResult.TotalGamesDetected);
+                    return Ok(new { operationId = cachedResult.OperationId, cached = true });
+                }
+            }
+
+            _logger.LogInformation("Starting game cache detection (background, forceRefresh={ForceRefresh})", forceRefresh);
 
             var operationId = _gameCacheDetectionService.StartDetectionAsync();
 
-            return Ok(new { operationId });
+            return Ok(new { operationId, cached = false });
         }
         catch (Exception ex)
         {
@@ -1093,6 +1104,10 @@ public class ManagementController : ControllerBase
             _logger.LogInformation("Removing game {AppId} from cache", gameAppId);
 
             var report = await _cacheService.RemoveGameFromCache(gameAppId);
+
+            // Invalidate game detection cache since we just removed a game
+            _gameCacheDetectionService.InvalidateCache();
+            _logger.LogInformation("Invalidated game detection cache after removing AppID {AppId}", gameAppId);
 
             // Add cache-busting headers to force frontend to refetch downloads
             Response.Headers["X-Cache-Invalidate"] = "downloads";
