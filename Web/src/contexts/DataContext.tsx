@@ -501,17 +501,15 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       // Use the current polling rate from ref to avoid stale closure
       const pollingInterval = getPollingIntervalRef.current();
 
-      // Respect user's polling interval but use a minimum threshold for responsiveness
-      // This prevents excessive updates while still being responsive
-      const minDebounceTime = Math.min(1000, pollingInterval); // At most 1 second debounce
-
-      if (timeSinceLastRefresh < minDebounceTime) {
-        console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${minDebounceTime}ms)`);
+      // Respect user's polling interval preference for SignalR events
+      // This ensures SignalR refreshes honor the user's selected polling rate
+      if (timeSinceLastRefresh < pollingInterval) {
+        console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${pollingInterval}ms)`);
         return;
       }
 
       lastSignalRRefreshTime.current = now;
-      console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${minDebounceTime}ms)`);
+      console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${pollingInterval}ms)`);
 
       // Fetch fresh data when downloads are updated
       // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)
