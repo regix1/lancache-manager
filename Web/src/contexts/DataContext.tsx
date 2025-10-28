@@ -308,12 +308,19 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     lastMediumFetchTime.current = now;
 
     try {
-      const clients = await ApiService.getClientStats(abortControllerRef.current?.signal || new AbortController().signal, startTime, endTime);
+      // Create a new signal if the current one is aborted or doesn't exist
+      const signal = (abortControllerRef.current && !abortControllerRef.current.signal.aborted)
+        ? abortControllerRef.current.signal
+        : new AbortController().signal;
+
+      const clients = await ApiService.getClientStats(signal, startTime, endTime);
       if (clients) {
         setClientStats(clients);
       }
-    } catch (err) {
-      console.error('Failed to fetch client stats:', err);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Failed to fetch client stats:', err);
+      }
     }
   };
 
@@ -337,12 +344,19 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     lastSlowFetchTime.current = now;
 
     try {
-      const services = await ApiService.getServiceStats(abortControllerRef.current?.signal || new AbortController().signal, null, startTime, endTime);
+      // Create a new signal if the current one is aborted or doesn't exist
+      const signal = (abortControllerRef.current && !abortControllerRef.current.signal.aborted)
+        ? abortControllerRef.current.signal
+        : new AbortController().signal;
+
+      const services = await ApiService.getServiceStats(signal, null, startTime, endTime);
       if (services) {
         setServiceStats(services);
       }
-    } catch (err) {
-      console.error('Failed to fetch service stats:', err);
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Failed to fetch service stats:', err);
+      }
     }
   };
 

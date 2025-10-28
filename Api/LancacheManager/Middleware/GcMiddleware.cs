@@ -60,9 +60,9 @@ public class GcMiddleware
         var workingSetBytes = process.WorkingSet64;
         var workingSetMB = workingSetBytes / (1024.0 * 1024.0);
 
-        // In OnPageLoad mode, always run GC on page load regardless of threshold
-        // In other modes, only run if memory exceeds threshold
-        var shouldRunGc = onPageLoadOnly || (workingSetBytes > memoryThresholdBytes);
+        // Only run GC if memory exceeds threshold
+        // Memory threshold is respected in all modes, including OnPageLoad
+        var shouldRunGc = workingSetBytes > memoryThresholdBytes;
 
         if (shouldRunGc)
         {
@@ -73,7 +73,7 @@ public class GcMiddleware
                 workingSetBytes = process.WorkingSet64;
                 workingSetMB = workingSetBytes / (1024.0 * 1024.0);
 
-                shouldRunGc = onPageLoadOnly || (workingSetBytes > memoryThresholdBytes);
+                shouldRunGc = workingSetBytes > memoryThresholdBytes;
 
                 if (shouldRunGc && now - _lastGcTime >= minTimeBetweenChecks)
                 {

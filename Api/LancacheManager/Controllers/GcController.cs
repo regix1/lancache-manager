@@ -88,14 +88,6 @@ public class GcController : ControllerBase
     {
         try
         {
-            var settings = _gcSettingsService.GetSettings();
-
-            // Only trigger if OnPageLoad mode is enabled
-            if (settings.Aggressiveness != GcAggressiveness.OnPageLoad)
-            {
-                return BadRequest(new { error = "GC trigger endpoint only works in OnPageLoad mode" });
-            }
-
             var now = DateTime.UtcNow;
             var cooldownPeriod = TimeSpan.FromSeconds(5);
 
@@ -129,7 +121,7 @@ public class GcController : ControllerBase
                 var afterMB = process.WorkingSet64 / (1024.0 * 1024.0);
                 var freedMB = beforeMB - afterMB;
 
-                _logger.LogInformation("GC triggered by API at {BeforeMB:F0}MB, after GC: {AfterMB:F0}MB (freed {FreedMB:F0}MB)",
+                _logger.LogInformation("Manual GC triggered at {BeforeMB:F0}MB, after GC: {AfterMB:F0}MB (freed {FreedMB:F0}MB)",
                     beforeMB, afterMB, freedMB);
 
                 return Ok(new

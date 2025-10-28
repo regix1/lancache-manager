@@ -30,7 +30,7 @@ struct DownloadRecord {
     service: String,
     game_app_id: u32,
     game_name: String,
-    last_url: String,
+    url: String,
     depot_id: Option<u32>,
 }
 
@@ -77,24 +77,51 @@ fn query_game_downloads(db_path: &Path) -> Result<Vec<DownloadRecord>> {
     let conn = Connection::open(db_path)
         .context("Failed to open database")?;
 
+    // Query LogEntries joined with SteamDepotMappings to get all URLs for mapped games
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT Service, GameAppId, GameName, LastUrl, DepotId
-         FROM Downloads
-         WHERE GameAppId IS NOT NULL AND LastUrl IS NOT NULL
-         ORDER BY GameAppId"
+        "SELECT DISTINCT le.Service, sdm.AppId, sdm.AppName, le.Url, le.DepotId
+         FROM LogEntries le
+         INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
+         WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL
+         ORDER BY sdm.AppId"
     )?;
 
-    let records = stmt.query_map([], |row| {
+    let mut records: Vec<DownloadRecord> = stmt.query_map([], |row| {
         Ok(DownloadRecord {
             service: row.get(0)?,
             game_app_id: row.get(1)?,
             game_name: row.get(2)?,
-            last_url: row.get(3)?,
+            url: row.get(3)?,
             depot_id: row.get(4)?,
         })
     })?
     .filter_map(|r| r.ok())
     .collect();
+
+    // Also query unknown games (depots without mappings)
+    let mut unknown_stmt = conn.prepare(
+        "SELECT DISTINCT le.Service, le.DepotId, le.Url
+         FROM LogEntries le
+         WHERE le.DepotId IS NOT NULL
+         AND le.Url IS NOT NULL
+         AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)
+         ORDER BY le.DepotId"
+    )?;
+
+    let unknown_records: Vec<DownloadRecord> = unknown_stmt.query_map([], |row| {
+        let depot_id: u32 = row.get(1)?;
+        Ok(DownloadRecord {
+            service: row.get(0)?,
+            game_app_id: depot_id, // Use depot ID as app ID for unknown games
+            game_name: format!("Unknown Game (Depot {})", depot_id),
+            url: row.get(2)?,
+            depot_id: Some(depot_id),
+        })
+    })?
+    .filter_map(|r| r.ok())
+    .collect();
+
+    records.extend(unknown_records);
 
     Ok(records)
 }
@@ -116,13 +143,13 @@ fn detect_cache_files_for_game(
     let mut service_urls: HashMap<String, HashSet<String>> = HashMap::new();
 
     for record in records {
-        unique_urls.insert(record.last_url.clone());
+        unique_urls.insert(record.url.clone());
         // Lowercase service name to match cache file format
         let service_lower = record.service.to_lowercase();
         service_urls
             .entry(service_lower)
             .or_insert_with(HashSet::new)
-            .insert(record.last_url.clone());
+            .insert(record.url.clone());
 
         if let Some(depot_id) = record.depot_id {
             depot_ids.insert(depot_id);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Save, RefreshCw, Info } from 'lucide-react';
+import { Cpu, Save, RefreshCw, Info, Play } from 'lucide-react';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -10,6 +10,16 @@ import authService from '../../services/auth.service';
 interface GcSettings {
   aggressiveness: string;
   memoryThresholdMB: number;
+}
+
+interface GcTriggerResult {
+  skipped: boolean;
+  reason?: string;
+  remainingSeconds?: number;
+  beforeMB?: number;
+  afterMB?: number;
+  freedMB?: number;
+  message: string;
 }
 
 interface GcManagerProps {
@@ -49,6 +59,8 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerResult, setTriggerResult] = useState<GcTriggerResult | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -116,24 +128,49 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     setHasChanges(true);
   };
 
+  const triggerGarbageCollection = async () => {
+    setTriggering(true);
+    setError(null);
+    setTriggerResult(null);
+    try {
+      const response = await fetch(`${API_BASE}/gc/trigger`, {
+        method: 'POST',
+        headers: authService.getAuthHeaders()
+      });
+
+      if (response.ok) {
+        const data: GcTriggerResult = await response.json();
+        setTriggerResult(data);
+        setTimeout(() => setTriggerResult(null), 10000);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to trigger garbage collection');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to trigger garbage collection');
+    } finally {
+      setTriggering(false);
+    }
+  };
+
   const getAggressivenessDescription = (level: string): string => {
     switch (level) {
       case 'disabled':
         return 'Garbage collection is disabled. Memory will only be cleaned up by the .NET runtime. May use more memory.';
       case 'onpageload':
-        return 'Only runs when you refresh or load a page. 5-second cooldown prevents spam. Recommended for most users.';
+        return 'Checks memory on page load/refresh. Only runs GC if memory exceeds threshold. 5-second cooldown prevents spam. Recommended for most users.';
       case 'every60minutes':
-        return 'Runs every 60 minutes. Minimal performance impact, suitable for servers with plenty of RAM.';
+        return 'Checks memory every 60 minutes. Only runs GC if threshold exceeded. Minimal performance impact.';
       case 'every60seconds':
-        return 'Runs every 60 seconds. Low frequency cleanup with minimal performance impact.';
+        return 'Checks memory every 60 seconds. Only runs GC if threshold exceeded. Low frequency cleanup with minimal performance impact.';
       case 'every30seconds':
-        return 'Runs every 30 seconds. Moderate cleanup frequency for balanced memory management.';
+        return 'Checks memory every 30 seconds. Only runs GC if threshold exceeded. Moderate cleanup frequency for balanced memory management.';
       case 'every10seconds':
-        return 'Runs every 10 seconds. More frequent cleanup, slight performance impact.';
+        return 'Checks memory every 10 seconds. Only runs GC if threshold exceeded. More frequent cleanup, slight performance impact.';
       case 'every5seconds':
-        return 'Runs every 5 seconds. Aggressive cleanup with noticeable performance impact.';
+        return 'Checks memory every 5 seconds. Only runs GC if threshold exceeded. Aggressive cleanup with noticeable performance impact.';
       case 'every1second':
-        return 'Runs every 1 second. Very aggressive cleanup. Maximum memory control but significant performance impact.';
+        return 'Checks memory every 1 second. Only runs GC if threshold exceeded. Very aggressive cleanup with significant performance impact.';
       default:
         return '';
     }
@@ -157,9 +194,22 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
 
   return (
     <Card>
-      <div className="flex items-center gap-2 mb-6">
-        <Cpu className="w-6 h-6 text-themed-primary" />
-        <h3 className="text-lg font-semibold text-themed-primary">Garbage Collection Settings</h3>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <Cpu className="w-6 h-6 text-themed-primary" />
+          <h3 className="text-lg font-semibold text-themed-primary">Garbage Collection Settings</h3>
+        </div>
+        <Button
+          onClick={loadSettings}
+          disabled={saving}
+          variant="subtle"
+          color="gray"
+          size="sm"
+          leftSection={<RefreshCw className="w-3.5 h-3.5" />}
+          title="Reset to saved settings"
+        >
+          Reset
+        </Button>
       </div>
 
       {error && (
@@ -230,26 +280,47 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           </div>
         </Alert>
 
+        {/* Trigger Result */}
+        {triggerResult && (
+          <Alert color={triggerResult.skipped ? 'yellow' : 'green'} className="mb-4">
+            <div className="text-sm">
+              <p className="font-medium">{triggerResult.message}</p>
+              {!triggerResult.skipped && triggerResult.beforeMB !== undefined && (
+                <div className="mt-1 flex gap-4 text-xs text-themed-muted">
+                  <span>Before: {triggerResult.beforeMB} MB</span>
+                  <span>After: {triggerResult.afterMB} MB</span>
+                  <span className="font-medium text-themed-primary">Freed: {triggerResult.freedMB} MB</span>
+                </div>
+              )}
+              {triggerResult.skipped && triggerResult.remainingSeconds !== undefined && (
+                <p className="mt-1 text-xs">Cooldown: {Math.ceil(triggerResult.remainingSeconds)}s remaining</p>
+              )}
+            </div>
+          </Alert>
+        )}
+
         {/* Action Buttons */}
-        <div className="flex gap-3 pt-2">
+        <div className="space-y-3 pt-2">
           <Button
             onClick={saveSettings}
             disabled={!isAuthenticated || saving || !hasChanges}
             variant="filled"
             color="blue"
             leftSection={<Save className="w-4 h-4" />}
-            className="flex-1"
+            fullWidth
           >
             {saving ? 'Saving...' : 'Save Settings'}
           </Button>
           <Button
-            onClick={loadSettings}
-            disabled={saving}
-            variant="outline"
-            color="gray"
-            leftSection={<RefreshCw className="w-4 h-4" />}
+            onClick={triggerGarbageCollection}
+            disabled={!isAuthenticated || triggering}
+            variant="filled"
+            color="green"
+            leftSection={<Play className="w-4 h-4" />}
+            fullWidth
+            title="Manually run garbage collection once for testing (5s cooldown)"
           >
-            Reset
+            {triggering ? 'Running GC...' : 'Run GC Now'}
           </Button>
         </div>
       </div>

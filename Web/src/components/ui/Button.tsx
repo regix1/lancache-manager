@@ -38,7 +38,17 @@ export const Button: React.FC<ButtonProps> = ({
       return colors[color];
     }
     if (variant === 'subtle') {
-      return 'bg-transparent hover:bg-themed-hover text-themed-secondary';
+      const colors = {
+        red: 'bg-transparent hover:bg-red-500/10 text-red-400 hover:text-red-300',
+        blue: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
+        green: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
+        yellow: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
+        purple: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
+        gray: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
+        orange: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
+        default: 'bg-transparent hover:bg-themed-hover text-themed-secondary'
+      };
+      return colors[color];
     }
     if (variant === 'outline') {
       return 'border border-themed-secondary hover:bg-themed-hover text-themed-primary';
