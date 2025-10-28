@@ -314,8 +314,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           <Button
             onClick={triggerGarbageCollection}
             disabled={!isAuthenticated || triggering}
-            variant="filled"
-            color="green"
+            variant="default"
             leftSection={<Play className="w-4 h-4" />}
             title="Manually run garbage collection once for testing (5s cooldown)"
           >
