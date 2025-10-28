@@ -120,8 +120,9 @@ public class RustLogProcessorService
             // Start Rust process
             // Now passing log directory instead of single file path
             // Rust processor will discover all access.log* files (including .1, .2, .gz, .zst)
-            // Pass auto_map_depots flag: 1 for silent mode (live processing), 0 for manual processing
-            var autoMapDepots = silentMode ? 1 : 0;
+            // Pass auto_map_depots flag: Always 1 to map depots during processing (avoids showing "Unknown Game" in Active tab)
+            // This ensures downloads are properly mapped before appearing in the UI
+            var autoMapDepots = 1;
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustExecutablePath,
@@ -280,20 +281,16 @@ public class RustLogProcessorService
                 }
 
                 // Invalidate cache for new entries (start in background)
-                // For live data (silentMode=true), Rust processor automatically maps depots during processing
-                // but we still need to fetch game images from Steam API
-                // For manual processing (silentMode=false), depot mapping is done separately in step 5
+                // Rust processor automatically maps depots during processing (auto_map_depots = 1)
+                // We still need to fetch game images from Steam API after processing
                 if (finalProgress?.EntriesSaved > 0)
                 {
                     _ = Task.Run(async () =>
                     {
                         await InvalidateCacheAsync(silentMode);
 
-                        // For live data, Rust mapped the depot IDs to game names, but we still need to fetch images
-                        if (silentMode)
-                        {
-                            await FetchMissingGameImagesAsync();
-                        }
+                        // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
+                        await FetchMissingGameImagesAsync();
                     });
                 }
 

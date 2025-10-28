@@ -514,8 +514,8 @@ impl Processor {
 
         let last_url = new_entries.last().map(|e| e.url.as_str());
 
-        // Lookup depot mappings only for live/background processing (auto_map_depots = true)
-        // For manual processing from frontend, leave as NULL so step 5 can handle it
+        // Lookup depot mappings during log processing (auto_map_depots = true)
+        // This ensures Downloads have GameAppId/GameName set immediately, avoiding "Unknown Game" in UI
         let (game_app_id, game_name) = if self.auto_map_depots && service.to_lowercase() == "steam" {
             if let Some(depot_id) = primary_depot_id {
                 match self.lookup_depot_mapping(tx, depot_id) {
@@ -777,7 +777,7 @@ fn main() -> Result<()> {
         eprintln!("  log_dir: Directory containing log files (e.g., H:/logs)");
         eprintln!("  progress_path: Path to progress JSON file");
         eprintln!("  start_position: Line number to start from (0 for beginning)");
-        eprintln!("  auto_map_depots: 1 for live/background processing (auto-map), 0 for manual processing");
+        eprintln!("  auto_map_depots: 1 to map depot IDs to games during processing (recommended), 0 to skip mapping");
         eprintln!("\nNote: Processor will discover all log files matching 'access.log*' pattern");
         eprintln!("      including rotated logs (access.log.1, access.log.2, etc.)");
         eprintln!("      and compressed logs (.gz, .zst)");
