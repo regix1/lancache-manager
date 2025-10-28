@@ -300,14 +300,14 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         )}
 
         {/* Action Buttons */}
-        <div className="space-y-3 pt-2">
+        <div className="flex items-center gap-3 pt-2">
           <Button
             onClick={saveSettings}
             disabled={!isAuthenticated || saving || !hasChanges}
             variant="filled"
             color="blue"
             leftSection={<Save className="w-4 h-4" />}
-            fullWidth
+            className="flex-1"
           >
             {saving ? 'Saving...' : 'Save Settings'}
           </Button>
@@ -317,7 +317,6 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
             variant="filled"
             color="green"
             leftSection={<Play className="w-4 h-4" />}
-            fullWidth
             title="Manually run garbage collection once for testing (5s cooldown)"
           >
             {triggering ? 'Running GC...' : 'Run GC Now'}
