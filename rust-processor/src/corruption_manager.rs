@@ -99,11 +99,10 @@ fn delete_corrupted_from_database(
         // Build placeholders: ?, ?, ?, ...
         let placeholders = vec!["?"; chunk.len()].join(", ");
 
-        // First, delete LogEntries that reference these downloads (foreign key constraint)
+        // CRITICAL FIX: Delete LogEntries directly by matching Service and Url
+        // This ensures we clean up ALL log entries, not just those linked to Downloads
         let log_entries_query = format!(
-            "DELETE FROM LogEntries WHERE DownloadId IN (
-                SELECT Id FROM Downloads WHERE LOWER(Service) = ? AND LastUrl IN ({})
-            )",
+            "DELETE FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({})",
             placeholders
         );
 
@@ -115,7 +114,7 @@ fn delete_corrupted_from_database(
         let log_deleted = log_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
         total_log_entries_deleted += log_deleted;
 
-        // Now delete the downloads themselves
+        // Also delete Downloads that match LastUrl (housekeeping)
         let downloads_query = format!(
             "DELETE FROM Downloads WHERE LOWER(Service) = ? AND LastUrl IN ({})",
             placeholders
