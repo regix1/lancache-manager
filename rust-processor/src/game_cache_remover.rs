@@ -230,99 +230,91 @@ fn remove_cache_files_for_game(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64, HashSet<u32>)>,
 ) -> Result<(usize, u64, HashSet<PathBuf>)> {
-    let mut deleted_files = 0;
-    let mut bytes_freed: u64 = 0;
-    let mut parent_dirs: HashSet<PathBuf> = HashSet::new();
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+    use std::sync::Mutex;
+
+    let deleted_files = AtomicUsize::new(0);
+    let bytes_freed = AtomicU64::new(0);
+    let parent_dirs = Mutex::new(HashSet::new());
     let slice_size: i64 = 1_048_576; // 1MB
 
-    for (url, (service, total_bytes, _depot_ids)) in url_data {
-        // Lowercase service name to match cache format
-        let service_lower = service.to_lowercase();
+    eprintln!("Collecting cache file paths for deletion...");
 
-        // FIRST: Try the no-range format (standard lancache format)
-        let cache_path_no_range = calculate_cache_path_no_range(cache_dir, &service_lower, url);
+    // Collect all paths to delete (without actually checking existence yet)
+    let paths_to_check: Vec<_> = url_data
+        .par_iter()
+        .flat_map(|(url, (service, total_bytes, _depot_ids))| {
+            let service_lower = service.to_lowercase();
+            let mut paths = Vec::new();
 
-        if cache_path_no_range.exists() {
-            // Found file with no-range format - delete it
-            if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
-                bytes_freed += metadata.len();
-            }
+            // Add no-range format path
+            paths.push((
+                calculate_cache_path_no_range(cache_dir, &service_lower, url),
+                false, // not chunked
+            ));
 
-            match fs::remove_file(&cache_path_no_range) {
-                Ok(_) => {
-                    deleted_files += 1;
-                    if let Some(parent) = cache_path_no_range.parent() {
-                        parent_dirs.insert(parent.to_path_buf());
-                    }
-                    eprintln!("  Deleted (no-range): {}", cache_path_no_range.display());
-                }
-                Err(e) => {
-                    eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
-                }
-            }
-        } else {
-            // FALLBACK: Try the chunked format with bytes range
-            if *total_bytes == 0 {
-                // If no size info, check at least the first chunk
-                let cache_path = calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575);
-
-                if cache_path.exists() {
-                    if let Ok(metadata) = fs::metadata(&cache_path) {
-                        bytes_freed += metadata.len();
-                    }
-
-                    match fs::remove_file(&cache_path) {
-                        Ok(_) => {
-                            deleted_files += 1;
-                            if let Some(parent) = cache_path.parent() {
-                                parent_dirs.insert(parent.to_path_buf());
-                            }
-                            eprintln!("  Deleted (chunked, first): {}", cache_path.display());
-                        }
-                        Err(e) => {
-                            eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                        }
-                    }
-                }
-            } else {
-                // Calculate ALL chunks based on actual download size
+            // If we have size info, also add chunked format paths
+            if *total_bytes > 0 {
                 let mut start: i64 = 0;
                 while start < *total_bytes {
                     let end = (start + slice_size - 1).min(*total_bytes - 1 + slice_size - 1);
-
-                    let cache_path = calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64);
-
-                    if cache_path.exists() {
-                        if let Ok(metadata) = fs::metadata(&cache_path) {
-                            bytes_freed += metadata.len();
-                        }
-
-                        match fs::remove_file(&cache_path) {
-                            Ok(_) => {
-                                deleted_files += 1;
-
-                                if let Some(parent) = cache_path.parent() {
-                                    parent_dirs.insert(parent.to_path_buf());
-                                }
-
-                                if deleted_files % 100 == 0 {
-                                    eprintln!("  Deleted {} cache files... ({:.2} MB freed)",
-                                        deleted_files, bytes_freed as f64 / 1_048_576.0);
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                            }
-                        }
-                    }
-
+                    paths.push((
+                        calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64),
+                        true, // chunked
+                    ));
                     start += slice_size;
+                }
+            } else {
+                // Add first chunk as fallback
+                paths.push((
+                    calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575),
+                    true,
+                ));
+            }
+
+            paths
+        })
+        .collect();
+
+    eprintln!("Checking {} potential cache file locations...", paths_to_check.len());
+
+    // Parallel deletion with progress reporting
+    paths_to_check.par_iter().for_each(|(path, _is_chunked)| {
+        if path.exists() {
+            // Get size before deleting
+            if let Ok(metadata) = fs::metadata(path) {
+                bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
+            }
+
+            // Delete the file
+            if fs::remove_file(path).is_ok() {
+                let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
+
+                // Track parent directory for cleanup
+                if let Some(parent) = path.parent() {
+                    let mut dirs = parent_dirs.lock().unwrap();
+                    dirs.insert(parent.to_path_buf());
+                }
+
+                // Progress reporting every 100 files
+                if count % 100 == 0 {
+                    let bytes = bytes_freed.load(Ordering::Relaxed);
+                    eprintln!(
+                        "  Deleted {} cache files... ({:.2} MB freed)",
+                        count,
+                        bytes as f64 / 1_048_576.0
+                    );
                 }
             }
         }
-    }
+    });
 
-    Ok((deleted_files, bytes_freed, parent_dirs))
+    let final_deleted = deleted_files.load(Ordering::Relaxed);
+    let final_bytes = bytes_freed.load(Ordering::Relaxed);
+    let final_dirs = parent_dirs.into_inner().unwrap();
+
+    Ok((final_deleted, final_bytes, final_dirs))
 }
 
 fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) -> usize {
@@ -364,14 +356,18 @@ fn remove_log_entries_for_game(
     urls_to_remove: &HashSet<String>,
     valid_depot_ids: &HashSet<u32>,
 ) -> Result<u64> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     eprintln!("Filtering log files to remove game entries...");
 
     let parser = LogParser::new(chrono_tz::UTC);
     let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
 
-    let mut total_lines_removed: u64 = 0;
+    let total_lines_removed = AtomicU64::new(0);
 
-    for (file_index, log_file) in log_files.iter().enumerate() {
+    // Process log files in parallel for faster removal
+    log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
         eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
         let file_result = (|| -> Result<u64> {
@@ -439,16 +435,17 @@ fn remove_log_entries_for_game(
         match file_result {
             Ok(lines_removed) => {
                 eprintln!("    Removed {} log lines from this file", lines_removed);
-                total_lines_removed += lines_removed;
+                total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
             }
             Err(e) => {
                 eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
             }
         }
-    }
+    });
 
-    eprintln!("Total log entries removed: {}", total_lines_removed);
-    Ok(total_lines_removed)
+    let final_removed = total_lines_removed.load(Ordering::Relaxed);
+    eprintln!("Total log entries removed: {}", final_removed);
+    Ok(final_removed)
 }
 
 fn main() -> Result<()> {
