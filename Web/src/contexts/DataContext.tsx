@@ -233,7 +233,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
     // Respect user's polling rate but reduce debounce overhead
     // Use smaller of half-interval or 1 second for better responsiveness
-    const debounceTime = Math.min(1000, Math.max(250, getPollingInterval() / 4));
+    const debounceTime = Math.min(1000, Math.max(250, getPollingIntervalRef.current() / 4));
     if (!isInitialLoad.current && (now - lastFastFetchTime.current) < debounceTime) {
       return;
     }
@@ -474,7 +474,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
   const getCurrentRefreshInterval = () => {
     if (isProcessingLogs) return 3000; // 3 seconds when processing
-    return getPollingInterval(); // Use user-configured polling rate from context
+    return getPollingIntervalRef.current(); // Use ref to avoid stale closure
   };
 
   const getMediumRefreshInterval = () => {
@@ -559,6 +559,11 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       fetchData().then(() => {
         // Only set up intervals if this effect is still active (not cleaned up)
         if (!isEffectActive.current) return;
+
+        // Clear any existing intervals before creating new ones (handles race conditions)
+        if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
+        if (mediumIntervalRef.current) clearInterval(mediumIntervalRef.current);
+        if (slowIntervalRef.current) clearInterval(slowIntervalRef.current);
 
         // Set up separate intervals for different data refresh rates AFTER initial load
         const fastInterval = getCurrentRefreshInterval();
