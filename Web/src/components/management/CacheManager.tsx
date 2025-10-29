@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Server, Trash2, AlertTriangle, Loader } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Server, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
+import { useData } from '@contexts/DataContext';
 import { formatBytes } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -16,16 +17,15 @@ interface CacheManagerProps {
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
-  onBackgroundOperation?: (operation: any) => void;
 }
 
 const CacheManager: React.FC<CacheManagerProps> = ({
   authMode = 'unauthenticated',
   mockMode,
   onError,
-  onSuccess,
-  onBackgroundOperation
+  onSuccess
 }) => {
+  const { setBackgroundCacheClearing, updateBackgroundCacheClearing } = useData();
   const [cacheClearProgress, setCacheClearProgress] = useState<CacheClearStatus | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -44,12 +44,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [rsyncAvailable, setRsyncAvailable] = useState(false);
 
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
-
-  // Use ref to store the callback to prevent infinite loop
-  const onBackgroundOperationRef = useRef(onBackgroundOperation);
-  useEffect(() => {
-    onBackgroundOperationRef.current = onBackgroundOperation;
-  });
 
   // Report cache clearing status to parent
 
@@ -270,23 +264,49 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   }, [cacheOp, onSuccess]);
 
+  // Report cache clearing status to DataContext for UniversalNotificationBar
   useEffect(() => {
     const isActive =
       (cacheOp.operation as any)?.data &&
       cacheClearProgress &&
       ['Running', 'Preparing', 'Cancelling'].includes(cacheClearProgress.status);
 
-    if (isActive && onBackgroundOperationRef.current) {
-      onBackgroundOperationRef.current({
-        bytesDeleted: cacheClearProgress.bytesDeleted || 0,
+    if (isActive && cacheClearProgress) {
+      const status = cacheClearProgress.status === 'Cancelling'
+        ? 'clearing' // Keep showing as clearing while cancelling
+        : cacheClearProgress.status === 'Completed'
+        ? 'complete'
+        : cacheClearProgress.status === 'Failed'
+        ? 'failed'
+        : 'clearing';
+
+      setBackgroundCacheClearing({
+        id: (cacheOp.operation as any).data.operationId,
         filesDeleted: cacheClearProgress.filesDeleted || 0,
         progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
-        cancel: handleCancelCacheClear
+        status,
+        startedAt: new Date()
       });
-    } else if (onBackgroundOperationRef.current) {
-      onBackgroundOperationRef.current(null);
+    } else if (cacheClearProgress?.status === 'Completed') {
+      updateBackgroundCacheClearing({
+        status: 'complete',
+        progress: 100
+      });
+      setTimeout(() => {
+        setBackgroundCacheClearing(null);
+      }, 3000);
+    } else if (cacheClearProgress?.status === 'Failed') {
+      updateBackgroundCacheClearing({
+        status: 'failed',
+        error: cacheClearProgress.error || 'Cache clearing failed'
+      });
+      setTimeout(() => {
+        setBackgroundCacheClearing(null);
+      }, 5000);
+    } else {
+      setBackgroundCacheClearing(null);
     }
-  }, [cacheOp.operation, cacheClearProgress]);
+  }, [cacheOp.operation, cacheClearProgress, setBackgroundCacheClearing, updateBackgroundCacheClearing, handleCancelCacheClear]);
 
   const isCacheClearingActive =
     (cacheOp.operation as any)?.data &&
@@ -306,7 +326,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           <div className="flex-1">
             {isLoadingConfig ? (
               <div className="flex items-center gap-2">
-                <Loader className="w-4 h-4 animate-spin text-themed-accent" />
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                 <p className="text-sm text-themed-secondary">Loading cache configuration...</p>
               </div>
             ) : (

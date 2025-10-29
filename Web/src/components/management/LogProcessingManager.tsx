@@ -3,6 +3,7 @@ import { Zap, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useData } from '@contexts/DataContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -16,7 +17,6 @@ interface LogProcessingManagerProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-  onBackgroundOperation?: (operation: any) => void;
 }
 
 interface SteamAuthState {
@@ -38,9 +38,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   mockMode,
   onError,
   onSuccess,
-  onDataRefresh,
-  onBackgroundOperation
+  onDataRefresh
 }) => {
+  const { setBackgroundLogProcessing, updateBackgroundLogProcessing } = useData();
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -58,16 +58,14 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalR = useSignalR();
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
-  const onBackgroundOperationRef = useRef(onBackgroundOperation);
   const onDataRefreshRef = useRef(onDataRefresh);
   const mockModeRef = useRef(mockMode);
 
   // Keep the refs up to date
   useEffect(() => {
-    onBackgroundOperationRef.current = onBackgroundOperation;
     onDataRefreshRef.current = onDataRefresh;
     mockModeRef.current = mockMode;
-  }, [onBackgroundOperation, onDataRefresh, mockMode]);
+  }, [onDataRefresh, mockMode]);
 
   // Load Steam auth status
   useEffect(() => {
@@ -93,21 +91,35 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   }, [mockMode]);
 
-  // Report processing status to parent
+  // Report processing status to DataContext for UniversalNotificationBar
   useEffect(() => {
-    if (isProcessingLogs && processingStatus && onBackgroundOperationRef.current) {
-      onBackgroundOperationRef.current({
-        message: processingStatus.message,
-        detailMessage: processingStatus.detailMessage,
-        progress: processingStatus.progress,
-        estimatedTime: processingStatus.estimatedTime,
-        status: processingStatus.status,
-        onCancel: handleCancelProcessing
-      });
-    } else if (onBackgroundOperationRef.current) {
-      onBackgroundOperationRef.current(null);
+    if (isProcessingLogs && processingStatus) {
+      if (processingStatus.status === 'complete') {
+        updateBackgroundLogProcessing({
+          message: processingStatus.message,
+          detailMessage: processingStatus.detailMessage,
+          progress: processingStatus.progress,
+          status: 'complete'
+        });
+        // Clear after showing complete status
+        setTimeout(() => {
+          setBackgroundLogProcessing(null);
+        }, 5000);
+      } else {
+        setBackgroundLogProcessing({
+          id: 'log-processing',
+          message: processingStatus.message,
+          detailMessage: processingStatus.detailMessage,
+          progress: processingStatus.progress,
+          estimatedTime: processingStatus.estimatedTime,
+          status: processingStatus.status === 'processing' ? 'processing' : 'failed',
+          startedAt: new Date()
+        });
+      }
+    } else {
+      setBackgroundLogProcessing(null);
     }
-  }, [isProcessingLogs, processingStatus]);
+  }, [isProcessingLogs, processingStatus, setBackgroundLogProcessing, updateBackgroundLogProcessing]);
 
   const parseMetric = (value: unknown) => {
     const numeric = Number(value ?? 0);
@@ -575,44 +587,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         'Process the entire access log? This may take several minutes and will re-import all entries.',
       confirmLabel: 'Process Logs',
       onConfirm: executeProcessAllLogs
-    });
-  };
-
-  const executeCancelProcessing = async () => {
-    if (!isAuthenticated) {
-      onError?.('Authentication required');
-      return;
-    }
-
-    setActionLoading(true);
-
-    try {
-      await ApiService.cancelProcessing();
-      setIsProcessingLogs(false);
-      await logProcessingOp.clear();
-      if (pollingInterval.current) {
-        clearInterval(pollingInterval.current);
-        pollingInterval.current = null;
-      }
-      setProcessingStatus(null);
-      onSuccess?.('Processing cancelled successfully');
-      setTimeout(() => {
-        onDataRefresh?.();
-      }, 1000);
-    } catch (err: any) {
-      onError?.(err.message || 'Failed to cancel processing');
-    } finally {
-      setActionLoading(false);
-      setConfirmModal(null);
-    }
-  };
-
-  const handleCancelProcessing = () => {
-    setConfirmModal({
-      title: 'Cancel Log Processing',
-      message: 'Cancel the current log processing job? Any progress made so far will be preserved.',
-      confirmLabel: 'Cancel Processing',
-      onConfirm: executeCancelProcessing
     });
   };
 

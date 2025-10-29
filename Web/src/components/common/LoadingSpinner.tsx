@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 interface LoadingSpinnerProps {
   message?: string;
@@ -22,7 +22,7 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
 
   const content = (
     <div className="flex flex-col items-center justify-center space-y-4">
-      <Loader className={`${sizeClasses[size]} text-themed-accent animate-spin`} />
+      <Loader2 className={`${sizeClasses[size]} text-themed-accent animate-spin`} />
       {message && <p className="text-sm text-themed-secondary">{message}</p>}
     </div>
   );

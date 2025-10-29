@@ -71,6 +71,64 @@ interface ProcessingStatus {
   downloadCount?: number;
 }
 
+interface BackgroundRemoval {
+  gameAppId: number;
+  gameName: string;
+  startedAt: Date;
+  status: 'removing' | 'completed' | 'failed';
+  filesDeleted?: number;
+  bytesFreed?: number;
+  error?: string;
+}
+
+interface BackgroundLogProcessing {
+  id: string;
+  message: string;
+  detailMessage?: string;
+  progress: number;
+  estimatedTime?: string;
+  status: 'processing' | 'complete' | 'failed';
+  startedAt: Date;
+  error?: string;
+}
+
+interface BackgroundCacheClearing {
+  id: string;
+  filesDeleted: number;
+  progress: number;
+  status: 'clearing' | 'complete' | 'failed';
+  startedAt: Date;
+  error?: string;
+}
+
+interface BackgroundServiceRemoval {
+  service: string;
+  status: 'removing' | 'complete' | 'failed';
+  startedAt: Date;
+  error?: string;
+}
+
+interface BackgroundDatabaseReset {
+  id: string;
+  message: string;
+  progress: number;
+  status: 'resetting' | 'complete' | 'failed';
+  startedAt: Date;
+  error?: string;
+}
+
+interface BackgroundDepotMapping {
+  id: string;
+  totalMappings: number;
+  processedMappings: number;
+  mappingsApplied?: number;
+  percentComplete: number;
+  status: string;
+  message: string;
+  startedAt: Date;
+  isProcessing: boolean;
+}
+
 interface DashboardStats {
   totalBandwidthSaved: number;
   totalAddedToCache: number;
@@ -119,6 +177,26 @@ interface DataContextType {
   setProcessingStatus: (status: ProcessingStatus | null) => void;
   connectionStatus: string;
   getCurrentRefreshInterval: () => number;
+  backgroundRemovals: BackgroundRemoval[];
+  addBackgroundRemoval: (removal: BackgroundRemoval) => void;
+  updateBackgroundRemoval: (gameAppId: number, updates: Partial<BackgroundRemoval>) => void;
+  clearBackgroundRemoval: (gameAppId: number) => void;
+  backgroundLogProcessing: BackgroundLogProcessing | null;
+  setBackgroundLogProcessing: (processing: BackgroundLogProcessing | null) => void;
+  updateBackgroundLogProcessing: (updates: Partial<BackgroundLogProcessing>) => void;
+  backgroundCacheClearing: BackgroundCacheClearing | null;
+  setBackgroundCacheClearing: (clearing: BackgroundCacheClearing | null) => void;
+  updateBackgroundCacheClearing: (updates: Partial<BackgroundCacheClearing>) => void;
+  backgroundServiceRemovals: BackgroundServiceRemoval[];
+  addBackgroundServiceRemoval: (removal: BackgroundServiceRemoval) => void;
+  updateBackgroundServiceRemoval: (service: string, updates: Partial<BackgroundServiceRemoval>) => void;
+  clearBackgroundServiceRemoval: (service: string) => void;
+  backgroundDatabaseReset: BackgroundDatabaseReset | null;
+  setBackgroundDatabaseReset: (reset: BackgroundDatabaseReset | null) => void;
+  updateBackgroundDatabaseReset: (updates: Partial<BackgroundDatabaseReset>) => void;
+  backgroundDepotMapping: BackgroundDepotMapping | null;
+  setBackgroundDepotMapping: (mapping: BackgroundDepotMapping | null) => void;
+  updateBackgroundDepotMapping: (updates: Partial<BackgroundDepotMapping>) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -169,6 +247,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
+  const [backgroundRemovals, setBackgroundRemovals] = useState<BackgroundRemoval[]>([]);
+  const [backgroundLogProcessing, setBackgroundLogProcessing] = useState<BackgroundLogProcessing | null>(null);
+  const [backgroundCacheClearing, setBackgroundCacheClearing] = useState<BackgroundCacheClearing | null>(null);
+  const [backgroundServiceRemovals, setBackgroundServiceRemovals] = useState<BackgroundServiceRemoval[]>([]);
+  const [backgroundDatabaseReset, setBackgroundDatabaseReset] = useState<BackgroundDatabaseReset | null>(null);
+  const [backgroundDepotMapping, setBackgroundDepotMapping] = useState<BackgroundDepotMapping | null>(null);
 
   const isInitialLoad = useRef(true);
   const hasData = useRef(false);
@@ -757,6 +841,49 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     hasData.current = false;
   };
 
+  const addBackgroundRemoval = (removal: BackgroundRemoval) => {
+    setBackgroundRemovals((prev) => [...prev, removal]);
+  };
+
+  const updateBackgroundRemoval = (gameAppId: number, updates: Partial<BackgroundRemoval>) => {
+    setBackgroundRemovals((prev) =>
+      prev.map((r) => (r.gameAppId === gameAppId ? { ...r, ...updates } : r))
+    );
+  };
+
+  const clearBackgroundRemoval = (gameAppId: number) => {
+    setBackgroundRemovals((prev) => prev.filter((r) => r.gameAppId !== gameAppId));
+  };
+
+  const updateBackgroundLogProcessing = (updates: Partial<BackgroundLogProcessing>) => {
+    setBackgroundLogProcessing((prev) => (prev ? { ...prev, ...updates } : null));
+  };
+
+  const updateBackgroundCacheClearing = (updates: Partial<BackgroundCacheClearing>) => {
+    setBackgroundCacheClearing((prev) => (prev ? { ...prev, ...updates } : null));
+  };
+
+  const addBackgroundServiceRemoval = (removal: BackgroundServiceRemoval) => {
+    setBackgroundServiceRemovals((prev) => [...prev, removal]);
+  };
+
+  const updateBackgroundServiceRemoval = (service: string, updates: Partial<BackgroundServiceRemoval>) => {
+    setBackgroundServiceRemovals((prev) =>
+      prev.map((r) => (r.service === service ? { ...r, ...updates } : r))
+    );
+  };
+
+  const clearBackgroundServiceRemoval = (service: string) => {
+    setBackgroundServiceRemovals((prev) => prev.filter((r) => r.service !== service));
+  };
+
+  const updateBackgroundDatabaseReset = (updates: Partial<BackgroundDatabaseReset>) => {
+    setBackgroundDatabaseReset((prev) => (prev ? { ...prev, ...updates } : null));
+  };
+
+  const updateBackgroundDepotMapping = (updates: Partial<BackgroundDepotMapping>) => {
+    setBackgroundDepotMapping((prev) => (prev ? { ...prev, ...updates } : null));
+  };
 
   const value: DataContextType = {
     mockMode,
@@ -780,7 +907,27 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     processingStatus,
     setProcessingStatus,
     connectionStatus,
-    getCurrentRefreshInterval
+    getCurrentRefreshInterval,
+    backgroundRemovals,
+    addBackgroundRemoval,
+    updateBackgroundRemoval,
+    clearBackgroundRemoval,
+    backgroundLogProcessing,
+    setBackgroundLogProcessing,
+    updateBackgroundLogProcessing,
+    backgroundCacheClearing,
+    setBackgroundCacheClearing,
+    updateBackgroundCacheClearing,
+    backgroundServiceRemovals,
+    addBackgroundServiceRemoval,
+    updateBackgroundServiceRemoval,
+    clearBackgroundServiceRemoval,
+    backgroundDatabaseReset,
+    setBackgroundDatabaseReset,
+    updateBackgroundDatabaseReset,
+    backgroundDepotMapping,
+    setBackgroundDepotMapping,
+    updateBackgroundDepotMapping
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

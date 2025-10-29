@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Database, Loader, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Cloud, Database, Loader2, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 
 interface DepotInitStepProps {
@@ -78,7 +78,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
                color: 'var(--theme-info-text)'
              }}>
           <div className="flex items-center gap-3">
-            <Loader className="w-5 h-5 animate-spin flex-shrink-0" />
+            <Loader2 className="w-5 h-5 animate-spin flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-semibold">{downloadStatus}</p>
               {selectedMethod === 'cloud' && downloadStatus.includes('Downloading') && (
@@ -140,7 +140,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             variant="filled"
             color="blue"
             size="sm"
-            leftSection={initializing && selectedMethod === 'cloud' ? <Loader className="w-3 h-3 animate-spin" /> : <Cloud className="w-3 h-3" />}
+            leftSection={initializing && selectedMethod === 'cloud' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Cloud className="w-3 h-3" />}
             onClick={onDownloadPrecreated}
             disabled={initializing || usingSteamAuth}
             fullWidth
@@ -175,7 +175,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             variant="filled"
             color="green"
             size="sm"
-            leftSection={initializing && selectedMethod === 'generate' ? <Loader className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
+            leftSection={initializing && selectedMethod === 'generate' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
             onClick={onGenerateOwn}
             disabled={initializing}
             fullWidth
@@ -211,7 +211,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               variant="filled"
               color="orange"
               size="sm"
-              leftSection={initializing && selectedMethod === 'continue' ? <Loader className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
+              leftSection={initializing && selectedMethod === 'continue' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
               onClick={onContinue}
               disabled={initializing}
               fullWidth

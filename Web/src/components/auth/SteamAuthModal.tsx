@@ -1,5 +1,5 @@
 import React from 'react';
-import { Key, Lock, Loader } from 'lucide-react';
+import { Key, Lock, Loader2 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -86,7 +86,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 
         {/* Waiting for Mobile Confirmation */}
         {waitingForMobileConfirmation && (
-          <Alert color="blue" icon={<Loader className="w-5 h-5 animate-spin" />}>
+          <Alert color="blue" icon={<Loader2 className="w-5 h-5 animate-spin" />}>
             <div className="space-y-3">
               <p className="font-medium">Check your Steam Mobile App</p>
               <p className="text-sm">

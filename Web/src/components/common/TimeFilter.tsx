@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Clock, Calendar, ChevronDown, Loader, Radio } from 'lucide-react';
+import { Clock, Calendar, ChevronDown, Loader2, Radio } from 'lucide-react';
 import { useTimeFilter, TimeRange } from '@contexts/TimeFilterContext';
 import DateRangePicker from './DateRangePicker';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -107,7 +107,7 @@ const TimeFilter: React.FC<TimeFilterProps> = React.memo(({ disabled = false }) 
                 }
               >
                 {timeFilterLoading ? (
-                  <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
+                  <Loader2 className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
                 ) : (
                   <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
                 )}
@@ -139,7 +139,7 @@ const TimeFilter: React.FC<TimeFilterProps> = React.memo(({ disabled = false }) 
               }
             >
               {timeFilterLoading ? (
-                <Loader className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
+                <Loader2 className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
               ) : (
                 <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
               )}

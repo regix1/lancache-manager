@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Loader, SkipForward, CheckCircle } from 'lucide-react';
+import { FileText, Loader2, SkipForward, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 
@@ -103,7 +103,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
           {complete ? (
             <CheckCircle size={64} className="text-white" />
           ) : processing ? (
-            <Loader size={64} className="text-white animate-spin" />
+            <Loader2 size={64} className="text-white animate-spin" />
           ) : (
             <FileText size={64} className="text-white" />
           )}

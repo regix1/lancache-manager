@@ -8,7 +8,7 @@ import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import PicsProgressBar from '@components/common/PicsProgressBar';
+import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/initialization/DepotInitializationModal';
 import AuthenticationModal from '@components/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
@@ -299,7 +299,7 @@ const AppContent: React.FC = () => {
     // Close modal but keep user on current page
     setShowAutomaticScanSkippedModal(false);
 
-    // Set downloading flag in localStorage for PicsProgressBar
+    // Set downloading flag in localStorage for UniversalNotificationBar
     localStorage.setItem('githubDownloading', 'true');
     localStorage.removeItem('githubDownloadComplete');
 
@@ -480,7 +480,7 @@ const AppContent: React.FC = () => {
       >
         <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
         <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
-        <PicsProgressBar />
+        <UniversalNotificationBar />
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
         <Footer />
       </div>

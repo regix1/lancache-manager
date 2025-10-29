@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Database, Clock, Zap, AlertCircle, Loader } from 'lucide-react';
+import { Database, Clock, Zap, AlertCircle, Loader2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -144,7 +144,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     setGithubDownloadComplete(false);
     setGithubDownloading(true);
 
-    // Set downloading flag in localStorage for PicsProgressBar
+    // Set downloading flag in localStorage for UniversalNotificationBar
     localStorage.setItem('githubDownloading', 'true');
     localStorage.removeItem('githubDownloadComplete');
 
@@ -271,7 +271,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             borderColor: 'var(--theme-info)'
           }}>
             <div className="flex items-start gap-3">
-              <Loader className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--theme-info)' }} />
+              <Loader2 className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--theme-info)' }} />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
                   Downloading Depot Mappings from GitHub...

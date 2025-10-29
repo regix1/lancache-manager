@@ -42,46 +42,11 @@ struct DownloadRecord {
 struct CacheFileInfo {
     path: PathBuf,
     size: u64,
-    hash: String,
+    // Note: hash is stored as HashMap key, not needed in struct
 }
 
 fn calculate_md5(cache_key: &str) -> String {
     format!("{:x}", md5::compute(cache_key.as_bytes()))
-}
-
-fn calculate_cache_path(cache_dir: &Path, service: &str, url: &str, start: u64, end: u64) -> PathBuf {
-    let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
-    let hash = calculate_md5(&cache_key);
-
-    let len = hash.len();
-    if len < 4 {
-        return cache_dir.join(&hash);
-    }
-
-    let last_2 = &hash[len - 2..];
-    let middle_2 = &hash[len - 4..len - 2];
-
-    cache_dir.join(last_2).join(middle_2).join(&hash)
-}
-
-fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
-    // Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
-    let cache_key = format!("{}{}", service, url);
-    let hash = calculate_md5(&cache_key);
-
-    let len = hash.len();
-    if len < 4 {
-        return cache_dir.join(&hash);
-    }
-
-    let last_2 = &hash[len - 2..];
-    let middle_2 = &hash[len - 4..len - 2];
-
-    cache_dir.join(last_2).join(middle_2).join(&hash)
-}
-
-fn get_file_size(path: &Path) -> u64 {
-    fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
 /// Scan cache directory and build in-memory index of all cache files
@@ -111,7 +76,6 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<String, CacheFileInf
                     let info = CacheFileInfo {
                         path: path.to_path_buf(),
                         size,
-                        hash: hash.to_string(),
                     };
 
                     let mut files = cache_files.lock().unwrap();

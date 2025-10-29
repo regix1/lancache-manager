@@ -7,7 +7,7 @@ import {
   Database,
   Settings,
   Download as DownloadIcon,
-  Loader,
+  Loader2,
   List,
   Grid3x3,
 } from 'lucide-react';
@@ -901,7 +901,7 @@ const DownloadsTab: React.FC = () => {
                   disabled={exportLoading || itemsToDisplay.length === 0}
                 >
                   {exportLoading ? (
-                    <Loader className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <DownloadIcon size={18} />
                   )}
@@ -1091,7 +1091,7 @@ const DownloadsTab: React.FC = () => {
           <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg transition-opacity duration-300">
             <div className="flex flex-col items-center gap-3 px-6 py-4 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-xl"
                  style={{ borderColor: 'var(--theme-border-primary)', animation: 'slideUp 0.3s ease-out' }}>
-              <Loader className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
+              <Loader2 className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
               <span className="text-sm font-medium text-[var(--theme-text-primary)]">Updating...</span>
             </div>
           </div>

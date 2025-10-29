@@ -50,51 +50,26 @@ public class GameInfoController : ControllerBase
                 var viability = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
                 _logger.LogInformation("Viability check returned: {Viability}", System.Text.Json.JsonSerializer.Serialize(viability));
 
-                // Use dynamic to access anonymous object properties
-                dynamic viabilityDynamic = viability;
-
-                try
+                if (viability.WillTriggerFullScan)
                 {
-                    bool willTriggerFullScan = viabilityDynamic.willTriggerFullScan;
-                    _logger.LogInformation("willTriggerFullScan = {WillTrigger}", willTriggerFullScan);
+                    // Return info about required full scan WITHOUT starting the scan
+                    _logger.LogInformation("Incremental scan not viable - change gap too large ({ChangeGap}). Returning requiresFullScan flag.", viability.ChangeGap);
 
-                    if (willTriggerFullScan)
+                    return Ok(new
                     {
-                        // Return info about required full scan WITHOUT starting the scan
-                        uint changeGap = viabilityDynamic.changeGap;
-                        int estimatedApps = viabilityDynamic.estimatedAppsToScan;
-                        string? errorMsg = null;
-
-                        // Check if there was an error during viability check
-                        try
-                        {
-                            errorMsg = viabilityDynamic.error;
-                        }
-                        catch { }
-
-                        _logger.LogInformation("Incremental scan not viable - change gap too large ({ChangeGap}). Returning requiresFullScan flag.", changeGap);
-
-                        return Ok(new
-                        {
-                            started = false,
-                            requiresFullScan = true,
-                            changeGap,
-                            estimatedApps,
-                            message = errorMsg ?? "Change gap is too large for incremental scan. A full scan is required.",
-                            viabilityError = errorMsg
-                        });
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Incremental scan is viable - proceeding with scan");
-                        // Clear the automatic scan skipped flag since incremental is now viable
-                        _steamKit2Service.ClearAutomaticScanSkippedFlag();
-                    }
+                        started = false,
+                        requiresFullScan = true,
+                        changeGap = viability.ChangeGap,
+                        estimatedApps = viability.EstimatedAppsToScan,
+                        message = viability.Error ?? "Change gap is too large for incremental scan. A full scan is required.",
+                        viabilityError = viability.Error
+                    });
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning(ex, "Failed to parse viability check result - proceeding with scan");
-                    // If parsing fails, proceed with scan (fail-open for safety)
+                    _logger.LogInformation("Incremental scan is viable - proceeding with scan");
+                    // Clear the automatic scan skipped flag since incremental is now viable
+                    _steamKit2Service.ClearAutomaticScanSkippedFlag();
                 }
             }
 

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { HardDrive, Loader, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw } from 'lucide-react';
+import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw, Minimize2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
+import { useData } from '@contexts/DataContext';
 import type { GameCacheInfo } from '../../types';
 
 interface GameCacheDetectorProps {
@@ -23,6 +24,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
+  const { addBackgroundRemoval, updateBackgroundRemoval, clearBackgroundRemoval } = useData();
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +36,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showAllPaths, setShowAllPaths] = useState<Record<number, boolean>>({});
   const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [minimizedRemoval, setMinimizedRemoval] = useState(false);
 
   const MAX_INITIAL_PATHS = 50; // Only show 50 paths initially to prevent lag
   const MAX_INITIAL_URLS = 20; // Only show 20 URLs initially
@@ -172,7 +175,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       const result = await ApiService.removeGameFromCache(gameToRemove.game_app_id);
 
       const message = `Removed ${result.report.game_name}: ${result.report.cache_files_deleted} cache files deleted, ${result.report.log_entries_removed} log entries removed, ${formatBytes(result.report.total_bytes_freed)} freed`;
-      onSuccess?.(message);
+
+      // Update background removal if minimized
+      if (minimizedRemoval) {
+        updateBackgroundRemoval(gameToRemove.game_app_id, {
+          status: 'completed',
+          filesDeleted: result.report.cache_files_deleted,
+          bytesFreed: result.report.total_bytes_freed
+        });
+        // Auto-clear after 10 seconds
+        setTimeout(() => {
+          clearBackgroundRemoval(gameToRemove.game_app_id);
+        }, 10000);
+      } else {
+        onSuccess?.(message);
+      }
 
       // Remove from the list
       setGames((prev) => prev.filter((g) => g.game_app_id !== gameToRemove.game_app_id));
@@ -184,12 +201,42 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setGameToRemove(null);
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to remove game from cache';
-      setError(errorMsg);
-      onError?.(errorMsg);
+
+      // Update background removal if minimized
+      if (minimizedRemoval) {
+        updateBackgroundRemoval(gameToRemove.game_app_id, {
+          status: 'failed',
+          error: errorMsg
+        });
+        // Auto-clear failed removals after 15 seconds
+        setTimeout(() => {
+          clearBackgroundRemoval(gameToRemove.game_app_id);
+        }, 15000);
+      } else {
+        setError(errorMsg);
+        onError?.(errorMsg);
+      }
       console.error('Game removal error:', err);
     } finally {
       setRemovingGameId(null);
+      setMinimizedRemoval(false);
     }
+  };
+
+  const handleMinimize = () => {
+    if (!gameToRemove) return;
+
+    // Add to background removals
+    setMinimizedRemoval(true);
+    addBackgroundRemoval({
+      gameAppId: gameToRemove.game_app_id,
+      gameName: gameToRemove.game_name,
+      startedAt: new Date(),
+      status: 'removing'
+    });
+
+    // Close modal - removal is already in progress
+    setGameToRemove(null);
   };
 
   const toggleGameDetails = (gameId: number) => {
@@ -247,7 +294,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               disabled={loading || mockMode}
               variant="filled"
               color="blue"
-              leftSection={loading ? <Loader className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+              leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
             >
               {loading ? 'Detecting...' : 'Detect Games'}
             </Button>
@@ -282,7 +329,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           {/* Loading State */}
           {loading && (
             <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <Loader className="w-6 h-6 animate-spin text-themed-accent" />
+              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
               <p className="text-sm text-themed-secondary">Scanning database and cache directory...</p>
               <p className="text-xs text-themed-muted">This may take several minutes for large databases and cache directories</p>
             </div>
@@ -320,7 +367,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         disabled={!!removingGameId || expandingGameId === game.game_app_id}
                       >
                         {expandingGameId === game.game_app_id ? (
-                          <Loader className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-4 h-4 animate-spin" />
                         ) : expandedGameId === game.game_app_id ? (
                           <ChevronUp className="w-4 h-4" />
                         ) : (
@@ -369,7 +416,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     {expandingGameId === game.game_app_id && (
                       <div className="border-t px-3 py-4 flex items-center justify-center" style={{ borderColor: 'var(--theme-border-secondary)' }}>
                         <div className="flex items-center gap-2 text-themed-muted">
-                          <Loader className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-4 h-4 animate-spin" />
                           <span className="text-sm">Loading details...</span>
                         </div>
                       </div>
@@ -562,23 +609,38 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               </div>
             </Alert>
 
-            <div className="flex justify-end space-x-3 pt-2">
-              <Button
-                variant="default"
-                onClick={() => setGameToRemove(null)}
-                disabled={removingGameId !== null}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="filled"
-                color="red"
-                leftSection={!removingGameId && <Trash2 className="w-4 h-4" />}
-                onClick={confirmRemoval}
-                loading={removingGameId !== null}
-              >
-                Remove from Cache
-              </Button>
+            <div className="flex justify-between pt-2">
+              <div className="flex gap-2">
+                {removingGameId !== null && (
+                  <Tooltip content="Minimize and keep working while removal completes in background">
+                    <Button
+                      variant="default"
+                      onClick={handleMinimize}
+                      leftSection={<Minimize2 className="w-4 h-4" />}
+                    >
+                      Keep Working
+                    </Button>
+                  </Tooltip>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  variant="default"
+                  onClick={() => setGameToRemove(null)}
+                  disabled={removingGameId !== null}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="filled"
+                  color="red"
+                  leftSection={!removingGameId && <Trash2 className="w-4 h-4" />}
+                  onClick={confirmRemoval}
+                  loading={removingGameId !== null}
+                >
+                  Remove from Cache
+                </Button>
+              </div>
             </div>
           </div>
         )}

@@ -77,6 +77,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private int _totalBatches;
     private int _processedBatches;
     private string _currentStatus = "Idle";
+    private string? _lastErrorMessage = null;
     private int _sessionStartDepotCount = 0;  // Track depot count at start of session
 
     public SteamKit2Service(
@@ -644,6 +645,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         try
         {
             _currentStatus = "Connecting and enumerating apps";
+            _lastErrorMessage = null; // Clear previous errors when starting new scan
             _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental}, Current mappings in memory: {Count})...",
                 incrementalOnly, _depotToAppMappings.Count);
 
@@ -929,6 +931,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         catch (Exception ex)
         {
             _currentStatus = "Error occurred";
+            _lastErrorMessage = ex.Message;
             _logger.LogError(ex, "Error building depot index");
         }
     }
@@ -1477,6 +1480,14 @@ public class SteamKit2Service : IHostedService, IDisposable
         {
             _logger.LogWarning("Steam connection timed out while checking incremental viability: {Message}", tex.Message);
 
+            // Clean up connection state on timeout to prevent stale connections
+            if (_steamClient?.IsConnected == true)
+            {
+                _intentionalDisconnect = true;
+                _steamClient.Disconnect();
+            }
+            _isLoggedOn = false;
+
             // Try to get the change number from JSON for error reporting
             uint changeNumberForError = 0;
             try
@@ -1502,6 +1513,14 @@ public class SteamKit2Service : IHostedService, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning("Failed to check incremental viability: {Message}", ex.Message);
+
+            // Clean up connection state on failure to prevent stale connections
+            if (_steamClient?.IsConnected == true)
+            {
+                _intentionalDisconnect = true;
+                _steamClient.Disconnect();
+            }
+            _isLoggedOn = false;
 
             // Try to get the change number from JSON for error reporting
             uint changeNumberForError = 0;
@@ -1564,7 +1583,8 @@ public class SteamKit2Service : IHostedService, IDisposable
             LastScanWasForced = _lastScanWasForced,
             AutomaticScanSkipped = _automaticScanSkipped,
             IsConnected = _steamClient?.IsConnected == true,
-            IsLoggedOn = _isLoggedOn && isAuthenticated // Only true if both connected AND using authenticated mode
+            IsLoggedOn = _isLoggedOn && isAuthenticated, // Only true if both connected AND using authenticated mode
+            ErrorMessage = _lastErrorMessage
         };
     }
 

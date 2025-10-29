@@ -177,6 +177,9 @@ public class SteamPicsProgress
 
     [JsonPropertyName("isLoggedOn")]
     public bool IsLoggedOn { get; set; }
+
+    [JsonPropertyName("errorMessage")]
+    public string? ErrorMessage { get; set; }
 }
 
 /// <summary>

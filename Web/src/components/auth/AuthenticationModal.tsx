@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Key, Eye, Loader } from 'lucide-react';
+import { AlertTriangle, Key, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
 
@@ -154,7 +154,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               <Button
                 variant="filled"
                 color="blue"
-                leftSection={authenticating ? <Loader className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                leftSection={authenticating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
                 onClick={handleAuthenticate}
                 disabled={authenticating || !apiKey.trim()}
                 fullWidth

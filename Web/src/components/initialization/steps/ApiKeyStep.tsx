@@ -1,5 +1,5 @@
 import React from 'react';
-import { Key, Eye, Loader } from 'lucide-react';
+import { Key, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 
 interface ApiKeyStepProps {
@@ -54,7 +54,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
           <Button
             variant="filled"
             color="blue"
-            leftSection={authenticating ? <Loader className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+            leftSection={authenticating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
             onClick={onAuthenticate}
             disabled={authenticating || !apiKey.trim()}
             fullWidth

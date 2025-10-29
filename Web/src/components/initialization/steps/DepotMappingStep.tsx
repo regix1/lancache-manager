@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Map, Loader, SkipForward, CheckCircle, Home } from 'lucide-react';
+import { Map, Loader2, SkipForward, CheckCircle, Home } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
@@ -170,7 +170,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           {complete ? (
             <CheckCircle size={64} className="text-white" />
           ) : mapping ? (
-            <Loader size={64} className="text-white animate-spin" />
+            <Loader2 size={64} className="text-white animate-spin" />
           ) : (
             <Map size={64} className="text-white" />
           )}
@@ -209,7 +209,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
             <div className="space-y-4 mb-6">
               <div className="p-6 rounded-lg text-center"
                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
-                <Loader className="w-12 h-12 animate-spin mx-auto mb-3" style={{ color: 'var(--theme-primary)' }} />
+                <Loader2 className="w-12 h-12 animate-spin mx-auto mb-3" style={{ color: 'var(--theme-primary)' }} />
                 <p className="text-lg font-semibold text-themed-primary mb-1">
                   {statusMessage || 'Processing...'}
                 </p>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   FileText,
   AlertTriangle,
-  Loader,
+  Loader2,
   RefreshCw,
   ChevronDown,
   ChevronUp
@@ -10,6 +10,7 @@ import {
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
+import { useData } from '@contexts/DataContext';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -63,7 +64,6 @@ interface LogAndCorruptionManagerProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-  onBackgroundOperation?: (service: string | null) => void;
   onReloadRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   onClearOperationRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 }
@@ -74,10 +74,10 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   onError,
   onSuccess,
   onDataRefresh,
-  onBackgroundOperation,
   onReloadRef,
   onClearOperationRef
 }) => {
+  const { addBackgroundServiceRemoval, clearBackgroundServiceRemoval } = useData();
   // Log File Management State
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
   const [config, setConfig] = useState({
@@ -106,7 +106,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const clearOperationState = async () => {
     await serviceRemovalOp.clear();
     setActiveServiceRemoval(null);
-    onBackgroundOperation?.(null);
+    if (activeServiceRemoval) {
+      clearBackgroundServiceRemoval(activeServiceRemoval);
+    }
   };
 
   useEffect(() => {
@@ -127,9 +129,19 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
   }, [hasInitiallyLoaded, onReloadRef, onClearOperationRef]);
 
+  // Sync activeServiceRemoval with DataContext
   useEffect(() => {
-    onBackgroundOperation?.(activeServiceRemoval);
-  }, [activeServiceRemoval]);
+    if (activeServiceRemoval) {
+      addBackgroundServiceRemoval({
+        service: activeServiceRemoval,
+        status: 'removing',
+        startedAt: new Date()
+      });
+    } else {
+      // Clear all service removals when activeServiceRemoval is null
+      // (This handles the case where the operation completes)
+    }
+  }, [activeServiceRemoval, addBackgroundServiceRemoval]);
 
   const loadAllData = async (forceRefresh: boolean = false) => {
     setIsLoading(true);
@@ -321,7 +333,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <Loader className="w-6 h-6 animate-spin text-themed-accent" />
+              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
               <p className="text-sm text-themed-secondary">Scanning log files for services...</p>
               <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
             </div>
@@ -409,7 +421,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <Loader className="w-6 h-6 animate-spin text-themed-accent" />
+              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
               <p className="text-sm text-themed-secondary">Scanning logs for corrupted chunks...</p>
               <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
             </div>
@@ -462,7 +474,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                       <div className="border-t px-3 py-3" style={{ borderColor: 'var(--theme-border-secondary)' }}>
                         {loadingDetails === service ? (
                           <div className="flex items-center justify-center py-4 gap-2">
-                            <Loader className="w-4 h-4 animate-spin text-themed-accent" />
+                            <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                             <span className="text-sm text-themed-secondary">Loading corruption details...</span>
                           </div>
                         ) : corruptionDetails[service] && corruptionDetails[service].length > 0 ? (

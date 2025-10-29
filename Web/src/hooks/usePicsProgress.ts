@@ -19,6 +19,7 @@ export interface PicsProgress {
   automaticScanSkipped?: boolean;
   isConnected: boolean;
   isLoggedOn: boolean;
+  errorMessage?: string;
 }
 
 export interface UsePicsProgressOptions {
