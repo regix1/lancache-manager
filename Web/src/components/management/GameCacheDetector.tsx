@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw, Minimize2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw, Minimize2, Search } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -37,6 +37,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [minimizedRemoval, setMinimizedRemoval] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
 
   const MAX_INITIAL_PATHS = 50; // Only show 50 paths initially to prevent lag
   const MAX_INITIAL_URLS = 20; // Only show 20 URLs initially
@@ -82,6 +85,33 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     checkForActiveOperation();
   }, [mockMode]); // Only run on mount or when mockMode changes
+
+  // Reset page when search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  // Memoized filtered, sorted, and paginated games list
+  const filteredAndSortedGames = useMemo(() => {
+    // Filter by search query (search in game name or app ID)
+    let filtered = games.filter(game =>
+      game.game_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      game.game_app_id.toString().includes(searchQuery)
+    );
+
+    // Sort alphabetically by game name (case-insensitive)
+    filtered.sort((a, b) => a.game_name.localeCompare(b.game_name, undefined, { sensitivity: 'base' }));
+
+    return filtered;
+  }, [games, searchQuery]);
+
+  const paginatedGames = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredAndSortedGames.slice(startIndex, endIndex);
+  }, [filteredAndSortedGames, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredAndSortedGames.length / itemsPerPage);
 
   const pollDetectionStatus = async (operationId: string) => {
     try {
@@ -345,19 +375,68 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 <div className="flex items-center gap-2 text-themed-primary font-medium">
                   <Database className="w-5 h-5 text-themed-accent" />
                   Found {totalGames} game{totalGames !== 1 ? 's' : ''} with cache files
+                  {searchQuery && filteredAndSortedGames.length !== totalGames && (
+                    <span className="text-sm text-themed-muted font-normal">
+                      ({filteredAndSortedGames.length} matching)
+                    </span>
+                  )}
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {games.map((game) => (
-                  <div
-                    key={game.game_app_id}
-                    className="rounded-lg border"
+              {/* Search Bar */}
+              <div className="mb-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
+                  <input
+                    type="text"
+                    placeholder="Search by game name or AppID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm"
                     style={{
-                      backgroundColor: 'var(--theme-bg-tertiary)',
-                      borderColor: 'var(--theme-border-secondary)'
+                      backgroundColor: 'var(--theme-bg-secondary)',
+                      borderColor: 'var(--theme-border-secondary)',
+                      color: 'var(--theme-text-primary)'
                     }}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-themed-muted hover:text-themed-primary text-xs"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* No Results Message */}
+              {filteredAndSortedGames.length === 0 && (
+                <div className="text-center py-8 text-themed-muted">
+                  <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <div className="mb-2">No games found matching "{searchQuery}"</div>
+                  <Button
+                    variant="subtle"
+                    size="sm"
+                    onClick={() => setSearchQuery('')}
                   >
+                    Clear search
+                  </Button>
+                </div>
+              )}
+
+              {filteredAndSortedGames.length > 0 && (
+                <>
+                  <div className="space-y-3">
+                    {paginatedGames.map((game) => (
+                      <div
+                        key={game.game_app_id}
+                        className="rounded-lg border"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          borderColor: 'var(--theme-border-secondary)'
+                        }}
+                      >
                     <div className="flex items-center gap-2 p-3">
                       <Button
                         onClick={() => toggleGameDetails(game.game_app_id)}
@@ -549,8 +628,70 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-between mt-4 p-3 rounded-lg border" style={{
+                      backgroundColor: 'var(--theme-bg-elevated)',
+                      borderColor: 'var(--theme-border-secondary)'
+                    }}>
+                      <div className="text-sm text-themed-muted">
+                        Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filteredAndSortedGames.length)} of {filteredAndSortedGames.length}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                            let pageNum: number;
+                            if (totalPages <= 5) {
+                              pageNum = i + 1;
+                            } else if (currentPage <= 3) {
+                              pageNum = i + 1;
+                            } else if (currentPage >= totalPages - 2) {
+                              pageNum = totalPages - 4 + i;
+                            } else {
+                              pageNum = currentPage - 2 + i;
+                            }
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setCurrentPage(pageNum)}
+                                className={`px-3 py-1 rounded text-sm transition-colors ${
+                                  currentPage === pageNum
+                                    ? 'text-themed-bg font-semibold'
+                                    : 'text-themed-secondary hover:text-themed-primary'
+                                }`}
+                                style={currentPage === pageNum ? {
+                                  backgroundColor: 'var(--theme-accent)'
+                                } : {}}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage === totalPages}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </>
           )}
 
