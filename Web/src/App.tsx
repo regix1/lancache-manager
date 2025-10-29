@@ -70,35 +70,10 @@ const AppContent: React.FC = () => {
     fetchTimezone();
   }, []);
 
-  // Detect page reload/refresh and trigger garbage collection
-  useEffect(() => {
-    const checkIfReload = async () => {
-      try {
-        // Use Performance Navigation API to detect if this was a page reload
-        const navigationEntries = window.performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
-
-        if (navigationEntries.length > 0) {
-          const navigationType = navigationEntries[0].type;
-
-          // Only trigger GC on actual page reloads, not on initial load or navigation
-          if (navigationType === 'reload') {
-            const response = await fetch('/api/gc/trigger', {
-              method: 'POST',
-              headers: ApiService.getHeaders()
-            });
-            // Don't log errors - this is optional optimization
-            if (response.ok) {
-              console.log('[App] Triggered server GC after reload');
-            }
-          }
-        }
-      } catch (error) {
-        // Silently fail - GC is a background optimization
-      }
-    };
-
-    checkIfReload();
-  }, []); // Run once on mount
+  // NOTE: Automatic GC on page load is now handled by the backend GcMiddleware
+  // which properly respects the memory threshold and aggressiveness settings.
+  // The manual trigger endpoint (/api/gc/trigger) bypasses threshold checks and
+  // is only intended for the "Run GC Now" button in the management UI.
 
   // Check authentication status first
   useEffect(() => {
