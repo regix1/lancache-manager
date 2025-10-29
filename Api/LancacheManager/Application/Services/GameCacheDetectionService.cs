@@ -44,7 +44,7 @@ public class GameCacheDetectionService
         RestoreInterruptedOperations();
     }
 
-    public string StartDetectionAsync()
+    public string StartDetectionAsync(bool incremental = true)
     {
         var operationId = Guid.NewGuid().ToString();
         var operation = new DetectionOperation
@@ -68,21 +68,24 @@ public class GameCacheDetectionService
         });
 
         // Start detection in background
-        _ = Task.Run(async () => await RunDetectionAsync(operationId));
+        _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental));
 
         return operationId;
     }
 
-    private async Task RunDetectionAsync(string operationId)
+    private async Task RunDetectionAsync(string operationId, bool incremental)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
             return;
         }
 
+        string? excludedIdsPath = null;
+        List<GameCacheInfo>? existingGames = null;
+
         try
         {
-            _logger.LogInformation("[GameDetection] Starting detection for operation {OperationId}", operationId);
+            _logger.LogInformation("[GameDetection] Starting detection for operation {OperationId} (incremental={Incremental})", operationId, incremental);
 
             var dataDir = _pathResolver.GetDataDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
@@ -104,10 +107,43 @@ public class GameCacheDetectionService
 
             _logger.LogInformation("[GameDetection] Using cache path: {CachePath}", cachePath);
 
+            // Build arguments - add excluded game IDs if incremental and cache exists
+            string arguments;
+            if (incremental)
+            {
+                lock (_cacheLock)
+                {
+                    if (_cachedDetectionResult != null && _cachedDetectionResult.Games != null && _cachedDetectionResult.Games.Count > 0)
+                    {
+                        existingGames = _cachedDetectionResult.Games;
+                        var excludedGameIds = existingGames.Select(g => g.GameAppId).ToList();
+
+                        excludedIdsPath = Path.Combine(dataDir, $"excluded_game_ids_{operationId}.json");
+                        var excludedIdsJson = JsonSerializer.Serialize(excludedGameIds);
+                        File.WriteAllText(excludedIdsPath, excludedIdsJson);
+
+                        _logger.LogInformation("[GameDetection] Incremental scan: excluding {ExcludedCount} already-detected games", excludedGameIds.Count);
+                        operation.Message = $"Scanning for new games (skipping {excludedGameIds.Count} already detected)...";
+
+                        arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"";
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[GameDetection] No cached results found, performing full scan");
+                        arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"";
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogInformation("[GameDetection] Force refresh: performing full scan");
+                arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"";
+            }
+
             var startInfo = new ProcessStartInfo
             {
                 FileName = rustBinaryPath,
-                Arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"",
+                Arguments = arguments,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -158,16 +194,41 @@ public class GameCacheDetectionService
                     throw new Exception("Failed to parse detection results");
                 }
 
-                operation.Status = "complete";
-                operation.Message = $"Detected {result.TotalGamesDetected} games with cache files";
-                operation.Games = result.Games;
-                operation.TotalGamesDetected = result.TotalGamesDetected;
+                // Merge with existing games if this was an incremental scan
+                List<GameCacheInfo> finalGames;
+                int totalGamesDetected;
 
-                // Cache the completed detection result
+                if (incremental && existingGames != null && existingGames.Count > 0)
+                {
+                    // Merge existing games with newly detected games
+                    finalGames = existingGames.ToList();
+                    finalGames.AddRange(result.Games);
+                    totalGamesDetected = finalGames.Count;
+
+                    var newGamesCount = result.TotalGamesDetected;
+                    _logger.LogInformation("[GameDetection] Incremental scan complete: {NewCount} new games, {TotalCount} total",
+                        newGamesCount, totalGamesDetected);
+
+                    operation.Message = newGamesCount > 0
+                        ? $"Found {newGamesCount} new game{(newGamesCount != 1 ? "s" : "")} ({totalGamesDetected} total with cache files)"
+                        : $"No new games detected ({totalGamesDetected} total with cache files)";
+                }
+                else
+                {
+                    finalGames = result.Games;
+                    totalGamesDetected = result.TotalGamesDetected;
+                    operation.Message = $"Detected {totalGamesDetected} games with cache files";
+                }
+
+                operation.Status = "complete";
+                operation.Games = finalGames;
+                operation.TotalGamesDetected = totalGamesDetected;
+
+                // Cache the completed detection result (merged or full)
                 lock (_cacheLock)
                 {
                     _cachedDetectionResult = operation;
-                    _logger.LogInformation("[GameDetection] Results cached - {Count} games detected", result.TotalGamesDetected);
+                    _logger.LogInformation("[GameDetection] Results cached - {Count} games total", totalGamesDetected);
                 }
 
                 // Update persisted state with complete status
@@ -191,6 +252,19 @@ public class GameCacheDetectionService
                 {
                     _logger.LogWarning(ex, "Failed to delete output file: {File}", outputJson);
                 }
+
+                // Clean up excluded IDs file if it was created
+                if (!string.IsNullOrEmpty(excludedIdsPath) && File.Exists(excludedIdsPath))
+                {
+                    try
+                    {
+                        File.Delete(excludedIdsPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to delete excluded IDs file: {File}", excludedIdsPath);
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -209,6 +283,19 @@ public class GameCacheDetectionService
                 Message = operation.Message,
                 Data = JsonSerializer.SerializeToElement(new { operationId, error = ex.Message })
             });
+
+            // Clean up excluded IDs file in error path too
+            if (!string.IsNullOrEmpty(excludedIdsPath) && File.Exists(excludedIdsPath))
+            {
+                try
+                {
+                    File.Delete(excludedIdsPath);
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "Failed to delete excluded IDs file: {File}", excludedIdsPath);
+                }
+            }
         }
     }
 
@@ -284,8 +371,8 @@ public class GameCacheDetectionService
                         _operations[operationId] = operation;
                         _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", operationId);
 
-                        // Restart the detection task
-                        _ = Task.Run(async () => await RunDetectionAsync(operationId));
+                        // Restart the detection task with incremental scanning (default)
+                        _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental: true));
                     }
                 }
             }

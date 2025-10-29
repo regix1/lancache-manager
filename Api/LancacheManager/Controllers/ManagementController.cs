@@ -1069,7 +1069,9 @@ public class ManagementController : ControllerBase
 
             _logger.LogInformation("Starting game cache detection (background, forceRefresh={ForceRefresh})", forceRefresh);
 
-            var operationId = _gameCacheDetectionService.StartDetectionAsync();
+            // If forceRefresh is true, disable incremental scanning (scan everything)
+            // If forceRefresh is false, enable incremental scanning (skip already-detected games)
+            var operationId = _gameCacheDetectionService.StartDetectionAsync(incremental: !forceRefresh);
 
             return Ok(new { operationId, cached = false });
         }

@@ -100,11 +100,26 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<String, CacheFileInf
     Ok(cache_files)
 }
 
-fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>) -> Result<Vec<DownloadRecord>> {
+fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, excluded_game_ids: &[u32]) -> Result<Vec<DownloadRecord>> {
     let conn = Connection::open(db_path)
         .context("Failed to open database")?;
 
     eprintln!("Querying LogEntries for game URLs...");
+
+    // Build exclusion clause if we have games to exclude
+    let exclusion_clause = if !excluded_game_ids.is_empty() {
+        let ids_str = excluded_game_ids.iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("AND sdm.AppId NOT IN ({})", ids_str)
+    } else {
+        String::new()
+    };
+
+    if !excluded_game_ids.is_empty() {
+        eprintln!("Excluding {} already-detected games (incremental scan)", excluded_game_ids.len());
+    }
 
     // Query LogEntries joined with SteamDepotMappings to get URLs for mapped games
     // Strategy: Get a sample of URLs per game for faster scanning
@@ -114,16 +129,20 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>) -> Res
             "SELECT le.Service, sdm.AppId, sdm.AppName, le.Url, le.DepotId
              FROM LogEntries le
              INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
-             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL
+             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL {}
              GROUP BY sdm.AppId, le.Url
-             ORDER BY sdm.AppId, le.BytesServed DESC"
+             ORDER BY sdm.AppId, le.BytesServed DESC",
+            exclusion_clause
         )
     } else {
-        "SELECT DISTINCT le.Service, sdm.AppId, sdm.AppName, le.Url, le.DepotId
-         FROM LogEntries le
-         INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
-         WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL
-         ORDER BY sdm.AppId".to_string()
+        format!(
+            "SELECT DISTINCT le.Service, sdm.AppId, sdm.AppName, le.Url, le.DepotId
+             FROM LogEntries le
+             INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
+             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL {}
+             ORDER BY sdm.AppId",
+            exclusion_clause
+        )
     };
 
     let mut stmt = conn.prepare(&query)?;
@@ -165,6 +184,18 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>) -> Res
 
     // Also query unknown games (depots without mappings)
     eprintln!("Querying unknown games...");
+
+    // Build exclusion clause for unknown depots (using depot_id as game_app_id for unknown games)
+    let unknown_exclusion_clause = if !excluded_game_ids.is_empty() {
+        let ids_str = excluded_game_ids.iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("AND le.DepotId NOT IN ({})", ids_str)
+    } else {
+        String::new()
+    };
+
     let unknown_query = if let Some(limit) = max_urls_per_game {
         format!(
             "SELECT le.Service, le.DepotId, le.Url
@@ -172,17 +203,23 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>) -> Res
              WHERE le.DepotId IS NOT NULL
              AND le.Url IS NOT NULL
              AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)
+             {}
              GROUP BY le.DepotId, le.Url
              LIMIT {}",
+            unknown_exclusion_clause,
             limit * 10 // Allow more URLs for unknown games combined
         )
     } else {
-        "SELECT DISTINCT le.Service, le.DepotId, le.Url
-         FROM LogEntries le
-         WHERE le.DepotId IS NOT NULL
-         AND le.Url IS NOT NULL
-         AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)
-         ORDER BY le.DepotId".to_string()
+        format!(
+            "SELECT DISTINCT le.Service, le.DepotId, le.Url
+             FROM LogEntries le
+             WHERE le.DepotId IS NOT NULL
+             AND le.Url IS NOT NULL
+             AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)
+             {}
+             ORDER BY le.DepotId",
+            unknown_exclusion_clause
+        )
     };
 
     let mut unknown_stmt = conn.prepare(&unknown_query)?;
@@ -311,20 +348,37 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 4 {
-        eprintln!("Usage: {} <database_path> <cache_dir> <output_json>", args[0]);
+        eprintln!("Usage: {} <database_path> <cache_dir> <output_json> [excluded_game_ids_json]", args[0]);
         eprintln!();
         eprintln!("Detects which games have files in the cache directory.");
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  database_path - Path to LancacheManager.db");
-        eprintln!("  cache_dir     - Cache directory root (e.g., /cache or H:/cache)");
-        eprintln!("  output_json   - Path to output JSON report");
+        eprintln!("  database_path          - Path to LancacheManager.db");
+        eprintln!("  cache_dir              - Cache directory root (e.g., /cache or H:/cache)");
+        eprintln!("  output_json            - Path to output JSON report");
+        eprintln!("  excluded_game_ids_json - (Optional) JSON file with array of game IDs to exclude for incremental scanning");
         std::process::exit(1);
     }
 
     let db_path = PathBuf::from(&args[1]);
     let cache_dir = PathBuf::from(&args[2]);
     let output_json = PathBuf::from(&args[3]);
+
+    // Read excluded game IDs if provided (for incremental scanning)
+    let excluded_game_ids: Vec<u32> = if args.len() >= 5 {
+        let excluded_path = PathBuf::from(&args[4]);
+        if excluded_path.exists() {
+            let json = fs::read_to_string(&excluded_path)
+                .context("Failed to read excluded game IDs file")?;
+            serde_json::from_str(&json)
+                .context("Failed to parse excluded game IDs JSON")?
+        } else {
+            eprintln!("Warning: Excluded game IDs file not found, proceeding with full scan");
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
 
     eprintln!("Game Cache Detection");
     eprintln!("  Database: {}", db_path.display());
@@ -347,7 +401,7 @@ fn main() -> Result<()> {
 
     // Query ALL URLs to get accurate cache sizes (no sampling)
     // This ensures we find and measure every cache file for complete accuracy
-    let all_records = query_game_downloads(&db_path, None)?;
+    let all_records = query_game_downloads(&db_path, None, &excluded_game_ids)?;
 
     if all_records.is_empty() {
         eprintln!("No games found in database.");
