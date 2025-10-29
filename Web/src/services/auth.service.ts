@@ -331,7 +331,7 @@ class AuthService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Device-Id': this.deviceId
+          ...this.getAuthHeaders()
         }
       });
 

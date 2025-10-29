@@ -72,6 +72,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     setAuthChecking(true);
     try {
       const result = await authService.checkAuth();
+      console.log('[AuthenticationManager] Auth check result:', result);
       setIsAuthenticated(result.isAuthenticated);
       setAuthMode(result.authMode);
       setGuestTimeRemaining(result.guestTimeRemaining || 0);
@@ -157,14 +158,17 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   };
 
   const handleRegenerateKey = () => {
+    console.log('[AuthenticationManager] Regenerate Key button clicked');
     setShowRegenerateModal(true);
   };
 
   const confirmRegenerateKey = async () => {
+    console.log('[AuthenticationManager] Confirm regenerate clicked');
     setAuthLoading(true);
 
     try {
       const result = await authService.regenerateApiKey();
+      console.log('[AuthenticationManager] Regenerate API result:', result);
 
       if (result.success) {
         // Store if user was in guest mode before regeneration
@@ -272,7 +276,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
           <div className="flex items-center gap-2 ml-4">
             {authMode === 'authenticated' && (
-              <Button
+              <>
+                {console.log('[AuthenticationManager] Rendering Regenerate Key button, authMode:', authMode, 'authLoading:', authLoading)}
+                <Button
                 variant="filled"
                 color="red"
                 size="sm"
@@ -282,6 +288,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               >
                 Regenerate Key
               </Button>
+              </>
             )}
 
             {(authMode === 'unauthenticated' || authMode === 'expired') && (
