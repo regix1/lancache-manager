@@ -1,5 +1,6 @@
 using System.Diagnostics.Metrics;
 using LancacheManager.Data;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Application.Services;
@@ -183,17 +184,30 @@ public class LancacheMetricsService : BackgroundService
                     .CountAsync();
                 Interlocked.Exchange(ref _activeClients, activeClientsCount);
 
-                // Get cache info for capacity and usage
-                var cacheInfo = cacheService.GetCacheInfo();
-                Interlocked.Exchange(ref _cacheCapacityBytes, cacheInfo.TotalCacheSize);
-                Interlocked.Exchange(ref _cacheUsedBytes, cacheInfo.UsedCacheSize);
-                Interlocked.Exchange(ref _cacheFreeBytes, cacheInfo.FreeCacheSize);
+                // Get cache info for capacity and usage (wrap in try-catch to prevent metrics loop from failing)
+                CacheInfo cacheInfo = new CacheInfo();
+                try
+                {
+                    cacheInfo = cacheService.GetCacheInfo();
+                    Interlocked.Exchange(ref _cacheCapacityBytes, cacheInfo.TotalCacheSize);
+                    Interlocked.Exchange(ref _cacheUsedBytes, cacheInfo.UsedCacheSize);
+                    Interlocked.Exchange(ref _cacheFreeBytes, cacheInfo.FreeCacheSize);
 
-                // Calculate usage ratio (0-1, following Prometheus conventions)
-                var usageRatio = cacheInfo.TotalCacheSize > 0
-                    ? (double)cacheInfo.UsedCacheSize / cacheInfo.TotalCacheSize
-                    : 0;
-                Interlocked.Exchange(ref _cacheUsageRatioBits, BitConverter.DoubleToInt64Bits(usageRatio));
+                    // Calculate usage ratio (0-1, following Prometheus conventions)
+                    var usageRatio = cacheInfo.TotalCacheSize > 0
+                        ? (double)cacheInfo.UsedCacheSize / cacheInfo.TotalCacheSize
+                        : 0;
+                    Interlocked.Exchange(ref _cacheUsageRatioBits, BitConverter.DoubleToInt64Bits(usageRatio));
+                }
+                catch (Exception cacheEx)
+                {
+                    // Log but don't fail the entire metrics update if cache info fails
+                    // This can happen in Docker/containerized environments with unusual mount setups
+                    if (updateCount % 20 == 0) // Only log every 10 minutes to avoid spam
+                    {
+                        _logger.LogWarning(cacheEx, "Failed to get cache info for metrics");
+                    }
+                }
 
                 // Get cache effectiveness metrics
                 var totalHitBytes = await context.Downloads.SumAsync(d => (long?)d.CacheHitBytes) ?? 0;

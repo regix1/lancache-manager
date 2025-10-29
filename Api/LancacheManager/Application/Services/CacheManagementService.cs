@@ -69,7 +69,6 @@ public class CacheManagementService
 
             // Find the actual mount point for the cache directory
             var mountPoint = GetMountPoint(_cachePath);
-            _logger.LogInformation($"Cache path: {_cachePath}, Mount point: {mountPoint}");
 
             if (Directory.Exists(mountPoint))
             {
