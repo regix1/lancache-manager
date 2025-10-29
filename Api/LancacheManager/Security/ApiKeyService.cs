@@ -1,5 +1,5 @@
-using LancacheManager.Services;
 using System.Security.Cryptography;
+using LancacheManager.Infrastructure.Services.Interfaces;
 
 namespace LancacheManager.Security;
 
@@ -68,7 +68,7 @@ public class ApiKeyService
 
             // Generate new API key
             _apiKey = GenerateApiKey();
-            
+
             try
             {
                 File.WriteAllText(_apiKeyPath, _apiKey);
@@ -131,13 +131,13 @@ public class ApiKeyService
         {
             rng.GetBytes(bytes);
         }
-        
+
         // Convert to base64 and make URL-safe
         var key = Convert.ToBase64String(bytes)
             .Replace("+", "-")
             .Replace("/", "_")
             .Replace("=", "");
-        
+
         return $"lm_{key}"; // Prefix to identify as LancacheManager key
     }
 

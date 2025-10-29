@@ -1,5 +1,6 @@
 using System.Diagnostics;
-using LancacheManager.Services;
+using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services.Interfaces;
 
 namespace LancacheManager.Middleware;
 
@@ -11,12 +12,12 @@ public class GcMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<GcMiddleware> _logger;
-    private readonly GcSettingsService _gcSettingsService;
+    private readonly SettingsRepository _gcSettingsService;
     private readonly IMemoryManager _memoryManager;
     private static DateTime _lastGcTime = DateTime.MinValue;
     private static readonly object _gcLock = new object();
 
-    public GcMiddleware(RequestDelegate next, ILogger<GcMiddleware> logger, GcSettingsService gcSettingsService, IMemoryManager memoryManager)
+    public GcMiddleware(RequestDelegate next, ILogger<GcMiddleware> logger, SettingsRepository gcSettingsService, IMemoryManager memoryManager)
     {
         _next = next;
         _logger = logger;

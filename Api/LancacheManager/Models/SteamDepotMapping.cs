@@ -6,11 +6,11 @@ public class SteamDepotMapping
 {
     [Key]
     public int Id { get; set; }
-    
+
     public uint DepotId { get; set; }
-    
+
     public uint AppId { get; set; }
-    
+
     public string? AppName { get; set; }
 
     /// <summary>

@@ -1,7 +1,8 @@
-using Microsoft.AspNetCore.Mvc;
-using LancacheManager.Security;
-using LancacheManager.Services;
+using LancacheManager.Application.Services;
 using LancacheManager.Data;
+using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Security;
+using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
@@ -14,9 +15,9 @@ public class AuthController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
     private readonly AppDbContext _dbContext;
-    private readonly StateService _stateService;
+    private readonly StateRepository _stateService;
     private readonly SteamKit2Service _steamKit2Service;
-    private readonly SteamAuthStorageService _steamAuthStorage;
+    private readonly SteamAuthRepository _steamAuthStorage;
 
     public AuthController(
         ApiKeyService apiKeyService,
@@ -24,9 +25,9 @@ public class AuthController : ControllerBase
         IConfiguration configuration,
         ILogger<AuthController> logger,
         AppDbContext dbContext,
-        StateService stateService,
+        StateRepository stateService,
         SteamKit2Service steamKit2Service,
-        SteamAuthStorageService steamAuthStorage)
+        SteamAuthRepository steamAuthStorage)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -147,17 +148,17 @@ public class AuthController : ControllerBase
             // Get client IP
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
             var userAgent = Request.Headers["User-Agent"].FirstOrDefault();
-            
-            _logger.LogInformation("Device registration attempt from IP: {IP}, Device: {DeviceId}", 
+
+            _logger.LogInformation("Device registration attempt from IP: {IP}, Device: {DeviceId}",
                 ipAddress, request.DeviceId);
-            
+
             var result = _deviceAuthService.RegisterDevice(request, ipAddress, userAgent);
-            
+
             if (result.Success)
             {
                 return Ok(result);
             }
-            
+
             return Unauthorized(result);
         }
         catch (Exception ex)
@@ -176,12 +177,12 @@ public class AuthController : ControllerBase
         try
         {
             var isValid = _deviceAuthService.ValidateDevice(request.DeviceId);
-            
+
             if (isValid)
             {
                 return Ok(new { valid = true, message = "Device is registered and valid" });
             }
-            
+
             return Unauthorized(new { valid = false, message = "Device not registered or expired" });
         }
         catch (Exception ex)
@@ -220,13 +221,13 @@ public class AuthController : ControllerBase
         try
         {
             var success = _deviceAuthService.RevokeDevice(deviceId);
-            
+
             if (success)
             {
                 _logger.LogInformation("Device revoked: {DeviceId}", deviceId);
                 return Ok(new { message = "Device revoked successfully" });
             }
-            
+
             return NotFound(new { error = "Device not found" });
         }
         catch (Exception ex)
@@ -304,10 +305,10 @@ public class AuthController : ControllerBase
             _logger.LogWarning("API key request denied from non-localhost IP: {IP}", remoteIp);
             return Forbid("This endpoint is only accessible from localhost");
         }
-        
+
         var key = _apiKeyService.GetOrCreateApiKey();
-        return Ok(new 
-        { 
+        return Ok(new
+        {
             apiKey = key,
             message = "Save this key! It's required for authentication.",
             warning = "This endpoint is only accessible from localhost"

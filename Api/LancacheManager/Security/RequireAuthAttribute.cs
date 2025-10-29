@@ -102,13 +102,13 @@ public class AuthenticationMiddleware
 
         // Check if this is a protected endpoint
         bool requiresAuth = false;
-        
+
         // Check exact paths
         if (_protectedPaths.Contains(path))
         {
             requiresAuth = true;
         }
-        
+
         // Check patterns
         if (!requiresAuth)
         {
@@ -121,7 +121,7 @@ public class AuthenticationMiddleware
                 }
             }
         }
-        
+
         // Check DELETE method on certain controllers
         if (!requiresAuth && context.Request.Method == "DELETE")
         {
@@ -131,7 +131,7 @@ public class AuthenticationMiddleware
                 requiresAuth = true;
             }
         }
-        
+
         if (requiresAuth)
         {
             // Check for API key in header - ONLY API KEY, NO DEVICE ID
@@ -157,7 +157,7 @@ public class AuthenticationMiddleware
                 }));
             return;
         }
-        
+
         await _next(context);
     }
 }

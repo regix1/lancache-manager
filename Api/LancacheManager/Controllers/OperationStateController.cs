@@ -1,6 +1,6 @@
-using LancacheManager.Services;
-using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
+using LancacheManager.Application.Services;
+using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
@@ -29,7 +29,7 @@ public class OperationStateController : ControllerBase
             {
                 return NotFound();
             }
-            
+
             return Ok(state);
         }
         catch (Exception ex)
@@ -60,7 +60,7 @@ public class OperationStateController : ControllerBase
             };
 
             _stateService.SaveState(request.Key, state);
-            
+
             return Ok(new { success = true, key = request.Key });
         }
         catch (Exception ex)
@@ -138,10 +138,10 @@ public class OperationStateController : ControllerBase
     {
         try
         {
-            var states = string.IsNullOrEmpty(type) 
+            var states = string.IsNullOrEmpty(type)
                 ? _stateService.GetAllStates()
                 : _stateService.GetStatesByType(type);
-                
+
             return Ok(states);
         }
         catch (Exception ex)
@@ -158,9 +158,10 @@ public class OperationStateController : ControllerBase
         {
             // Trigger manual cleanup if needed
             var allStates = _stateService.GetAllStates();
-            return Ok(new { 
-                success = true, 
-                activeStates = allStates.Count 
+            return Ok(new
+            {
+                success = true,
+                activeStates = allStates.Count
             });
         }
         catch (Exception ex)

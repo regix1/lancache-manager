@@ -1,11 +1,11 @@
-using Microsoft.EntityFrameworkCore;
 using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Data;
 
 public class AppDbContext : DbContext
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) {}
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
     public DbSet<Download> Downloads { get; set; }
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
@@ -17,25 +17,25 @@ public class AppDbContext : DbContext
         // Primary keys
         modelBuilder.Entity<ClientStats>().HasKey(c => c.ClientIp);
         modelBuilder.Entity<ServiceStats>().HasKey(s => s.Service);
-        
+
         // Downloads indexes for fast queries
         modelBuilder.Entity<Download>()
             .HasIndex(d => new { d.ClientIp, d.Service, d.IsActive })
             .HasDatabaseName("IX_Downloads_Client_Service_Active");
-            
+
         modelBuilder.Entity<Download>()
             .HasIndex(d => d.StartTimeUtc)
             .HasDatabaseName("IX_Downloads_StartTime")
             .IsDescending(); // For ORDER BY DESC queries
-            
+
         modelBuilder.Entity<Download>()
             .HasIndex(d => d.IsActive)
             .HasDatabaseName("IX_Downloads_IsActive");
-            
+
         modelBuilder.Entity<Download>()
             .HasIndex(d => d.EndTimeUtc)
             .HasDatabaseName("IX_Downloads_EndTime");
-            
+
         // ClientStats indexes
         modelBuilder.Entity<ClientStats>()
             .HasIndex(c => c.LastActivityUtc)
@@ -45,7 +45,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ServiceStats>()
             .HasIndex(s => s.LastActivityUtc)
             .HasDatabaseName("IX_ServiceStats_LastActivityUtc");
-            
+
         // SteamDepotMapping indexes
         modelBuilder.Entity<SteamDepotMapping>()
             .HasIndex(m => m.DepotId)

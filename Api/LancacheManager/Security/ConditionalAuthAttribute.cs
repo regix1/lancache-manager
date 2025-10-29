@@ -42,7 +42,8 @@ public class ConditionalAuthAttribute : ActionFilterAttribute
 
             if (string.IsNullOrEmpty(apiKey) || !apiKeyService.ValidateApiKey(apiKey))
             {
-                context.Result = new UnauthorizedObjectResult(new {
+                context.Result = new UnauthorizedObjectResult(new
+                {
                     error = "API key required",
                     configKey = _configKey
                 });

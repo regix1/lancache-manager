@@ -3,7 +3,7 @@ use chrono::{NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::BufRead;
 use std::path::PathBuf;
@@ -60,6 +60,7 @@ struct Processor {
     local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
+    logged_depots: HashSet<u32>, // Track depots that have already been logged
 }
 
 impl Processor {
@@ -109,6 +110,7 @@ impl Processor {
             local_tz,
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
+            logged_depots: HashSet::new(),
         }
     }
 
@@ -520,8 +522,12 @@ impl Processor {
             if let Some(depot_id) = primary_depot_id {
                 match self.lookup_depot_mapping(tx, depot_id) {
                     Ok(Some((app_id, app_name))) => {
-                        let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
-                        println!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
+                        // Only log each depot mapping once to avoid log spam
+                        if !self.logged_depots.contains(&depot_id) {
+                            let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
+                            println!("Mapped depot {} -> App {} ({})", depot_id, app_id, game_display);
+                            self.logged_depots.insert(depot_id);
+                        }
                         (Some(app_id), app_name)
                     },
                     Ok(None) => {

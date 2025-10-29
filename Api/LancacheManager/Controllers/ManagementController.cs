@@ -1,5 +1,8 @@
+using LancacheManager.Application.Services;
+using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Security;
-using LancacheManager.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -9,33 +12,33 @@ namespace LancacheManager.Controllers;
 public class ManagementController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
-    private readonly DatabaseService _dbService;
+    private readonly DatabaseRepository _dbService;
     private readonly CacheClearingService _cacheClearingService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ManagementController> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly StateService _stateService;
+    private readonly StateRepository _stateService;
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustDatabaseResetService _rustDatabaseResetService;
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly SteamKit2Service _steamKit2Service;
-    private readonly SteamAuthStorageService _steamAuthStorage;
+    private readonly SteamAuthRepository _steamAuthStorage;
 
     public ManagementController(
         CacheManagementService cacheService,
-        DatabaseService dbService,
+        DatabaseRepository dbService,
         CacheClearingService cacheClearingService,
         GameCacheDetectionService gameCacheDetectionService,
         IConfiguration configuration,
         ILogger<ManagementController> logger,
         IPathResolver pathResolver,
-        StateService stateService,
+        StateRepository stateService,
         RustLogProcessorService rustLogProcessorService,
         RustDatabaseResetService rustDatabaseResetService,
         RustLogRemovalService rustLogRemovalService,
         SteamKit2Service steamKit2Service,
-        SteamAuthStorageService steamAuthStorage)
+        SteamAuthRepository steamAuthStorage)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -82,7 +85,8 @@ public class ManagementController : ControllerBase
             var operationId = await _cacheClearingService.StartCacheClearAsync();
             _logger.LogInformation("Started cache clear operation: {OperationId}", operationId);
 
-            return Ok(new {
+            return Ok(new
+            {
                 message = "Cache clearing started in background",
                 operationId,
                 status = "running"
@@ -131,7 +135,8 @@ public class ManagementController : ControllerBase
             if (string.IsNullOrEmpty(service))
             {
                 var operationId = await _cacheClearingService.StartCacheClearAsync();
-                return Ok(new {
+                return Ok(new
+                {
                     message = "Cache clearing started in background",
                     operationId,
                     status = "running"
@@ -166,7 +171,8 @@ public class ManagementController : ControllerBase
                 // Start rust reset in background
                 _ = Task.Run(async () => await _rustDatabaseResetService.StartResetAsync());
 
-                return Ok(new {
+                return Ok(new
+                {
                     message = "Database reset started with rust service",
                     status = "started",
                     timestamp = DateTime.UtcNow
@@ -178,7 +184,8 @@ public class ManagementController : ControllerBase
                 await _dbService.ResetDatabase();
                 _logger.LogInformation("Database reset completed");
 
-                return Ok(new {
+                return Ok(new
+                {
                     message = "Database reset successfully",
                     status = "completed",
                     timestamp = DateTime.UtcNow
@@ -202,7 +209,8 @@ public class ManagementController : ControllerBase
 
             if (!System.IO.File.Exists(progressPath))
             {
-                return Ok(new {
+                return Ok(new
+                {
                     isProcessing = _rustDatabaseResetService.IsProcessing,
                     percentComplete = 0.0,
                     status = "idle",
@@ -218,7 +226,8 @@ public class ManagementController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting reset status");
-            return Ok(new {
+            return Ok(new
+            {
                 isProcessing = _rustDatabaseResetService.IsProcessing,
                 error = ex.Message
             });
@@ -268,7 +277,8 @@ public class ManagementController : ControllerBase
                 ? "Log position reset to beginning. The rust service will process from the start with duplicate detection."
                 : "Log position reset to end. Will monitor only new downloads going forward.";
 
-            return Ok(new {
+            return Ok(new
+            {
                 message,
                 position = newPosition,
                 requiresRestart = false,
@@ -367,7 +377,8 @@ public class ManagementController : ControllerBase
 
             if (!System.IO.File.Exists(progressPath))
             {
-                return Ok(new {
+                return Ok(new
+                {
                     isProcessing = _rustLogProcessorService.IsProcessing,
                     percentComplete = 0,
                     progress = 0,
@@ -393,7 +404,8 @@ public class ManagementController : ControllerBase
 
             if (rustProgress == null)
             {
-                return Ok(new {
+                return Ok(new
+                {
                     isProcessing = _rustLogProcessorService.IsProcessing,
                     percentComplete = 0,
                     progress = 0,
@@ -409,7 +421,8 @@ public class ManagementController : ControllerBase
             // Calculate MB processed based on percentage
             var mbProcessed = mbTotal * (rustProgress.PercentComplete / 100.0);
 
-            return Ok(new {
+            return Ok(new
+            {
                 isProcessing = _rustLogProcessorService.IsProcessing,
                 // Legacy field names for compatibility
                 totalLines = rustProgress.TotalLines,
@@ -453,7 +466,8 @@ public class ManagementController : ControllerBase
             _logger.LogInformation("Starting log removal for service: {Service}", request.Service);
             _ = Task.Run(async () => await _rustLogRemovalService.StartRemovalAsync(request.Service));
 
-            return Task.FromResult<IActionResult>(Ok(new {
+            return Task.FromResult<IActionResult>(Ok(new
+            {
                 message = $"Log removal started for {request.Service}",
                 service = request.Service,
                 status = "started"
@@ -475,13 +489,15 @@ public class ManagementController : ControllerBase
 
             if (!_rustLogRemovalService.IsProcessing && progress == null)
             {
-                return Ok(new {
+                return Ok(new
+                {
                     isProcessing = false,
                     message = "No log removal in progress"
                 });
             }
 
-            return Ok(new {
+            return Ok(new
+            {
                 isProcessing = _rustLogRemovalService.IsProcessing,
                 service = _rustLogRemovalService.CurrentService,
                 filesProcessed = progress?.FilesProcessed ?? 0,
@@ -721,7 +737,8 @@ public class ManagementController : ControllerBase
             // which JavaScript doesn't understand. Use IANA format like "America/Chicago" or "UTC"
             var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
 
-            return Ok(new {
+            return Ok(new
+            {
                 cachePath,
                 logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log"),
                 services,
@@ -733,7 +750,8 @@ public class ManagementController : ControllerBase
             _logger.LogError(ex, "Error getting configuration");
             var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
 
-            return Ok(new {
+            return Ok(new
+            {
                 cachePath = _pathResolver.GetCacheDirectory(),
                 logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log"),
                 services = new[] { "steam", "epic", "origin", "blizzard", "wsus", "riot" },
@@ -755,7 +773,8 @@ public class ManagementController : ControllerBase
             _stateService.SetSetupCompleted(true);
             _logger.LogInformation("Setup marked as completed");
 
-            return Ok(new {
+            return Ok(new
+            {
                 message = "Setup marked as completed",
                 isCompleted = true
             });
@@ -778,7 +797,8 @@ public class ManagementController : ControllerBase
             var isCompleted = _stateService.GetSetupCompleted();
             var hasProcessedLogs = _stateService.GetHasProcessedLogs();
 
-            return Ok(new {
+            return Ok(new
+            {
                 isCompleted,
                 hasProcessedLogs
             });

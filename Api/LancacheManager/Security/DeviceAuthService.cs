@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using LancacheManager.Services;
+using LancacheManager.Infrastructure.Services.Interfaces;
 
 namespace LancacheManager.Security;
 
@@ -38,7 +38,7 @@ public class DeviceAuthService
         _apiKeyService = apiKeyService;
         _pathResolver = pathResolver;
         _devicesDirectory = configuration["Security:DevicesPath"] ?? Path.Combine(_pathResolver.GetDataDirectory(), "devices");
-        
+
         // Ensure devices directory exists
         if (!Directory.Exists(_devicesDirectory))
         {
@@ -83,20 +83,20 @@ public class DeviceAuthService
             if (!_apiKeyService.ValidateApiKey(request.ApiKey))
             {
                 _logger.LogWarning("Device registration failed: Invalid API key from IP {IP}", ipAddress);
-                return new AuthResponse 
-                { 
-                    Success = false, 
-                    Message = "Invalid API key" 
+                return new AuthResponse
+                {
+                    Success = false,
+                    Message = "Invalid API key"
                 };
             }
 
             // Validate device ID
             if (string.IsNullOrWhiteSpace(request.DeviceId) || request.DeviceId.Length < 16)
             {
-                return new AuthResponse 
-                { 
-                    Success = false, 
-                    Message = "Invalid device ID" 
+                return new AuthResponse
+                {
+                    Success = false,
+                    Message = "Invalid device ID"
                 };
             }
 
@@ -120,7 +120,7 @@ public class DeviceAuthService
 
             // Save to disk
             SaveDeviceRegistration(registration);
-            
+
             // Update cache
             lock (_cacheLock)
             {
@@ -141,10 +141,10 @@ public class DeviceAuthService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error registering device");
-            return new AuthResponse 
-            { 
-                Success = false, 
-                Message = "Registration failed" 
+            return new AuthResponse
+            {
+                Success = false,
+                Message = "Registration failed"
             };
         }
     }
@@ -249,22 +249,22 @@ public class DeviceAuthService
         try
         {
             var buffer = Convert.FromBase64String(encryptedKey);
-            
+
             using var aes = Aes.Create();
             var key = DeriveKeyFromDeviceId(deviceId);
             aes.Key = key;
-            
+
             var iv = new byte[aes.IV.Length];
             var encrypted = new byte[buffer.Length - iv.Length];
-            
+
             Array.Copy(buffer, 0, iv, 0, iv.Length);
             Array.Copy(buffer, iv.Length, encrypted, 0, encrypted.Length);
-            
+
             aes.IV = iv;
-            
+
             var decryptor = aes.CreateDecryptor();
             var decrypted = decryptor.TransformFinalBlock(encrypted, 0, encrypted.Length);
-            
+
             return Encoding.UTF8.GetString(decrypted);
         }
         catch (Exception ex)

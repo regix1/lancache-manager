@@ -1,8 +1,13 @@
+using LancacheManager.Application.Services;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Infrastructure.Repositories.Interfaces;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Security;
-using LancacheManager.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
@@ -146,8 +151,19 @@ Console.WriteLine($"Data Protection keys will be stored in: {dataProtectionKeyPa
 // Register encryption service for state.json sensitive fields
 builder.Services.AddSingleton<SecureStateEncryptionService>();
 
-// Register Steam authentication storage service (separate encrypted file with Microsoft Data Protection API)
-builder.Services.AddSingleton<SteamAuthStorageService>();
+// Register repositories with their interfaces
+builder.Services.AddSingleton<ISteamAuthRepository, SteamAuthRepository>();
+builder.Services.AddSingleton<IStateRepository, StateRepository>();
+builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
+builder.Services.AddScoped<IStatsRepository, StatsRepository>();
+builder.Services.AddSingleton<ISettingsRepository, SettingsRepository>();
+
+// Register concrete classes (for code that directly references them)
+builder.Services.AddSingleton(sp => (SteamAuthRepository)sp.GetRequiredService<ISteamAuthRepository>());
+builder.Services.AddSingleton(sp => (StateRepository)sp.GetRequiredService<IStateRepository>());
+builder.Services.AddScoped(sp => (DatabaseRepository)sp.GetRequiredService<IDatabaseRepository>());
+builder.Services.AddScoped(sp => (StatsRepository)sp.GetRequiredService<IStatsRepository>());
+builder.Services.AddSingleton(sp => (SettingsRepository)sp.GetRequiredService<ISettingsRepository>());
 
 // Database configuration (now can use IPathResolver)
 var dbPathInitialized = false;
@@ -208,11 +224,8 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamK
 builder.Services.AddSingleton<SteamService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamService>());
 
-// Register services
-builder.Services.AddSingleton<StateService>();
-builder.Services.AddScoped<DatabaseService>();
+// Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
-builder.Services.AddScoped<StatsService>();
 builder.Services.AddSingleton<PicsDataService>();
 
 // Register metrics service for Prometheus/Grafana as both singleton and hosted service
@@ -251,9 +264,6 @@ builder.Services.AddMemoryCache(options =>
 });
 builder.Services.AddSingleton<StatsCache>();
 
-// Add GC Settings Service for configurable garbage collection
-builder.Services.AddSingleton<GcSettingsService>();
-
 // Add Output Caching for API endpoints
 builder.Services.AddOutputCache(options =>
 {
@@ -284,9 +294,9 @@ builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database", LogLevel.Non
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore", LogLevel.Error);
 builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.Extensions.Http.DefaultHttpClientFactory", LogLevel.Warning);
-builder.Logging.AddFilter("LancacheManager.Services.WindowsPathResolver", LogLevel.Warning);
+builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.WindowsPathResolver", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Information);
-builder.Logging.AddFilter("LancacheManager.Services.RustLogProcessorService", LogLevel.Information);
+builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.RustLogProcessorService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.Information);
 builder.Logging.SetMinimumLevel(LogLevel.Information);
@@ -369,7 +379,8 @@ app.MapControllerRoute(
     constraints: new { httpMethod = new HttpMethodRouteConstraint("PATCH") });
 
 // Health check endpoint
-app.MapGet("/health", () => Results.Ok(new {
+app.MapGet("/health", () => Results.Ok(new
+{
     status = "healthy",
     timestamp = DateTime.UtcNow,
     service = "LancacheManager",
@@ -413,23 +424,23 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    
+
     try
     {
         logger.LogInformation("Checking database migrations...");
-        
+
         // This will create the database if it doesn't exist and apply all pending migrations
         await dbContext.Database.MigrateAsync();
-        
+
         logger.LogInformation("Database migrations applied successfully");
-        
+
         // Verify connection
         var canConnect = await dbContext.Database.CanConnectAsync();
         if (!canConnect)
         {
             throw new Exception("Cannot connect to database after migration");
         }
-        
+
         // Load initial stats into cache
         var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
         await statsCache.RefreshFromDatabase(dbContext);

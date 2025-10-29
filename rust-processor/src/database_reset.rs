@@ -86,35 +86,85 @@ fn reset_database(
         .context("Failed to disable foreign keys")?;
 
     let tables = vec![
-        ("LogEntries", 10.0, 30.0),
-        ("Downloads", 30.0, 50.0),
-        ("ClientStats", 50.0, 70.0),
-        ("ServiceStats", 70.0, 85.0),
+        ("LogEntries", 5.0, 25.0),
+        ("Downloads", 25.0, 60.0),
+        ("ClientStats", 60.0, 75.0),
+        ("ServiceStats", 75.0, 85.0),
     ];
 
     let mut tables_cleared = 0;
+    let batch_size = 5000;
 
-    for (table_name, _start_percent, end_percent) in &tables {
-        progress.message = format!("Clearing {} table...", table_name);
-        progress.percent_complete = *end_percent;
-        progress.status = "deleting".to_string();
-        write_progress(progress_path, &progress)?;
+    // Count total rows across all tables for accurate progress
+    let mut total_rows = 0i64;
+    for (table_name, _, _) in &tables {
+        let count_sql = format!("SELECT COUNT(*) FROM {}", table_name);
+        match conn.query_row(&count_sql, [], |row| row.get::<_, i64>(0)) {
+            Ok(count) => total_rows += count,
+            Err(e) => eprintln!("Warning: Failed to count {}: {}", table_name, e),
+        }
+    }
 
+    println!("Total rows to delete: {}", total_rows);
+
+    let mut deleted_rows = 0i64;
+
+    for (table_name, start_percent, end_percent) in &tables {
         println!("Clearing table: {}", table_name);
 
-        // Use DELETE for clean removal
-        let sql = format!("DELETE FROM {}", table_name);
-        match conn.execute(&sql, []) {
-            Ok(deleted) => {
-                println!("  Deleted {} rows from {}", deleted, table_name);
-                tables_cleared += 1;
-                progress.tables_cleared = tables_cleared;
-            }
+        // Count rows in this table
+        let count_sql = format!("SELECT COUNT(*) FROM {}", table_name);
+        let table_row_count = match conn.query_row(&count_sql, [], |row| row.get::<_, i64>(0)) {
+            Ok(count) => count,
             Err(e) => {
-                eprintln!("  Warning: Failed to clear {}: {}", table_name, e);
-                // Continue with other tables even if one fails
+                eprintln!("  Warning: Failed to count {}: {}", table_name, e);
+                0
+            }
+        };
+
+        println!("  Rows in {}: {}", table_name, table_row_count);
+
+        // Delete in batches with progress reporting
+        let mut batch_num = 0;
+        loop {
+            let delete_sql = format!("DELETE FROM {} WHERE rowid IN (SELECT rowid FROM {} LIMIT {})", table_name, table_name, batch_size);
+
+            match conn.execute(&delete_sql, []) {
+                Ok(deleted) => {
+                    if deleted == 0 {
+                        break; // No more rows to delete
+                    }
+
+                    deleted_rows += deleted as i64;
+                    batch_num += 1;
+
+                    // Calculate progress
+                    let overall_progress = if total_rows > 0 {
+                        deleted_rows as f64 / total_rows as f64
+                    } else {
+                        0.0
+                    };
+                    let percent_complete = start_percent + (overall_progress * (end_percent - start_percent));
+
+                    progress.message = format!("Clearing {}... ({} / {} rows)", table_name, deleted_rows, total_rows);
+                    progress.percent_complete = percent_complete.min(*end_percent);
+                    progress.status = "deleting".to_string();
+                    write_progress(progress_path, &progress)?;
+
+                    if batch_num % 10 == 0 {
+                        println!("  Batch {}: Deleted {} rows (total: {} / {})", batch_num, deleted, deleted_rows, total_rows);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("  Warning: Failed to delete batch from {}: {}", table_name, e);
+                    break;
+                }
             }
         }
+
+        tables_cleared += 1;
+        progress.tables_cleared = tables_cleared;
+        println!("  Completed: {} (total deleted: {})", table_name, deleted_rows);
     }
 
     // Re-enable foreign key constraints

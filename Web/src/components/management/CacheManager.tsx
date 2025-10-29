@@ -335,8 +335,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   Manage cached game files in{' '}
                   <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">{config.cachePath}</code>
                 </p>
-                <p className="text-xs text-themed-muted mt-1">
-                  ⚠️ This deletes ALL cached game files from disk
+                <p className="text-xs text-themed-muted mt-1 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
+                  <span>This deletes ALL cached game files from disk</span>
                 </p>
               </>
             )}

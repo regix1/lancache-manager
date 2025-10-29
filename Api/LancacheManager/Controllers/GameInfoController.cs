@@ -1,9 +1,9 @@
+using System.Text.Json;
+using LancacheManager.Application.Services;
 using LancacheManager.Data;
 using LancacheManager.Security;
-using LancacheManager.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 
 namespace LancacheManager.Controllers;
 
@@ -314,7 +314,8 @@ public class GameInfoController : ControllerBase
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning($"Failed to download pre-created data: HTTP {response.StatusCode}");
-                return BadRequest(new {
+                return BadRequest(new
+                {
                     error = "Failed to download pre-created depot data from GitHub",
                     statusCode = response.StatusCode,
                     url = githubUrl

@@ -1,4 +1,3 @@
-using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
 namespace LancacheManager.Models;
@@ -28,7 +27,7 @@ public class Download
     public string? GameImageUrl { get; set; }
     public string? LastUrl { get; set; } // Store the last URL to extract game info
     public uint? DepotId { get; set; } // Steam depot ID extracted from URLs
-    
+
     // Computed properties need [JsonInclude] to be serialized
     [JsonInclude]
     public long TotalBytes => CacheHitBytes + CacheMissBytes;

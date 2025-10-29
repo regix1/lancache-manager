@@ -1,8 +1,8 @@
+using LancacheManager.Data;
+using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using LancacheManager.Services;
-using LancacheManager.Data;
-using LancacheManager.Models;
 
 namespace LancacheManager.Controllers;
 
@@ -11,10 +11,10 @@ namespace LancacheManager.Controllers;
 public class DownloadsController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly StatsService _statsService;
+    private readonly StatsRepository _statsService;
     private readonly ILogger<DownloadsController> _logger;
 
-    public DownloadsController(AppDbContext context, StatsService statsService, ILogger<DownloadsController> logger)
+    public DownloadsController(AppDbContext context, StatsRepository statsService, ILogger<DownloadsController> logger)
     {
         _context = context;
         _statsService = statsService;

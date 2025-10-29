@@ -1,8 +1,8 @@
+using LancacheManager.Data;
+using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using LancacheManager.Services;
-using LancacheManager.Data;
-using LancacheManager.Models;
 
 namespace LancacheManager.Controllers;
 
@@ -11,10 +11,10 @@ namespace LancacheManager.Controllers;
 public class StatsController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly StatsService _statsService;
+    private readonly StatsRepository _statsService;
     private readonly ILogger<StatsController> _logger;
 
-    public StatsController(AppDbContext context, StatsService statsService, ILogger<StatsController> logger)
+    public StatsController(AppDbContext context, StatsRepository statsService, ILogger<StatsController> logger)
     {
         _context = context;
         _statsService = statsService;
@@ -256,7 +256,7 @@ public class StatsController : ControllerBase
             {
                 cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
             }
-            
+
             // Get downloads based on period
             IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
@@ -264,16 +264,16 @@ public class StatsController : ControllerBase
                 downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
             }
             var downloads = await downloadsQuery.ToListAsync();
-                
+
             // Calculate overall effectiveness
             var totalHitBytes = downloads.Sum(d => d.CacheHitBytes);
             var totalMissBytes = downloads.Sum(d => d.CacheMissBytes);
             var totalBytes = totalHitBytes + totalMissBytes;
-            
-            var overallHitRatio = totalBytes > 0 
-                ? (double)totalHitBytes / totalBytes 
+
+            var overallHitRatio = totalBytes > 0
+                ? (double)totalHitBytes / totalBytes
                 : 0;
-                
+
             // Per-service effectiveness
             var serviceEffectiveness = downloads
                 .GroupBy(d => d.Service)
@@ -290,7 +290,7 @@ public class StatsController : ControllerBase
                 })
                 .OrderByDescending(s => s.totalBytes)
                 .ToList();
-                
+
             // Per-client effectiveness
             var clientEffectiveness = downloads
                 .GroupBy(d => d.ClientIp)
@@ -308,7 +308,7 @@ public class StatsController : ControllerBase
                 .OrderByDescending(c => c.totalBytes)
                 .Take(20) // Top 20 clients
                 .ToList();
-                
+
             return Ok(new
             {
                 period = new
@@ -353,7 +353,7 @@ public class StatsController : ControllerBase
                 cutoffTime = ParseTimePeriod(period) ?? DateTime.UtcNow.AddHours(-24);
             }
             var intervalMinutes = ParseInterval(interval);
-            
+
             // Get downloads based on period
             IQueryable<Download> downloadsQuery = _context.Downloads.AsNoTracking();
             if (cutoffTime.HasValue)
@@ -363,7 +363,7 @@ public class StatsController : ControllerBase
             var downloads = await downloadsQuery
                 .OrderBy(d => d.StartTimeUtc)
                 .ToListAsync();
-                
+
             if (downloads.Count == 0)
             {
                 return Ok(new
@@ -385,7 +385,7 @@ public class StatsController : ControllerBase
                     }
                 });
             }
-            
+
             // Group downloads by time interval
             var dataPoints = new List<TimeSeriesDataPoint>();
             var startTime = cutoffTime ?? downloads.Min(d => d.StartTimeUtc);
@@ -414,15 +414,15 @@ public class StatsController : ControllerBase
                     HitRatio = totalBytes > 0 ? (double)hitBytes / totalBytes : 0,
                     Downloads = intervalDownloads.Count
                 });
-                
+
                 currentTime = intervalEnd;
             }
-            
+
             // Calculate summary statistics
             var totalHitBytes = downloads.Sum(d => d.CacheHitBytes);
             var totalMissBytes = downloads.Sum(d => d.CacheMissBytes);
             var totalBytesSum = totalHitBytes + totalMissBytes;
-            
+
             return Ok(new
             {
                 period = new
@@ -439,8 +439,8 @@ public class StatsController : ControllerBase
                     totalHitBytes,
                     totalMissBytes,
                     totalBytes = totalBytesSum,
-                    averageHitRatio = totalBytesSum > 0 
-                        ? (double)totalHitBytes / totalBytesSum 
+                    averageHitRatio = totalBytesSum > 0
+                        ? (double)totalHitBytes / totalBytesSum
                         : 0
                 },
                 timestamp = DateTime.UtcNow
@@ -470,11 +470,11 @@ public class StatsController : ControllerBase
             }
 
             var downloads = await query.ToListAsync();
-            
+
             var totalSaved = downloads.Sum(d => d.CacheHitBytes);
             var totalServed = downloads.Sum(d => d.CacheHitBytes + d.CacheMissBytes);
             var savingsRatio = totalServed > 0 ? (double)totalSaved / totalServed : 0;
-            
+
             // Calculate by service
             var byService = downloads
                 .GroupBy(d => d.Service)
@@ -489,7 +489,7 @@ public class StatsController : ControllerBase
                 })
                 .OrderByDescending(s => s.saved)
                 .ToList();
-            
+
             return Ok(new
             {
                 period,
@@ -552,9 +552,9 @@ public class StatsController : ControllerBase
     {
         if (string.IsNullOrEmpty(period) || period == "all")
             return null;
-            
+
         var now = DateTime.UtcNow;
-        
+
         return period.ToLower() switch
         {
             "15m" => now.AddMinutes(-15),
@@ -572,7 +572,7 @@ public class StatsController : ControllerBase
             _ => null
         };
     }
-    
+
     // Helper method to parse interval strings
     private int ParseInterval(string interval)
     {
