@@ -306,6 +306,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
             disabled={!isAuthenticated || saving || !hasChanges}
             variant="filled"
             color="blue"
+            size="sm"
             leftSection={<Save className="w-4 h-4" />}
             className="flex-1"
           >
@@ -315,6 +316,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
             onClick={triggerGarbageCollection}
             disabled={!isAuthenticated || triggering}
             variant="default"
+            size="sm"
             leftSection={<Play className="w-4 h-4" />}
             title="Manually run garbage collection once for testing (5s cooldown)"
           >
