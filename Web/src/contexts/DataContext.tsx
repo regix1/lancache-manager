@@ -602,12 +602,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       // Respect user's polling interval preference for SignalR events
       // This ensures SignalR refreshes honor the user's selected polling rate
       if (timeSinceLastRefresh < pollingInterval) {
-        console.log(`[DataContext] SignalR refresh debounced (${timeSinceLastRefresh}ms < ${pollingInterval}ms)`);
         return;
       }
 
       lastSignalRRefreshTime.current = now;
-      console.log(`[DataContext] SignalR refresh triggered (${timeSinceLastRefresh}ms >= ${pollingInterval}ms)`);
 
       // Fetch fresh data when downloads are updated
       // Fetch fast data (cache, active downloads, latest downloads, dashboard stats)

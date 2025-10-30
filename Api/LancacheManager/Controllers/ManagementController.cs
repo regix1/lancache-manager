@@ -1056,17 +1056,6 @@ public class ManagementController : ControllerBase
     {
         try
         {
-            // Check if we have cached results and should use them
-            if (!forceRefresh)
-            {
-                var cachedResult = _gameCacheDetectionService.GetCachedDetection();
-                if (cachedResult != null && cachedResult.Status == "complete")
-                {
-                    _logger.LogInformation("Returning cached game detection results ({Count} games)", cachedResult.TotalGamesDetected);
-                    return Ok(new { operationId = cachedResult.OperationId, cached = true });
-                }
-            }
-
             _logger.LogInformation("Starting game cache detection (background, forceRefresh={ForceRefresh})", forceRefresh);
 
             // If forceRefresh is true, disable incremental scanning (scan everything)
