@@ -123,13 +123,14 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, exclud
 
     // Query LogEntries joined with SteamDepotMappings to get URLs for mapped games
     // Strategy: Get a sample of URLs per game for faster scanning
+    // IMPORTANT: Only match depots where IsOwner=1 to avoid attributing shared depots to multiple games
     let query = if let Some(limit) = max_urls_per_game {
         eprintln!("Using sampling strategy: max {} URLs per game", limit);
         format!(
             "SELECT le.Service, sdm.AppId, sdm.AppName, le.Url, le.DepotId
              FROM LogEntries le
              INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
-             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL {}
+             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL AND sdm.IsOwner = 1 {}
              GROUP BY sdm.AppId, le.Url
              ORDER BY sdm.AppId, le.BytesServed DESC",
             exclusion_clause
@@ -139,7 +140,7 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, exclud
             "SELECT DISTINCT le.Service, sdm.AppId, sdm.AppName, le.Url, le.DepotId
              FROM LogEntries le
              INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
-             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL {}
+             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL AND sdm.IsOwner = 1 {}
              ORDER BY sdm.AppId",
             exclusion_clause
         )
