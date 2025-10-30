@@ -1104,6 +1104,26 @@ public class ManagementController : ControllerBase
     }
 
     /// <summary>
+    /// Get cached game detection results (if available)
+    /// </summary>
+    [HttpGet("cache/detect-games-cached")]
+    public IActionResult GetCachedGameDetection()
+    {
+        var cachedResult = _gameCacheDetectionService.GetCachedDetection();
+
+        if (cachedResult == null || cachedResult.Status != "complete")
+        {
+            return Ok(new { hasCachedResults = false });
+        }
+
+        return Ok(new {
+            hasCachedResults = true,
+            games = cachedResult.Games,
+            totalGamesDetected = cachedResult.TotalGamesDetected
+        });
+    }
+
+    /// <summary>
     /// Remove all cache files for a specific game
     /// </summary>
     [HttpDelete("cache/game/{gameAppId}")]

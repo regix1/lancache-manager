@@ -53,12 +53,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, []);
 
-  // Check for active operations on mount
+  // Load cached results and check for active operations on mount
   useEffect(() => {
-    const checkForActiveOperation = async () => {
+    const loadCachedAndCheckActive = async () => {
       if (mockMode) return;
 
       try {
+        // First, try to load cached results immediately
+        const cachedResponse = await fetch('/api/management/cache/detect-games-cached');
+        const cached = await cachedResponse.json();
+
+        if (cached.hasCachedResults && cached.games && cached.games.length > 0) {
+          // Display cached results immediately
+          setGames(cached.games);
+          setTotalGames(cached.totalGamesDetected);
+        }
+
+        // Then check for active operations
         const result = await ApiService.getActiveGameDetection();
 
         if (result.hasActiveOperation && result.operation) {
@@ -78,12 +89,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           pollDetectionStatus(result.operation.operationId);
         }
       } catch (err) {
-        console.error('Error checking for active operation:', err);
+        console.error('Error loading cached results or checking for active operation:', err);
         // Don't show error to user - this is a background check
       }
     };
 
-    checkForActiveOperation();
+    loadCachedAndCheckActive();
   }, [mockMode]); // Only run on mount or when mockMode changes
 
   // Reset page when search query changes
