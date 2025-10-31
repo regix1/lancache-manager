@@ -23,6 +23,7 @@ const DownloadsTab = lazy(() => import('@components/downloads/DownloadsTab'));
 const ClientsTab = lazy(() => import('@components/clients/ClientsTab'));
 const ServicesTab = lazy(() => import('@components/services/ServicesTab'));
 const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
+const AdminTab = lazy(() => import('@components/admin/AdminTab'));
 const MemoryDiagnostics = lazy(() => import('@components/memory/MemoryDiagnostics'));
 
 const AppContent: React.FC = () => {
@@ -97,16 +98,41 @@ const AppContent: React.FC = () => {
   // Check authentication status periodically
   useEffect(() => {
     if (!checkingAuth) {
+      let lastAuthState = authService.isAuthenticated;
+
       const interval = setInterval(async () => {
-        setIsAuthenticated(authService.isAuthenticated);
+        const currentAuthState = authService.isAuthenticated;
+        setIsAuthenticated(currentAuthState);
         setAuthMode(authService.authMode);
+
+        // Re-check auth with backend to detect revoked devices
+        if (currentAuthState && authService.authMode === 'authenticated') {
+          try {
+            const result = await authService.checkAuth();
+            if (!result.isAuthenticated || result.authMode !== 'authenticated') {
+              // Device was revoked! Force page reload to show login
+              console.warn('[Auth] Device authentication was revoked. Forcing reload...');
+              window.location.reload();
+            }
+          } catch (error) {
+            console.error('[Auth] Failed to verify authentication:', error);
+          }
+        }
 
         // Re-check auth if in guest mode to get updated time
         if (authService.authMode === 'guest' || authService.authMode === 'expired') {
           const result = await authService.checkAuth();
           setAuthMode(result.authMode);
         }
-      }, 1000);
+
+        // Detect if authentication state changed from authenticated to unauthenticated
+        if (lastAuthState && !currentAuthState && authService.authMode === 'unauthenticated') {
+          console.warn('[Auth] Authentication lost. Forcing reload...');
+          window.location.reload();
+        }
+
+        lastAuthState = currentAuthState;
+      }, 5000); // Check every 5 seconds for revoked devices
       return () => clearInterval(interval);
     }
   }, [checkingAuth]);
@@ -308,6 +334,8 @@ const AppContent: React.FC = () => {
           return ServicesTab;
         case 'management':
           return ManagementTab;
+        case 'admin':
+          return AdminTab;
         default:
           return Dashboard;
       }
@@ -317,6 +345,8 @@ const AppContent: React.FC = () => {
       <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading..." />}>
         {activeTab === 'management' ? (
           <ManagementTab onApiKeyRegenerated={handleApiKeyRegenerated} />
+        ) : activeTab === 'admin' ? (
+          <AdminTab />
         ) : (
           <TabComponent />
         )}
@@ -454,7 +484,7 @@ const AppContent: React.FC = () => {
         }}
       >
         <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
-        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} />
         <UniversalNotificationBar />
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
         <Footer />

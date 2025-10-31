@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Lock, Unlock, AlertCircle, AlertTriangle, Clock, Eye } from 'lucide-react';
+import { Key, Lock, Unlock, AlertCircle, AlertTriangle, Clock, Eye, LogOut } from 'lucide-react';
 import authService, { AuthMode } from '../../services/auth.service';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { Modal } from '../ui/Modal';
+import { API_BASE } from '../../utils/constants';
 
 interface AuthenticationManagerProps {
   onAuthChange?: (isAuthenticated: boolean) => void;
@@ -20,7 +21,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   onApiKeyRegenerated,
   onAuthModeChange
 }) => {
-  const [, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [guestTimeRemaining, setGuestTimeRemaining] = useState<number>(0);
   const [authChecking, setAuthChecking] = useState(true);
@@ -31,6 +31,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   const [authLoading, setAuthLoading] = useState(false);
   const [hasData, setHasData] = useState(false);
   const [hasBeenInitialized, setHasBeenInitialized] = useState(false);
+  const [hasPrimaryKey, setHasPrimaryKey] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -38,7 +39,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     // Set up callback for guest mode expiry
     authService.onGuestExpired(() => {
       setAuthMode('expired');
-      setIsAuthenticated(false);
       setGuestTimeRemaining(0);
       onAuthChange?.(false);
       onAuthModeChange?.('expired');
@@ -73,7 +73,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     try {
       const result = await authService.checkAuth();
       console.log('[AuthenticationManager] Auth check result:', result);
-      setIsAuthenticated(result.isAuthenticated);
       setAuthMode(result.authMode);
       setGuestTimeRemaining(result.guestTimeRemaining || 0);
       setHasData(result.hasData || false);
@@ -82,19 +81,45 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       onAuthChange?.(result.isAuthenticated);
       onAuthModeChange?.(result.authMode);
 
+      // Check API key type (only for authenticated users)
+      if (result.isAuthenticated && result.authMode === 'authenticated') {
+        checkApiKeyType();
+      } else {
+        setHasPrimaryKey(false);
+      }
+
       if (!result.isAuthenticated && authService.isRegistered() && result.authMode !== 'guest') {
         authService.clearAuthAndDevice();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
-      setIsAuthenticated(false);
       setAuthMode('unauthenticated');
       setHasData(false);
       setHasBeenInitialized(false);
+      setHasPrimaryKey(false);
       onAuthChange?.(false);
       onAuthModeChange?.('unauthenticated');
     } finally {
       setAuthChecking(false);
+    }
+  };
+
+  const checkApiKeyType = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/auth/api-key-type`, {
+        headers: authService.getAuthHeaders()
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setHasPrimaryKey(data.hasPrimaryKey || false);
+        console.log('[AuthenticationManager] API key type:', data.keyType, 'has primary:', data.hasPrimaryKey);
+      } else {
+        setHasPrimaryKey(false);
+      }
+    } catch (error) {
+      console.error('[AuthenticationManager] Failed to check API key type:', error);
+      setHasPrimaryKey(false);
     }
   };
 
@@ -112,8 +137,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
       if (result.success) {
         // Update state immediately to prevent modal flash
-        setIsAuthenticated(true);
         setAuthMode('authenticated');
+
+        // Check API key type to determine if user has admin privileges
+        await checkApiKeyType();
 
         // Then notify parent
         onAuthChange?.(true);
@@ -138,7 +165,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     authService.startGuestMode();
     setAuthMode('guest');
     setGuestTimeRemaining(6 * 60); // 6 hours in minutes
-    setIsAuthenticated(false);
     onAuthChange?.(false);
     onAuthModeChange?.('guest');
     setShowAuthModal(false);
@@ -174,7 +200,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         // Store if user was in guest mode before regeneration
         const wasGuestMode = authMode === 'guest';
 
-        setIsAuthenticated(false);
         setAuthMode('unauthenticated');
         onAuthChange?.(false);
         onAuthModeChange?.('unauthenticated');
@@ -199,6 +224,29 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     } finally {
       setAuthLoading(false);
       setShowRegenerateModal(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    setAuthLoading(true);
+
+    try {
+      const result = await authService.logout();
+
+      if (result.success) {
+        setAuthMode('unauthenticated');
+        setHasPrimaryKey(false);
+        onAuthChange?.(false);
+        onAuthModeChange?.('unauthenticated');
+        onSuccess?.('Logged out successfully. This device slot is now available for another user.');
+      } else {
+        onError?.(result.message || 'Failed to logout');
+      }
+    } catch (error: any) {
+      console.error('Error logging out:', error);
+      onError?.('Failed to logout: ' + error.message);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -260,9 +308,23 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       >
         <div className="flex items-center justify-between">
           <div className="flex-1 min-w-0">
-            <span className="font-medium">
-              {getStatusText()}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-medium">
+                {getStatusText()}
+              </span>
+              {authMode === 'authenticated' && hasPrimaryKey && (
+                <span
+                  className="px-2 py-0.5 text-xs font-medium rounded"
+                  style={{
+                    backgroundColor: 'var(--theme-warning-bg)',
+                    color: 'var(--theme-warning-text)',
+                    border: '1px solid var(--theme-warning)'
+                  }}
+                >
+                  ADMIN
+                </span>
+              )}
+            </div>
             <p className="text-xs mt-1 opacity-75">
               {getDescriptionText()}
             </p>
@@ -277,17 +339,31 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
           <div className="flex items-center gap-2 ml-4">
             {authMode === 'authenticated' && (
               <>
-                {console.log('[AuthenticationManager] Rendering Regenerate Key button, authMode:', authMode, 'authLoading:', authLoading)}
                 <Button
-                variant="filled"
-                color="red"
-                size="sm"
-                leftSection={<AlertCircle className="w-3 h-3" />}
-                onClick={handleRegenerateKey}
-                loading={authLoading}
-              >
-                Regenerate Key
-              </Button>
+                  variant="filled"
+                  color="gray"
+                  size="sm"
+                  leftSection={<LogOut className="w-3 h-3" />}
+                  onClick={handleLogout}
+                  loading={authLoading}
+                >
+                  Logout
+                </Button>
+                {hasPrimaryKey && (
+                  <>
+                    {console.log('[AuthenticationManager] Rendering Regenerate Keys button, authMode:', authMode, 'hasPrimaryKey:', hasPrimaryKey, 'authLoading:', authLoading)}
+                    <Button
+                      variant="filled"
+                      color="red"
+                      size="sm"
+                      leftSection={<AlertCircle className="w-3 h-3" />}
+                      onClick={handleRegenerateKey}
+                      loading={authLoading}
+                    >
+                      Regenerate Keys
+                    </Button>
+                  </>
+                )}
               </>
             )}
 
@@ -436,22 +512,24 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Regenerate API Key</span>
+            <span>Regenerate API Keys</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Regenerating the API key will immediately log out all connected devices and require everyone to re-authenticate with the new key.
+            Regenerating the API keys will immediately log out all connected devices and guests, requiring everyone to re-authenticate with the new keys.
           </p>
 
           <Alert color="yellow">
             <div>
               <p className="font-medium mb-2">Important:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>This action cannot be undone</li>
-                <li>All users will be logged out immediately</li>
-                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code> for the new key</li>
+                <li>Both ADMIN and USER API keys will be regenerated</li>
+                <li>All users and guests will be logged out immediately</li>
+                <li>Steam integration will be logged out</li>
+                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code> for the new ADMIN key</li>
+                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/user_api_key.txt</code> for the new USER key</li>
               </ul>
             </div>
           </Alert>
@@ -471,7 +549,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               onClick={confirmRegenerateKey}
               loading={authLoading}
             >
-              Regenerate Key
+              Regenerate Keys
             </Button>
           </div>
         </div>

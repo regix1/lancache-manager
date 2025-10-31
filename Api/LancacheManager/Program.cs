@@ -215,6 +215,7 @@ builder.Services.AddHttpClient("SteamImages", client =>
 // Register Authentication Services
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddSingleton<DeviceAuthService>();
+builder.Services.AddSingleton<GuestSessionService>();
 
 // Register SteamKit2Service for real-time Steam depot mapping
 builder.Services.AddSingleton<SteamKit2Service>();

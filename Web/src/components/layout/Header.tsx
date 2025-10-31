@@ -19,14 +19,17 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const { mockMode } = useData();
   const [isGuestMode, setIsGuestMode] = useState(false);
+  const [isRevoked, setIsRevoked] = useState(false);
   const [deviceId, setDeviceId] = useState('');
 
   useEffect(() => {
-    // Check if user is in guest mode
+    // Check if user is in guest mode or expired
     const checkGuestMode = () => {
       const guestMode = authService.authMode === 'guest';
-      setIsGuestMode(guestMode);
-      if (guestMode) {
+      const expired = authService.authMode === 'expired';
+      setIsGuestMode(guestMode || expired);
+      setIsRevoked(expired);
+      if (guestMode || expired) {
         setDeviceId(authService.getDeviceId());
       }
     };
@@ -111,12 +114,12 @@ const Header: React.FC<HeaderProps> = ({
                   <div
                     className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
                     style={{
-                      backgroundColor: 'var(--theme-warning-bg)',
-                      color: 'var(--theme-warning-text)',
-                      border: '1px solid var(--theme-warning)',
+                      backgroundColor: isRevoked ? 'var(--theme-error-bg)' : 'var(--theme-warning-bg)',
+                      color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
+                      border: isRevoked ? '1px solid var(--theme-error)' : '1px solid var(--theme-warning)',
                     }}
                   >
-                    <span>Guest Mode</span>
+                    <span>{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
                     <span style={{ opacity: 0.7 }}>|</span>
                     <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{deviceId}</span>
                   </div>

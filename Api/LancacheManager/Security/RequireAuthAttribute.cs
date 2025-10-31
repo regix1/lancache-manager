@@ -66,6 +66,15 @@ public class AuthenticationMiddleware
         "/api/management/cache/delete"
     };
 
+    // Public endpoints that don't require any authentication
+    private readonly HashSet<string> _publicPaths = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "/api/auth/check",
+        "/api/auth/register",
+        "/api/auth/key",
+        "/api/auth/guest/register"
+    };
+
     public AuthenticationMiddleware(
         RequestDelegate next,
         ILogger<AuthenticationMiddleware> logger,
@@ -78,9 +87,10 @@ public class AuthenticationMiddleware
         _configuration = configuration;
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, GuestSessionService guestSessionService)
     {
         var path = context.Request.Path.Value?.ToLower() ?? "";
+        var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
 
         // Skip authentication for swagger and metrics endpoints
         // These have their own dedicated authentication middleware
@@ -98,6 +108,51 @@ public class AuthenticationMiddleware
             // Skip all authentication checks if disabled
             await _next(context);
             return;
+        }
+
+        // Skip validation for public endpoints
+        if (_publicPaths.Contains(path))
+        {
+            await _next(context);
+            return;
+        }
+
+        // Validate guest sessions (if using guest session ID, not API key)
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            var guestSessionId = context.Request.Headers["X-Guest-Session-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(guestSessionId))
+            {
+                var (isValid, reason) = guestSessionService.ValidateSessionWithReason(guestSessionId);
+                if (!isValid)
+                {
+                    // Only log warning if session exists but is revoked/expired (not if it doesn't exist)
+                    if (reason == "revoked")
+                    {
+                        _logger.LogWarning("Revoked guest session attempt: {SessionId} from {IP}",
+                            guestSessionId, context.Connection.RemoteIpAddress);
+                    }
+                    else if (reason == "expired")
+                    {
+                        _logger.LogWarning("Expired guest session attempt: {SessionId} from {IP}",
+                            guestSessionId, context.Connection.RemoteIpAddress);
+                    }
+                    // If reason is null, session doesn't exist - don't log (could be deleted or invalid ID)
+
+                    context.Response.StatusCode = 401;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(
+                        System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            error = "Session revoked",
+                            message = reason == "revoked"
+                                ? "Your guest session has been revoked by an administrator."
+                                : "Your guest session has expired. Please restart guest mode.",
+                            code = "GUEST_SESSION_REVOKED"
+                        }));
+                    return;
+                }
+            }
         }
 
         // Check if this is a protected endpoint
@@ -135,7 +190,7 @@ public class AuthenticationMiddleware
         if (requiresAuth)
         {
             // Check for API key in header - ONLY API KEY, NO DEVICE ID
-            var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
+            // (apiKey already extracted earlier in the method)
             if (!string.IsNullOrEmpty(apiKey) && _apiKeyService.ValidateApiKey(apiKey))
             {
                 await _next(context);

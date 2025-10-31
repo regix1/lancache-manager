@@ -16,12 +16,34 @@ import type {
 } from '../types';
 
 class ApiService {
+  // Helper to check if error is a guest session revoked error (don't log these)
+  private static isGuestSessionError(error: any): boolean {
+    return error?.message?.includes('guest session') || error?.message?.includes('Session revoked');
+  }
+
   static async handleResponse<T>(response: Response): Promise<T> {
     // Handle 401 Unauthorized
     if (response.status === 401) {
+      // Try to parse JSON error response
+      let errorData: any = null;
+      try {
+        const text = await response.text();
+        errorData = text ? JSON.parse(text) : null;
+      } catch {
+        // Not JSON, continue with default handling
+      }
+
+      // Check if it's a guest session revoked error
+      if (errorData?.code === 'GUEST_SESSION_REVOKED') {
+        // Guest session was revoked - just expire guest mode without calling handleUnauthorized
+        // This prevents the page reload loop
+        authService.expireGuestMode();
+        throw new Error(errorData.message || 'Your guest session has been revoked');
+      }
+
+      // For other 401 errors, use standard handling
       authService.handleUnauthorized();
-      const error = await response.text().catch(() => '');
-      throw new Error(`Authentication required: ${error || 'Please provide API key'}`);
+      throw new Error(errorData?.message || 'Authentication required');
     }
 
     if (!response.ok) {
@@ -48,7 +70,8 @@ class ApiService {
       return await this.handleResponse<CacheInfo>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-      } else {
+        // Silently ignore abort errors
+      } else if (!this.isGuestSessionError(error)) {
         console.error('getCacheInfo error:', error);
       }
       throw error;
@@ -64,7 +87,7 @@ class ApiService {
       return await this.handleResponse<Download[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-      } else {
+      } else if (!this.isGuestSessionError(error)) {
         console.error('getActiveDownloads error:', error);
       }
       throw error;
@@ -89,7 +112,7 @@ class ApiService {
       return await this.handleResponse<Download[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-      } else {
+      } else if (!this.isGuestSessionError(error)) {
         console.error('getLatestDownloads error:', error);
       }
       throw error;
@@ -154,7 +177,7 @@ class ApiService {
       return await this.handleResponse<DashboardStats>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
-      } else {
+      } else if (!this.isGuestSessionError(error)) {
         console.error('getDashboardStats error:', error);
       }
       throw error;

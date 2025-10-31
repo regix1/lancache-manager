@@ -1,20 +1,33 @@
-import React, { useState } from 'react';
-import { LayoutDashboard, Download, Users, Settings, Menu, X } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { LayoutDashboard, Download, Users, Settings, Menu, X, Shield } from 'lucide-react';
+import type { AuthMode } from '@services/auth.service';
 
 interface NavigationProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  authMode?: AuthMode;
 }
 
-const Navigation: React.FC<NavigationProps> = React.memo(({ activeTab, setActiveTab }) => {
+const Navigation: React.FC<NavigationProps> = React.memo(({ activeTab, setActiveTab, authMode = 'unauthenticated' }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const tabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'downloads', label: 'Downloads', icon: Download },
-    { id: 'clients', label: 'Clients', icon: Users },
-    { id: 'management', label: 'Management', icon: Settings }
+  const allTabs = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false },
+    { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false },
+    { id: 'clients', label: 'Clients', icon: Users, requiresAuth: false },
+    { id: 'management', label: 'Management', icon: Settings, requiresAuth: false },
+    { id: 'admin', label: 'Admin', icon: Shield, requiresAuth: true }
   ];
+
+  // Filter tabs based on authentication - only show Admin tab to authenticated users (not guests)
+  const tabs = useMemo(() => {
+    return allTabs.filter(tab => {
+      if (tab.requiresAuth) {
+        return authMode === 'authenticated';
+      }
+      return true;
+    });
+  }, [authMode]);
 
   const TabButton: React.FC<{
     tab: (typeof tabs)[0];
@@ -137,8 +150,8 @@ const Navigation: React.FC<NavigationProps> = React.memo(({ activeTab, setActive
     </nav>
   );
 }, (prevProps, nextProps) => {
-  // Only re-render if activeTab changes - prevent re-renders from parent state updates
-  return prevProps.activeTab === nextProps.activeTab;
+  // Only re-render if activeTab or authMode changes
+  return prevProps.activeTab === nextProps.activeTab && prevProps.authMode === nextProps.authMode;
 });
 
 Navigation.displayName = 'Navigation';

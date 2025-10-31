@@ -84,17 +84,39 @@ class AuthService {
     }
   }
 
-  public startGuestMode(): void {
+  public async startGuestMode(): Promise<void> {
     const now = Date.now();
     const sixHoursInMs = 6 * 60 * 60 * 1000; // 6 hours
     const expiryTime = now + sixHoursInMs;
 
+    // Generate a unique guest session ID
+    const guestSessionId = `guest_${this.deviceId}_${now}`;
+
+    localStorage.setItem('lancache_guest_session_id', guestSessionId);
     localStorage.setItem('lancache_guest_session_start', now.toString());
     localStorage.setItem('lancache_guest_expires', expiryTime.toString());
 
     this.authMode = 'guest';
     this.isAuthenticated = false; // Guest mode is not fully authenticated
     this.authChecked = true;
+
+    // Register guest session with backend
+    try {
+      await fetch(`${API_URL}/api/auth/guest/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sessionId: guestSessionId,
+          deviceName: this.getDeviceName()
+        })
+      });
+      console.log('[Auth] Guest session registered with backend:', guestSessionId);
+    } catch (error) {
+      console.warn('[Auth] Failed to register guest session with backend:', error);
+      // Continue with guest mode even if backend registration fails
+    }
   }
 
   public getGuestTimeRemaining(): number {
@@ -119,6 +141,7 @@ class AuthService {
   public expireGuestMode(): void {
     localStorage.removeItem('lancache_guest_session_start');
     localStorage.removeItem('lancache_guest_expires');
+    localStorage.removeItem('lancache_guest_session_id'); // Remove session ID to prevent further requests
     this.authMode = 'expired';
     this.isAuthenticated = false;
 
@@ -325,6 +348,42 @@ class AuthService {
     }
   }
 
+  async logout(): Promise<{ success: boolean; message: string }> {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.getAuthHeaders()
+        }
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        this.clearAuthAndDevice();
+        this.isAuthenticated = false;
+        this.authMode = 'unauthenticated';
+
+        return {
+          success: true,
+          message: result.message || 'Logged out successfully'
+        };
+      }
+
+      return {
+        success: false,
+        message: result.error || result.message || 'Logout failed'
+      };
+    } catch (error: any) {
+      console.error('Logout failed:', error);
+      return {
+        success: false,
+        message: error.message || 'Network error during logout'
+      };
+    }
+  }
+
   async regenerateApiKey(): Promise<RegenerateKeyResponse> {
     try {
       const response = await fetch(`${API_URL}/api/auth/regenerate-key`, {
@@ -381,16 +440,22 @@ class AuthService {
   }
 
   getAuthHeaders(): Record<string, string> {
-    // Prefer API key over Device ID for authentication
-    if (this.apiKey) {
-      return {
-        'X-Api-Key': this.apiKey
-      };
-    }
-    // Fallback to Device ID for guest mode
-    return {
-      'X-Device-Id': this.deviceId
+    const headers: Record<string, string> = {
+      'X-Device-Id': this.deviceId  // Always send device ID for identification
     };
+
+    // Add API key for authenticated users
+    if (this.apiKey) {
+      headers['X-Api-Key'] = this.apiKey;
+    }
+
+    // Include guest session ID if in guest mode
+    const guestSessionId = localStorage.getItem('lancache_guest_session_id');
+    if (guestSessionId && this.authMode === 'guest') {
+      headers['X-Guest-Session-Id'] = guestSessionId;
+    }
+
+    return headers;
   }
 
   getDeviceId(): string {
@@ -398,6 +463,7 @@ class AuthService {
   }
 
   handleUnauthorized(): void {
+    console.warn('[Auth] Unauthorized access detected - device was likely revoked. Forcing reload...');
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     localStorage.removeItem('lancache_auth_registered');
@@ -407,6 +473,11 @@ class AuthService {
     // This handles API key regeneration scenarios where all devices are revoked
     localStorage.removeItem('lancache_device_id');
     this.deviceId = this.getOrCreateDeviceId();
+
+    // Force page reload to show authentication modal
+    setTimeout(() => {
+      window.location.reload();
+    }, 500); // Small delay to ensure state is cleared
   }
 
   clearAuth(): void {

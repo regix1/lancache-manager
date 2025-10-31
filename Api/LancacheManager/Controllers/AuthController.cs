@@ -12,6 +12,7 @@ public class AuthController : ControllerBase
 {
     private readonly ApiKeyService _apiKeyService;
     private readonly DeviceAuthService _deviceAuthService;
+    private readonly GuestSessionService _guestSessionService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
     private readonly AppDbContext _dbContext;
@@ -22,6 +23,7 @@ public class AuthController : ControllerBase
     public AuthController(
         ApiKeyService apiKeyService,
         DeviceAuthService deviceAuthService,
+        GuestSessionService guestSessionService,
         IConfiguration configuration,
         ILogger<AuthController> logger,
         AppDbContext dbContext,
@@ -31,6 +33,7 @@ public class AuthController : ControllerBase
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
+        _guestSessionService = guestSessionService;
         _configuration = configuration;
         _logger = logger;
         _dbContext = dbContext;
@@ -145,12 +148,12 @@ public class AuthController : ControllerBase
     {
         try
         {
-            // Get client IP
+            // Get server-detected IP (what the server sees in the HTTP connection)
             var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
             var userAgent = Request.Headers["User-Agent"].FirstOrDefault();
 
-            _logger.LogInformation("Device registration attempt from IP: {IP}, Device: {DeviceId}",
-                ipAddress, request.DeviceId);
+            _logger.LogInformation("Device registration attempt from Server IP: {ServerIP}, Local IP: {LocalIP}, Device: {DeviceId}",
+                ipAddress, request.LocalIp ?? "not detected", request.DeviceId);
 
             var result = _deviceAuthService.RegisterDevice(request, ipAddress, userAgent);
 
@@ -169,11 +172,46 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Regenerate the API key (requires authentication)
+    /// Logout (deregister) the current device
+    /// Allows the authenticated device to free up the slot for another user
+    /// </summary>
+    [HttpPost("logout")]
+    [RequireAuth]
+    public IActionResult Logout()
+    {
+        try
+        {
+            var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+
+            if (string.IsNullOrEmpty(deviceId))
+            {
+                return BadRequest(new { error = "Device ID required" });
+            }
+
+            var (success, message) = _deviceAuthService.RevokeDevice(deviceId);
+
+            if (success)
+            {
+                _logger.LogInformation("Device logged out: {DeviceId}", deviceId);
+                return Ok(new { success = true, message = "Logged out successfully" });
+            }
+
+            return BadRequest(new { error = message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during logout");
+            return StatusCode(500, new { error = "Logout failed", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Regenerate the API key (requires primary admin authentication)
     /// SECURITY: This will logout all Steam sessions and revoke all device registrations
+    /// Only the primary admin (first registered device) can perform this operation
     /// </summary>
     [HttpPost("regenerate-key")]
-    [RequireAuth]
+    [RequirePrimaryAdmin]
     public async Task<IActionResult> RegenerateApiKey()
     {
         try
@@ -193,27 +231,41 @@ public class AuthController : ControllerBase
                 _logger.LogInformation("Cleared Steam auth data from encrypted file (data/steam_auth/credentials.json)");
             }
 
-            var (oldKey, newKey) = _apiKeyService.ForceRegenerateApiKey();
+            var (oldPrimaryKey, newPrimaryKey, oldSecondaryKey, newSecondaryKey) = _apiKeyService.ForceRegenerateApiKey();
 
-            // Display the new key
+            // Display the new keys
             _apiKeyService.DisplayApiKey();
 
             // Revoke all existing device registrations
-            var revokedCount = _deviceAuthService.RevokeAllDevices();
+            var revokedDeviceCount = _deviceAuthService.RevokeAllDevices();
+
+            // Revoke all guest sessions
+            var guestSessions = _guestSessionService.GetAllSessions();
+            var revokedGuestCount = 0;
+            foreach (var session in guestSessions.Where(s => !s.IsRevoked))
+            {
+                if (_guestSessionService.RevokeSession(session.SessionId, "Primary Admin (API Key Regeneration)"))
+                {
+                    revokedGuestCount++;
+                }
+            }
 
             _logger.LogWarning(
-                "API key regenerated. Old key prefix: {OldPrefix}, New key prefix: {NewPrefix}. {RevokedCount} device registration(s) revoked. Steam logout: {SteamLogout}",
-                oldKey[..System.Math.Min(oldKey.Length, 12)],
-                newKey[..System.Math.Min(newKey.Length, 12)],
-                revokedCount,
-                steamWasAuthenticated ? "Yes (in-memory + state)" : "No");
+                "API keys regenerated by admin. Old ADMIN key: {OldAdmin}..., New ADMIN key: {NewAdmin}..., Old USER key: {OldUser}..., New USER key: {NewUser}... | Revoked: {DeviceCount} device(s), {GuestCount} guest(s) | Steam: {SteamLogout}",
+                oldPrimaryKey[..System.Math.Min(oldPrimaryKey.Length, 20)],
+                newPrimaryKey[..System.Math.Min(newPrimaryKey.Length, 20)],
+                oldSecondaryKey[..System.Math.Min(oldSecondaryKey.Length, 20)],
+                newSecondaryKey[..System.Math.Min(newSecondaryKey.Length, 20)],
+                revokedDeviceCount,
+                revokedGuestCount,
+                steamWasAuthenticated ? "Logged out" : "Not connected");
 
             return Ok(new
             {
                 success = true,
-                message = $"API key regenerated successfully. {revokedCount} device(s) revoked." +
+                message = $"API keys regenerated successfully. {revokedDeviceCount} device(s) and {revokedGuestCount} guest session(s) revoked." +
                           (steamWasAuthenticated ? " Steam session terminated and logged out." : ""),
-                warning = "All users must re-authenticate with the new key. Steam re-authentication required. Check container logs for the new key."
+                warning = "All users must re-authenticate with the new keys. Steam re-authentication required. Check container logs for both primary and secondary API keys."
             });
         }
         catch (Exception ex)
@@ -244,5 +296,318 @@ public class AuthController : ControllerBase
             message = "Save this key! It's required for authentication.",
             warning = "This endpoint is only accessible from localhost"
         });
+    }
+
+    /// <summary>
+    /// Check the API key type (admin or user)
+    /// </summary>
+    [HttpGet("api-key-type")]
+    [RequireAuth]
+    public IActionResult GetApiKeyType()
+    {
+        try
+        {
+            var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                return Ok(new
+                {
+                    hasPrimaryKey = false,
+                    hasSecondaryKey = false,
+                    keyType = "none"
+                });
+            }
+
+            var isAdmin = _apiKeyService.IsPrimaryApiKey(apiKey);
+            var isUser = _apiKeyService.IsSecondaryApiKey(apiKey);
+
+            return Ok(new
+            {
+                hasPrimaryKey = isAdmin,
+                hasSecondaryKey = isUser,
+                keyType = isAdmin ? "admin" : (isUser ? "user" : "none")
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking API key type");
+            return StatusCode(500, new { error = "Failed to check API key type", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get all registered devices (requires API key authentication)
+    /// </summary>
+    [HttpGet("devices")]
+    [RequireAuth]
+    public IActionResult GetDevices()
+    {
+        try
+        {
+            var devices = _deviceAuthService.GetAllDevices();
+            return Ok(new
+            {
+                devices,
+                count = devices.Count
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving devices");
+            return StatusCode(500, new { error = "Failed to retrieve devices", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Revoke a specific device registration (requires API key authentication)
+    /// Note: USER API key cannot revoke devices using the ADMIN API key
+    /// </summary>
+    [HttpDelete("devices/{deviceId}")]
+    [RequireAuth]
+    public IActionResult RevokeDevice(string deviceId)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                return BadRequest(new { error = "Device ID is required" });
+            }
+
+            // Get the current user's API key
+            var currentApiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
+            var isCurrentUserAdmin = _apiKeyService.IsPrimaryApiKey(currentApiKey);
+
+            // SECURITY: Prevent USER key holders from revoking ADMIN devices
+            // Use the efficient method that only checks one device instead of all devices
+            if (!isCurrentUserAdmin && _deviceAuthService.IsDeviceUsingAdminKey(deviceId))
+            {
+                _logger.LogWarning("USER API key attempted to revoke ADMIN device {DeviceId}", deviceId);
+                return StatusCode(403, new
+                {
+                    error = "Insufficient permissions",
+                    message = "USER API key cannot revoke devices using the ADMIN API key. Only the ADMIN can revoke ADMIN devices."
+                });
+            }
+
+            var (success, message) = _deviceAuthService.RevokeDevice(deviceId);
+            if (success)
+            {
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Device {deviceId} has been revoked successfully"
+                });
+            }
+
+            return NotFound(new { error = "Device not found", message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error revoking device: {DeviceId}", deviceId);
+            return StatusCode(500, new { error = "Failed to revoke device", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Create a guest session
+    /// </summary>
+    [HttpPost("guest/register")]
+    public IActionResult RegisterGuestSession([FromBody] GuestSessionService.CreateGuestSessionRequest request)
+    {
+        try
+        {
+            var session = _guestSessionService.CreateSession(request);
+            return Ok(new
+            {
+                success = true,
+                sessionId = session.SessionId,
+                expiresAt = session.ExpiresAt,
+                message = "Guest session created successfully"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating guest session");
+            return StatusCode(500, new { error = "Failed to create guest session", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Validate a guest session
+    /// </summary>
+    [HttpPost("guest/validate")]
+    public IActionResult ValidateGuestSession([FromBody] ValidateGuestSessionRequest request)
+    {
+        try
+        {
+            var isValid = _guestSessionService.ValidateSession(request.SessionId);
+            return Ok(new
+            {
+                isValid,
+                message = isValid ? "Session is valid" : "Session is invalid or expired"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error validating guest session");
+            return StatusCode(500, new { error = "Failed to validate session", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get all sessions (authenticated devices + guest sessions) - requires API key
+    /// </summary>
+    [HttpGet("sessions")]
+    [RequireAuth]
+    public IActionResult GetAllSessions()
+    {
+        try
+        {
+            var devices = _deviceAuthService.GetAllDevices();
+            var guests = _guestSessionService.GetAllSessions();
+
+            // Convert to unified format
+            var authenticatedSessions = devices.Select(d => new
+            {
+                id = d.DeviceId,
+                deviceName = d.DeviceName,
+                hostname = d.Hostname,
+                operatingSystem = d.OperatingSystem,
+                browser = d.Browser,
+                createdAt = d.RegisteredAt,
+                lastSeenAt = d.LastSeenAt,
+                expiresAt = d.ExpiresAt,
+                isExpired = d.IsExpired,
+                isRevoked = false,
+                revokedAt = (DateTime?)null,
+                revokedBy = (string?)null,
+                type = "authenticated",
+                isPrimaryAdmin = d.IsPrimaryAdmin,
+                isAdminKey = d.IsAdminKey
+            }).ToList();
+
+            var guestSessions = guests.Select(g => new
+            {
+                id = g.SessionId,
+                deviceName = g.DeviceName,
+                hostname = (string?)null,
+                operatingSystem = (string?)null,
+                browser = (string?)null,
+                createdAt = g.CreatedAt,
+                lastSeenAt = g.LastSeenAt,
+                expiresAt = g.ExpiresAt,
+                isExpired = g.IsExpired,
+                isRevoked = g.IsRevoked,
+                revokedAt = g.RevokedAt,
+                revokedBy = g.RevokedBy,
+                type = "guest",
+                isPrimaryAdmin = false,
+                isAdminKey = false
+            }).ToList();
+
+            var allSessions = authenticatedSessions.Concat(guestSessions)
+                .OrderByDescending(s => s.lastSeenAt ?? s.createdAt)
+                .ToList();
+
+            return Ok(new
+            {
+                sessions = allSessions,
+                count = allSessions.Count,
+                authenticatedCount = authenticatedSessions.Count,
+                guestCount = guestSessions.Count
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving sessions");
+            return StatusCode(500, new { error = "Failed to retrieve sessions", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Revoke a guest session (requires API key authentication)
+    /// </summary>
+    [HttpPost("guest/{sessionId}/revoke")]
+    [RequireAuth]
+    public IActionResult RevokeGuestSession(string sessionId)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                return BadRequest(new { error = "Session ID is required" });
+            }
+
+            // Get the device name of the admin who is revoking
+            // Authenticated users send both X-Api-Key (for auth) and X-Device-Id (for identification)
+            var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+            var revokedBy = "Unknown Admin";
+
+            if (!string.IsNullOrEmpty(deviceId))
+            {
+                var devices = _deviceAuthService.GetAllDevices();
+                var device = devices.FirstOrDefault(d => d.DeviceId == deviceId);
+                if (device != null)
+                {
+                    revokedBy = device.Hostname ?? device.DeviceName ?? device.DeviceId;
+                }
+            }
+
+            var success = _guestSessionService.RevokeSession(sessionId, revokedBy);
+            if (success)
+            {
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Guest session {sessionId} has been revoked successfully"
+                });
+            }
+
+            return NotFound(new { error = "Guest session not found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error revoking guest session: {SessionId}", sessionId);
+            return StatusCode(500, new { error = "Failed to revoke guest session", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Permanently delete a guest session (requires API key authentication)
+    /// </summary>
+    [HttpDelete("guest/{sessionId}")]
+    [RequireAuth]
+    public IActionResult DeleteGuestSession(string sessionId)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                return BadRequest(new { error = "Session ID is required" });
+            }
+
+            var success = _guestSessionService.DeleteSession(sessionId);
+            if (success)
+            {
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Guest session {sessionId} has been deleted successfully"
+                });
+            }
+
+            return NotFound(new { error = "Guest session not found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting guest session: {SessionId}", sessionId);
+            return StatusCode(500, new { error = "Failed to delete guest session", message = ex.Message });
+        }
+    }
+
+    public class ValidateGuestSessionRequest
+    {
+        public string SessionId { get; set; } = string.Empty;
     }
 }

@@ -306,8 +306,6 @@ public class CacheManagementService
                 throw new FileNotFoundException(errorMsg);
             }
 
-            _logger.LogInformation($"Using Rust binary for log counting: {rustBinaryPath}");
-
             // If forceRefresh is true, delete the cache file to force Rust to rescan
             if (forceRefresh && File.Exists(progressFile))
             {
@@ -378,7 +376,6 @@ public class CacheManagementService
                         if (progressData?.ServiceCounts != null)
                         {
                             counts = progressData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-                            _logger.LogInformation($"Rust log counting completed: Found {counts.Count} services");
                             // Rust binary handles caching via file modification time - no need for C# cache
                         }
                         else
@@ -526,7 +523,6 @@ public class CacheManagementService
 
             if (services.Count > 0)
             {
-                _logger.LogInformation($"Found {services.Count} valid services: {string.Join(", ", services)}");
                 if (filteredOut.Count > 0)
                 {
                 }
