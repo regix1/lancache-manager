@@ -3,6 +3,10 @@ using Microsoft.AspNetCore.Mvc.Filters;
 
 namespace LancacheManager.Security;
 
+/// <summary>
+/// Attribute to require API Key authentication on controller endpoints
+/// Respects Security:EnableAuthentication global setting
+/// </summary>
 public class RequireAuthAttribute : ActionFilterAttribute
 {
     public override void OnActionExecuting(ActionExecutingContext context)
@@ -10,11 +14,12 @@ public class RequireAuthAttribute : ActionFilterAttribute
         var httpContext = context.HttpContext;
         var configuration = httpContext.RequestServices.GetRequiredService<IConfiguration>();
 
-        // Check if authentication is globally disabled
+        // Check if authentication is globally disabled (Security:EnableAuthentication = false)
+        // This allows running in development/testing without authentication
         var authEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
         if (!authEnabled)
         {
-            // Skip authentication if disabled
+            // Skip authentication if disabled - allow all requests through
             base.OnActionExecuting(context);
             return;
         }
@@ -38,6 +43,10 @@ public class RequireAuthAttribute : ActionFilterAttribute
     }
 }
 
+/// <summary>
+/// Global authentication middleware that handles API Key, Device, and Guest Session authentication
+/// Can be globally disabled via Security:EnableAuthentication = false
+/// </summary>
 public class AuthenticationMiddleware
 {
     private readonly RequestDelegate _next;
@@ -45,7 +54,7 @@ public class AuthenticationMiddleware
     private readonly ApiKeyService _apiKeyService;
     private readonly IConfiguration _configuration;
 
-    // Endpoints that require authentication (API Key ONLY)
+    // Endpoints that require authentication (API Key ONLY - Device ID and Guest Sessions not allowed)
     private readonly HashSet<string> _protectedPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/management/cache/clear-all",
@@ -101,11 +110,13 @@ public class AuthenticationMiddleware
             return;
         }
 
-        // Check if authentication is globally disabled
+        // GLOBAL KILL SWITCH: Check if authentication is globally disabled
+        // When Security:EnableAuthentication = false, ALL authentication is bypassed
+        // This includes API Key, Device Auth, and Guest Sessions
         var authEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
         if (!authEnabled)
         {
-            // Skip all authentication checks if disabled
+            // Skip all authentication checks if disabled - allow all requests through
             await _next(context);
             return;
         }

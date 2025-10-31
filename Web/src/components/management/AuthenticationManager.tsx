@@ -4,7 +4,6 @@ import authService, { AuthMode } from '../../services/auth.service';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { Modal } from '../ui/Modal';
-import { API_BASE } from '../../utils/constants';
 
 interface AuthenticationManagerProps {
   onAuthChange?: (isAuthenticated: boolean) => void;
@@ -31,7 +30,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   const [authLoading, setAuthLoading] = useState(false);
   const [hasData, setHasData] = useState(false);
   const [hasBeenInitialized, setHasBeenInitialized] = useState(false);
-  const [hasPrimaryKey, setHasPrimaryKey] = useState(false);
 
   useEffect(() => {
     checkAuth();
@@ -81,13 +79,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       onAuthChange?.(result.isAuthenticated);
       onAuthModeChange?.(result.authMode);
 
-      // Check API key type (only for authenticated users)
-      if (result.isAuthenticated && result.authMode === 'authenticated') {
-        checkApiKeyType();
-      } else {
-        setHasPrimaryKey(false);
-      }
-
       if (!result.isAuthenticated && authService.isRegistered() && result.authMode !== 'guest') {
         authService.clearAuthAndDevice();
       }
@@ -96,30 +87,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       setAuthMode('unauthenticated');
       setHasData(false);
       setHasBeenInitialized(false);
-      setHasPrimaryKey(false);
       onAuthChange?.(false);
       onAuthModeChange?.('unauthenticated');
     } finally {
       setAuthChecking(false);
-    }
-  };
-
-  const checkApiKeyType = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/auth/api-key-type`, {
-        headers: authService.getAuthHeaders()
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setHasPrimaryKey(data.hasPrimaryKey || false);
-        console.log('[AuthenticationManager] API key type:', data.keyType, 'has primary:', data.hasPrimaryKey);
-      } else {
-        setHasPrimaryKey(false);
-      }
-    } catch (error) {
-      console.error('[AuthenticationManager] Failed to check API key type:', error);
-      setHasPrimaryKey(false);
     }
   };
 
@@ -138,9 +109,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       if (result.success) {
         // Update state immediately to prevent modal flash
         setAuthMode('authenticated');
-
-        // Check API key type to determine if user has admin privileges
-        await checkApiKeyType();
 
         // Then notify parent
         onAuthChange?.(true);
@@ -235,7 +203,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
       if (result.success) {
         setAuthMode('unauthenticated');
-        setHasPrimaryKey(false);
         onAuthChange?.(false);
         onAuthModeChange?.('unauthenticated');
         onSuccess?.('Logged out successfully. This device slot is now available for another user.');
@@ -312,18 +279,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               <span className="font-medium">
                 {getStatusText()}
               </span>
-              {authMode === 'authenticated' && hasPrimaryKey && (
-                <span
-                  className="px-2 py-0.5 text-xs font-medium rounded"
-                  style={{
-                    backgroundColor: 'var(--theme-warning-bg)',
-                    color: 'var(--theme-warning-text)',
-                    border: '1px solid var(--theme-warning)'
-                  }}
-                >
-                  ADMIN
-                </span>
-              )}
             </div>
             <p className="text-xs mt-1 opacity-75">
               {getDescriptionText()}
@@ -349,20 +304,17 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                 >
                   Logout
                 </Button>
-                {hasPrimaryKey && (
-                  <>
-                    {console.log('[AuthenticationManager] Rendering Regenerate Keys button, authMode:', authMode, 'hasPrimaryKey:', hasPrimaryKey, 'authLoading:', authLoading)}
-                    <Button
-                      variant="filled"
-                      color="red"
-                      size="sm"
-                      leftSection={<AlertCircle className="w-3 h-3" />}
-                      onClick={handleRegenerateKey}
-                      loading={authLoading}
-                    >
-                      Regenerate Keys
-                    </Button>
-                  </>
+                {authMode === 'authenticated' && (
+                  <Button
+                    variant="filled"
+                    color="red"
+                    size="sm"
+                    leftSection={<AlertCircle className="w-3 h-3" />}
+                    onClick={handleRegenerateKey}
+                    loading={authLoading}
+                  >
+                    Regenerate Key
+                  </Button>
                 )}
               </>
             )}
@@ -512,24 +464,23 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Regenerate API Keys</span>
+            <span>Regenerate API Key</span>
           </div>
         }
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Regenerating the API keys will immediately log out all connected devices and guests, requiring everyone to re-authenticate with the new keys.
+            Regenerating the API key will immediately log out all connected devices and guests, requiring everyone to re-authenticate with the new key.
           </p>
 
           <Alert color="yellow">
             <div>
               <p className="font-medium mb-2">Important:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>Both ADMIN and MODERATOR API keys will be regenerated</li>
+                <li>The API key will be regenerated</li>
                 <li>All users and guests will be logged out immediately</li>
                 <li>Steam integration will be logged out</li>
-                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code> for the new ADMIN key</li>
-                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/moderator_api_key.txt</code> for the new MODERATOR key</li>
+                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code> for the new API key</li>
               </ul>
             </div>
           </Alert>
@@ -549,7 +500,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               onClick={confirmRegenerateKey}
               loading={authLoading}
             >
-              Regenerate Keys
+              Regenerate Key
             </Button>
           </div>
         </div>

@@ -10,8 +10,10 @@ interface ApiKeyStepProps {
   dataAvailable: boolean;
   checkingDataAvailability: boolean;
   apiKeyOnlyMode?: boolean;
+  authDisabled?: boolean;
   onAuthenticate: () => void;
   onStartGuestMode: () => void;
+  onContinueAsAdmin?: () => void;
 }
 
 export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
@@ -22,9 +24,75 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
   dataAvailable,
   checkingDataAvailability,
   apiKeyOnlyMode = false,
+  authDisabled = false,
   onAuthenticate,
-  onStartGuestMode
+  onStartGuestMode,
+  onContinueAsAdmin
 }) => {
+  // Simplified UI when authentication is globally disabled
+  if (authDisabled) {
+    return (
+      <>
+        <p className="text-themed-secondary text-center mb-6">
+          Authentication is disabled in the server configuration. Choose how you'd like to proceed:
+        </p>
+
+        <div className="space-y-4">
+          <Button
+            variant="filled"
+            color="blue"
+            leftSection={<Key className="w-4 h-4" />}
+            onClick={onContinueAsAdmin}
+            fullWidth
+          >
+            Continue as Admin
+          </Button>
+
+          <div className="flex items-center gap-4">
+            <div className="flex-1 h-px bg-themed-border"></div>
+            <span className="text-xs text-themed-muted">OR</span>
+            <div className="flex-1 h-px bg-themed-border"></div>
+          </div>
+
+          <Button
+            variant="default"
+            leftSection={<Eye className="w-4 h-4" />}
+            onClick={onStartGuestMode}
+            disabled={checkingDataAvailability || !dataAvailable}
+            fullWidth
+            title={!dataAvailable ? 'No data available. Complete setup first.' : 'Read-only access for 6 hours'}
+          >
+            {!dataAvailable ? 'Continue as Guest (No Data Available)' : 'Continue as Guest (6 hours)'}
+          </Button>
+        </div>
+
+        <div className="mt-6 p-4 rounded-lg"
+             style={{
+               backgroundColor: 'var(--theme-info-bg)',
+               borderColor: 'var(--theme-info)',
+               color: 'var(--theme-info-text)'
+             }}>
+          <p className="text-sm">
+            <strong>Authentication is disabled:</strong><br/>
+            Admin mode provides full access without requiring an API key. Guest mode provides read-only access for 6 hours.
+          </p>
+        </div>
+
+        {authError && (
+          <div className="mt-4 p-4 rounded-lg"
+               style={{
+                 backgroundColor: 'var(--theme-error-bg)',
+                 borderColor: 'var(--theme-error)',
+                 color: 'var(--theme-error-text)'
+               }}>
+            <p className="text-sm">{authError}</p>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // Normal UI when authentication is required
   return (
     <>
       <p className="text-themed-secondary text-center mb-6">

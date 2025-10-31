@@ -7,10 +7,8 @@ public class ApiKeyService
 {
     private readonly ILogger<ApiKeyService> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly string _primaryKeyPath;
-    private readonly string _secondaryKeyPath;
-    private string? _primaryKey;
-    private string? _secondaryKey;
+    private readonly string _apiKeyPath;
+    private string? _apiKey;
     private readonly object _keyLock = new object();
 
     public ApiKeyService(ILogger<ApiKeyService> logger, IConfiguration configuration, IPathResolver pathResolver)
@@ -18,23 +16,20 @@ public class ApiKeyService
         _logger = logger;
         _pathResolver = pathResolver;
 
-        // Get the primary API key path from configuration or use default
+        // Get the API key path from configuration or use default
         var configPath = configuration["Security:ApiKeyPath"];
         if (!string.IsNullOrEmpty(configPath))
         {
-            _primaryKeyPath = Path.GetFullPath(configPath);
+            _apiKeyPath = Path.GetFullPath(configPath);
         }
         else
         {
             // Use the path resolver to get the data directory
-            _primaryKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "api_key.txt");
+            _apiKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "api_key.txt");
         }
 
-        // Moderator API key is always in data directory
-        _secondaryKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "moderator_api_key.txt");
-
         // Ensure data directory exists
-        var dir = Path.GetDirectoryName(_primaryKeyPath);
+        var dir = Path.GetDirectoryName(_apiKeyPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
         {
             _logger.LogInformation("Creating data directory: {Directory}", dir);
@@ -44,90 +39,43 @@ public class ApiKeyService
 
     public string GetOrCreateApiKey()
     {
-        return GetOrCreatePrimaryKey();
-    }
-
-    public string GetOrCreatePrimaryKey()
-    {
         lock (_keyLock)
         {
-            if (!string.IsNullOrEmpty(_primaryKey))
+            if (!string.IsNullOrEmpty(_apiKey))
             {
-                return _primaryKey;
+                return _apiKey;
             }
 
-            if (File.Exists(_primaryKeyPath))
+            if (File.Exists(_apiKeyPath))
             {
                 try
                 {
-                    _primaryKey = File.ReadAllText(_primaryKeyPath).Trim();
-                    if (!string.IsNullOrEmpty(_primaryKey))
+                    _apiKey = File.ReadAllText(_apiKeyPath).Trim();
+                    if (!string.IsNullOrEmpty(_apiKey))
                     {
-                        return _primaryKey;
+                        return _apiKey;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to read ADMIN API key from {Path}", _primaryKeyPath);
+                    _logger.LogError(ex, "Failed to read API key from {Path}", _apiKeyPath);
                 }
             }
 
             // Generate new API key
-            _primaryKey = GenerateApiKey("admin");
+            _apiKey = GenerateApiKey();
 
             try
             {
-                File.WriteAllText(_primaryKeyPath, _primaryKey);
-                _logger.LogInformation("Generated and saved new ADMIN API key to {Path}", _primaryKeyPath);
+                File.WriteAllText(_apiKeyPath, _apiKey);
+                _logger.LogInformation("Generated and saved new API key to {Path}", _apiKeyPath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save ADMIN API key to {Path}", _primaryKeyPath);
+                _logger.LogError(ex, "Failed to save API key to {Path}", _apiKeyPath);
             }
 
-            return _primaryKey;
-        }
-    }
-
-    public string GetOrCreateSecondaryKey()
-    {
-        lock (_keyLock)
-        {
-            if (!string.IsNullOrEmpty(_secondaryKey))
-            {
-                return _secondaryKey;
-            }
-
-            if (File.Exists(_secondaryKeyPath))
-            {
-                try
-                {
-                    _secondaryKey = File.ReadAllText(_secondaryKeyPath).Trim();
-                    if (!string.IsNullOrEmpty(_secondaryKey))
-                    {
-                        return _secondaryKey;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to read MODERATOR API key from {Path}", _secondaryKeyPath);
-                }
-            }
-
-            // Generate new MODERATOR API key
-            _secondaryKey = GenerateApiKey("moderator");
-
-            try
-            {
-                File.WriteAllText(_secondaryKeyPath, _secondaryKey);
-                _logger.LogInformation("Generated and saved new MODERATOR API key to {Path}", _secondaryKeyPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save MODERATOR API key to {Path}", _secondaryKeyPath);
-            }
-
-            return _secondaryKey;
+            return _apiKey;
         }
     }
 
@@ -138,86 +86,40 @@ public class ApiKeyService
             return false;
         }
 
-        var primaryKey = GetOrCreatePrimaryKey();
-        var secondaryKey = GetOrCreateSecondaryKey();
-
-        return string.Equals(apiKey, primaryKey, StringComparison.Ordinal) ||
-               string.Equals(apiKey, secondaryKey, StringComparison.Ordinal);
+        var validKey = GetOrCreateApiKey();
+        return string.Equals(apiKey, validKey, StringComparison.Ordinal);
     }
 
-    public bool IsPrimaryApiKey(string? apiKey)
-    {
-        if (string.IsNullOrEmpty(apiKey))
-        {
-            return false;
-        }
-
-        var primaryKey = GetOrCreatePrimaryKey();
-        return string.Equals(apiKey, primaryKey, StringComparison.Ordinal);
-    }
-
-    public bool IsSecondaryApiKey(string? apiKey)
-    {
-        if (string.IsNullOrEmpty(apiKey))
-        {
-            return false;
-        }
-
-        var secondaryKey = GetOrCreateSecondaryKey();
-        return string.Equals(apiKey, secondaryKey, StringComparison.Ordinal);
-    }
-
-    public (string oldPrimaryKey, string newPrimaryKey, string oldSecondaryKey, string newSecondaryKey) ForceRegenerateApiKey()
+    public (string oldKey, string newKey) ForceRegenerateApiKey()
     {
         lock (_keyLock)
         {
-            var oldPrimaryKey = GetOrCreatePrimaryKey();
-            var oldSecondaryKey = GetOrCreateSecondaryKey();
+            var oldKey = GetOrCreateApiKey();
 
-            // Generate new primary key
-            string newPrimaryKey;
+            string newKey;
             do
             {
-                newPrimaryKey = GenerateApiKey("primary");
+                newKey = GenerateApiKey();
             }
-            while (newPrimaryKey == oldPrimaryKey);
+            while (newKey == oldKey);
 
-            // Generate new secondary key
-            string newSecondaryKey;
-            do
-            {
-                newSecondaryKey = GenerateApiKey("secondary");
-            }
-            while (newSecondaryKey == oldSecondaryKey || newSecondaryKey == newPrimaryKey);
-
-            _primaryKey = newPrimaryKey;
-            _secondaryKey = newSecondaryKey;
+            _apiKey = newKey;
 
             try
             {
-                File.WriteAllText(_primaryKeyPath, _primaryKey);
-                _logger.LogInformation("Generated and saved regenerated primary API key to {Path}", _primaryKeyPath);
+                File.WriteAllText(_apiKeyPath, _apiKey);
+                _logger.LogInformation("Generated and saved regenerated API key to {Path}", _apiKeyPath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save regenerated primary API key to {Path}", _primaryKeyPath);
+                _logger.LogError(ex, "Failed to save regenerated API key to {Path}", _apiKeyPath);
             }
 
-            try
-            {
-                File.WriteAllText(_secondaryKeyPath, _secondaryKey);
-                _logger.LogInformation("Generated and saved regenerated secondary API key to {Path}", _secondaryKeyPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to save regenerated secondary API key to {Path}", _secondaryKeyPath);
-            }
-
-            return (oldPrimaryKey, newPrimaryKey, oldSecondaryKey, newSecondaryKey);
+            return (oldKey, newKey);
         }
     }
 
-    private string GenerateApiKey(string type)
+    private string GenerateApiKey()
     {
         // Generate a secure random API key
         var bytes = new byte[32];
@@ -232,33 +134,67 @@ public class ApiKeyService
             .Replace("/", "_")
             .Replace("=", "");
 
-        return $"lm_{type}_{key}"; // Prefix to identify as LancacheManager key with type
+        return $"lm_admin_{key}"; // Prefix to identify as LancacheManager admin key
     }
 
-    public void DisplayApiKey()
+    public void DisplayApiKey(IConfiguration configuration, DeviceAuthService? deviceAuthService = null)
     {
-        var primaryKey = GetOrCreatePrimaryKey();
-        var secondaryKey = GetOrCreateSecondaryKey();
+        var authEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
+
+        // If authentication is disabled, don't display the API key
+        if (!authEnabled)
+        {
+            Console.WriteLine("");
+            Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
+            Console.WriteLine("│                          LANCACHE MANAGER                                  │");
+            Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
+            Console.WriteLine("");
+            Console.WriteLine("  [!] AUTHENTICATION: DISABLED");
+            Console.WriteLine("      Full access available without API key");
+            Console.WriteLine("");
+            Console.WriteLine("  [i] To enable authentication:");
+            Console.WriteLine("      Set Security__EnableAuthentication=true in docker-compose.yml");
+            Console.WriteLine("");
+            Console.WriteLine("  Note: Guest mode still available for temporary read-only access (6 hours)");
+            Console.WriteLine("");
+            Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
+            return;
+        }
+
+        // Authentication is enabled - display the API key
+        var apiKey = GetOrCreateApiKey();
+        var maxDevices = configuration.GetValue<int>("Security:MaxAdminDevices", 3);
 
         Console.WriteLine("");
-        Console.WriteLine("================================================================================");
-        Console.WriteLine("                        LANCACHE MANAGER API KEYS");
-        Console.WriteLine("================================================================================");
+        Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
+        Console.WriteLine("│                       LANCACHE MANAGER - API KEY                           │");
+        Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
         Console.WriteLine("");
-        Console.WriteLine("  ADMIN API KEY (Full Access - Regenerate Keys, Manage All)");
-        Console.WriteLine($"  {primaryKey}");
-        Console.WriteLine($"  File: {_primaryKeyPath}");
+        Console.WriteLine("  ADMIN API KEY (Full Access)");
+        Console.WriteLine($"  {apiKey}");
         Console.WriteLine("");
-        Console.WriteLine("  MODERATOR API KEY (Limited Access - View & Manage Data Only)");
-        Console.WriteLine($"  {secondaryKey}");
-        Console.WriteLine($"  File: {_secondaryKeyPath}");
+        Console.WriteLine($"  File: {_apiKeyPath}");
         Console.WriteLine("");
-        Console.WriteLine("================================================================================");
-        Console.WriteLine("  IMPORTANT: Save these keys securely!");
-        Console.WriteLine("  • Use ADMIN key for administrative tasks");
-        Console.WriteLine("  • Share MODERATOR key with team members who need read/write access");
-        Console.WriteLine("  • Guest mode available for temporary read-only access (6 hours)");
-        Console.WriteLine("================================================================================");
+
+        // Show device usage if DeviceAuthService is available
+        if (deviceAuthService != null)
+        {
+            var devices = deviceAuthService.GetAllDevices();
+            var activeDevices = devices.Count(d => !d.IsExpired);
+            Console.WriteLine($"  Admin Devices: {activeDevices} of {maxDevices} slots used");
+            Console.WriteLine("");
+        }
+        else
+        {
+            Console.WriteLine($"  Admin Devices: Up to {maxDevices} devices can share this key");
+            Console.WriteLine("");
+        }
+
+        Console.WriteLine("  IMPORTANT:");
+        Console.WriteLine("  • Save this key securely - it provides full admin access");
+        Console.WriteLine("  • Multiple admins can share the same key");
+        Console.WriteLine("  • Guest mode available for temporary access (6 hours, read-only)");
         Console.WriteLine("");
+        Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
     }
 }

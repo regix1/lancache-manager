@@ -449,6 +449,17 @@ class ApiService {
     return await this.handleResponse<Config>(res);
   }
 
+  // Get directory write permissions
+  static async getDirectoryPermissions(): Promise<{
+    cache: { path: string; writable: boolean; readOnly: boolean };
+    logs: { path: string; writable: boolean; readOnly: boolean };
+  }> {
+    const res = await fetch(`${API_BASE}/management/directory-permissions`, {
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse(res);
+  }
+
   // PICS/GameInfo related endpoints
   static async getPicsStatus(signal?: AbortSignal): Promise<any> {
     try {

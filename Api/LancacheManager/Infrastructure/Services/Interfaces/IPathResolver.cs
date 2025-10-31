@@ -84,4 +84,21 @@ public interface IPathResolver
     /// Gets the path to the database file
     /// </summary>
     string GetDatabasePath();
+
+    /// <summary>
+    /// Checks if a directory is writable
+    /// </summary>
+    /// <param name="directoryPath">The directory path to check</param>
+    /// <returns>True if the directory is writable, false otherwise</returns>
+    bool IsDirectoryWritable(string directoryPath);
+
+    /// <summary>
+    /// Checks if the cache directory is writable
+    /// </summary>
+    bool IsCacheDirectoryWritable();
+
+    /// <summary>
+    /// Checks if the logs directory is writable
+    /// </summary>
+    bool IsLogsDirectoryWritable();
 }

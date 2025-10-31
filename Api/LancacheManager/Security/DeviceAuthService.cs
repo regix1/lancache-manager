@@ -10,6 +10,7 @@ public class DeviceAuthService
     private readonly ILogger<DeviceAuthService> _logger;
     private readonly ApiKeyService _apiKeyService;
     private readonly IPathResolver _pathResolver;
+    private readonly IConfiguration _configuration;
     private readonly string _devicesDirectory;
     private readonly Dictionary<string, DeviceRegistration> _deviceCache = new();
     private readonly object _cacheLock = new object();
@@ -22,6 +23,7 @@ public class DeviceAuthService
     {
         _logger = logger;
         _apiKeyService = apiKeyService;
+        _configuration = configuration;
         _pathResolver = pathResolver;
         _devicesDirectory = configuration["Security:DevicesPath"] ?? _pathResolver.GetDevicesDirectory();
 
@@ -48,7 +50,6 @@ public class DeviceAuthService
         public string? OperatingSystem { get; set; }
         public string? Browser { get; set; }
         public DateTime? LastSeenAt { get; set; }
-        public bool IsPrimaryAdmin { get; set; }
     }
 
     public class RegisterDeviceRequest
@@ -93,6 +94,9 @@ public class DeviceAuthService
                 };
             }
 
+            // Get max admin devices from configuration (default to 3)
+            var maxAdminDevices = _configuration.GetValue<int>("Security:MaxAdminDevices", 3);
+
             // Encrypt the API key with device-specific encryption
             var encryptedKey = EncryptApiKey(request.ApiKey, request.DeviceId);
 
@@ -119,45 +123,41 @@ public class DeviceAuthService
                 }
             }
 
-            // Check if another device is already using this API key
+            // Check how many devices are currently using the admin API key
             lock (_cacheLock)
             {
-                var existingDevice = _deviceCache.Values.FirstOrDefault(d =>
+                var devicesUsingAdminKey = _deviceCache.Values.Where(d =>
                 {
+                    // Skip if this is the same device (allow re-registration)
+                    if (d.DeviceId == request.DeviceId)
+                    {
+                        return false;
+                    }
+
+                    // Check if device is using a valid admin key
                     try
                     {
-                        // Skip if this is the same device (allow re-registration)
-                        if (d.DeviceId == request.DeviceId)
-                        {
-                            return false;
-                        }
-
                         var existingKey = DecryptApiKey(d.EncryptedApiKey, d.DeviceId);
-                        return existingKey == request.ApiKey;
+                        return _apiKeyService.ValidateApiKey(existingKey);
                     }
                     catch
                     {
                         return false;
                     }
-                });
+                }).ToList();
 
-                if (existingDevice != null)
+                if (devicesUsingAdminKey.Count >= maxAdminDevices)
                 {
-                    // Another device is already using this API key
-                    var keyType = _apiKeyService.IsPrimaryApiKey(request.ApiKey) ? "ADMIN" : "MODERATOR";
-                    _logger.LogWarning("Device registration denied: Another device ({ExistingDevice}) is already using the {KeyType} API key. New device: {NewDevice} from IP {IP}",
-                        existingDevice.DeviceId, keyType, request.DeviceId, ipAddress);
+                    _logger.LogWarning("Device registration denied: Maximum admin devices ({MaxDevices}) already registered. New device: {NewDevice} from IP {IP}",
+                        maxAdminDevices, request.DeviceId, ipAddress);
 
                     return new AuthResponse
                     {
                         Success = false,
-                        Message = $"Only one device can use the {keyType} API key at a time. Another device ({existingDevice.DeviceName ?? "Unknown"}) is currently authenticated. Please log out from the other device first or regenerate the API keys."
+                        Message = $"Maximum number of admin devices ({maxAdminDevices}) already registered. Please log out from another device first or increase MAX_ADMIN_DEVICES in configuration."
                     };
                 }
             }
-
-            // Determine if this is admin or user key (for logging purposes)
-            bool isPrimary = _apiKeyService.IsPrimaryApiKey(request.ApiKey);
 
             var registration = new DeviceRegistration
             {
@@ -172,8 +172,7 @@ public class DeviceAuthService
                 Hostname = hostname,
                 OperatingSystem = os,
                 Browser = browser,
-                LastSeenAt = DateTime.UtcNow,
-                IsPrimaryAdmin = isPrimary
+                LastSeenAt = DateTime.UtcNow
             };
 
             // Save to disk
@@ -185,8 +184,8 @@ public class DeviceAuthService
                 _deviceCache[request.DeviceId] = registration;
             }
 
-            _logger.LogInformation("Device registered: {DeviceId} from IP {IP}, OS: {OS}, Browser: {Browser}, Primary Admin: {IsPrimary}",
-                request.DeviceId, ipAddress, os, browser, isPrimary);
+            _logger.LogInformation("Device registered: {DeviceId} from IP {IP}, OS: {OS}, Browser: {Browser}",
+                request.DeviceId, ipAddress, os, browser);
 
             return new AuthResponse
             {
@@ -474,19 +473,6 @@ public class DeviceAuthService
         {
             foreach (var registration in _deviceCache.Values)
             {
-                // Decrypt the API key to check if it's the admin key
-                bool isAdminKey = false;
-                try
-                {
-                    var decryptedKey = DecryptApiKey(registration.EncryptedApiKey, registration.DeviceId);
-                    isAdminKey = _apiKeyService.IsPrimaryApiKey(decryptedKey);
-                }
-                catch
-                {
-                    // If decryption fails, assume it's not the admin key
-                    isAdminKey = false;
-                }
-
                 devices.Add(new DeviceInfo
                 {
                     DeviceId = registration.DeviceId,
@@ -499,65 +485,12 @@ public class DeviceAuthService
                     RegisteredAt = registration.RegisteredAt,
                     LastSeenAt = registration.LastSeenAt,
                     ExpiresAt = registration.ExpiresAt,
-                    IsExpired = registration.ExpiresAt <= DateTime.UtcNow,
-                    IsPrimaryAdmin = registration.IsPrimaryAdmin,
-                    IsAdminKey = isAdminKey
+                    IsExpired = registration.ExpiresAt <= DateTime.UtcNow
                 });
             }
         }
 
         return devices.OrderByDescending(d => d.LastSeenAt ?? d.RegisteredAt).ToList();
-    }
-
-    /// <summary>
-    /// Check if a device is the primary admin
-    /// </summary>
-    public bool IsPrimaryAdmin(string deviceId)
-    {
-        if (string.IsNullOrWhiteSpace(deviceId))
-        {
-            return false;
-        }
-
-        lock (_cacheLock)
-        {
-            if (_deviceCache.TryGetValue(deviceId, out var device))
-            {
-                return device.IsPrimaryAdmin;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Check if a specific device is using the ADMIN API key
-    /// More efficient than GetAllDevices() when you only need to check one device
-    /// </summary>
-    public bool IsDeviceUsingAdminKey(string deviceId)
-    {
-        if (string.IsNullOrWhiteSpace(deviceId))
-        {
-            return false;
-        }
-
-        lock (_cacheLock)
-        {
-            if (_deviceCache.TryGetValue(deviceId, out var device))
-            {
-                try
-                {
-                    var decryptedKey = DecryptApiKey(device.EncryptedApiKey, deviceId);
-                    return _apiKeyService.IsPrimaryApiKey(decryptedKey);
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -680,7 +613,5 @@ public class DeviceAuthService
         public DateTime? LastSeenAt { get; set; }
         public DateTime ExpiresAt { get; set; }
         public bool IsExpired { get; set; }
-        public bool IsPrimaryAdmin { get; set; }
-        public bool IsAdminKey { get; set; }  // True if using ADMIN API key, false if using MODERATOR key
     }
 }

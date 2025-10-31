@@ -100,6 +100,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
+  const [logsReadOnly, setLogsReadOnly] = useState(false);
+  const [cacheReadOnly, setCacheReadOnly] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
 
   const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
 
@@ -116,6 +119,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     if (!hasInitiallyLoaded) {
       loadAllData();
       restoreServiceRemoval();
+      loadDirectoryPermissions();
     }
 
     // Expose reload function to parent via ref
@@ -170,6 +174,21 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     if (serviceOp?.data?.service) {
       setActiveServiceRemoval(serviceOp.data.service);
       onSuccess?.(`Removing ${serviceOp.data.service} entries from logs (operation resumed)...`);
+    }
+  };
+
+  const loadDirectoryPermissions = async () => {
+    try {
+      setCheckingPermissions(true);
+      const data = await ApiService.getDirectoryPermissions();
+      setLogsReadOnly(data.logs.readOnly);
+      setCacheReadOnly(data.cache.readOnly);
+    } catch (err) {
+      console.error('Failed to check directory permissions:', err);
+      setLogsReadOnly(false); // Assume writable on error
+      setCacheReadOnly(false);
+    } finally {
+      setCheckingPermissions(false);
     }
   };
 
@@ -313,6 +332,29 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
           </p>
 
+          {/* Read-Only Warning */}
+          {(logsReadOnly || cacheReadOnly) && (
+            <Alert color="orange" className="mb-4">
+              <div>
+                <p className="font-medium">
+                  {logsReadOnly && cacheReadOnly
+                    ? 'Logs and cache directories are read-only'
+                    : logsReadOnly
+                    ? 'Logs directory is read-only'
+                    : 'Cache directory is read-only'}
+                </p>
+                <p className="text-sm mt-1">
+                  {logsReadOnly && cacheReadOnly
+                    ? 'Both directories are mounted in read-only mode. All log and corruption management features are disabled.'
+                    : logsReadOnly
+                    ? 'The logs directory is mounted in read-only mode. Log removal features are disabled.'
+                    : 'The cache directory is mounted in read-only mode. Corruption removal features are disabled.'}
+                  {' '}Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose volume mounts to enable these features.
+                </p>
+              </div>
+            </Alert>
+          )}
+
           {loadError && (
             <Alert color="red" className="mb-4">
               <div>
@@ -349,7 +391,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                       count={serviceCounts[service] || 0}
                       isRemoving={activeServiceRemoval === service}
                       isDisabled={
-                        mockMode || !!activeServiceRemoval || !!removingCorruption || serviceRemovalOp.loading || authMode !== 'authenticated'
+                        mockMode || !!activeServiceRemoval || !!removingCorruption || serviceRemovalOp.loading || authMode !== 'authenticated' || logsReadOnly || checkingPermissions
                       }
                       onClick={handleClick}
                     />
@@ -458,11 +500,12 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                       <Tooltip content="Delete cache files and remove log entries for corrupted chunks">
                         <Button
                           onClick={() => handleRemoveCorruption(service)}
-                          disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated'}
+                          disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated' || logsReadOnly || cacheReadOnly || checkingPermissions}
                           variant="filled"
                           color="red"
                           size="sm"
                           loading={removingCorruption === service}
+                          title={(logsReadOnly || cacheReadOnly) ? 'Directories are read-only' : undefined}
                         >
                           {removingCorruption !== service ? 'Remove All' : 'Removing...'}
                         </Button>

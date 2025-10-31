@@ -176,4 +176,130 @@ public class LinuxPathResolver : IPathResolver
             return false;
         }
     }
+
+    /// <summary>
+    /// Checks if a directory is writable
+    /// On Linux, checks /proc/mounts for read-only flag first, then falls back to test file
+    /// </summary>
+    public bool IsDirectoryWritable(string directoryPath)
+    {
+        try
+        {
+            // Check if directory exists
+            if (!Directory.Exists(directoryPath))
+            {
+                _logger.LogWarning("Directory does not exist: {Path}", directoryPath);
+                return false;
+            }
+
+            // Check /proc/mounts for read-only mount flag (Linux-specific optimization)
+            var isReadOnlyMount = CheckLinuxReadOnlyMount(directoryPath);
+            if (isReadOnlyMount.HasValue)
+            {
+                if (isReadOnlyMount.Value)
+                {
+                    _logger.LogInformation("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
+                }
+                return !isReadOnlyMount.Value;
+            }
+
+            // Fall back to test file method if /proc/mounts check failed
+            return TestWriteAccess(directoryPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if the cache directory is writable
+    /// </summary>
+    public bool IsCacheDirectoryWritable() => IsDirectoryWritable(GetCacheDirectory());
+
+    /// <summary>
+    /// Checks if the logs directory is writable
+    /// </summary>
+    public bool IsLogsDirectoryWritable() => IsDirectoryWritable(GetLogsDirectory());
+
+    /// <summary>
+    /// Checks if directory is mounted read-only by reading /proc/mounts
+    /// </summary>
+    private bool? CheckLinuxReadOnlyMount(string directoryPath)
+    {
+        try
+        {
+            if (!File.Exists("/proc/mounts"))
+            {
+                return null;
+            }
+
+            var fullPath = Path.GetFullPath(directoryPath);
+            var mounts = File.ReadAllLines("/proc/mounts");
+
+            // Find the longest matching mount point (most specific)
+            string? matchingMount = null;
+            string? matchingOptions = null;
+
+            foreach (var line in mounts)
+            {
+                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 4) continue;
+
+                var mountPoint = parts[1];
+                var mountOptions = parts[3];
+
+                // Check if directory is under this mount point
+                if (fullPath.StartsWith(mountPoint) && (matchingMount == null || mountPoint.Length > matchingMount.Length))
+                {
+                    matchingMount = mountPoint;
+                    matchingOptions = mountOptions;
+                }
+            }
+
+            if (matchingOptions != null)
+            {
+                // Check if 'ro' is in the mount options
+                var options = matchingOptions.Split(',');
+                var isReadOnly = options.Contains("ro");
+                _logger.LogDebug("Mount options for {Path}: {Options} (read-only: {IsReadOnly})",
+                    directoryPath, matchingOptions, isReadOnly);
+                return isReadOnly;
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check Linux mount options for {Path}", directoryPath);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Tests write access by attempting to create and delete a temporary file
+    /// This is the most reliable cross-platform method
+    /// </summary>
+    private bool TestWriteAccess(string directoryPath)
+    {
+        var testFilePath = Path.Combine(directoryPath, $".write_test_{Guid.NewGuid()}.tmp");
+
+        try
+        {
+            File.WriteAllText(testFilePath, "write test");
+            File.Delete(testFilePath);
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _logger.LogInformation("Directory is read-only: {Path}", directoryPath);
+            return false;
+        }
+        catch (IOException)
+        {
+            _logger.LogInformation("Directory is read-only or inaccessible: {Path}", directoryPath);
+            return false;
+        }
+    }
 }

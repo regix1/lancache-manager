@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Shield, Trash2, RefreshCw, AlertTriangle, Clock, User, Users } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { Modal } from '@components/ui/Modal';
+import { Alert } from '@components/ui/Alert';
 import ApiService from '@services/api.service';
 
 interface Session {
@@ -18,8 +20,6 @@ interface Session {
   revokedAt?: string | null;
   revokedBy?: string | null;
   type: 'authenticated' | 'guest';
-  isPrimaryAdmin?: boolean;
-  isAdminKey?: boolean;
 }
 
 const AdminTab: React.FC = () => {
@@ -28,6 +28,10 @@ const AdminTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
+  const [showRevokeModal, setShowRevokeModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
+  const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
 
   const loadSessions = async (showLoading = false) => {
     try {
@@ -70,31 +74,29 @@ const AdminTab: React.FC = () => {
     };
   }, []);
 
-  const handleRevokeSession = async (session: Session) => {
-    // Prevent revocation of primary admin
-    if (session.isPrimaryAdmin) {
-      alert('Cannot revoke the primary admin device. The primary admin is the first user who registered with the API key and cannot be removed by other users.');
-      return;
-    }
+  const handleRevokeSession = (session: Session) => {
+    setPendingRevokeSession(session);
+    setShowRevokeModal(true);
+  };
 
-    const userType = session.type === 'authenticated' ? 'authenticated user' : 'guest';
-    if (!confirm(`Are you sure you want to revoke this ${userType}? This marks them as revoked but doesn't delete the record.`)) {
-      return;
-    }
+  const confirmRevokeSession = async () => {
+    if (!pendingRevokeSession) return;
 
     try {
-      setRevokingSession(session.id);
-      const endpoint = session.type === 'authenticated'
-        ? `/api/auth/devices/${encodeURIComponent(session.id)}`
-        : `/api/auth/guest/${encodeURIComponent(session.id)}/revoke`;
+      setRevokingSession(pendingRevokeSession.id);
+      const endpoint = pendingRevokeSession.type === 'authenticated'
+        ? `/api/auth/devices/${encodeURIComponent(pendingRevokeSession.id)}`
+        : `/api/auth/guest/${encodeURIComponent(pendingRevokeSession.id)}/revoke`;
 
       const response = await fetch(endpoint, {
-        method: session.type === 'authenticated' ? 'DELETE' : 'POST',
+        method: pendingRevokeSession.type === 'authenticated' ? 'DELETE' : 'POST',
         headers: ApiService.getHeaders()
       });
 
       if (response.ok) {
         await loadSessions(false);
+        setShowRevokeModal(false);
+        setPendingRevokeSession(null);
       } else {
         const errorData = await response.json();
         alert(errorData.message || errorData.error || 'Failed to revoke session');
@@ -106,23 +108,19 @@ const AdminTab: React.FC = () => {
     }
   };
 
-  const handleDeleteSession = async (session: Session) => {
-    // Prevent deletion of primary admin
-    if (session.isPrimaryAdmin) {
-      alert('Cannot delete the primary admin device. The primary admin is the first user who registered with the API key and cannot be removed by other users.');
-      return;
-    }
+  const handleDeleteSession = (session: Session) => {
+    setPendingDeleteSession(session);
+    setShowDeleteModal(true);
+  };
 
-    const userType = session.type === 'authenticated' ? 'authenticated device' : 'guest session';
-    if (!confirm(`Are you sure you want to permanently delete this ${userType}? This action cannot be undone.`)) {
-      return;
-    }
+  const confirmDeleteSession = async () => {
+    if (!pendingDeleteSession) return;
 
     try {
-      setDeletingSession(session.id);
-      const endpoint = session.type === 'authenticated'
-        ? `/api/auth/devices/${encodeURIComponent(session.id)}`
-        : `/api/auth/guest/${encodeURIComponent(session.id)}`;
+      setDeletingSession(pendingDeleteSession.id);
+      const endpoint = pendingDeleteSession.type === 'authenticated'
+        ? `/api/auth/devices/${encodeURIComponent(pendingDeleteSession.id)}`
+        : `/api/auth/guest/${encodeURIComponent(pendingDeleteSession.id)}`;
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
@@ -131,6 +129,8 @@ const AdminTab: React.FC = () => {
 
       if (response.ok) {
         await loadSessions(false);
+        setShowDeleteModal(false);
+        setPendingDeleteSession(null);
       } else {
         const errorData = await response.json();
         alert(errorData.message || errorData.error || 'Failed to delete session');
@@ -307,7 +307,7 @@ const AdminTab: React.FC = () => {
                           <h3 className="font-semibold" style={{ color: 'var(--theme-text-primary)' }}>
                             {session.deviceName || 'Unknown Device'}
                           </h3>
-                          {session.type === 'authenticated' && session.isAdminKey && (
+                          {session.type === 'authenticated' && (
                             <span
                               className="px-2 py-0.5 text-xs rounded font-medium"
                               style={{
@@ -317,17 +317,6 @@ const AdminTab: React.FC = () => {
                               }}
                             >
                               ADMIN
-                            </span>
-                          )}
-                          {session.type === 'authenticated' && !session.isAdminKey && (
-                            <span
-                              className="px-2 py-0.5 text-xs rounded font-medium"
-                              style={{
-                                backgroundColor: 'var(--theme-success-bg)',
-                                color: 'var(--theme-success-text)'
-                              }}
-                            >
-                              MODERATOR
                             </span>
                           )}
                           {session.type === 'guest' && (
@@ -446,8 +435,7 @@ const AdminTab: React.FC = () => {
                         size="sm"
                         leftSection={<Trash2 className="w-4 h-4" />}
                         onClick={() => handleDeleteSession(session)}
-                        disabled={deletingSession === session.id || session.isPrimaryAdmin}
-                        title={session.isPrimaryAdmin ? 'Primary admin cannot be deleted' : ''}
+                        disabled={deletingSession === session.id}
                       >
                         {deletingSession === session.id ? 'Deleting...' : 'Delete'}
                       </Button>
@@ -475,17 +463,152 @@ const AdminTab: React.FC = () => {
               <p className="font-semibold mb-1">About Session Management</p>
               <ul className="list-disc list-inside space-y-1">
                 <li>Only authenticated users (with API key) can access this admin panel</li>
-                <li><strong>Primary Admin</strong> - The first user to register with the API key becomes the primary admin and cannot be deleted by other users</li>
-                <li><strong>Authenticated</strong> users have registered with an API key and don't expire</li>
-                <li><strong>Guest</strong> users have temporary 6-hour sessions and limited access</li>
+                <li><strong>Admin Users</strong> - Multiple admins can share the same API key (up to configured device limit)</li>
+                <li><strong>Authenticated</strong> sessions have registered with the API key and don't expire</li>
+                <li><strong>Guest</strong> sessions have temporary 6-hour access with read-only permissions</li>
                 <li><strong>Revoke</strong> - Immediately kicks out guest users (marks them as revoked)</li>
-                <li><strong>Delete</strong> - Permanently removes the session record from history (except primary admin)</li>
+                <li><strong>Delete</strong> - Permanently removes the session record from history</li>
                 <li>Revoked guests will see an "expired" message on their next request</li>
               </ul>
             </div>
           </div>
         </div>
       </Card>
+
+      {/* Revoke Session Modal */}
+      <Modal
+        opened={showRevokeModal}
+        onClose={() => {
+          if (!revokingSession) {
+            setShowRevokeModal(false);
+            setPendingRevokeSession(null);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Revoke Session</span>
+          </div>
+        }
+        size="md"
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Are you sure you want to revoke this {pendingRevokeSession?.type === 'authenticated' ? 'authenticated user' : 'guest'}?
+          </p>
+
+          {pendingRevokeSession && (
+            <div className="p-3 rounded-lg bg-themed-tertiary">
+              <p className="text-sm text-themed-primary font-medium mb-1">
+                {pendingRevokeSession.deviceName || 'Unknown Device'}
+              </p>
+              <p className="text-xs text-themed-muted font-mono">
+                {pendingRevokeSession.id}
+              </p>
+            </div>
+          )}
+
+          <Alert color="yellow">
+            <div>
+              <p className="text-sm font-medium mb-2">What happens when you revoke:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>The session is marked as revoked but not deleted</li>
+                <li>The user will be logged out immediately</li>
+                <li>The session record remains in history</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => {
+                setShowRevokeModal(false);
+                setPendingRevokeSession(null);
+              }}
+              disabled={!!revokingSession}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="orange"
+              onClick={confirmRevokeSession}
+              loading={!!revokingSession}
+            >
+              Revoke Session
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Session Modal */}
+      <Modal
+        opened={showDeleteModal}
+        onClose={() => {
+          if (!deletingSession) {
+            setShowDeleteModal(false);
+            setPendingDeleteSession(null);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <Trash2 className="w-6 h-6 text-themed-error" />
+            <span>Delete Session</span>
+          </div>
+        }
+        size="md"
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Are you sure you want to permanently delete this {pendingDeleteSession?.type === 'authenticated' ? 'authenticated device' : 'guest session'}?
+          </p>
+
+          {pendingDeleteSession && (
+            <div className="p-3 rounded-lg bg-themed-tertiary">
+              <p className="text-sm text-themed-primary font-medium mb-1">
+                {pendingDeleteSession.deviceName || 'Unknown Device'}
+              </p>
+              <p className="text-xs text-themed-muted font-mono">
+                {pendingDeleteSession.id}
+              </p>
+            </div>
+          )}
+
+          <Alert color="red">
+            <div>
+              <p className="text-sm font-medium mb-2">Warning:</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>This action cannot be undone</li>
+                <li>The session will be permanently removed from history</li>
+                <li>The user will be logged out immediately</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => {
+                setShowDeleteModal(false);
+                setPendingDeleteSession(null);
+              }}
+              disabled={!!deletingSession}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              leftSection={<Trash2 className="w-4 h-4" />}
+              onClick={confirmDeleteSession}
+              loading={!!deletingSession}
+            >
+              Delete Permanently
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

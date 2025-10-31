@@ -62,6 +62,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     const stored = localStorage.getItem('usingSteamAuth');
     return stored === 'true';
   });
+  const [authDisabled, setAuthDisabled] = useState<boolean>(false);
 
   // Persist current step to localStorage whenever it changes
   useEffect(() => {
@@ -108,19 +109,28 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     const checkSetupStatus = async () => {
       await checkDataAvailability();
 
+      // Check if authentication is globally disabled
+      const authCheck = await authService.checkAuth();
+      const authRequired = authCheck.requiresAuth;
+
+      console.log('[DepotInit] Auth check:', { requiresAuth: authRequired, isAuthenticated: authCheck.isAuthenticated });
+
       // If we have a stored step from a previous session, validate it's still relevant
       const storedStep = localStorage.getItem('initializationCurrentStep');
       if (storedStep) {
         console.log('[DepotInit] Found stored step from localStorage:', storedStep);
 
+        // Store auth disabled state
+        setAuthDisabled(!authRequired);
+
         // Check if initialization state is stale (browser was closed mid-setup)
-        // Only reset if there's NO auth at all (not just a failed auth check)
+        // Only reset if auth is required AND there's NO auth at all
         // This prevents resetting on page refresh when API is slow to respond
         const isAuthenticated = localStorage.getItem('lancache_auth_registered') === 'true';
         const isGuestMode = localStorage.getItem('lancache_guest_expires') !== null;
         const hasAuth = isAuthenticated || isGuestMode;
 
-        if (!hasAuth && storedStep !== 'api-key') {
+        if (authRequired && !hasAuth && storedStep !== 'api-key') {
           console.log('[DepotInit] Stale initialization state detected (no auth), resetting to step 1');
           localStorage.removeItem('initializationCurrentStep');
           localStorage.removeItem('initializationInProgress');
@@ -197,12 +207,21 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const setupResponse = await fetch('/api/management/setup-status');
         const setupData = await setupResponse.json();
 
+        // Store auth disabled state
+        setAuthDisabled(!authRequired);
+
         if (!setupData.isCompleted) {
           setCurrentStep('api-key');
           return;
         }
 
-        const authCheck = await authService.checkAuth();
+        // If auth is disabled, start at api-key step but with simplified UI
+        if (!authRequired) {
+          console.log('[DepotInit] Authentication is globally disabled, showing simplified auth step');
+          setCurrentStep('api-key');
+          return;
+        }
+
         if (!authCheck.isAuthenticated) {
           setCurrentStep('api-key');
         } else {
@@ -498,6 +517,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   };
 
+  const handleContinueAsAdmin = async () => {
+    // When auth is disabled, just move to next step without authentication
+    onAuthChanged?.();
+    await checkPicsDataStatus();
+    setCurrentStep('steam-auth');
+  };
+
   const renderStep = () => {
     switch (currentStep) {
       case 'api-key':
@@ -509,8 +535,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             authError={authError}
             dataAvailable={dataAvailable}
             checkingDataAvailability={checkingDataAvailability}
+            authDisabled={authDisabled}
             onAuthenticate={handleAuthenticate}
             onStartGuestMode={handleStartGuestMode}
+            onContinueAsAdmin={handleContinueAsAdmin}
           />
         );
 
@@ -616,7 +644,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             Welcome to Lancache Manager
           </h1>
           <p className="text-lg text-themed-secondary">
-            {currentStep === 'api-key' ? 'Authentication required' : 'Initial setup'}
+            {currentStep === 'api-key' ? (authDisabled ? 'Choose access mode' : 'Authentication required') : 'Initial setup'}
           </p>
         </div>
 

@@ -42,6 +42,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [cpuCount, setCpuCount] = useState(16); // Default max, will be updated
   const [rsyncAvailable, setRsyncAvailable] = useState(false);
+  const [cacheReadOnly, setCacheReadOnly] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
 
   const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
 
@@ -53,6 +55,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     loadDeleteMode();
     loadCpuCount();
     loadRsyncAvailability();
+    loadDirectoryPermissions();
     restoreCacheOperation();
 
     // Poll CPU count every 30 seconds to detect VM/container changes
@@ -111,6 +114,19 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     } catch (err) {
       console.error('Failed to check rsync availability:', err);
       setRsyncAvailable(false);
+    }
+  };
+
+  const loadDirectoryPermissions = async () => {
+    try {
+      setCheckingPermissions(true);
+      const data = await ApiService.getDirectoryPermissions();
+      setCacheReadOnly(data.cache.readOnly);
+    } catch (err) {
+      console.error('Failed to check directory permissions:', err);
+      setCacheReadOnly(false); // Assume writable on error
+    } finally {
+      setCheckingPermissions(false);
     }
   };
 
@@ -352,14 +368,30 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               mockMode ||
               isCacheClearingActive ||
               cacheOp.loading ||
-              authMode !== 'authenticated'
+              authMode !== 'authenticated' ||
+              cacheReadOnly ||
+              checkingPermissions
             }
-            loading={actionLoading || cacheOp.loading}
+            loading={actionLoading || cacheOp.loading || checkingPermissions}
             className="w-full sm:w-48"
+            title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
           >
             {isCacheClearingActive ? 'Clearing...' : 'Clear Cache'}
           </Button>
         </div>
+
+        {/* Read-Only Warning */}
+        {cacheReadOnly && (
+          <Alert color="orange" className="mb-4">
+            <div>
+              <p className="font-medium">Cache directory is read-only</p>
+              <p className="text-sm mt-1">
+                The cache directory is mounted in read-only mode. All cache modification features are disabled.
+                Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose volume mount to enable these features.
+              </p>
+            </div>
+          </Alert>
+        )}
 
         {/* Configuration Options - Unified Grid Layout */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-themed-tertiary/30">
@@ -381,7 +413,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 variant={deleteMode === 'preserve' ? 'filled' : 'default'}
                 color={deleteMode === 'preserve' ? 'blue' : undefined}
                 onClick={() => handleDeleteModeChange('preserve')}
-                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
+                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
               >
                 Safe Mode
               </Button>
@@ -390,7 +423,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 variant={deleteMode === 'full' ? 'filled' : 'default'}
                 color={deleteMode === 'full' ? 'green' : undefined}
                 onClick={() => handleDeleteModeChange('full')}
-                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
+                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
               >
                 Fast Mode
               </Button>
@@ -400,7 +434,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   variant={deleteMode === 'rsync' ? 'filled' : 'default'}
                   color={deleteMode === 'rsync' ? 'purple' : undefined}
                   onClick={() => handleDeleteModeChange('rsync')}
-                  disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
+                  disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                  title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                 >
                   Rsync
                 </Button>
@@ -421,7 +456,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 size="sm"
                 variant="default"
                 onClick={() => handleThreadCountChange(threadCount - 1)}
-                disabled={threadCount <= 1 || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
+                disabled={threadCount <= 1 || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
               >
                 -
               </Button>
@@ -433,7 +469,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 size="sm"
                 variant="default"
                 onClick={() => handleThreadCountChange(threadCount + 1)}
-                disabled={threadCount >= cpuCount || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated'}
+                disabled={threadCount >= cpuCount || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
               >
                 +
               </Button>

@@ -76,6 +76,40 @@ public class ManagementController : ControllerBase
         return Ok(info);
     }
 
+    [HttpGet("directory-permissions")]
+    public IActionResult GetDirectoryPermissions()
+    {
+        try
+        {
+            var cachePath = _pathResolver.GetCacheDirectory();
+            var logPath = _pathResolver.GetLogsDirectory();
+
+            var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+            var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+
+            return Ok(new
+            {
+                cache = new
+                {
+                    path = cachePath,
+                    writable = cacheWritable,
+                    readOnly = !cacheWritable
+                },
+                logs = new
+                {
+                    path = logPath,
+                    writable = logsWritable,
+                    readOnly = !logsWritable
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking directory permissions");
+            return StatusCode(500, new { error = "Failed to check directory permissions", details = ex.Message });
+        }
+    }
+
     [HttpPost("cache/clear-all")]
     [RequireAuth]
     public async Task<IActionResult> ClearAllCache()

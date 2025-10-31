@@ -308,7 +308,9 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var apiKeyService = scope.ServiceProvider.GetRequiredService<ApiKeyService>();
-    apiKeyService.DisplayApiKey(); // This will create and display the API key
+    var deviceAuthService = scope.ServiceProvider.GetRequiredService<DeviceAuthService>();
+    var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
+    apiKeyService.DisplayApiKey(configuration, deviceAuthService); // This will create and display the API key (or show auth disabled message)
 }
 
 app.UseCors("AllowAll");

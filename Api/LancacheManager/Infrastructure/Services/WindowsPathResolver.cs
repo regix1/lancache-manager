@@ -167,4 +167,56 @@ public class WindowsPathResolver : IPathResolver
             return false;
         }
     }
+
+    /// <summary>
+    /// Checks if a directory is writable
+    /// Windows uses test file creation method
+    /// </summary>
+    public bool IsDirectoryWritable(string directoryPath)
+    {
+        try
+        {
+            // Check if directory exists
+            if (!Directory.Exists(directoryPath))
+            {
+                _logger.LogWarning("Directory does not exist: {Path}", directoryPath);
+                return false;
+            }
+
+            // Try to create a temporary file to test write permissions
+            var testFilePath = Path.Combine(directoryPath, $".write_test_{Guid.NewGuid()}.tmp");
+
+            try
+            {
+                File.WriteAllText(testFilePath, "write test");
+                File.Delete(testFilePath);
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                _logger.LogInformation("Directory is read-only: {Path}", directoryPath);
+                return false;
+            }
+            catch (IOException)
+            {
+                _logger.LogInformation("Directory is read-only or inaccessible: {Path}", directoryPath);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Checks if the cache directory is writable
+    /// </summary>
+    public bool IsCacheDirectoryWritable() => IsDirectoryWritable(GetCacheDirectory());
+
+    /// <summary>
+    /// Checks if the logs directory is writable
+    /// </summary>
+    public bool IsLogsDirectoryWritable() => IsDirectoryWritable(GetLogsDirectory());
 }
