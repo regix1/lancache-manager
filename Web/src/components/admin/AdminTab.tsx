@@ -327,7 +327,7 @@ const AdminTab: React.FC = () => {
                                 color: 'var(--theme-success-text)'
                               }}
                             >
-                              USER
+                              MODERATOR
                             </span>
                           )}
                           {session.type === 'guest' && (

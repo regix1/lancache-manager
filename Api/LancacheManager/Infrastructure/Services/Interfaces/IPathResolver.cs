@@ -35,6 +35,10 @@ public interface IPathResolver
     /// </summary>
     string GetCacheDirectory();
 
+    /// <summary>
+    /// Gets the devices directory path
+    /// </summary>
+    string GetDevicesDirectory();
 
     /// <summary>
     /// Gets the themes directory path

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Infrastructure.Services.Interfaces;
 using Microsoft.Extensions.Logging;
 
 namespace LancacheManager.Security;
@@ -6,20 +7,22 @@ namespace LancacheManager.Security;
 public class GuestSessionService
 {
     private readonly ILogger<GuestSessionService> _logger;
+    private readonly IPathResolver _pathResolver;
     private readonly string _sessionsDirectory;
     private readonly Dictionary<string, GuestSession> _sessionCache = new();
     private readonly object _cacheLock = new();
 
-    public GuestSessionService(ILogger<GuestSessionService> logger)
+    public GuestSessionService(ILogger<GuestSessionService> logger, IPathResolver pathResolver)
     {
         _logger = logger;
-        _sessionsDirectory = Path.Combine("data", "devices");
+        _pathResolver = pathResolver;
+        _sessionsDirectory = Path.Combine(_pathResolver.GetDevicesDirectory(), "guest_sessions");
 
         // Create directory if it doesn't exist
         if (!Directory.Exists(_sessionsDirectory))
         {
             Directory.CreateDirectory(_sessionsDirectory);
-            _logger.LogInformation("Created devices directory: {Directory}", _sessionsDirectory);
+            _logger.LogInformation("Created guest sessions directory: {Directory}", _sessionsDirectory);
         }
 
         LoadGuestSessions();

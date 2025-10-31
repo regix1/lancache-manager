@@ -525,11 +525,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
             <div>
               <p className="font-medium mb-2">Important:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>Both ADMIN and USER API keys will be regenerated</li>
+                <li>Both ADMIN and MODERATOR API keys will be regenerated</li>
                 <li>All users and guests will be logged out immediately</li>
                 <li>Steam integration will be logged out</li>
                 <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code> for the new ADMIN key</li>
-                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/user_api_key.txt</code> for the new USER key</li>
+                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/moderator_api_key.txt</code> for the new MODERATOR key</li>
               </ul>
             </div>
           </Alert>

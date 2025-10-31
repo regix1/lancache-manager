@@ -37,13 +37,13 @@ public class RequirePrimaryAdminAttribute : ActionFilterAttribute
             return;
         }
 
-        // Check if this is the ADMIN API key (not user key)
+        // Check if this is the ADMIN API key (not moderator key)
         if (!apiKeyService.IsPrimaryApiKey(apiKey))
         {
             context.Result = new ObjectResult(new
             {
                 error = "Admin API key required",
-                message = "This operation requires the ADMIN API key. You are using the USER API key which has limited access."
+                message = "This operation requires the ADMIN API key. You are using the MODERATOR API key which has limited access."
             })
             {
                 StatusCode = 403 // Forbidden

@@ -23,7 +23,7 @@ public class DeviceAuthService
         _logger = logger;
         _apiKeyService = apiKeyService;
         _pathResolver = pathResolver;
-        _devicesDirectory = configuration["Security:DevicesPath"] ?? Path.Combine(_pathResolver.GetDataDirectory(), "devices");
+        _devicesDirectory = configuration["Security:DevicesPath"] ?? _pathResolver.GetDevicesDirectory();
 
         // Ensure devices directory exists
         if (!Directory.Exists(_devicesDirectory))
@@ -144,7 +144,7 @@ public class DeviceAuthService
                 if (existingDevice != null)
                 {
                     // Another device is already using this API key
-                    var keyType = _apiKeyService.IsPrimaryApiKey(request.ApiKey) ? "ADMIN" : "USER";
+                    var keyType = _apiKeyService.IsPrimaryApiKey(request.ApiKey) ? "ADMIN" : "MODERATOR";
                     _logger.LogWarning("Device registration denied: Another device ({ExistingDevice}) is already using the {KeyType} API key. New device: {NewDevice} from IP {IP}",
                         existingDevice.DeviceId, keyType, request.DeviceId, ipAddress);
 
@@ -681,6 +681,6 @@ public class DeviceAuthService
         public DateTime ExpiresAt { get; set; }
         public bool IsExpired { get; set; }
         public bool IsPrimaryAdmin { get; set; }
-        public bool IsAdminKey { get; set; }  // True if using ADMIN API key, false if using USER key
+        public bool IsAdminKey { get; set; }  // True if using ADMIN API key, false if using MODERATOR key
     }
 }

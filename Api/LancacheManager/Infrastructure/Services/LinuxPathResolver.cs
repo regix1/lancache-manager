@@ -35,6 +35,8 @@ public class LinuxPathResolver : IPathResolver
 
     public string GetCacheDirectory() => Path.GetFullPath(Path.Combine(_basePath, "cache"));
 
+    public string GetDevicesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "devices"));
+
     public string GetThemesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "themes"));
 
     public string GetRustLogProcessorPath() =>

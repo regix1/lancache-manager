@@ -30,8 +30,8 @@ public class ApiKeyService
             _primaryKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "api_key.txt");
         }
 
-        // User API key is always in data directory
-        _secondaryKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "user_api_key.txt");
+        // Moderator API key is always in data directory
+        _secondaryKeyPath = Path.Combine(_pathResolver.GetDataDirectory(), "moderator_api_key.txt");
 
         // Ensure data directory exists
         var dir = Path.GetDirectoryName(_primaryKeyPath);
@@ -110,21 +110,21 @@ public class ApiKeyService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to read USER API key from {Path}", _secondaryKeyPath);
+                    _logger.LogError(ex, "Failed to read MODERATOR API key from {Path}", _secondaryKeyPath);
                 }
             }
 
-            // Generate new USER API key
-            _secondaryKey = GenerateApiKey("user");
+            // Generate new MODERATOR API key
+            _secondaryKey = GenerateApiKey("moderator");
 
             try
             {
                 File.WriteAllText(_secondaryKeyPath, _secondaryKey);
-                _logger.LogInformation("Generated and saved new USER API key to {Path}", _secondaryKeyPath);
+                _logger.LogInformation("Generated and saved new MODERATOR API key to {Path}", _secondaryKeyPath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to save USER API key to {Path}", _secondaryKeyPath);
+                _logger.LogError(ex, "Failed to save MODERATOR API key to {Path}", _secondaryKeyPath);
             }
 
             return _secondaryKey;
@@ -249,14 +249,14 @@ public class ApiKeyService
         Console.WriteLine($"  {primaryKey}");
         Console.WriteLine($"  File: {_primaryKeyPath}");
         Console.WriteLine("");
-        Console.WriteLine("  USER API KEY (Limited Access - View & Manage Data Only)");
+        Console.WriteLine("  MODERATOR API KEY (Limited Access - View & Manage Data Only)");
         Console.WriteLine($"  {secondaryKey}");
         Console.WriteLine($"  File: {_secondaryKeyPath}");
         Console.WriteLine("");
         Console.WriteLine("================================================================================");
         Console.WriteLine("  IMPORTANT: Save these keys securely!");
         Console.WriteLine("  • Use ADMIN key for administrative tasks");
-        Console.WriteLine("  • Share USER key with team members who need read/write access");
+        Console.WriteLine("  • Share MODERATOR key with team members who need read/write access");
         Console.WriteLine("  • Guest mode available for temporary read-only access (6 hours)");
         Console.WriteLine("================================================================================");
         Console.WriteLine("");
