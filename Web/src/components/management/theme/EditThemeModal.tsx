@@ -7,15 +7,12 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  Check,
-  Copy,
-  RotateCcw,
-  Percent,
   Save
 } from 'lucide-react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
+import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { ColorGroup, Theme } from './types';
 
@@ -57,48 +54,40 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
   loading
 }) => {
   const [editSearchQuery, setEditSearchQuery] = useState('');
-  const [colorEditingStarted, setColorEditingStarted] = useState<Record<string, boolean>>({});
 
-  // Helper functions
-  const hexToRgba = (hex: string, alpha: number = 1): string => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    if (!result) return hex;
-    const r = parseInt(result[1], 16);
-    const g = parseInt(result[2], 16);
-    const b = parseInt(result[3], 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
+  const handleEditColorCommit = (key: string, previousColor: string) => {
+    // Save the previous color to history when user finishes editing
+    const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
+    const originalKey = `color_history_${editingTheme?.meta.id}_${key}_original`;
+    const existingHistory = localStorage.getItem(historyKey);
+    let history: string[] = [];
 
-  const parseColorValue = (color: string): { hex: string; alpha: number } => {
-    // Handle rgba format
-    const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (rgbaMatch) {
-      const r = parseInt(rgbaMatch[1]);
-      const g = parseInt(rgbaMatch[2]);
-      const b = parseInt(rgbaMatch[3]);
-      const alpha = rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
-      const hex = '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
-      return { hex, alpha };
+    // Save original color if this is the first time (no history exists)
+    if (!existingHistory) {
+      localStorage.setItem(originalKey, previousColor);
     }
-    // Handle hex format
-    return { hex: color, alpha: 1 };
-  };
 
-  const updateColorWithAlpha = (key: string, hex: string, alpha: number) => {
-    const colorValue = alpha < 1 ? hexToRgba(hex, alpha) : hex;
-    setEditedTheme((prev: any) => ({ ...prev, [key]: colorValue }));
-  };
-
-  const handleEditColorStart = (key: string) => {
-    // Save the original color when user starts editing (not on every change)
-    if (!colorEditingStarted[key]) {
-      const currentValue = editedTheme[key];
-      if (currentValue && currentValue.match(/^#[0-9a-fA-F]{6}$/)) {
-        const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
-        localStorage.setItem(historyKey, currentValue);
+    // Handle migration from old format (single string) to new format (array)
+    if (existingHistory) {
+      try {
+        history = JSON.parse(existingHistory);
+        // Ensure it's an array
+        if (!Array.isArray(history)) {
+          history = [existingHistory]; // Old format: single string
+        }
+      } catch {
+        // Old format: plain string, not JSON
+        history = [existingHistory];
       }
-      setColorEditingStarted(prev => ({ ...prev, [key]: true }));
     }
+
+    // Add previous color to history (max 3 recent changes, original is stored separately)
+    history.unshift(previousColor);
+    if (history.length > 3) {
+      history.pop(); // Remove oldest (but original is safe in separate key)
+    }
+
+    localStorage.setItem(historyKey, JSON.stringify(history));
   };
 
   const handleEditColorChange = (key: string, value: string) => {
@@ -108,19 +97,74 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
   const restorePreviousColor = (key: string) => {
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
-    const previousColor = localStorage.getItem(historyKey);
-    if (previousColor) {
-      // Swap current with history
-      const currentColor = editedTheme[key];
-      setEditedTheme((prev: any) => ({ ...prev, [key]: previousColor }));
-      localStorage.setItem(historyKey, currentColor || '');
+    const originalKey = `color_history_${editingTheme?.meta.id}_${key}_original`;
+    const existingHistory = localStorage.getItem(historyKey);
+
+    if (existingHistory) {
+      let history: string[] = [];
+
+      // Handle migration from old format (single string) to new format (array)
+      try {
+        history = JSON.parse(existingHistory);
+        if (!Array.isArray(history)) {
+          history = [existingHistory]; // Old format: single string
+        }
+      } catch {
+        // Old format: plain string, not JSON
+        history = [existingHistory];
+      }
+
+      if (history.length > 0) {
+        // Pop the most recent history item
+        const previousColor = history.shift();
+
+        // Update localStorage with remaining history
+        if (history.length > 0) {
+          localStorage.setItem(historyKey, JSON.stringify(history));
+        } else {
+          localStorage.removeItem(historyKey);
+        }
+
+        // Apply the previous color immediately
+        if (previousColor) {
+          setEditedTheme((prev: any) => ({ ...prev, [key]: previousColor }));
+        }
+      }
+    } else {
+      // No recent history, restore to original color and remove it (final undo)
+      const originalColor = localStorage.getItem(originalKey);
+      if (originalColor) {
+        setEditedTheme((prev: any) => ({ ...prev, [key]: originalColor }));
+        // Remove original after restoring to it (no more undos available)
+        localStorage.removeItem(originalKey);
+      }
     }
   };
 
   const getEditColorHistory = (key: string) => {
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
-    const value = localStorage.getItem(historyKey);
-    return value;
+    const originalKey = `color_history_${editingTheme?.meta.id}_${key}_original`;
+    const existingHistory = localStorage.getItem(historyKey);
+
+    if (existingHistory) {
+      let history: string[] = [];
+
+      // Handle migration from old format (single string) to new format (array)
+      try {
+        history = JSON.parse(existingHistory);
+        if (!Array.isArray(history)) {
+          return existingHistory; // Old format: return the string directly
+        }
+      } catch {
+        // Old format: plain string, not JSON
+        return existingHistory;
+      }
+
+      return history.length > 0 ? history[0] : null;
+    }
+
+    // No recent history, check for original color
+    return localStorage.getItem(originalKey);
   };
 
   // Filter color groups based on search
@@ -178,7 +222,6 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
   const handleClose = () => {
     onClose();
-    setColorEditingStarted({});
   };
 
   return (
@@ -370,122 +413,20 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                     }}
                   >
                     {group.colors.map((color) => (
-                      <div key={color.key} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <label className="block text-sm font-medium text-themed-primary">
-                              {color.label}
-                            </label>
-                            <p className="text-xs text-themed-muted">{color.description}</p>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {color.affects.map((item, idx) => (
-                                <span
-                                  key={idx}
-                                  className="text-xs px-1.5 py-0.5 rounded"
-                                  style={{
-                                    backgroundColor: 'var(--theme-bg-hover)',
-                                    color: 'var(--theme-text-secondary)'
-                                  }}
-                                >
-                                  {item}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {(() => {
-                              const { hex, alpha } = parseColorValue(editedTheme[color.key] || '#000000');
-                              return (
-                                <>
-                                  <div className="relative">
-                                    <input
-                                      type="color"
-                                      value={hex}
-                                      onMouseDown={() => handleEditColorStart(color.key)}
-                                      onFocus={() => handleEditColorStart(color.key)}
-                                      onChange={(e) => {
-                                        const currentAlpha = parseColorValue(editedTheme[color.key] || '#000000').alpha;
-                                        updateColorWithAlpha(color.key, e.target.value, currentAlpha);
-                                      }}
-                                      className="w-12 h-8 rounded cursor-pointer"
-                                      style={{ backgroundColor: editedTheme[color.key] || '#000000' }}
-                                    />
-                                  </div>
-                                  {color.supportsAlpha && (
-                                    <div className="flex items-center gap-1">
-                                      <Percent className="w-3 h-3 text-themed-muted" />
-                                      <input
-                                        type="range"
-                                        min="0"
-                                        max="100"
-                                        value={Math.round(alpha * 100)}
-                                        onChange={(e) => {
-                                          const newAlpha = parseInt(e.target.value) / 100;
-                                          updateColorWithAlpha(color.key, hex, newAlpha);
-                                        }}
-                                        className="w-16"
-                                        title={`Opacity: ${Math.round(alpha * 100)}%`}
-                                      />
-                                      <span className="text-xs text-themed-muted w-8">
-                                        {Math.round(alpha * 100)}%
-                                      </span>
-                                    </div>
-                                  )}
-                                  <input
-                                    type="text"
-                                    value={editedTheme[color.key] || ''}
-                                    onFocus={() => handleEditColorStart(color.key)}
-                                    onChange={(e) => handleEditColorChange(color.key, e.target.value)}
-                                    className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
-                                    placeholder={color.key}
-                                  />
-                                  <button
-                                    onClick={() => copyColor(editedTheme[color.key] || '')}
-                                    className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                    title="Copy color"
-                                  >
-                                    {copiedColor === editedTheme[color.key] ? (
-                                      <Check
-                                        className="w-3 h-3"
-                                        style={{ color: 'var(--theme-success)' }}
-                                      />
-                                    ) : (
-                                      <Copy className="w-3 h-3 text-themed-muted" />
-                                    )}
-                                  </button>
-                                  {(() => {
-                                    const historyColor = getEditColorHistory(color.key);
-                                    if (!historyColor) return null;
-
-                                    return (
-                                      <button
-                                        onClick={() => restorePreviousColor(color.key)}
-                                        className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                        title={`Restore previous color: ${historyColor}`}
-                                      >
-                                        <RotateCcw className="w-3 h-3 text-themed-muted" />
-                                      </button>
-                                    );
-                                  })()}
-                                  <button
-                                    onClick={() => {
-                                      setEditedTheme((prev: any) => {
-                                        const updated = { ...prev };
-                                        delete updated[color.key];
-                                        return updated;
-                                      });
-                                    }}
-                                    className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                    title="Reset to default"
-                                  >
-                                    <X className="w-3 h-3 text-themed-warning" />
-                                  </button>
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      </div>
+                      <ImprovedColorPicker
+                        key={color.key}
+                        label={color.label}
+                        description={color.description}
+                        affects={color.affects}
+                        value={editedTheme[color.key] || '#000000'}
+                        onChange={(value) => handleEditColorChange(color.key, value)}
+                        onColorCommit={(previousColor) => handleEditColorCommit(color.key, previousColor)}
+                        supportsAlpha={color.supportsAlpha}
+                        copiedColor={copiedColor}
+                        onCopy={copyColor}
+                        onRestore={() => restorePreviousColor(color.key)}
+                        hasHistory={!!getEditColorHistory(color.key)}
+                      />
                     ))}
                   </div>
                 )}

@@ -23,20 +23,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
   React.useEffect(() => {
     if (opened) {
-      // Calculate scrollbar width before hiding overflow
-      const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-
-      // Apply padding to compensate for scrollbar removal
-      if (scrollbarWidth > 0) {
-        document.body.style.paddingRight = `${scrollbarWidth}px`;
-        // Also apply padding to any fixed position elements
-        const fixedElements = document.querySelectorAll('.fixed, [style*="position: fixed"]');
-        fixedElements.forEach((el) => {
-          if (el instanceof HTMLElement && !el.classList.contains('modal-backdrop')) {
-            el.style.paddingRight = `${scrollbarWidth}px`;
-          }
-        });
-      }
+      // Prevent scrolling - scrollbar-gutter: stable in CSS prevents layout shift
       document.body.style.overflow = 'hidden';
 
       // Start animation with slight delay for smoother appearance
@@ -49,27 +36,14 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       setIsAnimating(false);
       setTimeout(() => {
         setIsVisible(false);
-        document.body.style.overflow = 'unset';
-        document.body.style.paddingRight = '0px';
-        // Reset padding on fixed elements
-        const fixedElements = document.querySelectorAll('.fixed, [style*="position: fixed"]');
-        fixedElements.forEach((el) => {
-          if (el instanceof HTMLElement && !el.classList.contains('modal-backdrop')) {
-            el.style.paddingRight = '';
-          }
-        });
+        // Restore scrolling
+        document.body.style.overflow = '';
       }, 250); // Match transition duration
     }
 
     return () => {
-      document.body.style.overflow = 'unset';
-      document.body.style.paddingRight = '0px';
-      const fixedElements = document.querySelectorAll('.fixed, [style*="position: fixed"]');
-      fixedElements.forEach((el) => {
-        if (el instanceof HTMLElement && !el.classList.contains('modal-backdrop')) {
-          el.style.paddingRight = '';
-        }
-      });
+      // Cleanup: restore scrolling if component unmounts while modal is open
+      document.body.style.overflow = '';
     };
   }, [opened]);
 

@@ -73,33 +73,6 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 }
 
 /**
- * Format Local timestamp (already in server timezone) for display
- * Local timestamps are stored as naive datetime strings in the server's timezone
- * We display them directly without timezone conversion
- */
-export function formatLocalDateTime(dateString: string | null | undefined): string {
-  if (!dateString) return 'N/A';
-
-  try {
-    // Parse the date string and display it as-is (no timezone conversion)
-    // The timestamp is already in the server's configured timezone
-    const date = new Date(dateString);
-
-    if (isNaN(date.getTime())) return 'Invalid Date';
-
-    return date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  } catch (error) {
-    return 'Invalid Date';
-  }
-}
-
-/**
  * Format relative time (e.g., "2 hours ago")
  */
 export function formatRelativeTime(dateString: string | Date | null | undefined): string {
@@ -121,62 +94,4 @@ export function formatRelativeTime(dateString: string | Date | null | undefined)
   } catch (error) {
     return 'Invalid Date';
   }
-}
-
-/**
- * Format duration from milliseconds
- */
-export function formatDuration(ms: number): string {
-  if (!ms || ms < 0) return 'N/A';
-
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) {
-    return `${days}d ${hours % 24}h`;
-  } else if (hours > 0) {
-    return `${hours}h ${minutes % 60}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
-  } else {
-    return `${seconds}s`;
-  }
-}
-
-/**
- * Format number with commas
- */
-export function formatNumber(num: number): string {
-  if (num === null || num === undefined || isNaN(num)) return '0';
-  return num.toLocaleString('en-US');
-}
-
-/**
- * Format IP address for display
- */
-export function formatIpAddress(ip: string): string {
-  if (!ip) return 'Unknown';
-  if (ip === '127.0.0.1' || ip === 'localhost') return 'Local';
-  return ip;
-}
-
-/**
- * Get cache hit color based on percentage
- */
-export function getCacheHitColor(percent: number): string {
-  if (percent >= 75) return 'green';
-  if (percent >= 50) return 'blue';
-  if (percent >= 25) return 'yellow';
-  return 'orange';
-}
-
-/**
- * Truncate string with ellipsis
- */
-export function truncateString(str: string, maxLength = 50): string {
-  if (!str) return '';
-  if (str.length <= maxLength) return str;
-  return str.substring(0, maxLength - 3) + '...';
 }

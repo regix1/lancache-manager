@@ -571,7 +571,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   checked={picsAlwaysVisible}
                   onChange={(e) => handlePicsAlwaysVisibleToggle(e.target.checked)}
                   variant="rounded"
-                  label="Steam PICS Always Visible"
+                  label="Universal Notifications Always Visible"
                 />
               </div>
             </div>

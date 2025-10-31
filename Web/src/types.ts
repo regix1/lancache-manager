@@ -26,27 +26,6 @@ export interface Download {
   depotId?: number;
 }
 
-export interface GameInfo {
-  downloadId: number;
-  service: string;
-  appId?: number;
-  gameName?: string;
-  gameType?: string;
-  headerImage?: string;
-  description?: string;
-  totalBytes?: number;
-  cacheHitBytes?: number;
-  cacheMissBytes?: number;
-  cacheHitPercent?: number;
-  startTimeUtc?: string;
-  endTimeUtc?: string | null;
-  startTimeLocal?: string;
-  endTimeLocal?: string | null;
-  clientIp?: string;
-  isActive?: boolean;
-  error?: string;
-}
-
 export interface DownloadSettings {
   showZeroBytes: boolean;
   showSmallFiles: boolean;
@@ -82,12 +61,6 @@ export interface DownloadSettings {
   selectedService: string;
   itemsPerPage?: number | 'all';
   groupGames: boolean;
-}
-
-export interface DownloadType {
-  type: 'game' | 'metadata' | 'content';
-  label: string;
-  icon: React.ComponentType<any>;
 }
 
 export interface ClientStat {
@@ -182,16 +155,6 @@ export interface Config {
   timezone: string;
 }
 
-export type CardKey =
-  | 'totalCache'
-  | 'usedSpace'
-  | 'bandwidthSaved'
-  | 'addedToCache'
-  | 'totalServed'
-  | 'activeDownloads'
-  | 'activeClients'
-  | 'cacheHitRatio';
-
 export interface StatCardData {
   key: string;
   title: string;
@@ -201,17 +164,6 @@ export interface StatCardData {
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan';
   visible: boolean;
   tooltip?: string;
-}
-
-export interface TimeRange {
-  label: string;
-  value: string;
-}
-
-export interface ApiResponse<T> {
-  data: T;
-  error?: string;
-  status: number;
 }
 
 export interface CorruptedChunkDetail {
@@ -229,11 +181,6 @@ export interface GameCacheInfo {
   depot_ids: number[];
   sample_urls: string[];
   cache_file_paths: string[];
-}
-
-export interface GameCacheDetectionResult {
-  totalGamesDetected: number;
-  games: GameCacheInfo[];
 }
 
 export interface GameDetectionStatus {

@@ -191,29 +191,3 @@ export const CacheInfoTooltip: React.FC = () => {
     </Tooltip>
   );
 };
-
-export const CachePerformanceTooltip: React.FC = () => (
-  <Tooltip
-    content="Higher cache hit rates mean better performance and bandwidth savings"
-    className="inline-flex p-1"
-  />
-);
-
-export const TimestampTooltip: React.FC<{
-  startTime: string;
-  endTime: string | null;
-  isActive: boolean;
-  children: React.ReactNode;
-}> = ({ startTime, endTime, isActive, children }) => (
-  <Tooltip
-    content={
-      <div className="space-y-1">
-        <div>Started: {startTime}</div>
-        {endTime && <div>Ended: {endTime}</div>}
-        <div>Status: {isActive ? 'Active' : 'Completed'}</div>
-      </div>
-    }
-  >
-    {children}
-  </Tooltip>
-);

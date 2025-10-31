@@ -9,15 +9,12 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  Check,
-  Copy,
-  RotateCcw,
-  Percent,
   Save
 } from 'lucide-react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
+import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { ColorGroup } from './types';
 
@@ -57,47 +54,40 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   loading
 }) => {
   const [createSearchQuery, setCreateSearchQuery] = useState('');
-  const [createColorEditingStarted, setCreateColorEditingStarted] = useState<Record<string, boolean>>({});
 
-  // Helper functions
-  const hexToRgba = (hex: string, alpha: number = 1): string => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    if (!result) return hex;
-    const r = parseInt(result[1], 16);
-    const g = parseInt(result[2], 16);
-    const b = parseInt(result[3], 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  };
+  const handleColorCommit = (key: string, previousColor: string) => {
+    // Save the previous color to history when user finishes editing
+    const historyKey = `color_history_create_${key}`;
+    const originalKey = `color_history_create_${key}_original`;
+    const existingHistory = localStorage.getItem(historyKey);
+    let history: string[] = [];
 
-  const parseColorValue = (color: string): { hex: string; alpha: number } => {
-    // Handle rgba format
-    const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (rgbaMatch) {
-      const r = parseInt(rgbaMatch[1]);
-      const g = parseInt(rgbaMatch[2]);
-      const b = parseInt(rgbaMatch[3]);
-      const alpha = rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
-      const hex = '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
-      return { hex, alpha };
+    // Save original color if this is the first time (no history exists)
+    if (!existingHistory) {
+      localStorage.setItem(originalKey, previousColor);
     }
-    // Handle hex format
-    return { hex: color, alpha: 1 };
-  };
 
-  const updateColorWithAlpha = (key: string, hex: string, alpha: number) => {
-    const colorValue = alpha < 1 ? hexToRgba(hex, alpha) : hex;
-    setNewTheme((prev: any) => ({ ...prev, [key]: colorValue }));
-  };
-
-  const handleColorStart = (key: string) => {
-    // Save the original color when user starts editing
-    if (!createColorEditingStarted[key]) {
-      const currentValue = newTheme[key];
-      if (currentValue) {
-        localStorage.setItem(`color_history_create_${key}`, currentValue);
+    // Handle migration from old format (single string) to new format (array)
+    if (existingHistory) {
+      try {
+        history = JSON.parse(existingHistory);
+        // Ensure it's an array
+        if (!Array.isArray(history)) {
+          history = [existingHistory]; // Old format: single string
+        }
+      } catch {
+        // Old format: plain string, not JSON
+        history = [existingHistory];
       }
-      setCreateColorEditingStarted(prev => ({ ...prev, [key]: true }));
     }
+
+    // Add previous color to history (max 3 recent changes, original is stored separately)
+    history.unshift(previousColor);
+    if (history.length > 3) {
+      history.pop(); // Remove oldest (but original is safe in separate key)
+    }
+
+    localStorage.setItem(historyKey, JSON.stringify(history));
   };
 
   const handleColorChange = (key: string, value: string) => {
@@ -106,17 +96,75 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   };
 
   const restoreCreatePreviousColor = (key: string) => {
-    const previousColor = localStorage.getItem(`color_history_create_${key}`);
-    if (previousColor) {
-      // Swap current with history
-      const currentColor = newTheme[key];
-      setNewTheme((prev: any) => ({ ...prev, [key]: previousColor }));
-      localStorage.setItem(`color_history_create_${key}`, currentColor);
+    const historyKey = `color_history_create_${key}`;
+    const originalKey = `color_history_create_${key}_original`;
+    const existingHistory = localStorage.getItem(historyKey);
+
+    if (existingHistory) {
+      let history: string[] = [];
+
+      // Handle migration from old format (single string) to new format (array)
+      try {
+        history = JSON.parse(existingHistory);
+        if (!Array.isArray(history)) {
+          history = [existingHistory]; // Old format: single string
+        }
+      } catch {
+        // Old format: plain string, not JSON
+        history = [existingHistory];
+      }
+
+      if (history.length > 0) {
+        // Pop the most recent history item
+        const previousColor = history.shift();
+
+        // Update localStorage with remaining history
+        if (history.length > 0) {
+          localStorage.setItem(historyKey, JSON.stringify(history));
+        } else {
+          localStorage.removeItem(historyKey);
+        }
+
+        // Apply the previous color immediately
+        if (previousColor) {
+          setNewTheme((prev: any) => ({ ...prev, [key]: previousColor }));
+        }
+      }
+    } else {
+      // No recent history, restore to original color and remove it (final undo)
+      const originalColor = localStorage.getItem(originalKey);
+      if (originalColor) {
+        setNewTheme((prev: any) => ({ ...prev, [key]: originalColor }));
+        // Remove original after restoring to it (no more undos available)
+        localStorage.removeItem(originalKey);
+      }
     }
   };
 
   const getCreateColorHistory = (key: string) => {
-    return localStorage.getItem(`color_history_create_${key}`);
+    const historyKey = `color_history_create_${key}`;
+    const originalKey = `color_history_create_${key}_original`;
+    const existingHistory = localStorage.getItem(historyKey);
+
+    if (existingHistory) {
+      let history: string[] = [];
+
+      // Handle migration from old format (single string) to new format (array)
+      try {
+        history = JSON.parse(existingHistory);
+        if (!Array.isArray(history)) {
+          return existingHistory; // Old format: return the string directly
+        }
+      } catch {
+        // Old format: plain string, not JSON
+        return existingHistory;
+      }
+
+      return history.length > 0 ? history[0] : null;
+    }
+
+    // No recent history, check for original color
+    return localStorage.getItem(originalKey);
   };
 
   const loadPresetColors = (preset: 'dark' | 'light') => {
@@ -281,7 +329,6 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
 
   const handleClose = () => {
     onClose();
-    setCreateColorEditingStarted({});
   };
 
   return (
@@ -486,171 +533,20 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                     }}
                   >
                     {group.colors.map((color) => (
-                      <div key={color.key} className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <label className="block text-sm font-medium text-themed-primary">
-                              {color.label}
-                            </label>
-                            <p className="text-xs text-themed-muted">{color.description}</p>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {color.affects.map((item, idx) => (
-                                <span
-                                  key={idx}
-                                  className="text-xs px-1.5 py-0.5 rounded"
-                                  style={{
-                                    backgroundColor: 'var(--theme-bg-hover)',
-                                    color: 'var(--theme-text-secondary)'
-                                  }}
-                                >
-                                  {item}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {(() => {
-                              // Use current theme color as fallback instead of black
-                              const computedStyle = getComputedStyle(document.documentElement);
-                              // Map color keys to CSS variable names
-                              const cssVarMap: Record<string, string> = {
-                                primaryColor: '--theme-primary',
-                                secondaryColor: '--theme-secondary',
-                                accentColor: '--theme-accent',
-                                bgPrimary: '--theme-bg-primary',
-                                bgSecondary: '--theme-bg-secondary',
-                                bgTertiary: '--theme-bg-tertiary',
-                                bgHover: '--theme-bg-hover',
-                                textPrimary: '--theme-text-primary',
-                                textSecondary: '--theme-text-secondary',
-                                textMuted: '--theme-text-muted',
-                                textAccent: '--theme-text-accent',
-                                borderPrimary: '--theme-border-primary',
-                                borderSecondary: '--theme-border-secondary',
-                                borderFocus: '--theme-border-focus',
-                                success: '--theme-success',
-                                warning: '--theme-warning',
-                                error: '--theme-error',
-                                info: '--theme-info',
-                                buttonBg: '--theme-button-bg',
-                                buttonHover: '--theme-button-hover',
-                                inputBg: '--theme-input-bg',
-                                inputBorder: '--theme-input-border',
-                                inputFocus: '--theme-input-focus',
-                                checkboxAccent: '--theme-checkbox-accent',
-                                checkboxBorder: '--theme-checkbox-border',
-                                checkboxBg: '--theme-checkbox-bg',
-                                checkboxCheckmark: '--theme-checkbox-checkmark',
-                                checkboxShadow: '--theme-checkbox-shadow',
-                                checkboxHoverShadow: '--theme-checkbox-hover-shadow',
-                                checkboxHoverBg: '--theme-checkbox-hover-bg',
-                                checkboxFocus: '--theme-checkbox-focus',
-                                sliderAccent: '--theme-slider-accent',
-                                sliderThumb: '--theme-slider-thumb',
-                                sliderTrack: '--theme-slider-track',
-                                cardBg: '--theme-card-bg',
-                                cardBorder: '--theme-card-border',
-                                cardOutline: '--theme-card-outline',
-                                iconBgBlue: '--theme-icon-bg-blue',
-                                iconBgGreen: '--theme-icon-bg-green',
-                                iconBgPurple: '--theme-icon-bg-purple',
-                                chartColor1: '--theme-chart-1',
-                                chartColor2: '--theme-chart-2',
-                                chartColor3: '--theme-chart-3',
-                                chartColor4: '--theme-chart-4',
-                                chartColor5: '--theme-chart-5',
-                                chartColor6: '--theme-chart-6',
-                                chartColor7: '--theme-chart-7',
-                                chartColor8: '--theme-chart-8',
-                              };
-                              const cssVarName = cssVarMap[color.key] || `--theme-${color.key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
-                              const currentThemeColor = computedStyle.getPropertyValue(cssVarName).trim() || '#3b82f6';
-                              const { hex, alpha } = parseColorValue(newTheme[color.key] || currentThemeColor);
-                              return (
-                                <>
-                                  <div className="relative">
-                                    <input
-                                      type="color"
-                                      value={hex}
-                                      onMouseDown={() => handleColorStart(color.key)}
-                                      onFocus={() => handleColorStart(color.key)}
-                                      onChange={(e) => {
-                                        const currentAlpha = parseColorValue(newTheme[color.key] || currentThemeColor).alpha;
-                                        updateColorWithAlpha(color.key, e.target.value, currentAlpha);
-                                      }}
-                                      className="w-12 h-8 rounded cursor-pointer"
-                                      style={{ backgroundColor: newTheme[color.key] || currentThemeColor }}
-                                    />
-                                  </div>
-                                  {color.supportsAlpha && (
-                                    <div className="flex items-center gap-1">
-                                      <Percent className="w-3 h-3 text-themed-muted" />
-                                      <input
-                                        type="range"
-                                        min="0"
-                                        max="100"
-                                        value={Math.round(alpha * 100)}
-                                        onChange={(e) => {
-                                          const newAlpha = parseInt(e.target.value) / 100;
-                                          updateColorWithAlpha(color.key, hex, newAlpha);
-                                        }}
-                                        className="w-16"
-                                        title={`Opacity: ${Math.round(alpha * 100)}%`}
-                                      />
-                                      <span className="text-xs text-themed-muted w-8">
-                                        {Math.round(alpha * 100)}%
-                                      </span>
-                                    </div>
-                                  )}
-                                  <input
-                                    type="text"
-                                    value={newTheme[color.key] || currentThemeColor}
-                                    onFocus={() => handleColorStart(color.key)}
-                                    onChange={(e) => handleColorChange(color.key, e.target.value)}
-                                    className="w-24 px-2 py-1 text-xs rounded font-mono themed-input"
-                                  />
-                                  <button
-                                    onClick={() => copyColor(newTheme[color.key] || currentThemeColor)}
-                                    className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                    title="Copy color"
-                                  >
-                                    {copiedColor === (newTheme[color.key] || currentThemeColor) ? (
-                                      <Check
-                                        className="w-3 h-3"
-                                        style={{ color: 'var(--theme-success)' }}
-                                      />
-                                    ) : (
-                                      <Copy className="w-3 h-3 text-themed-muted" />
-                                    )}
-                                  </button>
-                                  {getCreateColorHistory(color.key) && (
-                                    <button
-                                      onClick={() => restoreCreatePreviousColor(color.key)}
-                                      className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                      title={`Restore previous color: ${getCreateColorHistory(color.key)}`}
-                                    >
-                                      <RotateCcw className="w-3 h-3 text-themed-muted" />
-                                    </button>
-                                  )}
-                                  <button
-                                    onClick={() => {
-                                      setNewTheme((prev: any) => {
-                                        const updated = { ...prev };
-                                        delete updated[color.key];
-                                        return updated;
-                                      });
-                                    }}
-                                    className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover"
-                                    title="Reset to default"
-                                  >
-                                    <X className="w-3 h-3 text-themed-warning" />
-                                  </button>
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      </div>
+                      <ImprovedColorPicker
+                        key={color.key}
+                        label={color.label}
+                        description={color.description}
+                        affects={color.affects}
+                        value={newTheme[color.key] || '#ffffff'}
+                        onChange={(value) => handleColorChange(color.key, value)}
+                        onColorCommit={(previousColor) => handleColorCommit(color.key, previousColor)}
+                        supportsAlpha={color.supportsAlpha}
+                        copiedColor={copiedColor}
+                        onCopy={copyColor}
+                        onRestore={() => restoreCreatePreviousColor(color.key)}
+                        hasHistory={!!getCreateColorHistory(color.key)}
+                      />
                     ))}
                   </div>
                 )}

@@ -14,20 +14,6 @@ public class DeviceAuthService
     private readonly Dictionary<string, DeviceRegistration> _deviceCache = new();
     private readonly object _cacheLock = new object();
 
-    private static readonly string[] DeviceAdjectives = new[]
-    {
-        "brisk", "bright", "calm", "clever", "crisp", "daring", "eager", "fierce",
-        "gentle", "glowing", "keen", "lively", "noble", "quick", "quiet", "steady",
-        "swift", "vivid", "wild", "zen"
-    };
-
-    private static readonly string[] DeviceNouns = new[]
-    {
-        "aurora", "banyan", "cascade", "citadel", "comet", "ember", "grove", "harbor",
-        "lagoon", "mesa", "monsoon", "nebula", "oasis", "quartz", "ridge", "summit",
-        "tidal", "velvet", "willow", "zephyr"
-    };
-
     public DeviceAuthService(
         ILogger<DeviceAuthService> logger,
         ApiKeyService apiKeyService,
@@ -104,7 +90,7 @@ public class DeviceAuthService
             var encryptedKey = EncryptApiKey(request.ApiKey, request.DeviceId);
 
             var friendlyName = string.IsNullOrWhiteSpace(request.DeviceName)
-                ? GenerateFriendlyDeviceName()
+                ? "Unknown Device"
                 : request.DeviceName!.Trim();
 
             var registration = new DeviceRegistration
@@ -185,43 +171,6 @@ public class DeviceAuthService
         }
 
         return false;
-    }
-
-    public List<DeviceRegistration> GetAllDevices()
-    {
-        lock (_cacheLock)
-        {
-            return _deviceCache.Values
-                .Where(d => d.ExpiresAt > DateTime.UtcNow)
-                .OrderByDescending(d => d.RegisteredAt)
-                .ToList();
-        }
-    }
-
-    public bool RevokeDevice(string deviceId)
-    {
-        try
-        {
-            lock (_cacheLock)
-            {
-                _deviceCache.Remove(deviceId);
-            }
-
-            var filePath = GetDeviceFilePath(deviceId);
-            if (File.Exists(filePath))
-            {
-                File.Delete(filePath);
-                _logger.LogInformation("Revoked device: {DeviceId}", deviceId);
-                return true;
-            }
-
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error revoking device {DeviceId}", deviceId);
-            return false;
-        }
     }
 
     private string EncryptApiKey(string apiKey, string deviceId)
@@ -365,19 +314,6 @@ public class DeviceAuthService
             .Replace("=", "");
 
         return Path.Combine(_devicesDirectory, $"{safeId}.json");
-    }
-
-    private string GenerateFriendlyDeviceName()
-    {
-        Span<byte> buffer = stackalloc byte[4];
-        RandomNumberGenerator.Fill(buffer);
-        var seed = BitConverter.ToUInt32(buffer);
-
-        var adjective = DeviceAdjectives[seed % (uint)DeviceAdjectives.Length];
-        var noun = DeviceNouns[(seed / (uint)DeviceAdjectives.Length) % (uint)DeviceNouns.Length];
-        var numeric = RandomNumberGenerator.GetInt32(100, 999);
-
-        return $"{adjective}-{noun}-{numeric}";
     }
 
     public int RevokeAllDevices()

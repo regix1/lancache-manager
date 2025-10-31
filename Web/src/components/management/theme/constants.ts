@@ -21,13 +21,48 @@ import {
 import { ColorGroup, PageGroup } from './types';
 
 export const pageDefinitions: PageGroup[] = [
-  { name: 'all', label: 'All Pages', icon: Layers, description: 'Colors used across all pages' },
-  { name: 'dashboard', label: 'Dashboard', icon: Home, description: 'Main dashboard and overview page' },
-  { name: 'downloads', label: 'Downloads', icon: Download, description: 'Downloads and active transfers' },
-  { name: 'clients', label: 'Clients', icon: Users, description: 'Client connections and statistics' },
-  { name: 'services', label: 'Services', icon: Server, description: 'Service status and statistics' },
-  { name: 'management', label: 'Management', icon: Settings, description: 'Cache and theme management' },
-  { name: 'charts', label: 'Charts & Graphs', icon: BarChart3, description: 'Data visualizations and charts' }
+  {
+    name: 'all',
+    label: 'All Pages',
+    icon: Layers,
+    description: 'View all colors - Shows every color used throughout the application'
+  },
+  {
+    name: 'dashboard',
+    label: 'Dashboard',
+    icon: Home,
+    description: '8 stat cards (Total Cache, Used Space, Bandwidth Saved, Added to Cache, Total Served, Active Downloads, Active Clients, Cache Hit Ratio), service chart, recent downloads panel, top clients table, and drag-to-reorder handles'
+  },
+  {
+    name: 'downloads',
+    label: 'Downloads',
+    icon: Download,
+    description: 'Download cards with game banners, service/client filters (dropdowns), checkboxes (show metadata, hide localhost, etc.), pagination controls, cache hit/miss badges, view mode toggles (compact/normal), and export buttons'
+  },
+  {
+    name: 'clients',
+    label: 'Clients',
+    icon: Users,
+    description: 'Client statistics table showing IP addresses, download counts, bandwidth usage, cache hit/miss bytes, hit rate progress bars, and last activity timestamps'
+  },
+  {
+    name: 'services',
+    label: 'Services',
+    icon: Server,
+    description: 'Service statistics table with platform-colored badges (Steam, Epic, Origin, Blizzard, WSUS, Riot), download counts, bandwidth totals, cache hit/miss bytes, and hit rate progress bars'
+  },
+  {
+    name: 'management',
+    label: 'Management',
+    icon: Settings,
+    description: 'Authentication (API keys), Steam integration, database reset/clear buttons, cache management, log processing, corruption detection, game cache detector, theme customization (modals, color pickers, checkboxes, sliders), GC settings, alert banners, and Grafana endpoints'
+  },
+  {
+    name: 'charts',
+    label: 'Charts & Graphs',
+    icon: BarChart3,
+    description: 'Enhanced service charts with 8 data series colors, cache hit/miss colors, grid lines, axis labels, legends, and performance trend visualizations'
+  }
 ];
 
 export const colorGroups: ColorGroup[] = [
@@ -35,7 +70,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'foundation',
     icon: Palette,
-    description: 'Core brand colors that define your theme\'s identity',
+    description: 'Primary, secondary, and accent colors - The core colors that define your theme\'s visual identity',
     colors: [
       {
         key: 'primaryColor',
@@ -68,7 +103,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'content',
     icon: Type,
-    description: 'Text colors for content hierarchy and readability',
+    description: 'Headings, body text, labels, and descriptions - Controls all text colors throughout the app',
     colors: [
       {
         key: 'textPrimary',
@@ -117,7 +152,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'layout',
     icon: Layout,
-    description: 'Background colors for UI surfaces and layers',
+    description: 'Backgrounds, cards, panels, and surfaces - Controls layering and depth in your theme',
     colors: [
       {
         key: 'bgPrimary',
@@ -182,7 +217,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'interactive',
     icon: Component,
-    description: 'Interactive elements like buttons, inputs, and forms',
+    description: 'Buttons, inputs, checkboxes, and sliders - All interactive controls and form elements',
     colors: [
       {
         key: 'buttonBg',
@@ -373,7 +408,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'feedback',
     icon: AlertCircle,
-    description: 'Status indicators, alerts, notifications, banners, and feedback colors',
+    description: 'Success, warning, error, and info states - Alert banners, notifications, and status messages',
     colors: [
       {
         key: 'success',
@@ -478,7 +513,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'navigation',
     icon: Layout,
-    description: 'Navigation bar and menu styling',
+    description: 'Header, tabs, and menus - Top navigation bar, active/inactive tabs, and mobile menu',
     colors: [
       {
         key: 'navBg',
@@ -543,7 +578,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'dataDisplay',
     icon: Activity,
-    description: 'Data visualization and display elements',
+    description: 'Charts, graphs, and progress bars - Data visualization colors for all chart types',
     colors: [
       {
         key: 'progressBg',
@@ -656,7 +691,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'accessControl',
     icon: Lock,
-    description: 'Security and access control indicators',
+    description: 'Public and secured badges - Security status indicators for API access control',
     colors: [
       {
         key: 'publicAccessBg',
@@ -707,7 +742,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'platforms',
     icon: Gamepad2,
-    description: 'Gaming platform and service colors',
+    description: 'Steam, Epic, Origin, Blizzard, WSUS, Riot - Platform-specific colors for badges and charts',
     colors: [
       {
         key: 'steamColor',
@@ -764,7 +799,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'performance',
     icon: Activity,
-    description: 'Performance indicators and cache hit rate colors',
+    description: 'Cache hit rate badges - High/medium/low performance indicators for cache efficiency',
     colors: [
       {
         key: 'hitRateHighBg',
@@ -837,7 +872,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'actions',
     icon: Sparkles,
-    description: 'Action button colors for operations',
+    description: 'Reset, Process, and Delete buttons - Special action buttons in the management page',
     colors: [
       {
         key: 'actionResetBg',
@@ -894,7 +929,7 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'utilities',
     icon: Brush,
-    description: 'Utility colors for specialized UI elements',
+    description: 'Scrollbars and icon backgrounds - Specialized colors for dashboard stat card icons',
     colors: [
       {
         key: 'scrollbarTrack',

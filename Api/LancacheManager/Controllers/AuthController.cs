@@ -169,75 +169,6 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Validate a device ID
-    /// </summary>
-    [HttpPost("validate")]
-    public IActionResult ValidateDevice([FromBody] ValidateRequest request)
-    {
-        try
-        {
-            var isValid = _deviceAuthService.ValidateDevice(request.DeviceId);
-
-            if (isValid)
-            {
-                return Ok(new { valid = true, message = "Device is registered and valid" });
-            }
-
-            return Unauthorized(new { valid = false, message = "Device not registered or expired" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error validating device");
-            return StatusCode(500, new { error = "Validation failed" });
-        }
-    }
-
-    /// <summary>
-    /// Get all registered devices (requires authentication)
-    /// </summary>
-    [HttpGet("devices")]
-    [RequireAuth]
-    public IActionResult GetDevices()
-    {
-        try
-        {
-            var devices = _deviceAuthService.GetAllDevices();
-            return Ok(devices);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting devices");
-            return StatusCode(500, new { error = "Failed to get devices" });
-        }
-    }
-
-    /// <summary>
-    /// Revoke a device registration (requires authentication)
-    /// </summary>
-    [HttpDelete("devices/{deviceId}")]
-    [RequireAuth]
-    public IActionResult RevokeDevice(string deviceId)
-    {
-        try
-        {
-            var success = _deviceAuthService.RevokeDevice(deviceId);
-
-            if (success)
-            {
-                _logger.LogInformation("Device revoked: {DeviceId}", deviceId);
-                return Ok(new { message = "Device revoked successfully" });
-            }
-
-            return NotFound(new { error = "Device not found" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error revoking device");
-            return StatusCode(500, new { error = "Failed to revoke device" });
-        }
-    }
-
-    /// <summary>
     /// Regenerate the API key (requires authentication)
     /// SECURITY: This will logout all Steam sessions and revoke all device registrations
     /// </summary>
@@ -314,9 +245,4 @@ public class AuthController : ControllerBase
             warning = "This endpoint is only accessible from localhost"
         });
     }
-}
-
-public class ValidateRequest
-{
-    public string DeviceId { get; set; } = string.Empty;
 }

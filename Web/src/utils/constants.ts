@@ -8,11 +8,6 @@ export const SIGNALR_BASE = import.meta.env.VITE_API_URL
 
 // Services
 export const SERVICES = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'] as const;
-export type ServiceType = (typeof SERVICES)[number];
-
-// Refresh intervals (in milliseconds)
-export const REFRESH_INTERVAL = 5000; // 5 seconds - deprecated, use polling rate context
-export const PROCESSING_CHECK_INTERVAL = 2000; // 2 seconds
 
 // Polling rate options (in milliseconds) - Best practices for dashboard refresh rates
 export const POLLING_RATES = {
@@ -27,9 +22,6 @@ export type PollingRate = keyof typeof POLLING_RATES;
 
 // File size units
 export const FILE_SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
-
-// Default pagination
-export const DEFAULT_PAGE_SIZE = 50;
 
 // Storage keys - COMPLETE VERSION
 export const STORAGE_KEYS = {
