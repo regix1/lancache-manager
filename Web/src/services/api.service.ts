@@ -425,6 +425,19 @@ class ApiService {
     }
   }
 
+  // Get log removal status
+  static async getLogRemovalStatus(): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/management/logs/remove-status`, {
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('getLogRemovalStatus error:', error);
+      throw error;
+    }
+  }
+
   // Get counts of log entries per service
   static async getServiceLogCounts(forceRefresh: boolean = false): Promise<Record<string, number>> {
     try {

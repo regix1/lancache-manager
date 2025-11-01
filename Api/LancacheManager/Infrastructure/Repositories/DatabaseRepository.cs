@@ -47,11 +47,19 @@ public class DatabaseRepository : IDatabaseRepository
                 timestamp = DateTime.UtcNow
             });
 
-            // Count total rows for progress calculation
-            var logEntriesCount = await _context.LogEntries.CountAsync();
-            var downloadsCount = await _context.Downloads.CountAsync();
-            var clientStatsCount = await _context.ClientStats.CountAsync();
-            var serviceStatsCount = await _context.ServiceStats.CountAsync();
+            // Count total rows for progress calculation - run all counts in parallel for speed
+            var countTasks = new[]
+            {
+                _context.LogEntries.CountAsync(),
+                _context.Downloads.CountAsync(),
+                _context.ClientStats.CountAsync(),
+                _context.ServiceStats.CountAsync()
+            };
+            var counts = await Task.WhenAll(countTasks);
+            var logEntriesCount = counts[0];
+            var downloadsCount = counts[1];
+            var clientStatsCount = counts[2];
+            var serviceStatsCount = counts[3];
             var totalRows = logEntriesCount + downloadsCount + clientStatsCount + serviceStatsCount;
 
             _logger.LogInformation($"Deleting {totalRows:N0} total rows: LogEntries={logEntriesCount:N0}, Downloads={downloadsCount:N0}, ClientStats={clientStatsCount:N0}, ServiceStats={serviceStatsCount:N0}");
@@ -264,10 +272,9 @@ public class DatabaseRepository : IDatabaseRepository
         {
             _logger.LogInformation("Clearing all depot mappings from database and downloads table");
 
-            var count = await _context.SteamDepotMappings.CountAsync();
-
-            // Clear depot mappings table
-            await _context.SteamDepotMappings.ExecuteDeleteAsync();
+            // ExecuteDeleteAsync returns the number of rows deleted
+            // This avoids a slow COUNT query before deletion
+            var count = await _context.SteamDepotMappings.ExecuteDeleteAsync();
 
             // Also clear game info from downloads table (set to null, keep download records)
             await _context.Downloads

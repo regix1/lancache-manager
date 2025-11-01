@@ -100,11 +100,21 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (!checkingAuth) {
       let lastAuthState = authService.isAuthenticated;
+      let lastAuthMode = authService.authMode;
 
       const interval = setInterval(async () => {
         const currentAuthState = authService.isAuthenticated;
-        setIsAuthenticated(currentAuthState);
-        setAuthMode(authService.authMode);
+        const currentAuthMode = authService.authMode;
+
+        // Only update state if values actually changed
+        if (currentAuthState !== lastAuthState) {
+          setIsAuthenticated(currentAuthState);
+          lastAuthState = currentAuthState;
+        }
+        if (currentAuthMode !== lastAuthMode) {
+          setAuthMode(currentAuthMode);
+          lastAuthMode = currentAuthMode;
+        }
 
         // Re-check auth with backend to detect revoked devices
         if (currentAuthState && authService.authMode === 'authenticated') {
@@ -123,7 +133,10 @@ const AppContent: React.FC = () => {
         // Re-check auth if in guest mode to get updated time
         if (authService.authMode === 'guest' || authService.authMode === 'expired') {
           const result = await authService.checkAuth();
-          setAuthMode(result.authMode);
+          if (result.authMode !== lastAuthMode) {
+            setAuthMode(result.authMode);
+            lastAuthMode = result.authMode;
+          }
         }
 
         // Detect if authentication state changed from authenticated to unauthenticated
@@ -131,8 +144,6 @@ const AppContent: React.FC = () => {
           console.warn('[Auth] Authentication lost. Forcing reload...');
           window.location.reload();
         }
-
-        lastAuthState = currentAuthState;
       }, 5000); // Check every 5 seconds for revoked devices
       return () => clearInterval(interval);
     }

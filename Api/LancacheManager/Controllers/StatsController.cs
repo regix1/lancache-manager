@@ -165,28 +165,34 @@ public class StatsController : ControllerBase
                 downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
             }
 
-            // Calculate aggregates in the database (no ToListAsync - just get the numbers)
-            var periodHitBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
-            var periodMissBytes = await downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
-            var periodDownloadCount = await downloadsQuery.CountAsync();
+            // Run aggregates in parallel for better performance
+            var periodHitBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheHitBytes);
+            var periodMissBytesTask = downloadsQuery.SumAsync(d => (long?)d.CacheMissBytes);
+            var periodDownloadCountTask = downloadsQuery.CountAsync();
+            var activeDownloadsTask = _context.Downloads
+                .AsNoTracking()
+                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
+                .CountAsync();
+            var uniqueClientsCountTask = cutoffTime.HasValue
+                ? _context.ClientStats
+                    .AsNoTracking()
+                    .Where(c => c.LastActivityUtc >= cutoffTime.Value)
+                    .CountAsync()
+                : _context.ClientStats.AsNoTracking().CountAsync();
+
+            // Await all tasks in parallel
+            await Task.WhenAll(periodHitBytesTask, periodMissBytesTask, periodDownloadCountTask, activeDownloadsTask, uniqueClientsCountTask);
+
+            var periodHitBytes = periodHitBytesTask.Result ?? 0L;
+            var periodMissBytes = periodMissBytesTask.Result ?? 0L;
+            var periodDownloadCount = periodDownloadCountTask.Result;
+            var activeDownloads = activeDownloadsTask.Result;
+            var uniqueClientsCount = uniqueClientsCountTask.Result;
+
             var periodTotal = periodHitBytes + periodMissBytes;
             var periodHitRatio = periodTotal > 0
                 ? (double)periodHitBytes / periodTotal
                 : 0;
-
-            // Active downloads count (database-side)
-            var activeDownloads = await _context.Downloads
-                .AsNoTracking()
-                .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5))
-                .CountAsync();
-
-            // Count unique clients for the period (database-side)
-            var uniqueClientsCount = cutoffTime.HasValue
-                ? await _context.ClientStats
-                    .AsNoTracking()
-                    .Where(c => c.LastActivityUtc >= cutoffTime.Value)
-                    .CountAsync()
-                : await _context.ClientStats.AsNoTracking().CountAsync();
 
             // For "all" period, period metrics should equal all-time metrics
             if (period == "all")

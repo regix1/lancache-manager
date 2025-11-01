@@ -402,13 +402,11 @@ public class PicsDataService
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            var count = await context.SteamDepotMappings.CountAsync(cancellationToken);
-            _logger.LogInformation($"Clearing {count} depot mappings from database");
+            // ExecuteDeleteAsync returns the number of rows deleted
+            // This avoids a slow COUNT query before deletion
+            var count = await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
 
-            // Use ExecuteDeleteAsync for efficient bulk delete (EF Core 7+)
-            await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
-
-            _logger.LogInformation("Successfully cleared all depot mappings");
+            _logger.LogInformation($"Successfully cleared {count} depot mappings from database");
         }
         catch (Exception ex)
         {

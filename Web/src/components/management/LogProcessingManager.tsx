@@ -69,6 +69,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
   // Load Steam auth status
   useEffect(() => {
+    let lastMode: string | null = null;
+
     const loadSteamAuthState = async () => {
       try {
         const response = await fetch('/api/management/steam-auth-status', {
@@ -76,7 +78,11 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
         });
         if (response.ok) {
           const state: SteamAuthState = await response.json();
-          setSteamAuthMode(state.mode);
+          // Only update state if it actually changed
+          if (state.mode !== lastMode) {
+            lastMode = state.mode;
+            setSteamAuthMode(state.mode);
+          }
         }
       } catch (err) {
         console.error('Failed to load Steam auth state:', err);
@@ -119,7 +125,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     } else {
       setBackgroundLogProcessing(null);
     }
-  }, [isProcessingLogs, processingStatus, setBackgroundLogProcessing, updateBackgroundLogProcessing]);
+    // Note: setBackgroundLogProcessing and updateBackgroundLogProcessing are stable context functions
+    // and should not be in the dependency array to avoid infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProcessingLogs, processingStatus]);
 
   const parseMetric = (value: unknown) => {
     const numeric = Number(value ?? 0);
@@ -227,7 +236,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     // Handler for ProcessingProgress event
     const handleProcessingProgress = async (progress: any) => {
-      console.log('SignalR ProcessingProgress received:', progress);
       const currentProgress = progress.percentComplete || progress.progress || 0;
       const status = progress.status || 'processing';
 

@@ -105,6 +105,10 @@ interface BackgroundServiceRemoval {
   service: string;
   status: 'removing' | 'complete' | 'failed';
   startedAt: Date;
+  message?: string;
+  progress?: number;
+  linesProcessed?: number;
+  linesRemoved?: number;
   error?: string;
 }
 
@@ -213,7 +217,7 @@ interface DataProviderProps {
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
-  const { getPollingInterval, pollingRate } = usePollingRate();
+  const { getPollingInterval } = usePollingRate();
 
   // Keep refs updated whenever they change
   useEffect(() => {
@@ -398,7 +402,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         : new AbortController().signal;
 
       const clients = await ApiService.getClientStats(signal, startTime, endTime);
-      if (clients) {
+      if (clients && clients.length >= 0) {
         setClientStats(clients);
       }
     } catch (err: any) {
@@ -690,7 +694,10 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
         abortControllerRef.current.abort();
       }
     };
-  }, [mockMode, pollingRate]); // Re-create intervals when polling rate changes
+    // Note: pollingRate intentionally excluded to prevent infinite loop
+    // The fetch functions use getPollingIntervalRef.current() which always has the latest value
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mockMode]); // Only recreate intervals when mock mode changes
 
   // Handle time range changes - refetch data when time range changes
   useEffect(() => {

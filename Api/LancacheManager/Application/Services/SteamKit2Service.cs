@@ -646,28 +646,36 @@ public class SteamKit2Service : IHostedService, IDisposable
             _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental}, Current mappings in memory: {Count})...",
                 incrementalOnly, _depotToAppMappings.Count);
 
-            // Always check database for existing data first
-            int databaseDepotCount = 0;
-            try
+            // Check if we already have data loaded in memory (fast)
+            // Use in-memory count if available, otherwise estimate from database (non-blocking for logging)
+            int estimatedDatabaseDepotCount = _depotToAppMappings.Count;
+            if (estimatedDatabaseDepotCount == 0)
             {
-                using var scope = _scopeFactory.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                databaseDepotCount = await context.SteamDepotMappings.CountAsync();
-                _logger.LogInformation("Database has {Count} depot mappings", databaseDepotCount);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to count database depot mappings");
+                // Only do database count if memory is empty - run in background for logging
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        using var scope = _scopeFactory.CreateScope();
+                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                        var dbCount = await context.SteamDepotMappings.CountAsync();
+                        _logger.LogInformation("Database has {Count} depot mappings", dbCount);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to count database depot mappings");
+                    }
+                });
             }
 
             // Load existing data from JSON file if it exists
             var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
             bool hasExistingJsonData = existingData?.DepotMappings?.Any() == true;
-            bool hasExistingDatabaseData = databaseDepotCount > 1000; // Require substantial database data (not just a few mappings)
+            bool hasExistingDatabaseData = estimatedDatabaseDepotCount > 1000; // Require substantial database data (not just a few mappings)
             bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
 
             _logger.LogInformation("Existing data check: JSON={HasJson} ({JsonCount} mappings), Database={HasDb} ({DbCount} mappings)",
-                hasExistingJsonData, existingData?.DepotMappings?.Count ?? 0, hasExistingDatabaseData, databaseDepotCount);
+                hasExistingJsonData, existingData?.DepotMappings?.Count ?? 0, hasExistingDatabaseData, estimatedDatabaseDepotCount);
 
             if (!incrementalOnly)
             {

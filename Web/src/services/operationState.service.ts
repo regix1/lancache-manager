@@ -168,7 +168,7 @@ class OperationStateService {
   }
 
   async migrateFromLocalStorage(): Promise<number> {
-    const keys = ['activeCacheClearOperation', 'activeLogProcessing', 'activeServiceRemoval'];
+    const keys = ['activeCacheClearOperation', 'activeLogProcessing', 'activeServiceRemoval', 'activeDepotMapping'];
     let migrated = 0;
 
     for (const key of keys) {
@@ -181,6 +181,7 @@ class OperationStateService {
           if (key.includes('CacheClear')) type = 'cacheClearing';
           else if (key.includes('LogProcessing')) type = 'logProcessing';
           else if (key.includes('ServiceRemoval')) type = 'serviceRemoval';
+          else if (key.includes('DepotMapping')) type = 'depotMapping';
 
           await this.saveState(key, type, parsed, 120);
           storage.removeItem(key);

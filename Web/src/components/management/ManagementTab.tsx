@@ -315,7 +315,10 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     setBackgroundDepotMapping,
     updateBackgroundDepotMapping,
     setBackgroundDatabaseReset,
-    updateBackgroundDatabaseReset
+    updateBackgroundDatabaseReset,
+    addBackgroundServiceRemoval,
+    updateBackgroundServiceRemoval,
+    clearBackgroundServiceRemoval
   } = useData();
   const signalR = useSignalR();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -382,10 +385,11 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     const checkOptimizations = async () => {
       try {
         const response = await fetch('/api/gc/settings');
-        // If we get a successful response or any response other than 404, optimizations are enabled
+        // If we get a successful response, optimizations are enabled
+        // 404 means the feature doesn't exist, which is fine
         setOptimizationsEnabled(response.ok);
       } catch (err) {
-        // On error, assume disabled
+        // On error (network, etc.), assume disabled
         setOptimizationsEnabled(false);
       }
     };
@@ -416,9 +420,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     }
 
     // Depot mapping event handlers
-    const handleDepotMappingStarted = (payload: any) => {
+    const handleDepotMappingStarted = async (payload: any) => {
       console.log('SignalR DepotMappingStarted received:', payload);
-      setBackgroundDepotMapping({
+      const state = {
         id: 'depot-mapping',
         isProcessing: true,
         totalMappings: 0,
@@ -427,12 +431,20 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         status: 'starting',
         message: payload.message || 'Starting depot mapping post-processing...',
         startedAt: new Date()
-      });
+      };
+      setBackgroundDepotMapping(state);
+
+      // Persist state for recovery
+      try {
+        await operationStateService.saveState('activeDepotMapping', 'depotMapping', state, 60);
+      } catch (err) {
+        console.warn('[ManagementTab] Failed to save depot mapping state:', err);
+      }
     };
 
-    const handleDepotMappingProgress = (payload: any) => {
+    const handleDepotMappingProgress = async (payload: any) => {
       console.log('SignalR DepotMappingProgress received:', payload);
-      updateBackgroundDepotMapping({
+      const updates = {
         isProcessing: payload.isProcessing,
         totalMappings: payload.totalMappings,
         processedMappings: payload.processedMappings,
@@ -440,36 +452,56 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         percentComplete: payload.percentComplete,
         status: payload.status,
         message: payload.message
-      });
+      };
+      updateBackgroundDepotMapping(updates);
+
+      // Update persisted state
+      try {
+        await operationStateService.updateState('activeDepotMapping', updates);
+      } catch (err) {
+        console.warn('[ManagementTab] Failed to update depot mapping state:', err);
+      }
 
       // Clear progress when complete
       if (!payload.isProcessing || payload.status === 'complete') {
-        setTimeout(() => {
+        setTimeout(async () => {
           setBackgroundDepotMapping(null);
+          // Clean up persisted state
+          try {
+            await operationStateService.removeState('activeDepotMapping');
+          } catch (err) {
+            console.warn('[ManagementTab] Failed to remove depot mapping state:', err);
+          }
         }, 5000);
       }
     };
 
-    const handleDepotPostProcessingFailed = (payload: any) => {
+    const handleDepotPostProcessingFailed = async (payload: any) => {
       setBackgroundDepotMapping(null);
       addErrorRef.current(payload?.error
         ? `Depot mapping post-processing failed: ${payload.error}`
         : 'Depot mapping post-processing failed.');
+
+      // Clean up persisted state
+      try {
+        await operationStateService.removeState('activeDepotMapping');
+      } catch (err) {
+        console.warn('[ManagementTab] Failed to remove depot mapping state:', err);
+      }
     };
 
     const handleDatabaseResetProgress = (payload: any) => {
-      console.log('SignalR DatabaseResetProgress received:', payload);
       if (payload.status === 'complete') {
         updateBackgroundDatabaseReset({
           status: 'complete',
-          message: 'Database reset completed - reloading page...',
+          message: 'Database reset completed - redirecting to home...',
           progress: 100
         });
-        setSuccessRef.current('Database reset completed successfully - reloading page...');
-        // Wait longer to ensure database is fully reset before reload
+        setSuccessRef.current('Database reset completed successfully - redirecting to home...');
+        // Wait longer to ensure database is fully reset before redirect
         setTimeout(() => {
-          // Force hard reload to ensure fresh data (bypasses cache)
-          window.location.reload();
+          // Redirect to home page to properly handle authentication state
+          window.location.href = '/';
         }, 2500);
       } else if (payload.status === 'error') {
         updateBackgroundDatabaseReset({
@@ -499,14 +531,31 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     };
 
     const handleLogRemovalProgress = (payload: any) => {
-      console.log('SignalR LogRemovalProgress received:', payload);
-      // Update UI with progress if needed
+      // Update DataContext with removal progress for UniversalNotificationBar
+      if (payload.status === 'starting' || payload.status === 'removing') {
+        updateBackgroundServiceRemoval(payload.service, {
+          status: 'removing',
+          message: payload.message || `Removing ${payload.service} entries...`,
+          progress: payload.percentComplete || 0,
+          linesProcessed: payload.linesProcessed || 0,
+          linesRemoved: payload.linesRemoved || 0
+        });
+      }
     };
 
     const handleLogRemovalComplete = async (payload: any) => {
-      console.log('SignalR LogRemovalComplete received:', payload);
       if (payload.success) {
-        console.log(`Service ${payload.service} removal completed successfully`);
+        // Update to completed status
+        updateBackgroundServiceRemoval(payload.service, {
+          status: 'complete',
+          message: payload.message || `Removed ${payload.linesRemoved || 0} ${payload.service} entries`,
+          progress: 100
+        });
+
+        // Clear after showing complete status for 3 seconds
+        setTimeout(() => {
+          clearBackgroundServiceRemoval(payload.service);
+        }, 3000);
 
         // Clear LogAndCorruptionManager operation state
         if (logAndCorruptionClearOpRef.current) {
@@ -516,7 +565,17 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         // Refresh LogAndCorruptionManager
         await refreshLogAndCorruptionRef.current();
       } else {
-        console.error(`Service ${payload.service} removal failed:`, payload.message);
+        // Update to failed status
+        updateBackgroundServiceRemoval(payload.service, {
+          status: 'failed',
+          error: payload.message || 'Removal failed'
+        });
+
+        // Clear after showing error for 5 seconds
+        setTimeout(() => {
+          clearBackgroundServiceRemoval(payload.service);
+        }, 5000);
+
         addErrorRef.current(`Failed to remove ${payload.service} logs: ${payload.message}`);
 
         // Clear operation states on failure too
@@ -537,33 +596,59 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
     console.log('[ManagementTab] Subscribed to SignalR events');
 
-    // Check for existing depot mapping status after subscription
-    const checkDepotMappingStatus = async () => {
+    // Recover depot mapping state if page was refreshed during operation
+    const recoverDepotMappingState = async () => {
       try {
-        const response = await fetch('/api/management/depot-mapping-status');
-        if (response.ok) {
-          const status = await response.json();
-          if (status.isProcessing) {
-            console.log('Recovering depot mapping state:', status);
-            setBackgroundDepotMapping({
-              id: 'depot-mapping',
-              isProcessing: status.isProcessing,
-              totalMappings: status.totalMappings || 0,
-              processedMappings: status.processedMappings || 0,
-              mappingsApplied: status.mappingsApplied,
-              percentComplete: status.percentComplete || 0,
-              status: status.status || 'processing',
-              message: status.message || 'Depot mapping in progress...',
-              startedAt: new Date()
-            });
-          }
+        const state = await operationStateService.getState('activeDepotMapping');
+        if (state?.data && state.data.isProcessing) {
+          console.log('[ManagementTab] Recovering depot mapping state:', state.data);
+          setBackgroundDepotMapping({
+            id: 'depot-mapping',
+            isProcessing: state.data.isProcessing,
+            totalMappings: state.data.totalMappings || 0,
+            processedMappings: state.data.processedMappings || 0,
+            mappingsApplied: state.data.mappingsApplied,
+            percentComplete: state.data.percentComplete || 0,
+            status: state.data.status || 'processing',
+            message: state.data.message || 'Depot mapping in progress...',
+            startedAt: state.data.startedAt ? new Date(state.data.startedAt) : new Date()
+          });
         }
       } catch (err) {
-        console.warn('Failed to check depot mapping status on mount:', err);
+        console.warn('[ManagementTab] Failed to recover depot mapping state:', err);
       }
     };
 
-    checkDepotMappingStatus();
+    // Recover service removal state if page was refreshed during operation
+    const recoverServiceRemovalState = async () => {
+      try {
+        const state = await operationStateService.getState('activeServiceRemoval');
+        if (state?.data?.service) {
+          // Check if operation is actually still running
+          const status = await ApiService.getLogRemovalStatus();
+          if (status && status.isProcessing) {
+            console.log('[ManagementTab] Recovering service removal state:', state.data);
+            addBackgroundServiceRemoval({
+              service: state.data.service,
+              status: 'removing',
+              message: `Removing ${state.data.service} entries...`,
+              progress: status.percentComplete || 0,
+              linesProcessed: status.linesProcessed || 0,
+              linesRemoved: status.linesRemoved || 0,
+              startedAt: new Date()
+            });
+          } else {
+            // Operation not running, clean up
+            await operationStateService.removeState('activeServiceRemoval');
+          }
+        }
+      } catch (err) {
+        console.warn('[ManagementTab] Failed to recover service removal state:', err);
+      }
+    };
+
+    recoverDepotMappingState();
+    recoverServiceRemovalState();
 
     // Cleanup: unsubscribe from all events
     return () => {

@@ -1,4 +1,5 @@
 import { storage } from '@utils/storage';
+import { BrowserFingerprint } from '@utils/browserFingerprint';
 
 export type AuthMode = 'authenticated' | 'guest' | 'expired' | 'unauthenticated';
 
@@ -44,6 +45,7 @@ class AuthService {
   private onGuestExpiredCallback: (() => void) | null = null;
 
   constructor() {
+    // Initialize device ID synchronously with fingerprint
     this.deviceId = this.getOrCreateDeviceId();
     this.apiKey = storage.getItem('lancache_api_key');
     this.isAuthenticated = false;
@@ -52,16 +54,23 @@ class AuthService {
   }
 
   private getOrCreateDeviceId(): string {
-    let deviceId = storage.getItem('lancache_device_id');
-    if (!deviceId) {
-      deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = (Math.random() * 16) | 0;
-        const v = c === 'x' ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
-      storage.setItem('lancache_device_id', deviceId);
+    try {
+      // Use browser fingerprinting to generate stable device ID (synchronous)
+      return BrowserFingerprint.getOrCreateDeviceId();
+    } catch (error) {
+      console.warn('[Auth] Failed to generate browser fingerprint, using fallback:', error);
+      // Fallback to random UUID if fingerprinting fails
+      let deviceId = storage.getItem('lancache_device_id');
+      if (!deviceId) {
+        deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+        storage.setItem('lancache_device_id', deviceId);
+      }
+      return deviceId;
     }
-    return deviceId;
   }
 
   private startGuestModeTimer(): void {
@@ -538,7 +547,7 @@ class AuthService {
     // Clear device ID so a new one is generated on next request
     // This handles API key regeneration scenarios where all devices are revoked
     storage.removeItem('lancache_device_id');
-    this.deviceId = this.getOrCreateDeviceId();
+    this.deviceId = this.getOrCreateDeviceId(); // Re-generate with fingerprint (synchronous)
 
     // Force page reload to show authentication modal
     setTimeout(() => {
@@ -562,7 +571,7 @@ class AuthService {
     storage.removeItem('lancache_api_key');
     this.apiKey = null;
     storage.removeItem('lancache_device_id');
-    this.deviceId = this.getOrCreateDeviceId();
+    this.deviceId = this.getOrCreateDeviceId(); // Re-generate with fingerprint (synchronous)
     this.exitGuestMode(); // Also clear guest mode
   }
 

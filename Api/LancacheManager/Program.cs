@@ -453,17 +453,6 @@ using (var scope = app.Services.CreateScope())
 
         // Note: LancacheMetricsService will start automatically as IHostedService
 
-        // Log depot count for diagnostics
-        try
-        {
-            var depotCount = await dbContext.SteamDepotMappings.CountAsync();
-            logger.LogInformation("Database has {DepotCount} depot mappings", depotCount);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to check depot count");
-        }
-
         logger.LogInformation("Database initialization complete");
     }
     catch (Exception ex)
@@ -472,6 +461,27 @@ using (var scope = app.Services.CreateScope())
         throw; // Fail fast if database init fails
     }
 }
+
+// Log depot count for diagnostics (non-blocking background task after scope is disposed)
+_ = Task.Run(async () =>
+{
+    try
+    {
+        // Small delay to ensure app.Services is fully ready
+        await Task.Delay(100);
+
+        using var backgroundScope = app.Services.CreateScope();
+        var backgroundContext = backgroundScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var backgroundLogger = backgroundScope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+        var depotCount = await backgroundContext.SteamDepotMappings.CountAsync();
+        backgroundLogger.LogInformation("Database has {DepotCount} depot mappings", depotCount);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to check depot count: {ex.Message}");
+    }
+});
 
 app.Run();
 

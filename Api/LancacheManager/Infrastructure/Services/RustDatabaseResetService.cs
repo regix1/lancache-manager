@@ -166,23 +166,12 @@ public class RustDatabaseResetService
                 _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
             }
 
-            // Stop the progress monitoring task immediately
-            _cancellationTokenSource.Cancel();
-            if (_progressMonitorTask != null)
-            {
-                try
-                {
-                    await _progressMonitorTask;
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected
-                }
-            }
-
             if (exitCode == 0)
             {
-                // Read final progress and send completion
+                // Give Rust process a moment to write final progress file
+                await Task.Delay(200);
+
+                // Read and send final progress before stopping monitoring
                 var finalProgress = await ReadProgressFileAsync(progressPath);
                 if (finalProgress != null)
                 {
@@ -200,7 +189,24 @@ public class RustDatabaseResetService
                         timestamp = DateTime.UtcNow
                     });
                 }
+            }
 
+            // Stop the progress monitoring task after sending final progress
+            _cancellationTokenSource.Cancel();
+            if (_progressMonitorTask != null)
+            {
+                try
+                {
+                    await _progressMonitorTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected
+                }
+            }
+
+            if (exitCode == 0)
+            {
                 return true;
             }
             else

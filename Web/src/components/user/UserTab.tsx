@@ -8,6 +8,7 @@ import ApiService from '@services/api.service';
 
 interface Session {
   id: string;
+  deviceId?: string | null; // Browser fingerprint device ID
   deviceName: string | null;
   ipAddress: string | null;
   localIp: string | null;
@@ -462,13 +463,37 @@ const UserTab: React.FC = () => {
                             )}
                           </div>
 
-                          <div
-                            className="text-xs font-mono truncate overflow-x-auto"
-                            style={{ color: 'var(--theme-text-muted)' }}
-                            title={`ID: ${session.id}`}
-                          >
-                            ID: {session.id}
-                          </div>
+                          {/* ID Display - Combined for authenticated users, separate for guests */}
+                          {session.type === 'authenticated' ? (
+                            // Authenticated users: Device ID and Session ID are the same
+                            <div
+                              className="text-xs font-mono truncate overflow-x-auto"
+                              style={{ color: 'var(--theme-text-muted)' }}
+                              title={`Device/Session ID: ${session.id}`}
+                            >
+                              Device/Session ID: {session.id}
+                            </div>
+                          ) : (
+                            // Guest users: Show both IDs separately
+                            <>
+                              {session.deviceId && (
+                                <div
+                                  className="text-xs font-mono truncate overflow-x-auto"
+                                  style={{ color: 'var(--theme-text-muted)' }}
+                                  title={`Device ID: ${session.deviceId}`}
+                                >
+                                  Device ID: {session.deviceId}
+                                </div>
+                              )}
+                              <div
+                                className="text-xs font-mono truncate overflow-x-auto"
+                                style={{ color: 'var(--theme-text-muted)' }}
+                                title={`Session ID: ${session.id}`}
+                              >
+                                Session ID: {session.id}
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -558,13 +583,28 @@ const UserTab: React.FC = () => {
           </p>
 
           {pendingRevokeSession && (
-            <div className="p-3 rounded-lg bg-themed-tertiary">
-              <p className="text-sm text-themed-primary font-medium mb-1">
+            <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
+              <p className="text-sm text-themed-primary font-medium">
                 {pendingRevokeSession.deviceName || 'Unknown Device'}
               </p>
-              <p className="text-xs text-themed-muted font-mono">
-                {pendingRevokeSession.id}
-              </p>
+              {pendingRevokeSession.type === 'authenticated' ? (
+                // Authenticated: Show combined Device/Session ID
+                <p className="text-xs text-themed-muted font-mono">
+                  Device/Session ID: {pendingRevokeSession.id}
+                </p>
+              ) : (
+                // Guest: Show both IDs separately
+                <>
+                  {pendingRevokeSession.deviceId && (
+                    <p className="text-xs text-themed-muted font-mono">
+                      Device ID: {pendingRevokeSession.deviceId}
+                    </p>
+                  )}
+                  <p className="text-xs text-themed-muted font-mono">
+                    Session ID: {pendingRevokeSession.id}
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -625,13 +665,28 @@ const UserTab: React.FC = () => {
           </p>
 
           {pendingDeleteSession && (
-            <div className="p-3 rounded-lg bg-themed-tertiary">
-              <p className="text-sm text-themed-primary font-medium mb-1">
+            <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
+              <p className="text-sm text-themed-primary font-medium">
                 {pendingDeleteSession.deviceName || 'Unknown Device'}
               </p>
-              <p className="text-xs text-themed-muted font-mono">
-                {pendingDeleteSession.id}
-              </p>
+              {pendingDeleteSession.type === 'authenticated' ? (
+                // Authenticated: Show combined Device/Session ID
+                <p className="text-xs text-themed-muted font-mono">
+                  Device/Session ID: {pendingDeleteSession.id}
+                </p>
+              ) : (
+                // Guest: Show both IDs separately
+                <>
+                  {pendingDeleteSession.deviceId && (
+                    <p className="text-xs text-themed-muted font-mono">
+                      Device ID: {pendingDeleteSession.deviceId}
+                    </p>
+                  )}
+                  <p className="text-xs text-themed-muted font-mono">
+                    Session ID: {pendingDeleteSession.id}
+                  </p>
+                </>
+              )}
             </div>
           )}
 

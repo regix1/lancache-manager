@@ -451,6 +451,7 @@ public class AuthController : ControllerBase
             var authenticatedSessions = devices.Select(d => new
             {
                 id = d.DeviceId,
+                deviceId = (string?)d.DeviceId, // Browser fingerprint device ID (cast to nullable for type consistency)
                 deviceName = d.DeviceName,
                 ipAddress = d.IpAddress,
                 localIp = d.LocalIp,
@@ -470,6 +471,7 @@ public class AuthController : ControllerBase
             var guestSessions = guests.Select(g => new
             {
                 id = g.SessionId,
+                deviceId = g.DeviceId, // Browser fingerprint device ID (extracted from session ID)
                 deviceName = g.DeviceName,
                 ipAddress = g.IpAddress,
                 localIp = (string?)null,

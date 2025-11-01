@@ -31,6 +31,7 @@ public class GuestSessionService
     public class GuestSession
     {
         public string SessionId { get; set; } = string.Empty;
+        public string? DeviceId { get; set; } // Browser fingerprint device ID
         public string? DeviceName { get; set; }
         public string? IpAddress { get; set; }
         public string? OperatingSystem { get; set; }
@@ -54,6 +55,7 @@ public class GuestSessionService
     public class GuestSessionInfo
     {
         public string SessionId { get; set; } = string.Empty;
+        public string? DeviceId { get; set; } // Browser fingerprint device ID
         public string? DeviceName { get; set; }
         public string? IpAddress { get; set; }
         public string? OperatingSystem { get; set; }
@@ -74,9 +76,18 @@ public class GuestSessionService
     {
         try
         {
+            // Extract device ID from session ID (format: guest_{deviceId}_{timestamp})
+            string? deviceId = null;
+            var parts = request.SessionId.Split('_');
+            if (parts.Length >= 3 && parts[0] == "guest")
+            {
+                deviceId = parts[1];
+            }
+
             var session = new GuestSession
             {
                 SessionId = request.SessionId,
+                DeviceId = deviceId,
                 DeviceName = request.DeviceName,
                 IpAddress = ipAddress,
                 OperatingSystem = request.OperatingSystem,
@@ -94,8 +105,8 @@ public class GuestSessionService
                 _sessionCache[session.SessionId] = session;
             }
 
-            _logger.LogInformation("Guest session created: {SessionId}, Device: {DeviceName}",
-                session.SessionId, session.DeviceName ?? "Unknown");
+            _logger.LogInformation("Guest session created: {SessionId}, Device: {DeviceName}, DeviceId: {DeviceId}",
+                session.SessionId, session.DeviceName ?? "Unknown", deviceId ?? "Unknown");
 
             return session;
         }
@@ -163,9 +174,21 @@ public class GuestSessionService
         {
             foreach (var session in _sessionCache.Values)
             {
+                // Extract device ID from session ID if not already present (for backward compatibility)
+                var deviceId = session.DeviceId;
+                if (string.IsNullOrEmpty(deviceId))
+                {
+                    var parts = session.SessionId.Split('_');
+                    if (parts.Length >= 3 && parts[0] == "guest")
+                    {
+                        deviceId = parts[1];
+                    }
+                }
+
                 sessions.Add(new GuestSessionInfo
                 {
                     SessionId = session.SessionId,
+                    DeviceId = deviceId,
                     DeviceName = session.DeviceName,
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,

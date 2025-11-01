@@ -82,7 +82,6 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   onReloadRef,
   onClearOperationRef
 }) => {
-  const { addBackgroundServiceRemoval, clearBackgroundServiceRemoval } = useData();
   // Log File Management State
   const [serviceCounts, setServiceCounts] = useState<Record<string, number>>({});
   const [config, setConfig] = useState({
@@ -114,9 +113,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const clearOperationState = async () => {
     await serviceRemovalOp.clear();
     setActiveServiceRemoval(null);
-    if (activeServiceRemoval) {
-      clearBackgroundServiceRemoval(activeServiceRemoval);
-    }
+    // Note: Background service removal is cleared by ManagementTab via SignalR events
   };
 
   useEffect(() => {
@@ -128,8 +125,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
 
     // Expose reload function to parent via ref
+    // Always force refresh when called from parent (after operations complete)
     if (onReloadRef) {
-      onReloadRef.current = loadAllData;
+      onReloadRef.current = () => loadAllData(true);
     }
 
     // Expose clear operation function to parent via ref
@@ -138,19 +136,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
   }, [hasInitiallyLoaded, onReloadRef, onClearOperationRef]);
 
-  // Sync activeServiceRemoval with DataContext
-  useEffect(() => {
-    if (activeServiceRemoval) {
-      addBackgroundServiceRemoval({
-        service: activeServiceRemoval,
-        status: 'removing',
-        startedAt: new Date()
-      });
-    } else {
-      // Clear all service removals when activeServiceRemoval is null
-      // (This handles the case where the operation completes)
-    }
-  }, [activeServiceRemoval, addBackgroundServiceRemoval]);
+  // Note: Service removal progress is now reported via SignalR in ManagementTab
+  // activeServiceRemoval is only used for local UI state (button disabling, etc.)
 
   const loadAllData = async (forceRefresh: boolean = false) => {
     setIsLoading(true);
@@ -177,8 +164,23 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const restoreServiceRemoval = async () => {
     const serviceOp = await serviceRemovalOp.load();
     if (serviceOp?.data?.service) {
-      setActiveServiceRemoval(serviceOp.data.service);
-      onSuccess?.(`Removing ${serviceOp.data.service} entries from logs (operation resumed)...`);
+      // Check if operation is actually still running on backend
+      try {
+        const response = await ApiService.getLogRemovalStatus();
+        if (response && response.isProcessing) {
+          setActiveServiceRemoval(serviceOp.data.service);
+          onSuccess?.(`Removing ${serviceOp.data.service} entries from logs (operation resumed)...`);
+        } else {
+          // Operation completed while we were away, clear persisted state
+          await serviceRemovalOp.clear();
+          setActiveServiceRemoval(null);
+        }
+      } catch (err) {
+        console.error('Failed to check log removal status:', err);
+        // On error, assume it's not running and clear state
+        await serviceRemovalOp.clear();
+        setActiveServiceRemoval(null);
+      }
     }
   };
 

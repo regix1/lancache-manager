@@ -327,7 +327,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     } else {
       setBackgroundCacheClearing(null);
     }
-  }, [cacheOp.operation, cacheClearProgress, setBackgroundCacheClearing, updateBackgroundCacheClearing, handleCancelCacheClear]);
+    // Note: setBackgroundCacheClearing and updateBackgroundCacheClearing are stable context functions
+    // and should not be in the dependency array to avoid infinite loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheOp.operation, cacheClearProgress]);
 
   const isCacheClearingActive =
     (cacheOp.operation as any)?.data &&

@@ -109,17 +109,21 @@ public class RustLogProcessorService
 
             // Auto-import PICS data if database is sparse but JSON file exists
             // Depot mappings should be set up via initialization flow before log processing
-            try
+            // Check depot count asynchronously without blocking startup
+            _ = Task.Run(async () =>
             {
-                using var scope = _serviceProvider.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                var depotCount = await context.SteamDepotMappings.CountAsync();
-                _logger.LogInformation("Starting log processing with {DepotCount} depot mappings available", depotCount);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to check depot count before log processing");
-            }
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var depotCount = await context.SteamDepotMappings.CountAsync();
+                    _logger.LogInformation("Starting log processing with {DepotCount} depot mappings available", depotCount);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to check depot count before log processing");
+                }
+            });
 
             // Start Rust process
             // Now passing log directory instead of single file path

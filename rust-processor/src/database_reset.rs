@@ -86,10 +86,10 @@ fn reset_database(
         .context("Failed to disable foreign keys")?;
 
     let tables = vec![
-        ("LogEntries", 5.0, 25.0),
-        ("Downloads", 25.0, 60.0),
-        ("ClientStats", 60.0, 75.0),
-        ("ServiceStats", 75.0, 85.0),
+        "LogEntries",
+        "Downloads",
+        "ClientStats",
+        "ServiceStats",
     ];
 
     let mut tables_cleared = 0;
@@ -97,7 +97,7 @@ fn reset_database(
 
     // Count total rows across all tables for accurate progress
     let mut total_rows = 0i64;
-    for (table_name, _, _) in &tables {
+    for table_name in &tables {
         let count_sql = format!("SELECT COUNT(*) FROM {}", table_name);
         match conn.query_row(&count_sql, [], |row| row.get::<_, i64>(0)) {
             Ok(count) => total_rows += count,
@@ -109,7 +109,7 @@ fn reset_database(
 
     let mut deleted_rows = 0i64;
 
-    for (table_name, start_percent, end_percent) in &tables {
+    for table_name in &tables {
         println!("Clearing table: {}", table_name);
 
         // Count rows in this table
@@ -138,16 +138,16 @@ fn reset_database(
                     deleted_rows += deleted as i64;
                     batch_num += 1;
 
-                    // Calculate progress
+                    // Calculate progress: 0% to 85% based on rows deleted
+                    // Reserve 85-100% for vacuum and cleanup
                     let overall_progress = if total_rows > 0 {
-                        deleted_rows as f64 / total_rows as f64
+                        (deleted_rows as f64 / total_rows as f64) * 85.0
                     } else {
                         0.0
                     };
-                    let percent_complete = start_percent + (overall_progress * (end_percent - start_percent));
 
                     progress.message = format!("Clearing {}... ({} / {} rows)", table_name, deleted_rows, total_rows);
-                    progress.percent_complete = percent_complete.min(*end_percent);
+                    progress.percent_complete = overall_progress.min(85.0);
                     progress.status = "deleting".to_string();
                     write_progress(progress_path, &progress)?;
 

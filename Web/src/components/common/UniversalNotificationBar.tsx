@@ -30,25 +30,46 @@ const UniversalNotificationBar: React.FC = () => {
   const [wasRunning, setWasRunning] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [githubDownloadStatus, setGithubDownloadStatus] = useState<'downloading' | 'complete' | null>(null);
+  const githubDownloadStatusRef = useRef<'downloading' | 'complete' | null>(null);
+  const isVisibleRef = useRef(false);
+  const wasRunningRef = useRef(false);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    githubDownloadStatusRef.current = githubDownloadStatus;
+  }, [githubDownloadStatus]);
+
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+  }, [isVisible]);
+
+  useEffect(() => {
+    wasRunningRef.current = wasRunning;
+  }, [wasRunning]);
+
   // Check for GitHub download status
   useEffect(() => {
     const checkGithubStatus = () => {
       const downloading = storage.getItem('githubDownloading');
       const downloadComplete = storage.getItem('githubDownloadComplete');
+      const currentStatus = githubDownloadStatusRef.current;
 
       // If PICS is running, clear GitHub complete status and show PICS instead
       if (progress?.isRunning && downloadComplete === 'true') {
         storage.removeItem('githubDownloadComplete');
         storage.removeItem('githubDownloadTime');
-        setGithubDownloadStatus(null);
+        if (currentStatus !== null) {
+          setGithubDownloadStatus(null);
+        }
         return;
       }
 
-      if (downloading === 'true') {
+      // Only update state if it actually changed
+      if (downloading === 'true' && currentStatus !== 'downloading') {
         setGithubDownloadStatus('downloading');
-      } else if (downloadComplete === 'true') {
+      } else if (downloadComplete === 'true' && currentStatus !== 'complete') {
         setGithubDownloadStatus('complete');
-      } else {
+      } else if (downloading !== 'true' && downloadComplete !== 'true' && currentStatus !== null) {
         setGithubDownloadStatus(null);
       }
     };
@@ -64,7 +85,8 @@ const UniversalNotificationBar: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('storage', checkGithubStatus);
     };
-  }, [progress?.isRunning]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [progress?.isRunning]); // githubDownloadStatus intentionally excluded to prevent re-creating interval
 
   useEffect(() => {
     // Load the setting on mount
@@ -114,8 +136,13 @@ const UniversalNotificationBar: React.FC = () => {
         hideTimeoutRef.current = null;
         hideTimeoutSetRef.current = false;
       }
-      setIsVisible(true);
-      setWasRunning((progress?.isRunning || githubDownloadStatus === 'downloading') ?? false);
+      if (!isVisibleRef.current) {
+        setIsVisible(true);
+      }
+      const newWasRunning = (progress?.isRunning || githubDownloadStatus === 'downloading') ?? false;
+      if (wasRunningRef.current !== newWasRunning) {
+        setWasRunning(newWasRunning);
+      }
     } else {
       // Show progress bar when PICS is running or GitHub download is complete
       if (progress?.isRunning || githubDownloadStatus === 'complete') {
@@ -125,27 +152,39 @@ const UniversalNotificationBar: React.FC = () => {
           hideTimeoutRef.current = null;
           hideTimeoutSetRef.current = false;
         }
-        setIsVisible(true);
-        setWasRunning(true);
+        if (!isVisibleRef.current) {
+          setIsVisible(true);
+        }
+        if (!wasRunningRef.current) {
+          setWasRunning(true);
+        }
       } else if (wasRunning && !progress?.isRunning && githubDownloadStatus !== 'complete') {
         // Was just running, now stopped - hide after 10 seconds (but only set timeout ONCE)
         if (!hideTimeoutSetRef.current) {
           hideTimeoutSetRef.current = true;
           hideTimeoutRef.current = setTimeout(() => {
-            setIsVisible(false);
-            setWasRunning(false);
+            if (isVisibleRef.current) {
+              setIsVisible(false);
+            }
+            if (wasRunningRef.current) {
+              setWasRunning(false);
+            }
             hideTimeoutSetRef.current = false;
           }, 10000);
         }
       } else if (!progress?.isRunning && !wasRunning && githubDownloadStatus !== 'complete') {
         // Never was running in this session, hide immediately
-        setIsVisible(false);
+        if (isVisibleRef.current) {
+          setIsVisible(false);
+        }
       }
     }
+    // Note: wasRunning intentionally excluded from dependencies to prevent infinite loop
+    // We read its current value but don't re-run when it changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     progress,
     alwaysVisible,
-    wasRunning,
     githubDownloadStatus,
     backgroundRemovals.length,
     backgroundLogProcessing,
@@ -565,7 +604,7 @@ const UniversalNotificationBar: React.FC = () => {
         {/* Service Removals */}
         {backgroundServiceRemovals.map((removal) => (
           <div
-            key={removal.service}
+            key={`${removal.service}-${removal.startedAt.getTime()}`}
             className="flex items-center gap-3 p-2 rounded-lg"
             style={{
               backgroundColor: 'var(--theme-bg-secondary)',
@@ -589,10 +628,33 @@ const UniversalNotificationBar: React.FC = () => {
             )}
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-themed-primary truncate">
-                {removal.status === 'removing' && `Removing ${removal.service} logs...`}
-                {removal.status === 'complete' && `Removed ${removal.service} logs successfully`}
-                {removal.status === 'failed' && `Failed to remove ${removal.service} logs`}
+                {removal.message || (
+                  <>
+                    {removal.status === 'removing' && `Removing ${removal.service} logs...`}
+                    {removal.status === 'complete' && `Removed ${removal.service} logs successfully`}
+                    {removal.status === 'failed' && `Failed to remove ${removal.service} logs`}
+                  </>
+                )}
               </div>
+              {removal.status === 'removing' && removal.progress !== undefined && (
+                <div className="mt-1">
+                  <div className="flex items-center justify-between text-xs text-themed-muted mb-0.5">
+                    <span>{removal.progress.toFixed(1)}%</span>
+                    {removal.linesProcessed !== undefined && removal.linesRemoved !== undefined && (
+                      <span>{removal.linesRemoved.toLocaleString()} removed / {removal.linesProcessed.toLocaleString()} processed</span>
+                    )}
+                  </div>
+                  <div className="w-full bg-themed-tertiary rounded-full h-1.5">
+                    <div
+                      className="h-1.5 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${removal.progress}%`,
+                        backgroundColor: 'var(--theme-warning)'
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
               {removal.status === 'failed' && removal.error && (
                 <div className="text-xs text-themed-muted mt-0.5">{removal.error}</div>
               )}

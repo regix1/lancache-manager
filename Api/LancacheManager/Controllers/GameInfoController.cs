@@ -253,8 +253,9 @@ public class GameInfoController : ControllerBase
             var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
             var needsUpdate = await _picsDataService.NeedsUpdateAsync();
 
-            // Count database depot mappings
-            var dbMappingCount = await _context.SteamDepotMappings.CountAsync();
+            // Use SteamKit2 cached count instead of slow database COUNT query
+            // This avoids a 20-30 second table scan on 290k+ rows
+            var dbMappingCount = _steamKit2Service.GetDepotMappingCount();
 
             return Ok(new
             {
@@ -275,7 +276,7 @@ public class GameInfoController : ControllerBase
                 {
                     isReady = _steamKit2Service.IsReady,
                     isRebuildRunning = _steamKit2Service.IsRebuildRunning,
-                    depotCount = _steamKit2Service.GetDepotMappingCount()
+                    depotCount = dbMappingCount
                 }
             });
         }
