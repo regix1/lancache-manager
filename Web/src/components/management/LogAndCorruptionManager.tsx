@@ -5,7 +5,8 @@ import {
   Loader2,
   RefreshCw,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Lock
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
@@ -325,97 +326,111 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           </Button>
         </div>
 
+        {/* Read-Only Warning - Show once at the top */}
+        {(logsReadOnly || cacheReadOnly) && (
+          <Alert color="orange" className="mb-6">
+            <div>
+              <p className="font-medium">
+                {logsReadOnly && cacheReadOnly
+                  ? 'Logs and cache directories are read-only'
+                  : logsReadOnly
+                  ? 'Logs directory is read-only'
+                  : 'Cache directory is read-only'}
+              </p>
+              <p className="text-sm mt-1">
+                {logsReadOnly && cacheReadOnly
+                  ? 'Both directories are mounted in read-only mode. All log and corruption management features are disabled.'
+                  : logsReadOnly
+                  ? 'The logs directory is mounted in read-only mode. Log removal features are disabled.'
+                  : 'The cache directory is mounted in read-only mode. Corruption removal features are disabled.'}
+                {' '}Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose volume mounts to enable these features.
+              </p>
+            </div>
+          </Alert>
+        )}
+
         {/* Log File Management Section */}
         <div className="mb-8">
-          <p className="text-themed-muted text-sm mb-4 break-words">
-            Remove service log entries from{' '}
-            <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
-          </p>
-
-          {/* Read-Only Warning */}
-          {(logsReadOnly || cacheReadOnly) && (
-            <Alert color="orange" className="mb-4">
-              <div>
-                <p className="font-medium">
-                  {logsReadOnly && cacheReadOnly
-                    ? 'Logs and cache directories are read-only'
-                    : logsReadOnly
-                    ? 'Logs directory is read-only'
-                    : 'Cache directory is read-only'}
-                </p>
-                <p className="text-sm mt-1">
-                  {logsReadOnly && cacheReadOnly
-                    ? 'Both directories are mounted in read-only mode. All log and corruption management features are disabled.'
-                    : logsReadOnly
-                    ? 'The logs directory is mounted in read-only mode. Log removal features are disabled.'
-                    : 'The cache directory is mounted in read-only mode. Corruption removal features are disabled.'}
-                  {' '}Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose volume mounts to enable these features.
-                </p>
-              </div>
-            </Alert>
-          )}
-
-          {loadError && (
-            <Alert color="red" className="mb-4">
-              <div>
-                <p className="text-sm font-medium mb-1">Failed to load service log counts</p>
-                <p className="text-xs opacity-75">{loadError}</p>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => loadAllData()}
-                  className="mt-2"
-                  leftSection={<RefreshCw className="w-3 h-3" />}
-                >
-                  Try Again
-                </Button>
-              </div>
-            </Alert>
-          )}
-
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-              <p className="text-sm text-themed-secondary">Scanning log files for services...</p>
-              <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
+          {logsReadOnly ? (
+            <div className="flex items-center gap-2 mb-4">
+              <h4 className="text-md font-semibold text-themed-primary">Log File Management</h4>
+              <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 bg-themed-warning-bg text-themed-warning-text border border-themed-warning">
+                <Lock className="w-3 h-3" />
+                Read-only
+              </span>
             </div>
-          ) : !loadError && (mainServices.length > 0 || otherServices.length > 0) ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {servicesWithData.map((service) => {
-                  const handleClick = () => handleRemoveServiceLogs(service);
-                  return (
-                    <ServiceButton
-                      key={service}
-                      service={service}
-                      count={serviceCounts[service] || 0}
-                      isRemoving={activeServiceRemoval === service}
-                      isDisabled={
-                        mockMode || !!activeServiceRemoval || !!removingCorruption || serviceRemovalOp.loading || authMode !== 'authenticated' || logsReadOnly || checkingPermissions
-                      }
-                      onClick={handleClick}
-                    />
-                  );
-                })}
-              </div>
-
-              {otherServices.length > 0 && (
-                <div className="mt-4 text-center">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => setShowMoreServices(!showMoreServices)}
-                  >
-                    {showMoreServices ? (
-                      <>Show Less ({otherServices.length} hidden)</>
-                    ) : (
-                      <>Show More ({otherServices.length} more)</>
-                    )}
-                  </Button>
-                </div>
-              )}
-            </>
           ) : (
+            <>
+              <p className="text-themed-muted text-sm mb-4 break-words">
+                Remove service log entries from{' '}
+                <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
+              </p>
+            </>
+          )}
+
+          {!logsReadOnly && (
+            <>
+              {loadError && (
+                <Alert color="red" className="mb-4">
+                  <div>
+                    <p className="text-sm font-medium mb-1">Failed to load service log counts</p>
+                    <p className="text-xs opacity-75">{loadError}</p>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => loadAllData()}
+                      className="mt-2"
+                      leftSection={<RefreshCw className="w-3 h-3" />}
+                    >
+                      Try Again
+                    </Button>
+                  </div>
+                </Alert>
+              )}
+
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+                  <p className="text-sm text-themed-secondary">Scanning log files for services...</p>
+                  <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
+                </div>
+              ) : !loadError && (mainServices.length > 0 || otherServices.length > 0) ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {servicesWithData.map((service) => {
+                      const handleClick = () => handleRemoveServiceLogs(service);
+                      return (
+                        <ServiceButton
+                          key={service}
+                          service={service}
+                          count={serviceCounts[service] || 0}
+                          isRemoving={activeServiceRemoval === service}
+                          isDisabled={
+                            mockMode || !!activeServiceRemoval || !!removingCorruption || serviceRemovalOp.loading || authMode !== 'authenticated' || logsReadOnly || checkingPermissions
+                          }
+                          onClick={handleClick}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  {otherServices.length > 0 && (
+                    <div className="mt-4 text-center">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => setShowMoreServices(!showMoreServices)}
+                      >
+                        {showMoreServices ? (
+                          <>Show Less ({otherServices.length} hidden)</>
+                        ) : (
+                          <>Show More ({otherServices.length} more)</>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              ) : (
             <div className="text-center py-8 text-themed-muted">
               <div className="mb-2">No services with log entries found</div>
               <div className="text-xs">
@@ -430,144 +445,158 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
         {/* Corruption Detection Section */}
         <div className="mb-6">
-          <div className="flex items-start gap-2 mb-4">
-            <AlertTriangle className="w-5 h-5 text-themed-warning flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-themed-primary text-sm font-medium mb-1">
-                Corrupted Cache Detection & Removal
-              </p>
-              <p className="text-themed-muted text-sm">
-                Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+ occurrences) in access logs.
-                Removal will <strong>delete cache files</strong> from disk AND <strong>remove log entries</strong> for these chunks.
-              </p>
+          {logsReadOnly || cacheReadOnly ? (
+            <div className="flex items-center gap-2 mb-4">
+              <h4 className="text-md font-semibold text-themed-primary">Corrupted Cache Detection & Removal</h4>
+              <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 bg-themed-warning-bg text-themed-warning-text border border-themed-warning">
+                <Lock className="w-3 h-3" />
+                Read-only
+              </span>
             </div>
-          </div>
-
-          {loadError && (
-            <Alert color="red" className="mb-4">
+          ) : (
+            <div className="flex items-start gap-2 mb-4">
+              <AlertTriangle className="w-5 h-5 text-themed-warning flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium mb-1">Failed to detect corrupted chunks</p>
-                <p className="text-xs opacity-75">{loadError}</p>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => loadAllData()}
-                  className="mt-2"
-                  leftSection={<RefreshCw className="w-3 h-3" />}
-                >
-                  Try Again
-                </Button>
+                <p className="text-themed-primary text-sm font-medium mb-1">
+                  Corrupted Cache Detection & Removal
+                </p>
+                <p className="text-themed-muted text-sm">
+                  Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+ occurrences) in access logs.
+                  Removal will <strong>delete cache files</strong> from disk AND <strong>remove log entries</strong> for these chunks.
+                </p>
               </div>
-            </Alert>
+            </div>
           )}
 
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-              <p className="text-sm text-themed-secondary">Scanning logs for corrupted chunks...</p>
-              <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
-            </div>
-          ) : !loadError && corruptionList.length > 0 ? (
+          {!(logsReadOnly || cacheReadOnly) && (
             <>
-              <div className="space-y-3">
-                {corruptionList.map(([service, count]) => (
-                  <div key={`corruption-${service}`} className="rounded-lg border" style={{
-                    backgroundColor: 'var(--theme-bg-tertiary)',
-                    borderColor: 'var(--theme-border-secondary)'
-                  }}>
-                    <div className="flex items-center gap-2 p-3">
-                      <Button
-                        onClick={() => toggleCorruptionDetails(service)}
-                        variant="subtle"
-                        size="sm"
-                        className="flex-shrink-0"
-                        disabled={!!removingCorruption || !!activeServiceRemoval}
-                      >
-                        {expandedCorruptionService === service ? (
-                          <ChevronUp className="w-4 h-4" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4" />
-                        )}
-                      </Button>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="capitalize font-medium text-themed-primary">{service}</span>
-                          <span className="text-xs text-themed-muted">
-                            ({count.toLocaleString()} corrupted chunk{count !== 1 ? 's' : ''})
-                          </span>
-                        </div>
-                      </div>
-                      <Tooltip content="Delete cache files and remove log entries for corrupted chunks">
-                        <Button
-                          onClick={() => handleRemoveCorruption(service)}
-                          disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated' || logsReadOnly || cacheReadOnly || checkingPermissions}
-                          variant="filled"
-                          color="red"
-                          size="sm"
-                          loading={removingCorruption === service}
-                          title={(logsReadOnly || cacheReadOnly) ? 'Directories are read-only' : undefined}
-                        >
-                          {removingCorruption !== service ? 'Remove All' : 'Removing...'}
-                        </Button>
-                      </Tooltip>
-                    </div>
+              {loadError && (
+                <Alert color="red" className="mb-4">
+                  <div>
+                    <p className="text-sm font-medium mb-1">Failed to detect corrupted chunks</p>
+                    <p className="text-xs opacity-75">{loadError}</p>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => loadAllData()}
+                      className="mt-2"
+                      leftSection={<RefreshCw className="w-3 h-3" />}
+                    >
+                      Try Again
+                    </Button>
+                  </div>
+                </Alert>
+              )}
 
-                    {/* Expandable Details Section */}
-                    {expandedCorruptionService === service && (
-                      <div className="border-t px-3 py-3" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                        {loadingDetails === service ? (
-                          <div className="flex items-center justify-center py-4 gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                            <span className="text-sm text-themed-secondary">Loading corruption details...</span>
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+                  <p className="text-sm text-themed-secondary">Scanning logs for corrupted chunks...</p>
+                  <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
+                </div>
+              ) : !loadError && corruptionList.length > 0 ? (
+                <>
+                  <div className="space-y-3">
+                    {corruptionList.map(([service, count]) => (
+                      <div key={`corruption-${service}`} className="rounded-lg border" style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        borderColor: 'var(--theme-border-secondary)'
+                      }}>
+                        <div className="flex items-center gap-2 p-3">
+                          <Button
+                            onClick={() => toggleCorruptionDetails(service)}
+                            variant="subtle"
+                            size="sm"
+                            className="flex-shrink-0"
+                            disabled={!!removingCorruption || !!activeServiceRemoval}
+                          >
+                            {expandedCorruptionService === service ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="capitalize font-medium text-themed-primary">{service}</span>
+                              <span className="text-xs text-themed-muted">
+                                ({count.toLocaleString()} corrupted chunk{count !== 1 ? 's' : ''})
+                              </span>
+                            </div>
                           </div>
-                        ) : corruptionDetails[service] && corruptionDetails[service].length > 0 ? (
-                          <div className="space-y-2 max-h-96 overflow-y-auto">
-                            {corruptionDetails[service].map((chunk, idx) => (
-                              <div key={idx} className="p-2 rounded border" style={{
-                                backgroundColor: 'var(--theme-bg-secondary)',
-                                borderColor: 'var(--theme-border-primary)'
-                              }}>
-                                <div className="flex items-start gap-2">
-                                  <AlertTriangle className="w-4 h-4 text-themed-warning flex-shrink-0 mt-0.5" />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="mb-1">
-                                      <Tooltip content={chunk.url}>
-                                        <span className="text-xs font-mono text-themed-primary truncate block">
-                                          {chunk.url}
-                                        </span>
-                                      </Tooltip>
-                                    </div>
-                                    <div className="flex items-center gap-3 text-xs text-themed-muted">
-                                      <span>Miss count: <strong className="text-themed-error">{chunk.miss_count || 0}</strong></span>
-                                      {chunk.cache_file_path && (
-                                        <Tooltip content={chunk.cache_file_path}>
-                                          <span className="truncate">Cache: <code className="text-xs">{chunk.cache_file_path.split('/').pop() || chunk.cache_file_path.split('\\').pop()}</code></span>
-                                        </Tooltip>
-                                      )}
+                          <Tooltip content="Delete cache files and remove log entries for corrupted chunks">
+                            <Button
+                              onClick={() => handleRemoveCorruption(service)}
+                              disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated' || logsReadOnly || cacheReadOnly || checkingPermissions}
+                              variant="filled"
+                              color="red"
+                              size="sm"
+                              loading={removingCorruption === service}
+                              title={(logsReadOnly || cacheReadOnly) ? 'Directories are read-only' : undefined}
+                            >
+                              {removingCorruption !== service ? 'Remove All' : 'Removing...'}
+                            </Button>
+                          </Tooltip>
+                        </div>
+
+                        {/* Expandable Details Section */}
+                        {expandedCorruptionService === service && (
+                          <div className="border-t px-3 py-3" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                            {loadingDetails === service ? (
+                              <div className="flex items-center justify-center py-4 gap-2">
+                                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                                <span className="text-sm text-themed-secondary">Loading corruption details...</span>
+                              </div>
+                            ) : corruptionDetails[service] && corruptionDetails[service].length > 0 ? (
+                              <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {corruptionDetails[service].map((chunk, idx) => (
+                                  <div key={idx} className="p-2 rounded border" style={{
+                                    backgroundColor: 'var(--theme-bg-secondary)',
+                                    borderColor: 'var(--theme-border-primary)'
+                                  }}>
+                                    <div className="flex items-start gap-2">
+                                      <AlertTriangle className="w-4 h-4 text-themed-warning flex-shrink-0 mt-0.5" />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="mb-1">
+                                          <Tooltip content={chunk.url}>
+                                            <span className="text-xs font-mono text-themed-primary truncate block">
+                                              {chunk.url}
+                                            </span>
+                                          </Tooltip>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-xs text-themed-muted">
+                                          <span>Miss count: <strong className="text-themed-error">{chunk.miss_count || 0}</strong></span>
+                                          {chunk.cache_file_path && (
+                                            <Tooltip content={chunk.cache_file_path}>
+                                              <span className="truncate">Cache: <code className="text-xs">{chunk.cache_file_path.split('/').pop() || chunk.cache_file_path.split('\\').pop()}</code></span>
+                                            </Tooltip>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
+                                ))}
                               </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-center py-4 text-themed-muted text-sm">
-                            No details available
+                            ) : (
+                              <div className="text-center py-4 text-themed-muted text-sm">
+                                No details available
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <div className="text-center py-8 text-themed-muted">
+                  <div className="mb-2">No corrupted chunks detected</div>
+                  <div className="text-xs">
+                    Cache appears healthy - all chunks are being served successfully
+                  </div>
+                </div>
+              )}
             </>
-          ) : (
-            <div className="text-center py-8 text-themed-muted">
-              <div className="mb-2">No corrupted chunks detected</div>
-              <div className="text-xs">
-                Cache appears healthy - all chunks are being served successfully
-              </div>
-            </div>
           )}
         </div>
 

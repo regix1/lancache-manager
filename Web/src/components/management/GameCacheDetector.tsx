@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw, Minimize2, Search } from 'lucide-react';
+import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw, Minimize2, Search, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -40,6 +40,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
+  const [cacheReadOnly, setCacheReadOnly] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
 
   const MAX_INITIAL_PATHS = 50; // Only show 50 paths initially to prevent lag
   const MAX_INITIAL_URLS = 20; // Only show 20 URLs initially
@@ -95,7 +97,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
 
     loadCachedAndCheckActive();
+    loadDirectoryPermissions();
   }, [mockMode]); // Only run on mount or when mockMode changes
+
+  const loadDirectoryPermissions = async () => {
+    try {
+      setCheckingPermissions(true);
+      const data = await ApiService.getDirectoryPermissions();
+      setCacheReadOnly(data.cache.readOnly);
+    } catch (err) {
+      console.error('Failed to check directory permissions:', err);
+      setCacheReadOnly(false); // Assume writable on error
+    } finally {
+      setCheckingPermissions(false);
+    }
+  };
 
   // Reset page when search query changes
   useEffect(() => {
@@ -320,61 +336,77 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       <Card>
         <div className="space-y-4">
           {/* Header Section */}
-          <div className="flex items-center justify-between">
-            <div>
+          {cacheReadOnly ? (
+            <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
                 <HardDrive className="w-5 h-5" />
                 Game Cache Detection
               </h3>
-              <p className="text-sm text-themed-secondary mt-1">
-                Scan cache directory to find which games have stored files
-              </p>
+              <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 bg-themed-warning-bg text-themed-warning-text border border-themed-warning">
+                <Lock className="w-3 h-3" />
+                Read-only
+              </span>
             </div>
-            <Button
-              onClick={handleDetect}
-              disabled={loading || mockMode}
-              variant="filled"
-              color="blue"
-              leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-            >
-              {loading ? 'Detecting...' : 'Detect Games'}
-            </Button>
-          </div>
-
-          {/* Error Alert */}
-          {error && !loading && (
-            <Alert color="red">
+          ) : (
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium mb-1">Failed to detect games in cache</p>
-                <p className="text-xs opacity-75">{error}</p>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleDetect}
-                  className="mt-2"
-                  leftSection={<RefreshCw className="w-3 h-3" />}
-                >
-                  Try Again
-                </Button>
+                <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
+                  <HardDrive className="w-5 h-5" />
+                  Game Cache Detection
+                </h3>
+                <p className="text-sm text-themed-secondary mt-1">
+                  Scan cache directory to find which games have stored files
+                </p>
               </div>
-            </Alert>
-          )}
-
-          {/* Mock Mode Warning */}
-          {mockMode && (
-            <Alert color="yellow">
-              Detection is disabled in mock mode
-            </Alert>
-          )}
-
-          {/* Loading State */}
-          {loading && (
-            <div className="flex flex-col items-center justify-center py-8 gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-              <p className="text-sm text-themed-secondary">Scanning database and cache directory...</p>
-              <p className="text-xs text-themed-muted">This may take several minutes for large databases and cache directories</p>
+              <Button
+                onClick={handleDetect}
+                disabled={loading || mockMode || cacheReadOnly || checkingPermissions}
+                variant="filled"
+                color="blue"
+                leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+              >
+                {loading ? 'Detecting...' : 'Detect Games'}
+              </Button>
             </div>
           )}
+
+          {!cacheReadOnly && (
+            <>
+              {/* Error Alert */}
+              {error && !loading && (
+                <Alert color="red">
+                  <div>
+                    <p className="text-sm font-medium mb-1">Failed to detect games in cache</p>
+                    <p className="text-xs opacity-75">{error}</p>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleDetect}
+                      className="mt-2"
+                      leftSection={<RefreshCw className="w-3 h-3" />}
+                    >
+                      Try Again
+                    </Button>
+                  </div>
+                </Alert>
+              )}
+
+              {/* Mock Mode Warning */}
+              {mockMode && (
+                <Alert color="yellow">
+                  Detection is disabled in mock mode
+                </Alert>
+              )}
+
+              {/* Loading State */}
+              {loading && (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+                  <p className="text-sm text-themed-secondary">Scanning database and cache directory...</p>
+                  <p className="text-xs text-themed-muted">This may take several minutes for large databases and cache directories</p>
+                </div>
+              )}
 
           {/* Games List */}
           {!loading && totalGames > 0 && (
@@ -491,11 +523,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       <Tooltip content="Remove all cache files for this game">
                         <Button
                           onClick={() => handleRemoveClick(game)}
-                          disabled={mockMode || removingGameId === game.game_app_id || !isAuthenticated}
+                          disabled={mockMode || removingGameId === game.game_app_id || !isAuthenticated || cacheReadOnly || checkingPermissions}
                           variant="filled"
                           color="red"
                           size="sm"
                           loading={removingGameId === game.game_app_id}
+                          title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
                         >
                           {removingGameId !== game.game_app_id ? 'Remove' : 'Removing...'}
                         </Button>
@@ -717,18 +750,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             </div>
           )}
 
-          {/* Information Alert */}
-          <Alert color="blue">
-            <div>
-              <p className="text-xs font-medium mb-2">About Game Cache Detection:</p>
-              <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-                <li>Scans database for game records and checks if cache files exist</li>
-                <li>Shows total cache size and file count per game</li>
-                <li>Removal deletes ALL cache files for the selected game</li>
-                <li>Log entries are preserved for analytics (use Corruption Removal to delete logs)</li>
-              </ul>
-            </div>
-          </Alert>
+              {/* Information Alert */}
+              <Alert color="blue">
+                <div>
+                  <p className="text-xs font-medium mb-2">About Game Cache Detection:</p>
+                  <ul className="list-disc list-inside text-xs space-y-1 ml-2">
+                    <li>Scans database for game records and checks if cache files exist</li>
+                    <li>Shows total cache size and file count per game</li>
+                    <li>Removal deletes ALL cache files for the selected game</li>
+                    <li>Log entries are preserved for analytics (use Corruption Removal to delete logs)</li>
+                  </ul>
+                </div>
+              </Alert>
+            </>
+          )}
         </div>
       </Card>
 

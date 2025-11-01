@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Server, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Server, Trash2, AlertTriangle, Loader2, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
@@ -332,151 +332,151 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center gap-2 mb-6">
-          <Server className="w-5 h-5 icon-green flex-shrink-0" />
-          <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
-        </div>
-
-        {/* Main Cache Path and Clear Button */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div className="flex-1">
-            {isLoadingConfig ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                <p className="text-sm text-themed-secondary">Loading cache configuration...</p>
-              </div>
-            ) : (
-              <>
-                <p className="text-themed-secondary">
-                  Manage cached game files in{' '}
-                  <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">{config.cachePath}</code>
-                </p>
-                <p className="text-xs text-themed-muted mt-1 flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
-                  <span>This deletes ALL cached game files from disk</span>
-                </p>
-              </>
-            )}
+        {cacheReadOnly ? (
+          <div className="flex items-center gap-2">
+            <Server className="w-5 h-5 icon-green flex-shrink-0" />
+            <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
+            <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 bg-themed-warning-bg text-themed-warning-text border border-themed-warning">
+              <Lock className="w-3 h-3" />
+              Read-only
+            </span>
           </div>
-          <Button
-            variant="filled"
-            color="red"
-            leftSection={<Trash2 className="w-4 h-4" />}
-            onClick={handleClearAllCache}
-            disabled={
-              actionLoading ||
-              mockMode ||
-              isCacheClearingActive ||
-              cacheOp.loading ||
-              authMode !== 'authenticated' ||
-              cacheReadOnly ||
-              checkingPermissions
-            }
-            loading={actionLoading || cacheOp.loading || checkingPermissions}
-            className="w-full sm:w-48"
-            title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
-          >
-            {isCacheClearingActive ? 'Clearing...' : 'Clear Cache'}
-          </Button>
-        </div>
-
-        {/* Read-Only Warning */}
-        {cacheReadOnly && (
-          <Alert color="orange" className="mb-4">
-            <div>
-              <p className="font-medium">Cache directory is read-only</p>
-              <p className="text-sm mt-1">
-                The cache directory is mounted in read-only mode. All cache modification features are disabled.
-                Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose volume mount to enable these features.
-              </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-6">
+              <Server className="w-5 h-5 icon-green flex-shrink-0" />
+              <h3 className="text-lg font-semibold text-themed-primary">Disk Cache Management</h3>
             </div>
-          </Alert>
+
+            {/* Main Cache Path and Clear Button */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <div className="flex-1">
+                {isLoadingConfig ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                    <p className="text-sm text-themed-secondary">Loading cache configuration...</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-themed-secondary">
+                      Manage cached game files in{' '}
+                      <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">{config.cachePath}</code>
+                    </p>
+                    <p className="text-xs text-themed-muted mt-1 flex items-center gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
+                      <span>This deletes ALL cached game files from disk</span>
+                    </p>
+                  </>
+                )}
+              </div>
+              <Button
+                variant="filled"
+                color="red"
+                leftSection={<Trash2 className="w-4 h-4" />}
+                onClick={handleClearAllCache}
+                disabled={
+                  actionLoading ||
+                  mockMode ||
+                  isCacheClearingActive ||
+                  cacheOp.loading ||
+                  authMode !== 'authenticated' ||
+                  cacheReadOnly ||
+                  checkingPermissions
+                }
+                loading={actionLoading || cacheOp.loading || checkingPermissions}
+                className="w-full sm:w-48"
+                title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+              >
+                {isCacheClearingActive ? 'Clearing...' : 'Clear Cache'}
+              </Button>
+            </div>
+
+            {/* Configuration Options - Unified Grid Layout */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-themed-tertiary/30">
+              {/* Delete Mode Configuration */}
+              <div className="space-y-3">
+                <div>
+                  <p className="text-themed-primary font-medium text-sm mb-1">Deletion Method</p>
+                  <p className="text-xs text-themed-muted">
+                    {deleteMode === 'rsync'
+                      ? 'Rsync with empty directory (network storage)'
+                      : deleteMode === 'full'
+                      ? 'Bulk directory removal (faster)'
+                      : 'Individual file deletion (slower, keeps structure)'}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={deleteMode === 'preserve' ? 'filled' : 'default'}
+                    color={deleteMode === 'preserve' ? 'blue' : undefined}
+                    onClick={() => handleDeleteModeChange('preserve')}
+                    disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                  >
+                    Safe Mode
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={deleteMode === 'full' ? 'filled' : 'default'}
+                    color={deleteMode === 'full' ? 'green' : undefined}
+                    onClick={() => handleDeleteModeChange('full')}
+                    disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                  >
+                    Fast Mode
+                  </Button>
+                  {rsyncAvailable && (
+                    <Button
+                      size="sm"
+                      variant={deleteMode === 'rsync' ? 'filled' : 'default'}
+                      color={deleteMode === 'rsync' ? 'purple' : undefined}
+                      onClick={() => handleDeleteModeChange('rsync')}
+                      disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                      title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                    >
+                      Rsync
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Thread Count Configuration */}
+              <div className="space-y-3">
+                <div>
+                  <p className="text-themed-primary font-medium text-sm mb-1">Clearing Threads</p>
+                  <p className="text-xs text-themed-muted">
+                    Higher = faster (max: {cpuCount} CPU{cpuCount > 1 ? 's' : ''})
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={() => handleThreadCountChange(threadCount - 1)}
+                    disabled={threadCount <= 1 || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                  >
+                    -
+                  </Button>
+                  <div className="min-w-[60px] text-center">
+                    <span className="text-lg font-semibold text-themed-primary">{threadCount}</span>
+                    <span className="text-xs text-themed-muted">/{cpuCount}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={() => handleThreadCountChange(threadCount + 1)}
+                    disabled={threadCount >= cpuCount || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </>
         )}
-
-        {/* Configuration Options - Unified Grid Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-lg bg-themed-tertiary/30">
-          {/* Delete Mode Configuration */}
-          <div className="space-y-3">
-            <div>
-              <p className="text-themed-primary font-medium text-sm mb-1">Deletion Method</p>
-              <p className="text-xs text-themed-muted">
-                {deleteMode === 'rsync'
-                  ? 'Rsync with empty directory (network storage)'
-                  : deleteMode === 'full'
-                  ? 'Bulk directory removal (faster)'
-                  : 'Individual file deletion (slower, keeps structure)'}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant={deleteMode === 'preserve' ? 'filled' : 'default'}
-                color={deleteMode === 'preserve' ? 'blue' : undefined}
-                onClick={() => handleDeleteModeChange('preserve')}
-                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
-                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
-              >
-                Safe Mode
-              </Button>
-              <Button
-                size="sm"
-                variant={deleteMode === 'full' ? 'filled' : 'default'}
-                color={deleteMode === 'full' ? 'green' : undefined}
-                onClick={() => handleDeleteModeChange('full')}
-                disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
-                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
-              >
-                Fast Mode
-              </Button>
-              {rsyncAvailable && (
-                <Button
-                  size="sm"
-                  variant={deleteMode === 'rsync' ? 'filled' : 'default'}
-                  color={deleteMode === 'rsync' ? 'purple' : undefined}
-                  onClick={() => handleDeleteModeChange('rsync')}
-                  disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
-                  title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
-                >
-                  Rsync
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Thread Count Configuration */}
-          <div className="space-y-3">
-            <div>
-              <p className="text-themed-primary font-medium text-sm mb-1">Clearing Threads</p>
-              <p className="text-xs text-themed-muted">
-                Higher = faster (max: {cpuCount} CPU{cpuCount > 1 ? 's' : ''})
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button
-                size="sm"
-                variant="default"
-                onClick={() => handleThreadCountChange(threadCount - 1)}
-                disabled={threadCount <= 1 || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
-                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
-              >
-                -
-              </Button>
-              <div className="min-w-[60px] text-center">
-                <span className="text-lg font-semibold text-themed-primary">{threadCount}</span>
-                <span className="text-xs text-themed-muted">/{cpuCount}</span>
-              </div>
-              <Button
-                size="sm"
-                variant="default"
-                onClick={() => handleThreadCountChange(threadCount + 1)}
-                disabled={threadCount >= cpuCount || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
-                title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
-              >
-                +
-              </Button>
-            </div>
-          </div>
-        </div>
       </Card>
 
       <Modal
