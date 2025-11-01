@@ -119,6 +119,32 @@ const UniversalNotificationBar: React.FC = () => {
     }
   };
 
+  // Auto-clear completed/failed background removals after 10 seconds
+  const autoClearTimersRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+
+  useEffect(() => {
+    backgroundRemovals.forEach((removal) => {
+      // Only set timer if this removal doesn't already have one
+      if ((removal.status === 'completed' || removal.status === 'failed') &&
+          !autoClearTimersRef.current.has(removal.gameAppId)) {
+        const timer = setTimeout(() => {
+          clearBackgroundRemoval(removal.gameAppId);
+          autoClearTimersRef.current.delete(removal.gameAppId);
+        }, 10000);
+        autoClearTimersRef.current.set(removal.gameAppId, timer);
+      }
+    });
+
+    // Clean up timers for removals that no longer exist
+    const currentGameIds = new Set(backgroundRemovals.map(r => r.gameAppId));
+    autoClearTimersRef.current.forEach((timer, gameAppId) => {
+      if (!currentGameIds.has(gameAppId)) {
+        clearTimeout(timer);
+        autoClearTimersRef.current.delete(gameAppId);
+      }
+    });
+  }, [backgroundRemovals, clearBackgroundRemoval]);
+
   useEffect(() => {
     const hasBackgroundActivity =
       backgroundRemovals.length > 0 ||
@@ -200,6 +226,9 @@ const UniversalNotificationBar: React.FC = () => {
       if (hideTimeoutRef.current) {
         clearTimeout(hideTimeoutRef.current);
       }
+      // Clear all auto-clear timers
+      autoClearTimersRef.current.forEach(timer => clearTimeout(timer));
+      autoClearTimersRef.current.clear();
     };
   }, []);
 
@@ -428,7 +457,9 @@ const UniversalNotificationBar: React.FC = () => {
               </div>
               {removal.status === 'completed' && removal.filesDeleted !== undefined && (
                 <div className="text-xs text-themed-muted mt-0.5">
-                  {removal.filesDeleted.toLocaleString()} files • {formatBytes(removal.bytesFreed || 0)} freed
+                  {removal.filesDeleted.toLocaleString()} cache files deleted
+                  {removal.logEntriesRemoved !== undefined && removal.logEntriesRemoved > 0 && ` • ${removal.logEntriesRemoved.toLocaleString()} log entries removed`}
+                  {` • ${formatBytes(removal.bytesFreed || 0)} freed`}
                 </div>
               )}
               {removal.status === 'failed' && removal.error && (

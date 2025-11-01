@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, RefreshCw, Minimize2, Search, Lock } from 'lucide-react';
+import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, Search, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -24,7 +24,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
-  const { addBackgroundRemoval, updateBackgroundRemoval, clearBackgroundRemoval } = useData();
+  const { addBackgroundRemoval, updateBackgroundRemoval } = useData();
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +36,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showAllPaths, setShowAllPaths] = useState<Record<number, boolean>>({});
   const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [minimizedRemoval, setMinimizedRemoval] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
@@ -225,32 +224,33 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const confirmRemoval = async () => {
     if (!gameToRemove) return;
 
-    // Capture this value before any async operations
-    // (gameToRemove may be cleared if user clicks "Keep Working")
     const gameAppId = gameToRemove.game_app_id;
+    const gameName = gameToRemove.game_name;
 
+    // Always add to background removals for tracking in UniversalNotificationBar
+    addBackgroundRemoval({
+      gameAppId: gameAppId,
+      gameName: gameName,
+      startedAt: new Date(),
+      status: 'removing'
+    });
+
+    // Close modal immediately and show progress in UniversalNotificationBar
+    setGameToRemove(null);
     setRemovingGameId(gameAppId);
     setError(null);
 
     try {
       const result = await ApiService.removeGameFromCache(gameAppId);
 
-      const message = `Removed ${result.report.game_name}: ${result.report.cache_files_deleted} cache files deleted, ${result.report.log_entries_removed} log entries removed, ${formatBytes(result.report.total_bytes_freed)} freed`;
-
-      // Update background removal if minimized
-      if (minimizedRemoval) {
-        updateBackgroundRemoval(gameAppId, {
-          status: 'completed',
-          filesDeleted: result.report.cache_files_deleted,
-          bytesFreed: result.report.total_bytes_freed
-        });
-        // Auto-clear after 10 seconds
-        setTimeout(() => {
-          clearBackgroundRemoval(gameAppId);
-        }, 10000);
-      } else {
-        onSuccess?.(message);
-      }
+      // Update background removal to completed
+      // Auto-clear is handled by UniversalNotificationBar after 10 seconds
+      updateBackgroundRemoval(gameAppId, {
+        status: 'completed',
+        filesDeleted: result.report.cache_files_deleted,
+        logEntriesRemoved: result.report.log_entries_removed,
+        bytesFreed: result.report.total_bytes_freed
+      });
 
       // Remove from the list
       setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
@@ -258,46 +258,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       // Trigger a refetch of all data to update Downloads tab
       onDataRefresh?.();
-
-      setGameToRemove(null);
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to remove game from cache';
 
-      // Update background removal if minimized
-      if (minimizedRemoval) {
-        updateBackgroundRemoval(gameAppId, {
-          status: 'failed',
-          error: errorMsg
-        });
-        // Auto-clear failed removals after 15 seconds
-        setTimeout(() => {
-          clearBackgroundRemoval(gameAppId);
-        }, 15000);
-      } else {
-        setError(errorMsg);
-        onError?.(errorMsg);
-      }
+      // Update background removal to failed
+      // Auto-clear is handled by UniversalNotificationBar after 10 seconds
+      updateBackgroundRemoval(gameAppId, {
+        status: 'failed',
+        error: errorMsg
+      });
+
       console.error('Game removal error:', err);
     } finally {
       setRemovingGameId(null);
-      setMinimizedRemoval(false);
     }
-  };
-
-  const handleMinimize = () => {
-    if (!gameToRemove) return;
-
-    // Add to background removals
-    setMinimizedRemoval(true);
-    addBackgroundRemoval({
-      gameAppId: gameToRemove.game_app_id,
-      gameName: gameToRemove.game_name,
-      startedAt: new Date(),
-      status: 'removing'
-    });
-
-    // Close modal - removal is already in progress
-    setGameToRemove(null);
   };
 
   const toggleGameDetails = (gameId: number) => {
@@ -395,7 +369,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       size="sm"
                       onClick={handleDetect}
                       className="mt-2"
-                      leftSection={<RefreshCw className="w-3 h-3" />}
+                      leftSection={<Loader2 className="w-3 h-3" />}
                     >
                       Try Again
                     </Button>
@@ -781,7 +755,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       {/* Confirmation Modal */}
       <Modal
         opened={gameToRemove !== null}
-        onClose={() => !removingGameId && setGameToRemove(null)}
+        onClose={() => setGameToRemove(null)}
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
@@ -802,43 +776,27 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <li>Delete approximately {gameToRemove.cache_files_found.toLocaleString()} cache files</li>
                   <li>Free up approximately {formatBytes(gameToRemove.total_size_bytes)}</li>
                   <li>Remove cache for {gameToRemove.depot_ids.length} depot{gameToRemove.depot_ids.length !== 1 ? 's' : ''}</li>
+                  <li>Progress will be shown in the notification bar at the top</li>
                   <li>This action cannot be undone</li>
                 </ul>
               </div>
             </Alert>
 
-            <div className="flex justify-between pt-2">
-              <div className="flex gap-2">
-                {removingGameId !== null && (
-                  <Tooltip content="Minimize and keep working while removal completes in background">
-                    <Button
-                      variant="default"
-                      onClick={handleMinimize}
-                      leftSection={<Minimize2 className="w-4 h-4" />}
-                    >
-                      Keep Working
-                    </Button>
-                  </Tooltip>
-                )}
-              </div>
-              <div className="flex gap-3">
-                <Button
-                  variant="default"
-                  onClick={() => setGameToRemove(null)}
-                  disabled={removingGameId !== null}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="filled"
-                  color="red"
-                  leftSection={!removingGameId && <Trash2 className="w-4 h-4" />}
-                  onClick={confirmRemoval}
-                  loading={removingGameId !== null}
-                >
-                  Remove from Cache
-                </Button>
-              </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="default"
+                onClick={() => setGameToRemove(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="filled"
+                color="red"
+                leftSection={<Trash2 className="w-4 h-4" />}
+                onClick={confirmRemoval}
+              >
+                Remove from Cache
+              </Button>
             </div>
           </div>
         )}

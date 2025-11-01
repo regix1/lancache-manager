@@ -77,6 +77,7 @@ interface BackgroundRemoval {
   startedAt: Date;
   status: 'removing' | 'completed' | 'failed';
   filesDeleted?: number;
+  logEntriesRemoved?: number;
   bytesFreed?: number;
   error?: string;
 }
