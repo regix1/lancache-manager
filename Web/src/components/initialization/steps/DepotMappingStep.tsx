@@ -209,7 +209,6 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
             <div className="space-y-4 mb-6">
               <div className="p-6 rounded-lg text-center"
                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
-                <Loader2 className="w-12 h-12 animate-spin mx-auto mb-3" style={{ color: 'var(--theme-primary)' }} />
                 <p className="text-lg font-semibold text-themed-primary mb-1">
                   {statusMessage || 'Processing...'}
                 </p>
