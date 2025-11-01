@@ -608,8 +608,13 @@ public class CacheManagementService
                 }
 
                 var finalResult = summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-                _logger.LogInformation("[CorruptionDetection] Summary generated: {Services}",
-                    string.Join(", ", finalResult.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+
+                // Only log if corruption was actually found
+                if (finalResult.Count > 0)
+                {
+                    _logger.LogInformation("[CorruptionDetection] Summary generated: {Services}",
+                        string.Join(", ", finalResult.Select(kvp => $"{kvp.Key}={kvp.Value}")));
+                }
 
                 // No caching needed - Rust binary is fast enough to run on every request
                 return finalResult;

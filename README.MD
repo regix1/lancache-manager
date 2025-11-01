@@ -497,13 +497,13 @@ If you find LANCache Manager useful and want to support development, consider bu
 
 <div align="center">
 
-<a href="https://www.buymeacoffee.com/regix" target="_blank">
-  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmx1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="200">
+<a href="https://www.buymeacoffee.com/regix" target="_blank" rel="noopener noreferrer">
+  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="200">
 </a>
 
 **Or scan the QR code:**
 
-<img src="https://github.com/user-attachments/assets/c0a8f5e3-8f5d-4b5c-ae94-ae6e3f5fa5b1" alt="Buy Me A Coffee QR Code" width="200">
+<img src="https://github.com/user-attachments/assets/6e2ff32c-bb4c-454a-a626-03be6e6de42d" alt="Buy Me A Coffee QR Code" width="200">
 
 </div>
 
