@@ -489,13 +489,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             <button
               onClick={() => loadThemes()}
               disabled={loading}
-              className="p-2 rounded-lg transition-colors"
+              className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
               style={{
                 color: 'var(--theme-text-muted)',
                 backgroundColor: 'transparent'
               }}
               onMouseEnter={(e) =>
-                (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+                !loading && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
               }
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               title="Refresh themes"

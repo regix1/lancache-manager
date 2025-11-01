@@ -199,17 +199,22 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           <Cpu className="w-6 h-6 text-themed-primary" />
           <h3 className="text-lg font-semibold text-themed-primary">Garbage Collection Settings</h3>
         </div>
-        <Button
+        <button
           onClick={loadSettings}
           disabled={saving}
-          variant="subtle"
-          color="gray"
-          size="sm"
-          leftSection={<RefreshCw className="w-3.5 h-3.5" />}
+          className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
+          style={{
+            color: 'var(--theme-text-muted)',
+            backgroundColor: 'transparent'
+          }}
+          onMouseEnter={(e) =>
+            !saving && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+          }
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           title="Reset to saved settings"
         >
-          Reset
-        </Button>
+          <RefreshCw className="w-4 h-4" />
+        </button>
       </div>
 
       {error && (

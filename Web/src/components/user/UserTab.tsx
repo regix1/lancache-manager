@@ -169,27 +169,38 @@ const UserTab: React.FC = () => {
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--theme-primary-subtle)' }}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="p-2 rounded-lg flex-shrink-0" style={{ backgroundColor: 'var(--theme-primary-subtle)' }}>
             <Users className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
           </div>
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>User Management</h1>
             <p className="text-xs sm:text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
               Manage all users and sessions • Live refresh
             </p>
           </div>
         </div>
-        <Button
-          variant="default"
-          leftSection={<RefreshCw className="w-4 h-4" />}
+        <button
           onClick={() => loadSessions(true)}
           disabled={loading}
-          className="w-full sm:w-auto"
+          className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center flex-shrink-0"
+          style={{
+            color: 'var(--theme-text-muted)',
+            backgroundColor: 'transparent'
+          }}
+          onMouseEnter={(e) =>
+            !loading && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+          }
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          title="Refresh sessions"
         >
-          Refresh Now
-        </Button>
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <RefreshCw className="w-4 h-4" />
+          )}
+        </button>
       </div>
 
       {/* Stats */}
@@ -282,12 +293,16 @@ const UserTab: React.FC = () => {
                   className="p-3 sm:p-4 rounded-lg"
                   style={{
                     backgroundColor: (session.isExpired || session.isRevoked) ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
-                    border: '1px solid var(--theme-border)',
-                    opacity: (session.isExpired || session.isRevoked) ? 0.6 : 1
+                    border: '1px solid var(--theme-border)'
                   }}
                 >
                   <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
-                    <div className="flex items-center gap-3 flex-1 min-w-0 w-full sm:w-auto">
+                    <div
+                      className="flex items-center gap-3 flex-1 min-w-0 w-full sm:w-auto"
+                      style={{
+                        opacity: (session.isExpired || session.isRevoked) ? 0.6 : 1
+                      }}
+                    >
                       <div
                         className="p-2 rounded-lg flex-shrink-0"
                         style={{
@@ -368,68 +383,83 @@ const UserTab: React.FC = () => {
                             )}
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 text-xs sm:text-sm w-full">
-                          {session.ipAddress && (
-                            <div className="flex items-center gap-2 min-w-0" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <Network className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate" title={session.localIp ? `Local IP: ${session.localIp}` : undefined}>
-                                {(() => {
-                                  const cleanIp = session.ipAddress.replace('::ffff:', '');
-                                  // Check if it's a loopback address
+                          {/* Metadata Grid - Clean 3-column layout */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs sm:text-sm w-full">
+                            {/* IP Address */}
+                            {session.ipAddress && (
+                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                                <Network className="w-4 h-4 flex-shrink-0" />
+                                <span className="truncate" title={session.localIp ? `Local IP: ${session.localIp}` : undefined}>
+                                  {(() => {
+                                    const cleanIp = session.ipAddress.replace('::ffff:', '');
+                                    if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
+                                      return 'localhost';
+                                    }
+                                    return cleanIp;
+                                  })()}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* Operating System */}
+                            {session.operatingSystem && (
+                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                                <Monitor className="w-4 h-4 flex-shrink-0" />
+                                <span className="truncate" title={session.operatingSystem}>{session.operatingSystem}</span>
+                              </div>
+                            )}
+
+                            {/* Browser */}
+                            {session.browser && (
+                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                                <Globe className="w-4 h-4 flex-shrink-0" />
+                                <span className="truncate" title={session.browser}>{session.browser}</span>
+                              </div>
+                            )}
+
+                            {/* Created */}
+                            <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <Clock className="w-4 h-4 flex-shrink-0" />
+                              <span className="truncate" title={`Created: ${formatDate(session.createdAt)}`}>Created: {formatDate(session.createdAt)}</span>
+                            </div>
+
+                            {/* Last seen */}
+                            {session.lastSeenAt && (
+                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                                <Clock className="w-4 h-4 flex-shrink-0" />
+                                <span className="truncate" title={`Last seen: ${formatDate(session.lastSeenAt)}`}>Last seen: {formatDate(session.lastSeenAt)}</span>
+                              </div>
+                            )}
+
+                            {/* Revoked (guests only) */}
+                            {session.revokedAt && session.type === 'guest' && (
+                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-error-text)' }}>
+                                <Clock className="w-4 h-4 flex-shrink-0" />
+                                <span className="truncate" title={`Revoked: ${formatDate(session.revokedAt)}`}>Revoked: {formatDate(session.revokedAt)}</span>
+                              </div>
+                            )}
+
+                            {/* Revoked by (guests only) */}
+                            {session.revokedBy && session.type === 'guest' && (
+                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                                <User className="w-4 h-4 flex-shrink-0" />
+                                <span className="truncate" title={`Revoked by: ${(() => {
+                                  const cleanIp = session.revokedBy.replace('::ffff:', '');
                                   if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
                                     return 'localhost';
                                   }
                                   return cleanIp;
-                                })()}
-                              </span>
-                            </div>
-                          )}
-                          {session.operatingSystem && (
-                            <div className="flex items-center gap-2 pl-0 sm:pl-8 min-w-0" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <Monitor className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate" title={session.operatingSystem}>{session.operatingSystem}</span>
-                            </div>
-                          )}
-                          {session.browser && (
-                            <div className="flex items-center gap-2 pl-0 sm:pl-8 min-w-0" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <Globe className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate" title={session.browser}>{session.browser}</span>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 min-w-0" style={{ color: 'var(--theme-text-secondary)' }}>
-                            <Clock className="w-4 h-4 flex-shrink-0" />
-                            <span className="truncate" title={`Created: ${formatDate(session.createdAt)}`}>Created: {formatDate(session.createdAt)}</span>
-                          </div>
-                          {session.lastSeenAt && (
-                            <div className="flex items-center gap-2 pl-0 sm:pl-8 min-w-0" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <Clock className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate" title={`Last seen: ${formatDate(session.lastSeenAt)}`}>Last seen: {formatDate(session.lastSeenAt)}</span>
-                            </div>
-                          )}
-                          {session.revokedAt && session.type === 'guest' && (
-                            <div className="flex items-center gap-2 min-w-0" style={{ color: 'var(--theme-error-text)' }}>
-                              <Clock className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate" title={`Revoked: ${formatDate(session.revokedAt)}`}>Revoked: {formatDate(session.revokedAt)}</span>
-                            </div>
-                          )}
-                          {session.revokedBy && session.type === 'guest' && (
-                            <div className="flex items-center gap-2 pl-0 sm:pl-8 min-w-0" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <Users className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate" title={`Revoked by: ${(() => {
-                                const cleanIp = session.revokedBy.replace('::ffff:', '');
-                                if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
-                                  return 'localhost';
-                                }
-                                return cleanIp;
-                              })()}`}>Revoked by: {(() => {
-                                const cleanIp = session.revokedBy.replace('::ffff:', '');
-                                if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
-                                  return 'localhost';
-                                }
-                                return cleanIp;
-                              })()}</span>
-                            </div>
-                          )}
+                                })()}`}>
+                                  Revoked by: {(() => {
+                                    const cleanIp = session.revokedBy.replace('::ffff:', '');
+                                    if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
+                                      return 'localhost';
+                                    }
+                                    return cleanIp;
+                                  })()}
+                                </span>
+                              </div>
+                            )}
                           </div>
 
                           <div
@@ -462,6 +492,10 @@ const UserTab: React.FC = () => {
                         leftSection={<Trash2 className="w-4 h-4" />}
                         onClick={() => handleDeleteSession(session)}
                         disabled={deletingSession === session.id}
+                        style={(session.isExpired || session.isRevoked) ? {
+                          backgroundColor: 'var(--theme-bg-secondary)',
+                          borderColor: 'var(--theme-error)'
+                        } : undefined}
                       >
                         {deletingSession === session.id ? 'Deleting...' : 'Delete'}
                       </Button>

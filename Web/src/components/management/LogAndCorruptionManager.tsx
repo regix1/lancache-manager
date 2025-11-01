@@ -315,15 +315,26 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             <FileText className="w-5 h-5 icon-orange flex-shrink-0" />
             <h3 className="text-lg font-semibold text-themed-primary">Log & Cache Management</h3>
           </div>
-          <Button
-            variant="default"
-            size="sm"
+          <button
             onClick={() => loadAllData(true)}
             disabled={isLoading || !!activeServiceRemoval || !!removingCorruption}
-            leftSection={isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
+            style={{
+              color: 'var(--theme-text-muted)',
+              backgroundColor: 'transparent'
+            }}
+            onMouseEnter={(e) =>
+              !isLoading && !activeServiceRemoval && !removingCorruption && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+            }
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+            title="Refresh all data"
           >
-            Refresh All
-          </Button>
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+          </button>
         </div>
 
         {/* Read-Only Warning - Show once at the top */}
