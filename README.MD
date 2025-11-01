@@ -69,7 +69,7 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 <img width="1527" height="1081" alt="LANCache Unofficial Theme" src="https://github.com/user-attachments/assets/215d43bc-1912-44f7-b488-4e892c61e82a" />
 
 **Sage and Wood**
-<img width="1545" height="1152" alt="Sage and Wood Theme" src="https://github.com/user-attachments/assets/c754467a-d875-4553-92de-005ec61abcba" />
+<img width="1525" height="1088" alt="Sage and Wood Theme" src="https://github.com/user-attachments/assets/1be6eb4c-6f46-4639-9942-f83a082ecc81" />
 
 *Choose from built-in themes or create your own*
 
@@ -497,16 +497,28 @@ If you find LANCache Manager useful and want to support development, consider bu
 
 <div align="center">
 
+<table>
+<tr>
+<td align="center" style="padding: 20px;">
 <a href="https://www.buymeacoffee.com/regix" target="_blank" rel="noopener noreferrer">
-  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="200">
+  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="250">
 </a>
-
-**Or scan the QR code:**
-
-<img src="https://github.com/user-attachments/assets/6e2ff32c-bb4c-454a-a626-03be6e6de42d" alt="Buy Me A Coffee QR Code" width="200">
+<br/>
+<strong>Click to donate</strong>
+</td>
+<td style="border-left: 3px solid #FFDD00; padding: 0 30px;"></td>
+<td align="center" style="padding: 20px;">
+<a href="https://www.buymeacoffee.com/regix" target="_blank" rel="noopener noreferrer">
+  <img src="https://github.com/user-attachments/assets/6e2ff32c-bb4c-454a-a626-03be6e6de42d" alt="Buy Me A Coffee QR Code" width="200">
+</a>
+<br/>
+<strong>Or scan QR code</strong>
+</td>
+</tr>
+</table>
 
 </div>
 
 ## License
 
-MIT License
+[MIT License](https://github.com/regix1/lancache-manager/blob/main/LICENSE)
