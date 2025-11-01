@@ -194,12 +194,12 @@ public class WindowsPathResolver : IPathResolver
             }
             catch (UnauthorizedAccessException)
             {
-                _logger.LogInformation("Directory is read-only: {Path}", directoryPath);
+                _logger.LogDebug("Directory is read-only: {Path}", directoryPath);
                 return false;
             }
             catch (IOException)
             {
-                _logger.LogInformation("Directory is read-only or inaccessible: {Path}", directoryPath);
+                _logger.LogDebug("Directory is read-only or inaccessible: {Path}", directoryPath);
                 return false;
             }
         }

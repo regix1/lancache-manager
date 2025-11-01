@@ -198,7 +198,7 @@ public class LinuxPathResolver : IPathResolver
             {
                 if (isReadOnlyMount.Value)
                 {
-                    _logger.LogInformation("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
+                    _logger.LogDebug("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
                 }
                 return !isReadOnlyMount.Value;
             }
@@ -293,12 +293,12 @@ public class LinuxPathResolver : IPathResolver
         }
         catch (UnauthorizedAccessException)
         {
-            _logger.LogInformation("Directory is read-only: {Path}", directoryPath);
+            _logger.LogDebug("Directory is read-only: {Path}", directoryPath);
             return false;
         }
         catch (IOException)
         {
-            _logger.LogInformation("Directory is read-only or inaccessible: {Path}", directoryPath);
+            _logger.LogDebug("Directory is read-only or inaccessible: {Path}", directoryPath);
             return false;
         }
     }
