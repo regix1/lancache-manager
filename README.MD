@@ -39,7 +39,7 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 ---
 
 <a id="screenshots"></a>
-## Screenshots <sub>[⬆](#-table-of-contents)</sub>
+## Screenshots [⬆](#-table-of-contents)
 
 <div align="center">
 
@@ -100,7 +100,7 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 </div>
 
 <a id="features"></a>
-## Features <sub>[⬆](#-table-of-contents)</sub>
+## Features [⬆](#-table-of-contents)
 
 - **Real-Time Monitoring** - Watch downloads happen live with bandwidth tracking and progress updates
 - **Game Identification** - Automatically identifies Steam games from depot IDs with support for custom mappings
@@ -114,7 +114,7 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 - **Easy Depot Updates** - Download 290,000+ depot mappings from [lancache-pics](https://github.com/regix1/lancache-pics) with one click
 
 <a id="quick-start"></a>
-## Quick Start <sub>[⬆](#-table-of-contents)</sub>
+## Quick Start [⬆](#-table-of-contents)
 
 ### Basic Docker Run
 
@@ -199,7 +199,7 @@ docker logs lancache-manager | grep "API Key"
 **API key is also saved to `/data/api_key.txt`**
 
 <a id="getting-started"></a>
-## Getting Started <sub>[⬆](#-table-of-contents)</sub>
+## Getting Started [⬆](#-table-of-contents)
 
 ### First Time Setup
 
@@ -229,7 +229,7 @@ volumes:
 ```
 
 <a id="admin-features"></a>
-## Admin Features <sub>[⬆](#-table-of-contents)</sub>
+## Admin Features [⬆](#-table-of-contents)
 
 ### Session Management
 
@@ -249,7 +249,7 @@ Control who has access to your LANCache Manager through the Admin page:
 - **Session Revocation** - Regenerating the API key revokes all active sessions
 
 <a id="custom-themes"></a>
-## Custom Themes <sub>[⬆](#-table-of-contents)</sub>
+## Custom Themes [⬆](#-table-of-contents)
 
 Make LANCache Manager match your style:
 
@@ -275,7 +275,7 @@ textPrimary = "#ffffff"
 Access theme management in **Management > Themes**
 
 <a id="depot-mappings"></a>
-## Depot Mappings <sub>[⬆](#-table-of-contents)</sub>
+## Depot Mappings [⬆](#-table-of-contents)
 
 LANCache Manager automatically identifies Steam games using depot mappings from the community-maintained [lancache-pics](https://github.com/regix1/lancache-pics) repository.
 
@@ -300,7 +300,7 @@ For unrecognized games, private depots, or beta branches:
 You can also upload your own JSON file following the lancache-pics format.
 
 <a id="grafana--prometheus-integration"></a>
-## Grafana & Prometheus Integration <sub>[⬆](#-table-of-contents)</sub>
+## Grafana & Prometheus Integration [⬆](#-table-of-contents)
 
 Export your cache statistics to Grafana for advanced visualization and monitoring.
 
@@ -395,7 +395,7 @@ curl -H "X-Api-Key: your-key-here" http://localhost:8080/metrics
 ```
 
 <a id="api-examples"></a>
-## API Examples <sub>[⬆](#-table-of-contents)</sub>
+## API Examples [⬆](#-table-of-contents)
 
 Stats endpoints are **public** and don't require authentication. Management endpoints require your **API key**.
 
@@ -422,7 +422,7 @@ curl http://localhost:8080/metrics
 ```
 
 <a id="troubleshooting"></a>
-## Troubleshooting <sub>[⬆](#-table-of-contents)</sub>
+## Troubleshooting [⬆](#-table-of-contents)
 
 ### Logs Not Processing?
 
@@ -488,7 +488,7 @@ If you see permission errors when trying to clear cache or remove games:
    ```
 
 <a id="building-from-source"></a>
-## Building from Source <sub>[⬆](#-table-of-contents)</sub>
+## Building from Source [⬆](#-table-of-contents)
 
 **Requirements:** .NET 8 SDK, Node.js 20+, Rust 1.75+
 
@@ -522,12 +522,12 @@ docker buildx build \
 ```
 
 <a id="contributing"></a>
-## Contributing <sub>[⬆](#-table-of-contents)</sub>
+## Contributing [⬆](#-table-of-contents)
 
 Found a bug or have a feature request? [Open an issue](https://github.com/regix1/lancache-manager/issues) on GitHub!
 
 <a id="support"></a>
-## Support <sub>[⬆](#-table-of-contents)</sub>
+## Support [⬆](#-table-of-contents)
 
 <div align="center">
 
@@ -550,6 +550,6 @@ If this project has been helpful, consider supporting its development!
 </div>
 
 <a id="license"></a>
-## License <sub>[⬆](#-table-of-contents)</sub>
+## License [⬆](#-table-of-contents)
 
 [MIT License](https://github.com/regix1/lancache-manager/blob/main/LICENSE)
