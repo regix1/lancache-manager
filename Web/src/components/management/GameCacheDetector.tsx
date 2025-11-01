@@ -342,7 +342,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 <HardDrive className="w-5 h-5" />
                 Game Cache Detection
               </h3>
-              <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 bg-themed-warning-bg text-themed-warning-text border border-themed-warning">
+              <span
+                className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
+                style={{
+                  backgroundColor: 'var(--theme-warning-bg)',
+                  color: 'var(--theme-warning)',
+                  borderColor: 'var(--theme-warning)'
+                }}
+              >
                 <Lock className="w-3 h-3" />
                 Read-only
               </span>

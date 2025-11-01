@@ -354,7 +354,14 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           {logsReadOnly ? (
             <div className="flex items-center gap-2 mb-4">
               <h4 className="text-md font-semibold text-themed-primary">Log File Management</h4>
-              <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 bg-themed-warning-bg text-themed-warning-text border border-themed-warning">
+              <span
+                className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
+                style={{
+                  backgroundColor: 'var(--theme-warning-bg)',
+                  color: 'var(--theme-warning)',
+                  borderColor: 'var(--theme-warning)'
+                }}
+              >
                 <Lock className="w-3 h-3" />
                 Read-only
               </span>
@@ -450,7 +457,14 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           {logsReadOnly || cacheReadOnly ? (
             <div className="flex items-center gap-2 mb-4">
               <h4 className="text-md font-semibold text-themed-primary">Corrupted Cache Detection & Removal</h4>
-              <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 bg-themed-warning-bg text-themed-warning-text border border-themed-warning">
+              <span
+                className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
+                style={{
+                  backgroundColor: 'var(--theme-warning-bg)',
+                  color: 'var(--theme-warning)',
+                  borderColor: 'var(--theme-warning)'
+                }}
+              >
                 <Lock className="w-3 h-3" />
                 Read-only
               </span>
@@ -602,18 +616,20 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           )}
         </div>
 
-        {/* Combined Warning for Both Sections */}
-        <Alert color="yellow">
-          <div>
-            <p className="text-xs font-medium mb-2">Important:</p>
-            <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-              <li><strong>Log removal:</strong> Removes entries from access.log (cache files remain intact)</li>
-              <li><strong>Corruption removal:</strong> Deletes BOTH cache files AND log entries for corrupted chunks</li>
-              <li>Both require write permissions to logs/cache directories</li>
-              <li>These actions cannot be undone</li>
-            </ul>
-          </div>
-        </Alert>
+        {/* Combined Warning for Both Sections - Hide if both are read-only */}
+        {!(logsReadOnly && cacheReadOnly) && (
+          <Alert color="yellow">
+            <div>
+              <p className="text-xs font-medium mb-2">Important:</p>
+              <ul className="list-disc list-inside text-xs space-y-1 ml-2">
+                <li><strong>Log removal:</strong> Removes entries from access.log (cache files remain intact)</li>
+                <li><strong>Corruption removal:</strong> Deletes BOTH cache files AND log entries for corrupted chunks</li>
+                <li>Both require write permissions to logs/cache directories</li>
+                <li>These actions cannot be undone</li>
+              </ul>
+            </div>
+          </Alert>
+        )}
       </Card>
 
       {/* Log Removal Confirmation Modal */}
