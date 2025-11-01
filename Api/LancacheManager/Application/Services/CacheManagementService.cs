@@ -193,6 +193,23 @@ public class CacheManagementService
         }
     }
 
+    /// <summary>
+    /// Execute an operation while holding the shared lock to prevent concurrent Rust processes.
+    /// This ensures only one Rust process accesses the logs/cache at a time, preventing file locking issues.
+    /// </summary>
+    public async Task<T> ExecuteWithLockAsync<T>(Func<Task<T>> operation, CancellationToken cancellationToken = default)
+    {
+        await _cacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await operation();
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
+
     public async Task RemoveServiceFromLogs(string service, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time

@@ -83,134 +83,147 @@ public class RustLogRemovalService
             _logger.LogInformation("Starting Rust log removal for service: {Service}", service);
             _logger.LogInformation("Log directory: {LogDir}", logDir);
             _logger.LogInformation("Progress file: {ProgressPath}", progressPath);
+            _logger.LogInformation("Rust executable: {Executable}", rustExecutablePath);
 
-            // Start Rust process
-            var startInfo = new ProcessStartInfo
+            // Wrap Rust process execution in shared lock to prevent concurrent access to log files
+            // This prevents "Failed to persist temp file" errors when other processes are reading logs
+            return await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
-                FileName = rustExecutablePath,
-                Arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
-            };
+                // Start Rust process
+                var arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\"";
+                _logger.LogInformation("Rust arguments: {Arguments}", arguments);
 
-            _rustProcess = Process.Start(startInfo);
-
-            if (_rustProcess == null)
-            {
-                throw new Exception("Failed to start Rust process");
-            }
-
-            // Monitor stdout - track task for proper cleanup
-            var stdoutTask = Task.Run(async () =>
-            {
-                while (!_rustProcess.StandardOutput.EndOfStream)
+                var startInfo = new ProcessStartInfo
                 {
-                    var line = await _rustProcess.StandardOutput.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(line))
+                    FileName = rustExecutablePath,
+                    Arguments = arguments,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
+                };
+
+                _rustProcess = Process.Start(startInfo);
+
+                if (_rustProcess == null)
+                {
+                    throw new Exception("Failed to start Rust process");
+                }
+
+                // Monitor stdout - track task for proper cleanup
+                var stdoutTask = Task.Run(async () =>
+                {
+                    while (!_rustProcess.StandardOutput.EndOfStream)
                     {
-                        _logger.LogInformation("[Rust] {Line}", line);
+                        var line = await _rustProcess.StandardOutput.ReadLineAsync();
+                        if (!string.IsNullOrEmpty(line))
+                        {
+                            _logger.LogInformation("[Rust] {Line}", line);
+                        }
                     }
-                }
-            });
+                });
 
-            // Monitor stderr - discard output to prevent buffer issues, track task for proper cleanup
-            var stderrTask = Task.Run(async () =>
-            {
-                while (!_rustProcess.StandardError.EndOfStream)
+                // Monitor stderr - log errors/warnings for debugging
+                var stderrTask = Task.Run(async () =>
                 {
-                    await _rustProcess.StandardError.ReadLineAsync();
-                }
-            });
+                    while (!_rustProcess.StandardError.EndOfStream)
+                    {
+                        var line = await _rustProcess.StandardError.ReadLineAsync();
+                        if (!string.IsNullOrEmpty(line))
+                        {
+                            _logger.LogWarning("[Rust stderr] {Line}", line);
+                        }
+                    }
+                });
 
-            // Send initial progress notification
-            await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
-            {
-                filesProcessed = 0,
-                linesProcessed = 0,
-                linesRemoved = 0,
-                percentComplete = 0.0,
-                status = "starting",
-                message = $"Starting removal of {service} entries from logs...",
-                service
-            });
-
-            // Start progress monitoring task
-            var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, _cancellationTokenSource.Token));
-
-            // Wait for process to complete
-            await _rustProcess.WaitForExitAsync(_cancellationTokenSource.Token);
-
-            var exitCode = _rustProcess.ExitCode;
-            _logger.LogInformation("Rust log_manager exited with code {ExitCode}", exitCode);
-
-            // Wait for stdout/stderr reading tasks to complete
-            try
-            {
-                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5));
-            }
-            catch (TimeoutException)
-            {
-                _logger.LogWarning("Timeout waiting for stdout/stderr tasks to complete");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
-            }
-
-            // Stop the progress monitoring task
-            _cancellationTokenSource.Cancel();
-            try
-            {
-                await progressTask;
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected
-            }
-
-            if (exitCode == 0)
-            {
-                // Small delay to ensure file operations are fully complete
-                // (Windows file system may need a moment to finalize writes)
-                await Task.Delay(100);
-
-                // Invalidate service counts cache so UI refreshes
-                await _cacheManagementService.InvalidateServiceCountsCache();
-
-                // Send completion notification
-                var finalProgress = await ReadProgressFileAsync(progressPath);
-                var message = finalProgress?.Message ?? $"Successfully removed {service} entries from logs";
-
-                await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                // Send initial progress notification
+                await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
                 {
-                    success = true,
-                    message,
-                    filesProcessed = finalProgress?.FilesProcessed ?? 0,
-                    linesProcessed = finalProgress?.LinesProcessed ?? 0,
-                    linesRemoved = finalProgress?.LinesRemoved ?? 0,
+                    filesProcessed = 0,
+                    linesProcessed = 0,
+                    linesRemoved = 0,
+                    percentComplete = 0.0,
+                    status = "starting",
+                    message = $"Starting removal of {service} entries from logs...",
                     service
                 });
 
-                _logger.LogInformation("Log removal completed successfully for {Service}: Removed {LinesRemoved} of {LinesProcessed} lines",
-                    service, finalProgress?.LinesRemoved ?? 0, finalProgress?.LinesProcessed ?? 0);
-                return true;
-            }
-            else
-            {
-                // Send failure notification
-                await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
-                {
-                    success = false,
-                    message = $"Failed to remove {service} entries from logs",
-                    service
-                });
+                // Start progress monitoring task
+                var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, _cancellationTokenSource.Token));
 
-                _logger.LogError("Log removal failed for {Service} with exit code {ExitCode}", service, exitCode);
-                return false;
-            }
+                // Wait for process to complete
+                await _rustProcess.WaitForExitAsync(_cancellationTokenSource.Token);
+
+                var exitCode = _rustProcess.ExitCode;
+                _logger.LogInformation("Rust log_manager exited with code {ExitCode}", exitCode);
+
+                // Wait for stdout/stderr reading tasks to complete
+                try
+                {
+                    await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (TimeoutException)
+                {
+                    _logger.LogWarning("Timeout waiting for stdout/stderr tasks to complete");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
+                }
+
+                // Stop the progress monitoring task
+                _cancellationTokenSource.Cancel();
+                try
+                {
+                    await progressTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected
+                }
+
+                if (exitCode == 0)
+                {
+                    // Small delay to ensure file operations are fully complete
+                    // (Windows file system may need a moment to finalize writes)
+                    await Task.Delay(100);
+
+                    // Invalidate service counts cache so UI refreshes
+                    await _cacheManagementService.InvalidateServiceCountsCache();
+
+                    // Send completion notification
+                    var finalProgress = await ReadProgressFileAsync(progressPath);
+                    var message = finalProgress?.Message ?? $"Successfully removed {service} entries from logs";
+
+                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    {
+                        success = true,
+                        message,
+                        filesProcessed = finalProgress?.FilesProcessed ?? 0,
+                        linesProcessed = finalProgress?.LinesProcessed ?? 0,
+                        linesRemoved = finalProgress?.LinesRemoved ?? 0,
+                        service
+                    });
+
+                    _logger.LogInformation("Log removal completed successfully for {Service}: Removed {LinesRemoved} of {LinesProcessed} lines",
+                        service, finalProgress?.LinesRemoved ?? 0, finalProgress?.LinesProcessed ?? 0);
+                    return true;
+                }
+                else
+                {
+                    // Send failure notification
+                    await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+                    {
+                        success = false,
+                        message = $"Failed to remove {service} entries from logs",
+                        service
+                    });
+
+                    _logger.LogError("Log removal failed for {Service} with exit code {ExitCode}", service, exitCode);
+                    return false;
+                }
+            }, _cancellationTokenSource.Token); // Close ExecuteWithLockAsync lambda
         }
         catch (Exception ex)
         {

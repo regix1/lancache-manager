@@ -256,34 +256,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
-  const handleCancelCacheClear = useCallback(async () => {
-    const operation = cacheOp.operation as any;
-    if (!operation?.data?.operationId) return;
-
-    try {
-      setCacheClearProgress((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: 'Cancelling',
-              statusMessage: 'Cancelling operation...'
-            }
-          : null
-      );
-
-      await ApiService.cancelCacheClear(operation.data.operationId);
-      await cacheOp.clear();
-
-      setTimeout(() => {
-        setCacheClearProgress(null);
-        onSuccess?.('Cache clearing operation cancelled');
-      }, 1500);
-    } catch (err) {
-      console.error('Failed to cancel cache clear:', err);
-      setCacheClearProgress(null);
-      await cacheOp.clear();
-    }
-  }, [cacheOp, onSuccess]);
+  // Removed unused handleCancelCacheClear function
 
   // Report cache clearing status to DataContext for UniversalNotificationBar
   useEffect(() => {

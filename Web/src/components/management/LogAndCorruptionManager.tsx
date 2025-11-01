@@ -11,7 +11,6 @@ import {
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
-import { useData } from '@contexts/DataContext';
 import { Card } from '@components/ui/Card';
 
 interface ServiceRemovalOperationData {

@@ -38,19 +38,46 @@ public class LiveLogMonitorService : BackgroundService
     }
 
     /// <summary>
-    /// Counts lines in a file with proper file sharing to allow other processes to delete/modify the file
+    /// Counts lines in a file with proper file sharing to allow other processes to delete/modify the file.
+    /// Includes retry logic to handle transient file locks from other processes (e.g., Rust log processor).
     /// </summary>
     private long CountLinesWithSharing(string filePath)
     {
-        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(fileStream);
+        const int maxRetries = 5;
+        const int baseDelayMs = 100;
 
-        long lineCount = 0;
-        while (reader.ReadLine() != null)
+        for (int attempt = 0; attempt < maxRetries; attempt++)
         {
-            lineCount++;
+            try
+            {
+                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(fileStream);
+
+                long lineCount = 0;
+                while (reader.ReadLine() != null)
+                {
+                    lineCount++;
+                }
+                return lineCount;
+            }
+            catch (IOException) when (attempt < maxRetries - 1)
+            {
+                // File is locked by another process, wait and retry with exponential backoff
+                var delayMs = baseDelayMs * (int)Math.Pow(2, attempt);
+                Thread.Sleep(delayMs);
+            }
         }
-        return lineCount;
+
+        // If all retries failed, throw the exception
+        using var finalStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var finalReader = new StreamReader(finalStream);
+
+        long finalCount = 0;
+        while (finalReader.ReadLine() != null)
+        {
+            finalCount++;
+        }
+        return finalCount;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
