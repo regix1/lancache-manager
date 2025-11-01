@@ -431,12 +431,14 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                   )}
                 </>
               ) : (
-            <div className="text-center py-8 text-themed-muted">
-              <div className="mb-2">No services with log entries found</div>
-              <div className="text-xs">
-                Services appear here when they have downloadable content in the logs
-              </div>
-            </div>
+                <div className="text-center py-8 text-themed-muted">
+                  <div className="mb-2">No services with log entries found</div>
+                  <div className="text-xs">
+                    Services appear here when they have downloadable content in the logs
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
