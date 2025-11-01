@@ -109,7 +109,9 @@ class AuthService {
         },
         body: JSON.stringify({
           sessionId: guestSessionId,
-          deviceName: this.getDeviceName()
+          deviceName: this.getDeviceName(),
+          operatingSystem: this.getOperatingSystem(),
+          browser: this.getBrowser()
         })
       });
       console.log('[Auth] Guest session registered with backend:', guestSessionId);
@@ -437,6 +439,64 @@ class AuthService {
     else if (userAgent.indexOf('Edge') !== -1) browser = 'Edge';
 
     return `${browser} on ${os}`;
+  }
+
+  private getOperatingSystem(): string {
+    const userAgent = navigator.userAgent;
+
+    // Windows detection with version
+    if (userAgent.indexOf('Windows NT 10.0') !== -1) return 'Windows 10/11';
+    if (userAgent.indexOf('Windows NT 6.3') !== -1) return 'Windows 8.1';
+    if (userAgent.indexOf('Windows NT 6.2') !== -1) return 'Windows 8';
+    if (userAgent.indexOf('Windows NT 6.1') !== -1) return 'Windows 7';
+    if (userAgent.indexOf('Win') !== -1) return 'Windows';
+
+    // macOS detection with version
+    const macMatch = userAgent.match(/Mac OS X (\d+)[._](\d+)/);
+    if (macMatch) {
+      return `macOS ${macMatch[1]}.${macMatch[2]}`;
+    }
+    if (userAgent.indexOf('Mac') !== -1) return 'macOS';
+
+    // Linux/Android/iOS
+    if (userAgent.indexOf('Android') !== -1) {
+      const androidMatch = userAgent.match(/Android (\d+(\.\d+)?)/);
+      return androidMatch ? `Android ${androidMatch[1]}` : 'Android';
+    }
+    if (userAgent.indexOf('Linux') !== -1) return 'Linux';
+    if (userAgent.indexOf('iOS') !== -1) return 'iOS';
+
+    return 'Unknown OS';
+  }
+
+  private getBrowser(): string {
+    const userAgent = navigator.userAgent;
+
+    // Edge (check first as it also contains "Chrome")
+    const edgeMatch = userAgent.match(/Edg\/(\d+\.\d+\.\d+\.\d+)/);
+    if (edgeMatch) return `Edge ${edgeMatch[1]}`;
+
+    // Chrome
+    const chromeMatch = userAgent.match(/Chrome\/(\d+\.\d+\.\d+\.\d+)/);
+    if (chromeMatch && userAgent.indexOf('Edg') === -1) return `Chrome ${chromeMatch[1]}`;
+
+    // Firefox
+    const firefoxMatch = userAgent.match(/Firefox\/(\d+\.\d+)/);
+    if (firefoxMatch) return `Firefox ${firefoxMatch[1]}`;
+
+    // Safari (check after Chrome as Chrome also contains "Safari")
+    const safariMatch = userAgent.match(/Version\/(\d+\.\d+)/);
+    if (safariMatch && userAgent.indexOf('Safari') !== -1 && userAgent.indexOf('Chrome') === -1) {
+      return `Safari ${safariMatch[1]}`;
+    }
+
+    // Fallback
+    if (userAgent.indexOf('Chrome') !== -1) return 'Chrome';
+    if (userAgent.indexOf('Safari') !== -1) return 'Safari';
+    if (userAgent.indexOf('Firefox') !== -1) return 'Firefox';
+    if (userAgent.indexOf('Edge') !== -1) return 'Edge';
+
+    return 'Unknown Browser';
   }
 
   getAuthHeaders(): Record<string, string> {

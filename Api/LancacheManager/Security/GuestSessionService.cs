@@ -33,6 +33,8 @@ public class GuestSessionService
         public string SessionId { get; set; } = string.Empty;
         public string? DeviceName { get; set; }
         public string? IpAddress { get; set; }
+        public string? OperatingSystem { get; set; }
+        public string? Browser { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime ExpiresAt { get; set; }
         public DateTime? LastSeenAt { get; set; }
@@ -45,6 +47,8 @@ public class GuestSessionService
     {
         public string SessionId { get; set; } = string.Empty;
         public string? DeviceName { get; set; }
+        public string? OperatingSystem { get; set; }
+        public string? Browser { get; set; }
     }
 
     public class GuestSessionInfo
@@ -52,6 +56,8 @@ public class GuestSessionService
         public string SessionId { get; set; } = string.Empty;
         public string? DeviceName { get; set; }
         public string? IpAddress { get; set; }
+        public string? OperatingSystem { get; set; }
+        public string? Browser { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? LastSeenAt { get; set; }
         public DateTime ExpiresAt { get; set; }
@@ -73,6 +79,8 @@ public class GuestSessionService
                 SessionId = request.SessionId,
                 DeviceName = request.DeviceName,
                 IpAddress = ipAddress,
+                OperatingSystem = request.OperatingSystem,
+                Browser = request.Browser,
                 CreatedAt = DateTime.UtcNow,
                 ExpiresAt = DateTime.UtcNow.AddHours(6),
                 LastSeenAt = DateTime.UtcNow,
@@ -160,6 +168,8 @@ public class GuestSessionService
                     SessionId = session.SessionId,
                     DeviceName = session.DeviceName,
                     IpAddress = session.IpAddress,
+                    OperatingSystem = session.OperatingSystem,
+                    Browser = session.Browser,
                     CreatedAt = session.CreatedAt,
                     LastSeenAt = session.LastSeenAt,
                     ExpiresAt = session.ExpiresAt,

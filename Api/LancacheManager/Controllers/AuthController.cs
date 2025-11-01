@@ -474,8 +474,8 @@ public class AuthController : ControllerBase
                 ipAddress = g.IpAddress,
                 localIp = (string?)null,
                 hostname = (string?)null,
-                operatingSystem = (string?)null,
-                browser = (string?)null,
+                operatingSystem = g.OperatingSystem,
+                browser = g.Browser,
                 createdAt = g.CreatedAt,
                 lastSeenAt = g.LastSeenAt,
                 expiresAt = g.ExpiresAt,
@@ -519,20 +519,9 @@ public class AuthController : ControllerBase
                 return BadRequest(new { error = "Session ID is required" });
             }
 
-            // Get the device name of the admin who is revoking
-            // Authenticated users send both X-Api-Key (for auth) and X-Device-Id (for identification)
-            var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
-            var revokedBy = "Unknown Admin";
-
-            if (!string.IsNullOrEmpty(deviceId))
-            {
-                var devices = _deviceAuthService.GetAllDevices();
-                var device = devices.FirstOrDefault(d => d.DeviceId == deviceId);
-                if (device != null)
-                {
-                    revokedBy = device.Hostname ?? device.DeviceName ?? device.DeviceId;
-                }
-            }
+            // Get the IP address of the admin who is revoking
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+            var revokedBy = ipAddress ?? "Unknown IP";
 
             var success = _guestSessionService.RevokeSession(sessionId, revokedBy);
             if (success)
