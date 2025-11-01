@@ -266,7 +266,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         </div>
 
         {/* Info Box */}
-        <Alert color="blue">
+        <Alert color="blue" className="about-section">
           <div className="text-sm space-y-2">
             <p className="font-medium">About Garbage Collection</p>
             <p>

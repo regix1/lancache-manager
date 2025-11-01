@@ -522,6 +522,10 @@ class AuthService {
     return this.deviceId;
   }
 
+  getGuestSessionId(): string | null {
+    return localStorage.getItem('lancache_guest_session_id');
+  }
+
   handleUnauthorized(): void {
     console.warn('[Auth] Unauthorized access detected - device was likely revoked. Forcing reload...');
     this.isAuthenticated = false;

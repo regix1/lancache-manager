@@ -618,7 +618,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
         {/* Combined Warning for Both Sections - Hide if both are read-only */}
         {!(logsReadOnly && cacheReadOnly) && (
-          <Alert color="yellow">
+          <Alert color="yellow" className="about-section">
             <div>
               <p className="text-xs font-medium mb-2">Important:</p>
               <ul className="list-disc list-inside text-xs space-y-1 ml-2">

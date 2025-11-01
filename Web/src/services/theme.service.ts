@@ -1054,6 +1054,10 @@ class ThemeService {
     const disableTooltips = this.getDisableTooltips();
     document.documentElement.setAttribute('data-disable-tooltips', disableTooltips.toString());
 
+    // Initialize hide about sections setting
+    const hideAboutSections = this.getHideAboutSections();
+    document.documentElement.setAttribute('data-hide-about-sections', hideAboutSections.toString());
+
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
     const savedThemeId = localStorage.getItem('lancache_selected_theme');
@@ -1115,6 +1119,11 @@ class ThemeService {
       // Migration for PICS always visible feature
       if (!localStorage.getItem('lancache_pics_always_visible')) {
         localStorage.setItem('lancache_pics_always_visible', 'false'); // Default to only show when processing
+      }
+
+      // Migration for hide about sections feature
+      if (!localStorage.getItem('lancache_hide_about_sections')) {
+        localStorage.setItem('lancache_hide_about_sections', 'false'); // Default to showing about sections
       }
 
       // Set migration version to prevent future runs
@@ -1225,6 +1234,20 @@ class ThemeService {
 
   getPicsAlwaysVisible(): boolean {
     return localStorage.getItem('lancache_pics_always_visible') === 'true';
+  }
+
+  setHideAboutSections(enabled: boolean): void {
+    localStorage.setItem('lancache_hide_about_sections', enabled.toString());
+
+    // Update data attribute for CSS styling
+    document.documentElement.setAttribute('data-hide-about-sections', enabled.toString());
+
+    // Dispatch event for any components that need to react
+    window.dispatchEvent(new Event('aboutsectionsvisibilitychange'));
+  }
+
+  getHideAboutSections(): boolean {
+    return localStorage.getItem('lancache_hide_about_sections') === 'true';
   }
 
   async setTheme(themeId: string): Promise<void> {

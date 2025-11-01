@@ -99,7 +99,7 @@ const GrafanaEndpoints: React.FC = () => {
       </div>
 
       <div className="mt-4">
-        <Alert color={metricsSecured ? "yellow" : "blue"}>
+        <Alert color={metricsSecured ? "yellow" : "blue"} className="about-section">
           <div className="space-y-2">
             <p className="text-sm">
               <strong>Security:</strong> {metricsSecured
@@ -131,7 +131,7 @@ const GrafanaEndpoints: React.FC = () => {
       </div>
 
       <div className="mt-2">
-        <Alert color="green">
+        <Alert color="green" className="about-section">
           <div className="space-y-2">
             <p className="text-sm">
               <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for real-time monitoring.

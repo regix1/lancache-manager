@@ -357,17 +357,17 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
         </div>
 
         <div className="mt-4">
-          <Alert color="blue">
+          <Alert color="blue" className="about-section">
             <p className="text-sm">
-              <strong>Security Options:</strong> By default, these endpoints are public. 
+              <strong>Security Options:</strong> By default, these endpoints are public.
               To require API key authentication, set <code>RequireAuthForMetrics: true</code> in your config.
               Then add header <code>X-Api-Key: your-key</code> to Grafana/Prometheus.
             </p>
           </Alert>
         </div>
-        
+
         <div className="mt-2">
-          <Alert color="green">
+          <Alert color="green" className="about-section">
             <p className="text-sm">
               <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for real-time monitoring.
               Works with both Prometheus and JSON datasource plugins.

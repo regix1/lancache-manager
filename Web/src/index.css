@@ -1047,6 +1047,11 @@
     border-color: var(--theme-secured-access-border);
   }
 
+  /* Hide about/info sections when setting is enabled */
+  [data-hide-about-sections="true"] .about-section {
+    display: none !important;
+  }
+
   /* ===== BORDER RADIUS OVERRIDES - Theme Aware ===== */
   /* Override common Tailwind rounded classes with theme variables */
   .rounded,

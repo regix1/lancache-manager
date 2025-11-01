@@ -485,7 +485,8 @@ const AppContent: React.FC = () => {
       >
         <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
         <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} />
-        <UniversalNotificationBar />
+        {/* Only show Universal Notification Bar to authenticated users */}
+        {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
         <Footer />
       </div>

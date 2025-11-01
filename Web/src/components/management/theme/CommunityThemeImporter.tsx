@@ -34,7 +34,8 @@ interface CommunityTheme {
 interface CommunityThemeImporterProps {
   isAuthenticated: boolean;
   onThemeImported?: () => void;
-  installedThemes?: Array<{ meta: { id: string } }>;
+  installedThemes?: Array<{ meta: { id: string; version?: string } }>;
+  autoCheckUpdates?: boolean;
 }
 
 const GITHUB_API_BASE = 'https://api.github.com/repos/regix1/lancache-manager/contents/community-themes';
@@ -43,7 +44,8 @@ const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/regix1/lancache-manag
 export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   isAuthenticated,
   onThemeImported,
-  installedThemes = []
+  installedThemes = [],
+  autoCheckUpdates = true
 }) => {
   const [communityThemes, setCommunityThemes] = useState<CommunityTheme[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,10 +54,18 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const [importedThemes, setImportedThemes] = useState<Set<string>>(new Set());
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showImported, setShowImported] = useState(false);
+  const [updatingThemes, setUpdatingThemes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    loadCommunityThemes();
+    loadCommunityThemesAndCheckUpdates();
   }, []);
+
+  // Watch for changes in installed themes and check for updates
+  useEffect(() => {
+    if (communityThemes.length > 0 && installedThemes.length > 0 && autoCheckUpdates && isAuthenticated) {
+      checkAndUpdateThemes(communityThemes);
+    }
+  }, [installedThemes]);
 
   // Check which community themes are already installed
   const isThemeInstalled = (themeId: string): boolean => {
@@ -105,6 +115,11 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       }
 
       setCommunityThemes(themes);
+
+      // Automatically check and update themes if enabled
+      if (autoCheckUpdates && isAuthenticated) {
+        await checkAndUpdateThemes(themes);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load community themes');
       console.error('Error loading community themes:', err);
@@ -161,6 +176,103 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     }
   };
 
+  const compareVersions = (v1: string, v2: string): number => {
+    const parts1 = v1.split('.').map(Number);
+    const parts2 = v2.split('.').map(Number);
+
+    for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+      const part1 = parts1[i] || 0;
+      const part2 = parts2[i] || 0;
+
+      if (part1 > part2) return 1;
+      if (part1 < part2) return -1;
+    }
+
+    return 0;
+  };
+
+  const checkAndUpdateThemes = async (themes: CommunityTheme[]) => {
+    if (!isAuthenticated || !autoCheckUpdates) return;
+
+    const themesToUpdate: CommunityTheme[] = [];
+
+    for (const communityTheme of themes) {
+      const installedTheme = installedThemes.find(
+        t => t.meta.id === communityTheme.meta?.id
+      );
+
+      if (installedTheme && communityTheme.meta?.version && installedTheme.meta.version) {
+        const comparison = compareVersions(
+          communityTheme.meta.version,
+          installedTheme.meta.version
+        );
+
+        if (comparison > 0) {
+          themesToUpdate.push(communityTheme);
+        }
+      }
+    }
+
+    if (themesToUpdate.length > 0) {
+      let successCount = 0;
+      for (const theme of themesToUpdate) {
+        const success = await updateThemeSilently(theme);
+        if (success) successCount++;
+      }
+
+      if (successCount > 0) {
+        setSuccessMessage(`Successfully auto-updated ${successCount} theme${successCount !== 1 ? 's' : ''} to latest version!`);
+        setTimeout(() => setSuccessMessage(null), 5000);
+      }
+    }
+  };
+
+  const updateThemeSilently = async (theme: CommunityTheme): Promise<boolean> => {
+    if (!isAuthenticated) return false;
+
+    setUpdatingThemes(prev => new Set([...prev, theme.fileName]));
+
+    try {
+      const blob = new Blob([theme.content], { type: 'application/toml' });
+      const file = new File([blob], theme.fileName, { type: 'application/toml' });
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_BASE}/theme/upload`, {
+        method: 'POST',
+        headers: authService.getAuthHeaders(),
+        body: formData
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update theme');
+      }
+
+      console.log(`Auto-updated theme: ${theme.meta?.name || theme.name} to v${theme.meta?.version}`);
+
+      if (onThemeImported) {
+        onThemeImported();
+      }
+
+      return true;
+    } catch (err: any) {
+      console.error(`Failed to auto-update theme ${theme.meta?.name || theme.name}:`, err);
+      return false;
+    } finally {
+      setUpdatingThemes(prev => {
+        const next = new Set(prev);
+        next.delete(theme.fileName);
+        return next;
+      });
+    }
+  };
+
+  const loadCommunityThemesAndCheckUpdates = async () => {
+    await loadCommunityThemes();
+  };
+
   const getColorPreview = (colors: any) => {
     return [
       colors.primaryColor || '#3b82f6',
@@ -201,14 +313,6 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
             <ExternalLink className="w-3 h-3" />
             View on GitHub
           </a>
-          <button
-            onClick={loadCommunityThemes}
-            disabled={loading}
-            className="p-2 rounded-lg transition-colors duration-200 hover:bg-themed-hover"
-            title="Refresh community themes"
-          >
-            <RefreshCw className={`w-4 h-4 text-themed-muted ${loading ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </div>
 
@@ -223,6 +327,18 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       {successMessage && (
         <Alert color="green">
           {successMessage}
+        </Alert>
+      )}
+
+      {/* Auto-Update Progress Alert */}
+      {updatingThemes.size > 0 && (
+        <Alert color="blue">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span className="text-sm">
+              Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''} to latest version...
+            </span>
+          </div>
         </Alert>
       )}
 
@@ -256,6 +372,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                 const isInstalled = isThemeInstalled(theme.meta?.id || '');
                 const isImported = importedThemes.has(theme.fileName);
                 const isImporting = importing === theme.fileName;
+                const isUpdating = updatingThemes.has(theme.fileName);
                 const colorPreview = getColorPreview(theme.colors);
                 const shouldHide = !showImported && (isInstalled || isImported);
 
@@ -283,7 +400,13 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                       ) : (
                         <Sun className="w-3 h-3 text-themed-warning" />
                       )}
-                      {(isImported || isInstalled) && (
+                      {isUpdating && (
+                        <span className="px-2 py-0.5 text-xs rounded flex items-center gap-1" style={{ backgroundColor: 'var(--theme-info)', color: 'var(--theme-info-text)' }}>
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          Updating...
+                        </span>
+                      )}
+                      {(isImported || isInstalled) && !isUpdating && (
                         <span className="px-2 py-0.5 text-xs rounded bg-themed-success text-white">
                           Imported
                         </span>

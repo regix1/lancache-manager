@@ -758,7 +758,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           )}
 
               {/* Information Alert */}
-              <Alert color="blue">
+              <Alert color="blue" className="about-section">
                 <div>
                   <p className="text-xs font-medium mb-2">About Game Cache Detection:</p>
                   <ul className="list-disc list-inside text-xs space-y-1 ml-2">

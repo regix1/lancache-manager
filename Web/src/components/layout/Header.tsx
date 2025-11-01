@@ -30,7 +30,7 @@ const Header: React.FC<HeaderProps> = ({
       setIsGuestMode(guestMode || expired);
       setIsRevoked(expired);
       if (guestMode || expired) {
-        setDeviceId(authService.getDeviceId());
+        setDeviceId(authService.getGuestSessionId() || '');
       }
     };
 

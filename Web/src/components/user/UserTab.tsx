@@ -444,7 +444,7 @@ const UserTab: React.FC = () => {
                     </div>
 
                     <div className="flex gap-2 items-start justify-end w-full sm:w-auto sm:min-w-[180px]">
-                      {session.type === 'guest' && !session.isRevoked && (
+                      {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
                         <Button
                           variant="default"
                           color="orange"
@@ -475,7 +475,7 @@ const UserTab: React.FC = () => {
       </Card>
 
       {/* Info Card */}
-      <Card>
+      <Card className="about-section">
         <div
           className="p-3 sm:p-4 border-l-4"
           style={{

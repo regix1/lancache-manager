@@ -3,7 +3,7 @@ name = "Sage & Wood"
 id = "sage-wood"
 description = "Earthy sage green with warm wood browns on charcoal"
 author = "Nature"
-version = "1.2.0"
+version = "1.3.0"
 isDark = true
 sharpCorners = false
 

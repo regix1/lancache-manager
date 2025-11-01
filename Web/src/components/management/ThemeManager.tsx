@@ -53,6 +53,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [sharpCornersEnabled, setSharpCornersEnabled] = useState(false);
   const [tooltipsDisabled, setTooltipsDisabled] = useState(false);
   const [picsAlwaysVisible, setPicsAlwaysVisible] = useState(false);
+  const [hideAboutSections, setHideAboutSections] = useState(false);
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -76,6 +77,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setSharpCornersEnabled(themeService.getSharpCorners());
     setTooltipsDisabled(themeService.getDisableTooltips());
     setPicsAlwaysVisible(themeService.getPicsAlwaysVisible());
+    setHideAboutSections(themeService.getHideAboutSections());
   }, []);
 
   // Handler Functions
@@ -388,6 +390,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     themeService.setPicsAlwaysVisible(enabled);
   };
 
+  const handleHideAboutSectionsToggle = (enabled: boolean) => {
+    setHideAboutSections(enabled);
+    themeService.setHideAboutSections(enabled);
+  };
+
   // Utility Functions
   const toggleGroup = (groupName: string) => {
     setExpandedGroups(prev =>
@@ -554,7 +561,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               <label className="block text-sm font-medium mb-3 text-themed-secondary">
                 Options
               </label>
-              <div className="flex flex-col sm:flex-row gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Checkbox
                   checked={sharpCornersEnabled}
                   onChange={(e) => handleSharpCornersToggle(e.target.checked)}
@@ -566,6 +573,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   onChange={(e) => handleTooltipsToggle(e.target.checked)}
                   variant="rounded"
                   label="Disable Tooltips"
+                />
+                <Checkbox
+                  checked={hideAboutSections}
+                  onChange={(e) => handleHideAboutSectionsToggle(e.target.checked)}
+                  variant="rounded"
+                  label="Hide Info Sections"
                 />
                 <Checkbox
                   checked={picsAlwaysVisible}
@@ -609,6 +622,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                 isAuthenticated={isAuthenticated}
                 onThemeImported={loadThemes}
                 installedThemes={themes}
+                autoCheckUpdates={true}
               />
             </div>
 
