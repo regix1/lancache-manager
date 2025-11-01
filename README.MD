@@ -517,27 +517,20 @@ Found a bug or have a feature request? [Open an issue](https://github.com/regix1
 If you find LANCache Manager useful and want to support development, consider buying me a coffee!
 
 <div align="center">
-<table border="0">
-<tr>
-<td align="center" width="50%">
-<a href="https://www.buymeacoffee.com/regix">
-  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="250">
-</a>
-<br/><br/>
-<strong>Click to donate</strong>
-</td>
-<td align="center" valign="middle" width="1%">
-<h1>│</h1>
-</td>
-<td align="center" width="50%">
-<a href="https://www.buymeacoffee.com/regix">
-  <img src="https://github.com/user-attachments/assets/6e2ff32c-bb4c-454a-a626-03be6e6de42d" alt="Buy Me A Coffee QR Code" width="250">
-</a>
-<br/><br/>
-<strong>Or scan QR code</strong>
-</td>
-</tr>
-</table>
+  <div style="display: flex; justify-content: center; align-items: flex-start; gap: 60px; max-width: 800px; margin: 0 auto;">
+    <div style="text-align: center; flex: 1;">
+      <a href="https://www.buymeacoffee.com/regix">
+        <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="250" height="250">
+      </a>
+      <p style="margin-top: 20px; font-size: 16px;"><strong>Click to donate</strong></p>
+    </div>
+    <div style="text-align: center; flex: 1;">
+      <a href="https://www.buymeacoffee.com/regix">
+        <img src="https://github.com/user-attachments/assets/6e2ff32c-bb4c-454a-a626-03be6e6de42d" alt="Buy Me A Coffee QR Code" width="250" height="250">
+      </a>
+      <p style="margin-top: 20px; font-size: 16px;"><strong>Or scan QR code</strong></p>
+    </div>
+  </div>
 </div>
 
 ## License
