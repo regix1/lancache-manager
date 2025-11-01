@@ -1256,6 +1256,39 @@ class ThemeService {
       this.applyTheme(theme);
     }
   }
+
+  // Preview theme state management
+  setPreviewTheme(themeId: string | null): void {
+    if (themeId) {
+      localStorage.setItem('lancache_preview_theme', themeId);
+    } else {
+      localStorage.removeItem('lancache_preview_theme');
+    }
+  }
+
+  getPreviewTheme(): string | null {
+    return localStorage.getItem('lancache_preview_theme');
+  }
+
+  clearPreviewTheme(): void {
+    localStorage.removeItem('lancache_preview_theme');
+  }
+
+  // Save the original theme before starting preview
+  setOriginalThemeBeforePreview(themeId: string): void {
+    // Only save if we're not already in preview mode
+    if (!this.getPreviewTheme()) {
+      localStorage.setItem('lancache_original_theme_before_preview', themeId);
+    }
+  }
+
+  getOriginalThemeBeforePreview(): string | null {
+    return localStorage.getItem('lancache_original_theme_before_preview');
+  }
+
+  clearOriginalThemeBeforePreview(): void {
+    localStorage.removeItem('lancache_original_theme_before_preview');
+  }
 }
 
 export default new ThemeService();

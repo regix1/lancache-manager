@@ -118,32 +118,8 @@ public class DownloadCleanupService : BackgroundService
                 _logger.LogInformation("No App 0 downloads found to fix");
             }
 
-            // Fix bad/missing image URLs - set them to NULL so DatabaseRepository will backfill from Steam API
-            _logger.LogInformation("Checking for bad or missing image URLs...");
-            var badImageUrls = await context.Downloads
-                .Where(d => d.GameAppId.HasValue && d.GameAppId.Value != 0 && d.Service.ToLower() == "steam" &&
-                           (d.GameImageUrl == null || d.GameImageUrl.Contains("cdn.akamai.steamstatic.com")))
-                .ToListAsync(stoppingToken);
-
-            _logger.LogInformation($"Found {badImageUrls.Count} downloads with bad or missing image URLs");
-
-            if (badImageUrls.Any())
-            {
-                // Set all bad image URLs to NULL - DatabaseRepository will backfill them from Steam API
-                // This is more reliable than trying to guess the correct URL pattern
-                foreach (var download in badImageUrls)
-                {
-                    download.GameImageUrl = null;
-                }
-
-                await context.SaveChangesAsync(stoppingToken);
-                _logger.LogInformation($"Cleared {badImageUrls.Count} bad/missing image URLs - will be backfilled from Steam API");
-                needsCacheInvalidation = true;
-            }
-            else
-            {
-                _logger.LogInformation("No bad or missing image URLs found to fix");
-            }
+            // Note: Image URL backfilling is now handled automatically by PICS during incremental scans
+            // No manual cleanup needed - PICS fills in missing GameImageUrl fields when processing downloads
 
             // Invalidate cache if we made any changes
             if (needsCacheInvalidation)

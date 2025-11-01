@@ -589,7 +589,8 @@ public class CacheManagementService
                 var output = await outputTask;
                 var error = await errorTask;
 
-                _logger.LogInformation("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
+                // Only log exit code for debugging (not at Information level to avoid log spam)
+                _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
 
                 if (process.ExitCode != 0)
                 {

@@ -71,8 +71,19 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   // Load themes on mount
   useEffect(() => {
     loadThemes();
-    const saved = themeService.getCurrentThemeId();
-    if (saved) setCurrentTheme(saved);
+
+    // Load preview state first
+    const savedPreview = themeService.getPreviewTheme();
+    if (savedPreview) {
+      setPreviewTheme(savedPreview);
+      // If in preview mode, restore the original theme as the "current" theme
+      const originalTheme = themeService.getOriginalThemeBeforePreview();
+      if (originalTheme) setCurrentTheme(originalTheme);
+    } else {
+      // Not in preview mode, use the currently applied theme
+      const saved = themeService.getCurrentThemeId();
+      if (saved) setCurrentTheme(saved);
+    }
 
     // Load current option states
     setSharpCornersEnabled(themeService.getSharpCorners());
@@ -99,6 +110,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       await themeService.setTheme(themeId);
       setCurrentTheme(themeId);
       setPreviewTheme(null);
+      themeService.clearPreviewTheme(); // Clear any active preview
+      themeService.clearOriginalThemeBeforePreview(); // Clear original theme storage
       window.location.reload();
     } catch (error) {
       console.error('Failed to change theme:', error);
@@ -107,12 +120,19 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   const handlePreview = async (themeId: string) => {
     if (previewTheme === themeId) {
-      await themeService.setTheme(currentTheme);
+      // Toggle off preview - restore original theme from before preview started
+      const originalTheme = themeService.getOriginalThemeBeforePreview() || 'dark-default';
+      await themeService.setTheme(originalTheme);
       setPreviewTheme(null);
+      themeService.clearPreviewTheme();
+      themeService.clearOriginalThemeBeforePreview();
       window.location.reload();
     } else {
+      // Toggle on preview - save current theme and apply preview theme
+      themeService.setOriginalThemeBeforePreview(currentTheme);
       await themeService.setTheme(themeId);
       setPreviewTheme(themeId);
+      themeService.setPreviewTheme(themeId);
       window.location.reload();
     }
   };
@@ -258,6 +278,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       }
       if (previewTheme === themePendingDeletion.id) {
         setPreviewTheme(null);
+        themeService.clearPreviewTheme();
+        themeService.clearOriginalThemeBeforePreview();
       }
 
       await loadThemes();
@@ -288,6 +310,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       await themeService.setTheme('dark-default');
       setCurrentTheme('dark-default');
       setPreviewTheme(null);
+      themeService.clearPreviewTheme();
+      themeService.clearOriginalThemeBeforePreview();
       await loadThemes();
       setShowCleanupModal(false);
       window.location.reload();
