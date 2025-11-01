@@ -514,13 +514,21 @@ Found a bug or have a feature request? [Open an issue](https://github.com/regix1
 
 ## Support
 
-If you find LANCache Manager useful and want to support development, consider buying me a coffee!
-
 <div align="center">
 
+### Enjoying LANCache Manager?
+
+If this project has been helpful, consider supporting its development!
+
+<br>
+
 <a href="https://www.buymeacoffee.com/regix">
-  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="450">
+  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="600">
 </a>
+
+<br>
+
+*Every coffee helps keep this project alive and growing!*
 
 </div>
 
