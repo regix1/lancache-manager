@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using LancacheManager.Data;
+using LancacheManager.Infrastructure.Services.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,23 +12,27 @@ public class GameImagesController : ControllerBase
 {
     private readonly ILogger<GameImagesController> _logger;
     private readonly AppDbContext _context;
-    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IImageCacheService _imageCacheService;
 
     // Cache of failed image fetches to avoid repeated 404 warnings (AppId -> timestamp)
     private static readonly ConcurrentDictionary<uint, DateTime> _failedImageCache = new();
     private static readonly TimeSpan _failedCacheDuration = TimeSpan.FromHours(24);
 
-    public GameImagesController(ILogger<GameImagesController> logger, AppDbContext context, IHttpClientFactory httpClientFactory)
+    public GameImagesController(
+        ILogger<GameImagesController> logger,
+        AppDbContext context,
+        IImageCacheService imageCacheService)
     {
         _logger = logger;
         _context = context;
-        _httpClientFactory = httpClientFactory;
+        _imageCacheService = imageCacheService;
     }
 
     /// <summary>
     /// Proxy Steam game header images to avoid CORS issues
     /// </summary>
     [HttpGet("{appId}/header")]
+    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any, VaryByQueryKeys = new[] { "appId" })]
     public async Task<IActionResult> GetGameHeaderImage(uint appId, CancellationToken cancellationToken = default)
     {
         try
@@ -47,7 +52,7 @@ public class GameImagesController : ControllerBase
                 }
             }
 
-            // Look up the game in the database to get the actual image URL
+            // Get current image URL from database (needed for PICS update detection)
             var download = await _context.Downloads
                 .Where(d => d.GameAppId == appId && !string.IsNullOrEmpty(d.GameImageUrl))
                 .OrderByDescending(d => d.StartTimeUtc)
@@ -59,33 +64,36 @@ public class GameImagesController : ControllerBase
                 return NotFound(new { error = $"Game image URL not found for app {appId}" });
             }
 
-            var httpClient = _httpClientFactory.CreateClient("SteamImages");
+            // FAST PATH with PICS validation: Check cache and validate URL hasn't changed
+            var cachedResult = await _imageCacheService.GetCachedImageAsync(appId, download.GameImageUrl, cancellationToken);
 
-            var response = await httpClient.GetAsync(download.GameImageUrl, cancellationToken);
-
-            if (response.IsSuccessStatusCode)
+            if (cachedResult.HasValue)
             {
-                var imageBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-                var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                var (imageBytes, contentType) = cachedResult.Value;
 
-                // Add cache headers
-                Response.Headers["Cache-Control"] = "public, max-age=3600"; // Cache for 1 hour
+                // Add cache headers with ETag for browser caching
+                Response.Headers["Cache-Control"] = "public, max-age=86400"; // Cache for 24 hours
+                Response.Headers["ETag"] = $"\"{appId}\"";
+
+                return File(imageBytes, contentType);
+            }
+
+            // SLOW PATH: Not in cache or URL changed - download and cache the image
+            var result = await _imageCacheService.GetOrDownloadImageAsync(appId, download.GameImageUrl, cancellationToken);
+
+            if (result.HasValue)
+            {
+                var (imageBytes, contentType) = result.Value;
+
+                // Add cache headers with ETag for browser caching
+                Response.Headers["Cache-Control"] = "public, max-age=86400"; // Cache for 24 hours
+                Response.Headers["ETag"] = $"\"{appId}\"";
 
                 return File(imageBytes, contentType);
             }
 
             // Image fetch failed - cache this failure
             _failedImageCache.TryAdd(appId, DateTime.UtcNow);
-
-            // Use Debug level for 404s (expected for non-game apps like tools/redistributables)
-            // Use Warning level for other errors
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-            {
-            }
-            else
-            {
-                _logger.LogWarning($"Failed to fetch Steam header image for app {appId} from {download.GameImageUrl}, status: {response.StatusCode}");
-            }
 
             return NotFound(new { error = $"Steam header image not available for app {appId}" });
         }

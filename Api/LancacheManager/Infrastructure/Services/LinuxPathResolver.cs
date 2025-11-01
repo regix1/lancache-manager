@@ -39,6 +39,8 @@ public class LinuxPathResolver : IPathResolver
 
     public string GetThemesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "themes"));
 
+    public string GetCachedImagesDirectory() => Path.GetFullPath(Path.Combine(GetDataDirectory(), "cached-img"));
+
     public string GetRustLogProcessorPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "lancache_processor");
 

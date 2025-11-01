@@ -46,6 +46,11 @@ public interface IPathResolver
     string GetThemesDirectory();
 
     /// <summary>
+    /// Gets the cached images directory path
+    /// </summary>
+    string GetCachedImagesDirectory();
+
+    /// <summary>
     /// Gets the path to the Rust log processor executable
     /// </summary>
     string GetRustLogProcessorPath();

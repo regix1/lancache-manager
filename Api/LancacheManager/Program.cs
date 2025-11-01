@@ -158,6 +158,9 @@ builder.Services.AddScoped<IDatabaseRepository, DatabaseRepository>();
 builder.Services.AddScoped<IStatsRepository, StatsRepository>();
 builder.Services.AddSingleton<ISettingsRepository, SettingsRepository>();
 
+// Register image caching service
+builder.Services.AddSingleton<IImageCacheService, ImageCacheService>();
+
 // Register concrete classes (for code that directly references them)
 builder.Services.AddSingleton(sp => (SteamAuthRepository)sp.GetRequiredService<ISteamAuthRepository>());
 builder.Services.AddSingleton(sp => (StateRepository)sp.GetRequiredService<IStateRepository>());
