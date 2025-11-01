@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, Trash2, RefreshCw, AlertTriangle, Clock, User, Users, Network } from 'lucide-react';
+import { Shield, Trash2, RefreshCw, AlertTriangle, Clock, Users, Network } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
@@ -226,7 +226,7 @@ const AdminTab: React.FC = () => {
                   {sessions.filter(s => s.type === 'guest').length}
                 </p>
               </div>
-              <User className="w-8 h-8" style={{ color: 'var(--theme-info)' }} />
+              <Users className="w-8 h-8" style={{ color: 'var(--theme-info)' }} />
             </div>
           </div>
         </Card>
@@ -295,7 +295,7 @@ const AdminTab: React.FC = () => {
                             : 'var(--theme-info-bg)'
                         }}
                       >
-                        <User
+                        <Users
                           className="w-5 h-5"
                           style={{
                             color: session.type === 'authenticated'
@@ -368,12 +368,6 @@ const AdminTab: React.FC = () => {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1 text-sm">
-                          {session.hostname && (
-                            <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <User className="w-4 h-4" />
-                              <span>{session.hostname}</span>
-                            </div>
-                          )}
                           {session.ipAddress && (
                             <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
                               <Network className="w-4 h-4" />
