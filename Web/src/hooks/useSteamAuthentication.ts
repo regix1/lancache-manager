@@ -124,7 +124,15 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
         signal: controller.signal
       });
 
-      const result = await response.json();
+      let result;
+      try {
+        result = await response.json();
+      } catch (jsonError) {
+        setAuthError('Invalid response from server');
+        setLoading(false);
+        setWaitingForMobileConfirmation(false);
+        return false;
+      }
 
       if (response.ok) {
         if (result.requiresTwoFactor) {

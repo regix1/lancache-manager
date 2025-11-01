@@ -54,15 +54,6 @@ export interface DownloadGroup {
   count: number;
 }
 
-export interface DownloadSettings {
-  showZeroBytes: boolean;
-  showSmallFiles: boolean;
-  hideLocalhost: boolean;
-  selectedService: string;
-  itemsPerPage?: number | 'all';
-  groupGames: boolean;
-}
-
 export interface ClientStat {
   clientIp: string;
   totalCacheHitBytes: number;

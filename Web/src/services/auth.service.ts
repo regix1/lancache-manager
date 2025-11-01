@@ -1,3 +1,5 @@
+import { storage } from '@utils/storage';
+
 export type AuthMode = 'authenticated' | 'guest' | 'expired' | 'unauthenticated';
 
 interface AuthCheckResponse {
@@ -43,21 +45,21 @@ class AuthService {
 
   constructor() {
     this.deviceId = this.getOrCreateDeviceId();
-    this.apiKey = localStorage.getItem('lancache_api_key');
+    this.apiKey = storage.getItem('lancache_api_key');
     this.isAuthenticated = false;
     this.authChecked = false;
     this.startGuestModeTimer();
   }
 
   private getOrCreateDeviceId(): string {
-    let deviceId = localStorage.getItem('lancache_device_id');
+    let deviceId = storage.getItem('lancache_device_id');
     if (!deviceId) {
       deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         const r = (Math.random() * 16) | 0;
         const v = c === 'x' ? r : (r & 0x3) | 0x8;
         return v.toString(16);
       });
-      localStorage.setItem('lancache_device_id', deviceId);
+      storage.setItem('lancache_device_id', deviceId);
     }
     return deviceId;
   }
@@ -73,7 +75,7 @@ class AuthService {
   }
 
   private checkGuestModeExpiry(): void {
-    const guestExpires = localStorage.getItem('lancache_guest_expires');
+    const guestExpires = storage.getItem('lancache_guest_expires');
     if (!guestExpires) return;
 
     const expiryTime = parseInt(guestExpires);
@@ -92,9 +94,9 @@ class AuthService {
     // Generate a unique guest session ID
     const guestSessionId = `guest_${this.deviceId}_${now}`;
 
-    localStorage.setItem('lancache_guest_session_id', guestSessionId);
-    localStorage.setItem('lancache_guest_session_start', now.toString());
-    localStorage.setItem('lancache_guest_expires', expiryTime.toString());
+    storage.setItem('lancache_guest_session_id', guestSessionId);
+    storage.setItem('lancache_guest_session_start', now.toString());
+    storage.setItem('lancache_guest_expires', expiryTime.toString());
 
     this.authMode = 'guest';
     this.isAuthenticated = false; // Guest mode is not fully authenticated
@@ -122,7 +124,7 @@ class AuthService {
   }
 
   public getGuestTimeRemaining(): number {
-    const guestExpires = localStorage.getItem('lancache_guest_expires');
+    const guestExpires = storage.getItem('lancache_guest_expires');
     if (!guestExpires) return 0;
 
     const expiryTime = parseInt(guestExpires);
@@ -133,7 +135,7 @@ class AuthService {
   }
 
   public isGuestModeActive(): boolean {
-    const guestExpires = localStorage.getItem('lancache_guest_expires');
+    const guestExpires = storage.getItem('lancache_guest_expires');
     if (!guestExpires) return false;
 
     const expiryTime = parseInt(guestExpires);
@@ -141,9 +143,9 @@ class AuthService {
   }
 
   public expireGuestMode(): void {
-    localStorage.removeItem('lancache_guest_session_start');
-    localStorage.removeItem('lancache_guest_expires');
-    localStorage.removeItem('lancache_guest_session_id'); // Remove session ID to prevent further requests
+    storage.removeItem('lancache_guest_session_start');
+    storage.removeItem('lancache_guest_expires');
+    storage.removeItem('lancache_guest_session_id'); // Remove session ID to prevent further requests
     this.authMode = 'expired';
     this.isAuthenticated = false;
 
@@ -158,8 +160,8 @@ class AuthService {
   }
 
   public exitGuestMode(): void {
-    localStorage.removeItem('lancache_guest_session_start');
-    localStorage.removeItem('lancache_guest_expires');
+    storage.removeItem('lancache_guest_session_start');
+    storage.removeItem('lancache_guest_expires');
     this.authMode = 'unauthenticated';
     this.isAuthenticated = false;
   }
@@ -204,7 +206,7 @@ class AuthService {
       }
 
       // Check for expired guest mode
-      const hasExpiredGuest = localStorage.getItem('lancache_guest_expires');
+      const hasExpiredGuest = storage.getItem('lancache_guest_expires');
       if (hasExpiredGuest) {
         this.authMode = 'expired';
         this.isAuthenticated = false;
@@ -329,11 +331,11 @@ class AuthService {
 
         // Store the API key for future requests
         this.apiKey = apiKey;
-        localStorage.setItem('lancache_api_key', apiKey);
+        storage.setItem('lancache_api_key', apiKey);
 
         this.isAuthenticated = true;
         this.authMode = 'authenticated';
-        localStorage.setItem('lancache_auth_registered', 'true');
+        storage.setItem('lancache_auth_registered', 'true');
         return { success: true, message: result.message };
       }
 
@@ -510,7 +512,7 @@ class AuthService {
     }
 
     // Include guest session ID if in guest mode
-    const guestSessionId = localStorage.getItem('lancache_guest_session_id');
+    const guestSessionId = storage.getItem('lancache_guest_session_id');
     if (guestSessionId && this.authMode === 'guest') {
       headers['X-Guest-Session-Id'] = guestSessionId;
     }
@@ -523,19 +525,19 @@ class AuthService {
   }
 
   getGuestSessionId(): string | null {
-    return localStorage.getItem('lancache_guest_session_id');
+    return storage.getItem('lancache_guest_session_id');
   }
 
   handleUnauthorized(): void {
     console.warn('[Auth] Unauthorized access detected - device was likely revoked. Forcing reload...');
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
-    localStorage.removeItem('lancache_auth_registered');
-    localStorage.removeItem('lancache_api_key');
+    storage.removeItem('lancache_auth_registered');
+    storage.removeItem('lancache_api_key');
     this.apiKey = null;
     // Clear device ID so a new one is generated on next request
     // This handles API key regeneration scenarios where all devices are revoked
-    localStorage.removeItem('lancache_device_id');
+    storage.removeItem('lancache_device_id');
     this.deviceId = this.getOrCreateDeviceId();
 
     // Force page reload to show authentication modal
@@ -547,8 +549,8 @@ class AuthService {
   clearAuth(): void {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
-    localStorage.removeItem('lancache_auth_registered');
-    localStorage.removeItem('lancache_api_key');
+    storage.removeItem('lancache_auth_registered');
+    storage.removeItem('lancache_api_key');
     this.apiKey = null;
     this.exitGuestMode(); // Also clear guest mode
   }
@@ -556,10 +558,10 @@ class AuthService {
   clearAuthAndDevice(): void {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
-    localStorage.removeItem('lancache_auth_registered');
-    localStorage.removeItem('lancache_api_key');
+    storage.removeItem('lancache_auth_registered');
+    storage.removeItem('lancache_api_key');
     this.apiKey = null;
-    localStorage.removeItem('lancache_device_id');
+    storage.removeItem('lancache_device_id');
     this.deviceId = this.getOrCreateDeviceId();
     this.exitGuestMode(); // Also clear guest mode
   }
@@ -572,7 +574,7 @@ class AuthService {
   }
 
   isRegistered(): boolean {
-    return localStorage.getItem('lancache_auth_registered') === 'true';
+    return storage.getItem('lancache_auth_registered') === 'true';
   }
 }
 

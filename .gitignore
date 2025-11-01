@@ -111,3 +111,7 @@ CLAUDE.md
 *.claude
 .claude.json
 nul
+
+# Development tools and temporary files
+rustup-init.exe
+*.backup.json

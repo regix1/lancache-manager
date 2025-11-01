@@ -123,8 +123,8 @@ class ApiService {
     try {
       let url = `${API_BASE}/stats/clients`;
       const params = new URLSearchParams();
-      if (startTime) params.append('startTime', startTime.toString());
-      if (endTime) params.append('endTime', endTime.toString());
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, {
         signal,
@@ -150,8 +150,8 @@ class ApiService {
       let url = `${API_BASE}/stats/services`;
       const params = new URLSearchParams();
       if (since) params.append('since', since);
-      if (startTime) params.append('startTime', startTime.toString());
-      if (endTime) params.append('endTime', endTime.toString());
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (params.toString()) url += `?${params}`;
       const res = await fetch(url, {
         signal,

@@ -305,7 +305,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Reset flags
       isSettingUpRef.current = false;
-      // Note: hasInitializedRef persists to prevent remount from creating new connection
+      hasInitializedRef.current = false; // Reset to allow reconnection on remount
     };
   }, [mockMode, setupConnection]);
 

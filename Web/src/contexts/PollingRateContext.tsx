@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { POLLING_RATES, STORAGE_KEYS, type PollingRate } from '@utils/constants';
+import { storage } from '@utils/storage';
 
 interface PollingRateContextType {
   pollingRate: PollingRate;
@@ -24,7 +25,7 @@ interface PollingRateProviderProps {
 export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ children }) => {
   // Load saved polling rate from localStorage, default to STANDARD (10s)
   const [pollingRate, setPollingRateState] = useState<PollingRate>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.POLLING_RATE);
+    const saved = storage.getItem(STORAGE_KEYS.POLLING_RATE);
     if (saved && saved in POLLING_RATES) {
       return saved as PollingRate;
     }
@@ -33,7 +34,7 @@ export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ childr
 
   // Save polling rate to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.POLLING_RATE, pollingRate);
+    storage.setItem(STORAGE_KEYS.POLLING_RATE, pollingRate);
   }, [pollingRate]);
 
   const setPollingRate = (rate: PollingRate) => {

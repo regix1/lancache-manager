@@ -17,6 +17,7 @@ import { Checkbox } from '../../ui/Checkbox';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { ColorGroup } from './types';
+import { storage } from '@utils/storage';
 
 interface CreateThemeModalProps {
   opened: boolean;
@@ -59,12 +60,12 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
     // Save the previous color to history when user finishes editing
     const historyKey = `color_history_create_${key}`;
     const originalKey = `color_history_create_${key}_original`;
-    const existingHistory = localStorage.getItem(historyKey);
+    const existingHistory = storage.getItem(historyKey);
     let history: string[] = [];
 
     // Save original color if this is the first time (no history exists)
     if (!existingHistory) {
-      localStorage.setItem(originalKey, previousColor);
+      storage.setItem(originalKey, previousColor);
     }
 
     // Handle migration from old format (single string) to new format (array)
@@ -87,7 +88,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
       history.pop(); // Remove oldest (but original is safe in separate key)
     }
 
-    localStorage.setItem(historyKey, JSON.stringify(history));
+    storage.setItem(historyKey, JSON.stringify(history));
   };
 
   const handleColorChange = (key: string, value: string) => {
@@ -98,7 +99,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   const restoreCreatePreviousColor = (key: string) => {
     const historyKey = `color_history_create_${key}`;
     const originalKey = `color_history_create_${key}_original`;
-    const existingHistory = localStorage.getItem(historyKey);
+    const existingHistory = storage.getItem(historyKey);
 
     if (existingHistory) {
       let history: string[] = [];
@@ -120,9 +121,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
 
         // Update localStorage with remaining history
         if (history.length > 0) {
-          localStorage.setItem(historyKey, JSON.stringify(history));
+          storage.setItem(historyKey, JSON.stringify(history));
         } else {
-          localStorage.removeItem(historyKey);
+          storage.removeItem(historyKey);
         }
 
         // Apply the previous color immediately
@@ -132,11 +133,11 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
       }
     } else {
       // No recent history, restore to original color and remove it (final undo)
-      const originalColor = localStorage.getItem(originalKey);
+      const originalColor = storage.getItem(originalKey);
       if (originalColor) {
         setNewTheme((prev: any) => ({ ...prev, [key]: originalColor }));
         // Remove original after restoring to it (no more undos available)
-        localStorage.removeItem(originalKey);
+        storage.removeItem(originalKey);
       }
     }
   };
@@ -144,7 +145,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   const getCreateColorHistory = (key: string) => {
     const historyKey = `color_history_create_${key}`;
     const originalKey = `color_history_create_${key}_original`;
-    const existingHistory = localStorage.getItem(historyKey);
+    const existingHistory = storage.getItem(historyKey);
 
     if (existingHistory) {
       let history: string[] = [];
@@ -164,7 +165,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
     }
 
     // No recent history, check for original color
-    return localStorage.getItem(originalKey);
+    return storage.getItem(originalKey);
   };
 
   const loadPresetColors = (preset: 'dark' | 'light') => {

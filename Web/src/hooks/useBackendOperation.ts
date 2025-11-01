@@ -1,42 +1,42 @@
 import { useState, useCallback, useEffect } from 'react';
 import operationStateService from '../services/operationState.service';
 
-interface OperationState {
+interface OperationState<T = unknown> {
   key: string;
   type: string;
-  data: any;
+  data: T;
   createdAt: string;
   updatedAt: string;
 }
 
-interface UseBackendOperationReturn {
-  operation: OperationState | null;
-  save: (data: any) => Promise<OperationState>;
-  load: () => Promise<OperationState | null>;
+interface UseBackendOperationReturn<T = unknown> {
+  operation: OperationState<T> | null;
+  save: (data: T) => Promise<OperationState<T>>;
+  load: () => Promise<OperationState<T> | null>;
   clear: () => Promise<void>;
-  update: (updates: any) => Promise<void>;
+  update: (updates: Partial<T>) => Promise<void>;
   loading: boolean;
   error: string | null;
 }
 
-export const useBackendOperation = (
+export const useBackendOperation = <T = unknown>(
   key: string,
   type = 'general',
   expirationMinutes = 30
-): UseBackendOperationReturn => {
-  const [operation, setOperation] = useState<OperationState | null>(null);
+): UseBackendOperationReturn<T> => {
+  const [operation, setOperation] = useState<OperationState<T> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const save = useCallback(
-    async (data: any): Promise<OperationState> => {
+    async (data: T): Promise<OperationState<T>> => {
       setLoading(true);
       setError(null);
 
       try {
         await operationStateService.saveState(key, type, data, expirationMinutes);
 
-        const newState: OperationState = {
+        const newState: OperationState<T> = {
           key,
           type,
           data,
@@ -57,7 +57,7 @@ export const useBackendOperation = (
     [key, type, expirationMinutes]
   );
 
-  const load = useCallback(async (): Promise<OperationState | null> => {
+  const load = useCallback(async (): Promise<OperationState<T> | null> => {
     setLoading(true);
     setError(null);
 
@@ -65,25 +65,26 @@ export const useBackendOperation = (
       const state = await operationStateService.getState(key);
 
       if (state) {
-        // Type the state as any to access properties
-        const stateData = state as any;
+        // Use type assertion with proper validation
+        const stateData = state as unknown as Record<string, unknown>;
 
         // Ensure the state has all required properties
-        const operationState: OperationState = {
-          key: stateData.key || key,
-          type: stateData.type || type,
-          data: stateData.data || {},
-          createdAt: stateData.createdAt || new Date().toISOString(),
-          updatedAt: stateData.updatedAt || stateData.createdAt || new Date().toISOString()
+        const operationState: OperationState<T> = {
+          key: (stateData.key as string) || key,
+          type: (stateData.type as string) || type,
+          data: (stateData.data as T) ?? ({} as T),
+          createdAt: (stateData.createdAt as string) || new Date().toISOString(),
+          updatedAt: (stateData.updatedAt as string) || (stateData.createdAt as string) || new Date().toISOString()
         };
         setOperation(operationState);
         return operationState;
       }
 
       return null;
-    } catch (err: any) {
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error(`Failed to load ${key}:`, err);
-      setError(err.message);
+      setError(errorMessage);
       return null;
     } finally {
       setLoading(false);
@@ -107,7 +108,7 @@ export const useBackendOperation = (
   }, [key]);
 
   const update = useCallback(
-    async (updates: any): Promise<void> => {
+    async (updates: Partial<T>): Promise<void> => {
       setLoading(true);
       setError(null);
 

@@ -550,13 +550,11 @@ public class StatsController : ControllerBase
     // Helper method to parse time period strings
     private DateTime? ParseTimePeriod(string period)
     {
-        if (string.IsNullOrEmpty(period) || period == "all")
-            return null;
-
         var now = DateTime.UtcNow;
 
-        return period.ToLower() switch
+        return period?.ToLower() switch
         {
+            null or "" or "all" => null,
             "15m" => now.AddMinutes(-15),
             "30m" => now.AddMinutes(-30),
             "1h" => now.AddHours(-1),

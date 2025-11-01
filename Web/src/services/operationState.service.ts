@@ -1,5 +1,6 @@
 import { fetchStateOrNull } from '../utils/silentFetch';
 import authService from './auth.service';
+import { storage } from '@utils/storage';
 
 interface OperationState {
   key: string;
@@ -172,7 +173,7 @@ class OperationStateService {
 
     for (const key of keys) {
       try {
-        const localData = localStorage.getItem(key);
+        const localData = storage.getItem(key);
         if (localData) {
           const parsed = JSON.parse(localData);
 
@@ -182,7 +183,7 @@ class OperationStateService {
           else if (key.includes('ServiceRemoval')) type = 'serviceRemoval';
 
           await this.saveState(key, type, parsed, 120);
-          localStorage.removeItem(key);
+          storage.removeItem(key);
           migrated++;
         }
       } catch (err) {

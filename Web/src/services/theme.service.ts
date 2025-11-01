@@ -2,6 +2,7 @@ import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
 import * as TOML from 'toml';
 import packageJson from '../../package.json';
+import { storage } from '@utils/storage';
 
 interface ThemeColors {
   // Core colors
@@ -607,6 +608,15 @@ class ThemeService {
         return null;
       }
 
+      // Validate required color properties to prevent runtime errors
+      const requiredColors = ['primaryColor', 'bgPrimary', 'textPrimary', 'bgSecondary'];
+      for (const key of requiredColors) {
+        if (!parsed.colors[key]) {
+          console.error(`Invalid theme: missing required color ${key}`);
+          return null;
+        }
+      }
+
       return parsed as Theme;
     } catch (error) {
       console.error('Error parsing TOML theme:', error);
@@ -659,7 +669,7 @@ class ThemeService {
   }
 
   private applyDefaultVariables(): void {
-    const sharpCorners = localStorage.getItem('lancache_sharp_corners') === 'true';
+    const sharpCorners = storage.getItem('lancache_sharp_corners') === 'true';
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
     const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
     const borderRadiusXl = sharpCorners ? '0px' : '1rem';
@@ -792,9 +802,9 @@ class ThemeService {
     this.currentTheme = null;
     
     // Clear all saved theme data
-    localStorage.removeItem('lancache_selected_theme');
-    localStorage.removeItem('lancache_theme_css');
-    localStorage.removeItem('lancache_theme_dark');
+    storage.removeItem('lancache_selected_theme');
+    storage.removeItem('lancache_theme_css');
+    storage.removeItem('lancache_theme_dark');
 
     this.applyDefaultVariables();
   }
@@ -821,9 +831,9 @@ class ThemeService {
 
     // Apply theme-specific settings
     // Check if user has manually overridden these settings, otherwise use theme defaults
-    const existingSharpCorners = localStorage.getItem('lancache_sharp_corners');
-    const existingDisableFocusOutlines = localStorage.getItem('lancache_disable_focus_outlines');
-    const existingDisableTooltips = localStorage.getItem('lancache_disable_tooltips');
+    const existingSharpCorners = storage.getItem('lancache_sharp_corners');
+    const existingDisableFocusOutlines = storage.getItem('lancache_disable_focus_outlines');
+    const existingDisableTooltips = storage.getItem('lancache_disable_tooltips');
 
     const sharpCorners = existingSharpCorners !== null
       ? existingSharpCorners === 'true'
@@ -837,13 +847,13 @@ class ThemeService {
 
     // Update localStorage if not already set
     if (existingSharpCorners === null) {
-      localStorage.setItem('lancache_sharp_corners', sharpCorners.toString());
+      storage.setItem('lancache_sharp_corners', sharpCorners.toString());
     }
     if (existingDisableFocusOutlines === null) {
-      localStorage.setItem('lancache_disable_focus_outlines', disableFocusOutlines.toString());
+      storage.setItem('lancache_disable_focus_outlines', disableFocusOutlines.toString());
     }
     if (existingDisableTooltips === null) {
-      localStorage.setItem('lancache_disable_tooltips', disableTooltips.toString());
+      storage.setItem('lancache_disable_tooltips', disableTooltips.toString());
     }
 
     // Apply focus outlines setting
@@ -1036,9 +1046,9 @@ class ThemeService {
     this.currentTheme = theme;
     
     // Save the theme ID and CSS for instant loading on next page load
-    localStorage.setItem('lancache_selected_theme', theme.meta.id);
-    localStorage.setItem('lancache_theme_css', themeStyles);
-    localStorage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
+    storage.setItem('lancache_selected_theme', theme.meta.id);
+    storage.setItem('lancache_theme_css', themeStyles);
+    storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
 
     // Force re-render
     window.dispatchEvent(new Event('themechange'));
@@ -1062,7 +1072,7 @@ class ThemeService {
 
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
-    const savedThemeId = localStorage.getItem('lancache_selected_theme');
+    const savedThemeId = storage.getItem('lancache_selected_theme');
 
     if (preloadStyle && savedThemeId) {
       // We have a preloaded theme, load the fresh version from server
@@ -1074,9 +1084,9 @@ class ThemeService {
         return;
       }
       // If saved theme not found on server, clear everything
-      localStorage.removeItem('lancache_selected_theme');
-      localStorage.removeItem('lancache_theme_css');
-      localStorage.removeItem('lancache_theme_dark');
+      storage.removeItem('lancache_selected_theme');
+      storage.removeItem('lancache_theme_css');
+      storage.removeItem('lancache_theme_dark');
     }
 
     // No preload or theme not found, apply defaults
@@ -1099,37 +1109,37 @@ class ThemeService {
   }
 
   private migrateLocalStorageFeatures(): void {
-    const migrationVersion = localStorage.getItem('lancache_migration_version');
+    const migrationVersion = storage.getItem('lancache_migration_version');
     const currentVersion = packageJson.version;
 
     if (migrationVersion !== currentVersion) {
       // Migration for sharp corners feature
-      if (!localStorage.getItem('lancache_sharp_corners')) {
-        localStorage.setItem('lancache_sharp_corners', 'false'); // Default to rounded
+      if (!storage.getItem('lancache_sharp_corners')) {
+        storage.setItem('lancache_sharp_corners', 'false'); // Default to rounded
       }
 
       // Migration for disable focus outlines feature
-      if (!localStorage.getItem('lancache_disable_focus_outlines')) {
-        localStorage.setItem('lancache_disable_focus_outlines', 'true'); // Default to disabled (no blue borders)
+      if (!storage.getItem('lancache_disable_focus_outlines')) {
+        storage.setItem('lancache_disable_focus_outlines', 'true'); // Default to disabled (no blue borders)
       }
 
       // Migration for disable tooltips feature
-      if (!localStorage.getItem('lancache_disable_tooltips')) {
-        localStorage.setItem('lancache_disable_tooltips', 'false'); // Default to enabled
+      if (!storage.getItem('lancache_disable_tooltips')) {
+        storage.setItem('lancache_disable_tooltips', 'false'); // Default to enabled
       }
 
       // Migration for PICS always visible feature
-      if (!localStorage.getItem('lancache_pics_always_visible')) {
-        localStorage.setItem('lancache_pics_always_visible', 'false'); // Default to only show when processing
+      if (!storage.getItem('lancache_pics_always_visible')) {
+        storage.setItem('lancache_pics_always_visible', 'false'); // Default to only show when processing
       }
 
       // Migration for hide about sections feature
-      if (!localStorage.getItem('lancache_hide_about_sections')) {
-        localStorage.setItem('lancache_hide_about_sections', 'false'); // Default to showing about sections
+      if (!storage.getItem('lancache_hide_about_sections')) {
+        storage.setItem('lancache_hide_about_sections', 'false'); // Default to showing about sections
       }
 
       // Set migration version to prevent future runs
-      localStorage.setItem('lancache_migration_version', currentVersion);
+      storage.setItem('lancache_migration_version', currentVersion);
     }
   }
 
@@ -1187,7 +1197,7 @@ class ThemeService {
   }
 
   setSharpCorners(enabled: boolean): void {
-    localStorage.setItem('lancache_sharp_corners', enabled.toString());
+    storage.setItem('lancache_sharp_corners', enabled.toString());
 
     // Re-apply current theme to update border radius variables
     if (this.currentTheme) {
@@ -1198,11 +1208,11 @@ class ThemeService {
   }
 
   getSharpCorners(): boolean {
-    return localStorage.getItem('lancache_sharp_corners') === 'true';
+    return storage.getItem('lancache_sharp_corners') === 'true';
   }
 
   setDisableFocusOutlines(enabled: boolean): void {
-    localStorage.setItem('lancache_disable_focus_outlines', enabled.toString());
+    storage.setItem('lancache_disable_focus_outlines', enabled.toString());
 
     // Trigger CSS update
     document.documentElement.setAttribute('data-disable-focus-outlines', enabled.toString());
@@ -1212,11 +1222,11 @@ class ThemeService {
   }
 
   getDisableFocusOutlines(): boolean {
-    return localStorage.getItem('lancache_disable_focus_outlines') === 'true';
+    return storage.getItem('lancache_disable_focus_outlines') === 'true';
   }
 
   setDisableTooltips(enabled: boolean): void {
-    localStorage.setItem('lancache_disable_tooltips', enabled.toString());
+    storage.setItem('lancache_disable_tooltips', enabled.toString());
 
     // Trigger update
     document.documentElement.setAttribute('data-disable-tooltips', enabled.toString());
@@ -1226,22 +1236,22 @@ class ThemeService {
   }
 
   getDisableTooltips(): boolean {
-    return localStorage.getItem('lancache_disable_tooltips') === 'true';
+    return storage.getItem('lancache_disable_tooltips') === 'true';
   }
 
   setPicsAlwaysVisible(enabled: boolean): void {
-    localStorage.setItem('lancache_pics_always_visible', enabled.toString());
+    storage.setItem('lancache_pics_always_visible', enabled.toString());
 
     // Dispatch event for any components that need to react
     window.dispatchEvent(new Event('picsvisibilitychange'));
   }
 
   getPicsAlwaysVisible(): boolean {
-    return localStorage.getItem('lancache_pics_always_visible') === 'true';
+    return storage.getItem('lancache_pics_always_visible') === 'true';
   }
 
   setHideAboutSections(enabled: boolean): void {
-    localStorage.setItem('lancache_hide_about_sections', enabled.toString());
+    storage.setItem('lancache_hide_about_sections', enabled.toString());
 
     // Update data attribute for CSS styling
     document.documentElement.setAttribute('data-hide-about-sections', enabled.toString());
@@ -1251,7 +1261,7 @@ class ThemeService {
   }
 
   getHideAboutSections(): boolean {
-    return localStorage.getItem('lancache_hide_about_sections') === 'true';
+    return storage.getItem('lancache_hide_about_sections') === 'true';
   }
 
   async setTheme(themeId: string): Promise<void> {
@@ -1264,34 +1274,34 @@ class ThemeService {
   // Preview theme state management
   setPreviewTheme(themeId: string | null): void {
     if (themeId) {
-      localStorage.setItem('lancache_preview_theme', themeId);
+      storage.setItem('lancache_preview_theme', themeId);
     } else {
-      localStorage.removeItem('lancache_preview_theme');
+      storage.removeItem('lancache_preview_theme');
     }
   }
 
   getPreviewTheme(): string | null {
-    return localStorage.getItem('lancache_preview_theme');
+    return storage.getItem('lancache_preview_theme');
   }
 
   clearPreviewTheme(): void {
-    localStorage.removeItem('lancache_preview_theme');
+    storage.removeItem('lancache_preview_theme');
   }
 
   // Save the original theme before starting preview
   setOriginalThemeBeforePreview(themeId: string): void {
     // Only save if we're not already in preview mode
     if (!this.getPreviewTheme()) {
-      localStorage.setItem('lancache_original_theme_before_preview', themeId);
+      storage.setItem('lancache_original_theme_before_preview', themeId);
     }
   }
 
   getOriginalThemeBeforePreview(): string | null {
-    return localStorage.getItem('lancache_original_theme_before_preview');
+    return storage.getItem('lancache_original_theme_before_preview');
   }
 
   clearOriginalThemeBeforePreview(): void {
-    localStorage.removeItem('lancache_original_theme_before_preview');
+    storage.removeItem('lancache_original_theme_before_preview');
   }
 }
 

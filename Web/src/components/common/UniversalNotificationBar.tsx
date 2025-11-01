@@ -5,6 +5,7 @@ import ApiService from '@services/api.service';
 import { usePicsProgress } from '@hooks/usePicsProgress';
 import { toTotalHours } from '@utils/timeFormatters';
 import { useData } from '@contexts/DataContext';
+import { storage } from '@utils/storage';
 
 const UniversalNotificationBar: React.FC = () => {
   const { progress } = usePicsProgress({ pollingInterval: 2000 });
@@ -32,13 +33,13 @@ const UniversalNotificationBar: React.FC = () => {
   // Check for GitHub download status
   useEffect(() => {
     const checkGithubStatus = () => {
-      const downloading = localStorage.getItem('githubDownloading');
-      const downloadComplete = localStorage.getItem('githubDownloadComplete');
+      const downloading = storage.getItem('githubDownloading');
+      const downloadComplete = storage.getItem('githubDownloadComplete');
 
       // If PICS is running, clear GitHub complete status and show PICS instead
       if (progress?.isRunning && downloadComplete === 'true') {
-        localStorage.removeItem('githubDownloadComplete');
-        localStorage.removeItem('githubDownloadTime');
+        storage.removeItem('githubDownloadComplete');
+        storage.removeItem('githubDownloadTime');
         setGithubDownloadStatus(null);
         return;
       }

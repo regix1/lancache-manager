@@ -16,6 +16,7 @@ import { usePicsProgress } from '@hooks/usePicsProgress';
 import ApiService from '@services/api.service';
 import authService, { AuthMode } from '@services/auth.service';
 import { setServerTimezone } from '@utils/timezone';
+import { storage } from '@utils/storage';
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
@@ -165,14 +166,14 @@ const AppContent: React.FC = () => {
           // If setup is complete OR logs have been processed, clear any stale initialization flow
           if (setupComplete || logsProcessed) {
             setIsInitializationFlowActive(false);
-            localStorage.removeItem('initializationFlowActive');
-            localStorage.removeItem('initializationCurrentStep');
-            localStorage.removeItem('initializationInProgress');
-            localStorage.removeItem('initializationMethod');
-            localStorage.removeItem('initializationDownloadStatus');
+            storage.removeItem('initializationFlowActive');
+            storage.removeItem('initializationCurrentStep');
+            storage.removeItem('initializationInProgress');
+            storage.removeItem('initializationMethod');
+            storage.removeItem('initializationDownloadStatus');
           } else {
             // Only restore initialization flow from localStorage if setup is NOT complete
-            const storedFlow = localStorage.getItem('initializationFlowActive');
+            const storedFlow = storage.getItem('initializationFlowActive');
             if (storedFlow === 'true') {
               setIsInitializationFlowActive(true);
             }
@@ -232,7 +233,7 @@ const AppContent: React.FC = () => {
   const handleDepotInitialized = async () => {
     // Initialization flow is complete
     setIsInitializationFlowActive(false);
-    localStorage.removeItem('initializationFlowActive');
+    storage.removeItem('initializationFlowActive');
 
     // Mark setup as completed
     setSetupCompleted(true);
@@ -301,8 +302,8 @@ const AppContent: React.FC = () => {
     setShowAutomaticScanSkippedModal(false);
 
     // Set downloading flag in localStorage for UniversalNotificationBar
-    localStorage.setItem('githubDownloading', 'true');
-    localStorage.removeItem('githubDownloadComplete');
+    storage.setItem('githubDownloading', 'true');
+    storage.removeItem('githubDownloadComplete');
 
     // Trigger download from GitHub
     try {
@@ -310,14 +311,14 @@ const AppContent: React.FC = () => {
       console.log('[App] GitHub download triggered successfully');
 
       // Update localStorage flags on success
-      localStorage.removeItem('githubDownloading');
-      localStorage.setItem('githubDownloadComplete', 'true');
-      localStorage.setItem('githubDownloadTime', new Date().toISOString());
+      storage.removeItem('githubDownloading');
+      storage.setItem('githubDownloadComplete', 'true');
+      storage.setItem('githubDownloadTime', new Date().toISOString());
     } catch (error) {
       console.error('Failed to download from GitHub:', error);
 
       // Clear downloading flag on error
-      localStorage.removeItem('githubDownloading');
+      storage.removeItem('githubDownloading');
     }
   };
 
@@ -413,7 +414,7 @@ const AppContent: React.FC = () => {
       // Mark initialization flow as active when showing the modal
       if (!isInitializationFlowActive) {
         setIsInitializationFlowActive(true);
-        localStorage.setItem('initializationFlowActive', 'true');
+        storage.setItem('initializationFlowActive', 'true');
       }
 
       // Show full 6-step initialization modal for first-time setup
@@ -442,7 +443,7 @@ const AppContent: React.FC = () => {
     // Mark initialization flow as active
     if (!isInitializationFlowActive) {
       setIsInitializationFlowActive(true);
-      localStorage.setItem('initializationFlowActive', 'true');
+      storage.setItem('initializationFlowActive', 'true');
     }
 
     return (

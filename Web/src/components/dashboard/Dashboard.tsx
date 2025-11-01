@@ -21,6 +21,7 @@ import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
 import { type StatCardData } from '../../types';
+import { storage } from '@utils/storage';
 import StatCard from '../common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import EnhancedServiceChart from './EnhancedServiceChart';
@@ -154,12 +155,12 @@ const Dashboard: React.FC = () => {
   const [isDragMode, setIsDragMode] = useState(false);
   const [holdTimeout, setHoldTimeout] = useState<NodeJS.Timeout | null>(null);
   const [showDragHint, setShowDragHint] = useState(() => {
-    return localStorage.getItem('dashboard-hide-drag-hint') !== 'true';
+    return storage.getItem('dashboard-hide-drag-hint') !== 'true';
   });
   const dragCounter = useRef(0);
 
   const [cardOrder, setCardOrder] = useState<string[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER);
+    const saved = storage.getItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER);
     if (saved) {
       try {
         const order = JSON.parse(saved);
@@ -175,9 +176,17 @@ const Dashboard: React.FC = () => {
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER, JSON.stringify(cardOrder));
+    storage.setItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER, JSON.stringify(cardOrder));
   }, [cardOrder]);
 
+  // Clean up holdTimeout on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (holdTimeout) {
+        clearTimeout(holdTimeout);
+      }
+    };
+  }, [holdTimeout]);
 
   const getTimeRangeLabel = useCallback(() => {
     switch (timeRange) {
@@ -194,7 +203,7 @@ const Dashboard: React.FC = () => {
   }, [timeRange]);
 
   const [cardVisibility, setCardVisibility] = useState<CardVisibility>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY);
+    const saved = storage.getItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY);
     if (saved) {
       try {
         return { ...DEFAULT_CARD_VISIBILITY, ...JSON.parse(saved) };
@@ -207,7 +216,7 @@ const Dashboard: React.FC = () => {
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY, JSON.stringify(cardVisibility));
+    storage.setItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY, JSON.stringify(cardVisibility));
   }, [cardVisibility]);
 
   useEffect(() => {
@@ -363,7 +372,7 @@ const Dashboard: React.FC = () => {
 
   const hideDragHint = useCallback(() => {
     setShowDragHint(false);
-    localStorage.setItem('dashboard-hide-drag-hint', 'true');
+    storage.setItem('dashboard-hide-drag-hint', 'true');
   }, []);
 
   const stats = useMemo(() => {

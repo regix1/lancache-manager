@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext'; // Fixed import path
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
+import { storage } from '@utils/storage';
 import { Alert } from '../ui/Alert'; // Fixed import path
 import { Card } from '../ui/Card'; // Fixed import path
 import { Checkbox } from '../ui/Checkbox';
@@ -92,41 +93,41 @@ const DownloadsTab: React.FC = () => {
   const settingsRef = useRef<HTMLDivElement>(null);
 
   const [settings, setSettings] = useState(() => ({
-    showZeroBytes: localStorage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
-    showSmallFiles: localStorage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
-    hideLocalhost: localStorage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
-    hideUnknownGames: localStorage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
-    selectedService: localStorage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
-    selectedClient: localStorage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
+    showZeroBytes: storage.getItem(STORAGE_KEYS.SHOW_METADATA) === 'true',
+    showSmallFiles: storage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
+    hideLocalhost: storage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
+    hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
+    selectedService: storage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
+    selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
     itemsPerPage:
-      localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
+      storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
         ? 'unlimited' as const
-        : parseInt(localStorage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50'),
-    viewMode: (localStorage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode,
-    sortOrder: (localStorage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service',
-    aestheticMode: localStorage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
-    fullHeightBanners: localStorage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
-    groupByFrequency: localStorage.getItem('lancache_downloads_group_by_frequency') !== 'false',
-    enableScrollIntoView: localStorage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false',
-    groupUnknownGames: localStorage.getItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES) === 'true'
+        : parseInt(storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50'),
+    viewMode: (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode,
+    sortOrder: (storage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service',
+    aestheticMode: storage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
+    fullHeightBanners: storage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
+    groupByFrequency: storage.getItem('lancache_downloads_group_by_frequency') !== 'false',
+    enableScrollIntoView: storage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false',
+    groupUnknownGames: storage.getItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES) === 'true'
   }));
 
   // Effect to save settings to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
-    localStorage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
-    localStorage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
-    localStorage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
-    localStorage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
-    localStorage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
-    localStorage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
-    localStorage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
-    localStorage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
-    localStorage.setItem(STORAGE_KEYS.AESTHETIC_MODE, settings.aestheticMode.toString());
-    localStorage.setItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS, settings.fullHeightBanners.toString());
-    localStorage.setItem('lancache_downloads_group_by_frequency', settings.groupByFrequency.toString());
-    localStorage.setItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW, settings.enableScrollIntoView.toString());
-    localStorage.setItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES, settings.groupUnknownGames.toString());
+    storage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
+    storage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
+    storage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
+    storage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
+    storage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
+    storage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
+    storage.setItem(STORAGE_KEYS.ITEMS_PER_PAGE, settings.itemsPerPage.toString());
+    storage.setItem(STORAGE_KEYS.VIEW_MODE, settings.viewMode);
+    storage.setItem(STORAGE_KEYS.SORT_ORDER, settings.sortOrder);
+    storage.setItem(STORAGE_KEYS.AESTHETIC_MODE, settings.aestheticMode.toString());
+    storage.setItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS, settings.fullHeightBanners.toString());
+    storage.setItem('lancache_downloads_group_by_frequency', settings.groupByFrequency.toString());
+    storage.setItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW, settings.enableScrollIntoView.toString());
+    storage.setItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES, settings.groupUnknownGames.toString());
   }, [settings]);
 
   // Always fetch unlimited downloads from API to ensure we have all for grouping

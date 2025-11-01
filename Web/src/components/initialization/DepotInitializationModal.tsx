@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
+import { storage } from '@utils/storage';
 import {
   ApiKeyStep,
   SteamPicsAuthStep,
@@ -33,7 +34,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 }) => {
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
     // Initialize from localStorage to survive page reloads
-    const stored = localStorage.getItem('initializationCurrentStep');
+    const stored = storage.getItem('initializationCurrentStep');
     return (stored as InitStep) || 'api-key';
   });
   const [apiKey, setApiKey] = useState('');
@@ -44,64 +45,64 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [picsData, setPicsData] = useState<any>(null);
   const [initializing, setInitializing] = useState(() => {
     // Restore from localStorage to survive page reloads
-    const stored = localStorage.getItem('initializationInProgress');
+    const stored = storage.getItem('initializationInProgress');
     return stored === 'true';
   });
   const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(() => {
     // Restore from localStorage
-    const stored = localStorage.getItem('initializationMethod');
+    const stored = storage.getItem('initializationMethod');
     return (stored as 'cloud' | 'generate' | 'continue') || null;
   });
   const [error, setError] = useState<string | null>(null);
   const [downloadStatus, setDownloadStatus] = useState<string | null>(() => {
     // Restore from localStorage
-    return localStorage.getItem('initializationDownloadStatus') || null;
+    return storage.getItem('initializationDownloadStatus') || null;
   });
   const [usingSteamAuth, setUsingSteamAuth] = useState<boolean>(() => {
     // Restore from localStorage
-    const stored = localStorage.getItem('usingSteamAuth');
+    const stored = storage.getItem('usingSteamAuth');
     return stored === 'true';
   });
   const [authDisabled, setAuthDisabled] = useState<boolean>(false);
 
   // Persist current step to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem('initializationCurrentStep', currentStep);
+    storage.setItem('initializationCurrentStep', currentStep);
   }, [currentStep]);
 
   // Persist initialization state to localStorage
   useEffect(() => {
-    localStorage.setItem('initializationInProgress', initializing.toString());
+    storage.setItem('initializationInProgress', initializing.toString());
   }, [initializing]);
 
   useEffect(() => {
     if (selectedMethod) {
-      localStorage.setItem('initializationMethod', selectedMethod);
+      storage.setItem('initializationMethod', selectedMethod);
     } else {
-      localStorage.removeItem('initializationMethod');
+      storage.removeItem('initializationMethod');
     }
   }, [selectedMethod]);
 
   useEffect(() => {
     if (downloadStatus) {
-      localStorage.setItem('initializationDownloadStatus', downloadStatus);
+      storage.setItem('initializationDownloadStatus', downloadStatus);
     } else {
-      localStorage.removeItem('initializationDownloadStatus');
+      storage.removeItem('initializationDownloadStatus');
     }
   }, [downloadStatus]);
 
   // Persist usingSteamAuth to localStorage
   useEffect(() => {
-    localStorage.setItem('usingSteamAuth', usingSteamAuth.toString());
+    storage.setItem('usingSteamAuth', usingSteamAuth.toString());
   }, [usingSteamAuth]);
 
   // Wrapper to clear localStorage and call onInitialized
   const handleInitializationComplete = () => {
-    localStorage.removeItem('initializationCurrentStep');
-    localStorage.removeItem('initializationInProgress');
-    localStorage.removeItem('initializationMethod');
-    localStorage.removeItem('initializationDownloadStatus');
-    localStorage.removeItem('usingSteamAuth');
+    storage.removeItem('initializationCurrentStep');
+    storage.removeItem('initializationInProgress');
+    storage.removeItem('initializationMethod');
+    storage.removeItem('initializationDownloadStatus');
+    storage.removeItem('usingSteamAuth');
     onInitialized();
   };
 
@@ -116,7 +117,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       console.log('[DepotInit] Auth check:', { requiresAuth: authRequired, isAuthenticated: authCheck.isAuthenticated });
 
       // If we have a stored step from a previous session, validate it's still relevant
-      const storedStep = localStorage.getItem('initializationCurrentStep');
+      const storedStep = storage.getItem('initializationCurrentStep');
       if (storedStep) {
         console.log('[DepotInit] Found stored step from localStorage:', storedStep);
 
@@ -126,18 +127,18 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         // Check if initialization state is stale (browser was closed mid-setup)
         // Only reset if auth is required AND there's NO auth at all
         // This prevents resetting on page refresh when API is slow to respond
-        const isAuthenticated = localStorage.getItem('lancache_auth_registered') === 'true';
-        const isGuestMode = localStorage.getItem('lancache_guest_expires') !== null;
+        const isAuthenticated = storage.getItem('lancache_auth_registered') === 'true';
+        const isGuestMode = storage.getItem('lancache_guest_expires') !== null;
         const hasAuth = isAuthenticated || isGuestMode;
 
         if (authRequired && !hasAuth && storedStep !== 'api-key') {
           console.log('[DepotInit] Stale initialization state detected (no auth), resetting to step 1');
-          localStorage.removeItem('initializationCurrentStep');
-          localStorage.removeItem('initializationInProgress');
-          localStorage.removeItem('initializationMethod');
-          localStorage.removeItem('initializationDownloadStatus');
-          localStorage.removeItem('initializationFlowActive');
-          localStorage.removeItem('usingSteamAuth');
+          storage.removeItem('initializationCurrentStep');
+          storage.removeItem('initializationInProgress');
+          storage.removeItem('initializationMethod');
+          storage.removeItem('initializationDownloadStatus');
+          storage.removeItem('initializationFlowActive');
+          storage.removeItem('usingSteamAuth');
           setCurrentStep('api-key');
           return;
         }
@@ -148,10 +149,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         setCurrentStep(storedStep as InitStep);
 
         // Restore other state variables from localStorage
-        const storedMethod = localStorage.getItem('initializationMethod');
-        const storedInProgress = localStorage.getItem('initializationInProgress');
-        const storedDownloadStatus = localStorage.getItem('initializationDownloadStatus');
-        const storedUsingSteamAuth = localStorage.getItem('usingSteamAuth');
+        const storedMethod = storage.getItem('initializationMethod');
+        const storedInProgress = storage.getItem('initializationInProgress');
+        const storedDownloadStatus = storage.getItem('initializationDownloadStatus');
+        const storedUsingSteamAuth = storage.getItem('usingSteamAuth');
 
         // Restore state
         if (storedMethod) {
@@ -177,9 +178,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             setInitializing(false);
             setSelectedMethod(null);
             setDownloadStatus(null);
-            localStorage.removeItem('initializationInProgress');
-            localStorage.removeItem('initializationMethod');
-            localStorage.removeItem('initializationDownloadStatus');
+            storage.removeItem('initializationInProgress');
+            storage.removeItem('initializationMethod');
+            storage.removeItem('initializationDownloadStatus');
             setCurrentStep('log-processing');
             return;
           } else {
@@ -190,9 +191,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
             setInitializing(false);
             setSelectedMethod(null);
             setDownloadStatus(null);
-            localStorage.removeItem('initializationInProgress');
-            localStorage.removeItem('initializationMethod');
-            localStorage.removeItem('initializationDownloadStatus');
+            storage.removeItem('initializationInProgress');
+            storage.removeItem('initializationMethod');
+            storage.removeItem('initializationDownloadStatus');
           }
         }
 
@@ -370,9 +371,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setSelectedMethod(null);
       setDownloadStatus(null);
       // Clear localStorage since download is complete
-      localStorage.removeItem('initializationInProgress');
-      localStorage.removeItem('initializationMethod');
-      localStorage.removeItem('initializationDownloadStatus');
+      storage.removeItem('initializationInProgress');
+      storage.removeItem('initializationMethod');
+      storage.removeItem('initializationDownloadStatus');
       setCurrentStep('log-processing');
       console.log('[DepotInit] Step changed to log-processing');
     } catch (err: any) {
@@ -382,9 +383,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setSelectedMethod(null);
       setDownloadStatus(null);
       // Clear localStorage on error
-      localStorage.removeItem('initializationInProgress');
-      localStorage.removeItem('initializationMethod');
-      localStorage.removeItem('initializationDownloadStatus');
+      storage.removeItem('initializationInProgress');
+      storage.removeItem('initializationMethod');
+      storage.removeItem('initializationDownloadStatus');
     }
   };
 
@@ -405,9 +406,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         setError('Unable to start full scan. Please try again or download from GitHub.');
         setInitializing(false);
         setSelectedMethod(null);
-        localStorage.removeItem('initializationInProgress');
-        localStorage.removeItem('initializationMethod');
-        localStorage.removeItem('initializationDownloadStatus');
+        storage.removeItem('initializationInProgress');
+        storage.removeItem('initializationMethod');
+        storage.removeItem('initializationDownloadStatus');
         return;
       }
 
@@ -415,9 +416,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setInitializing(false);
       setSelectedMethod(null);
       // Clear localStorage since generation started successfully
-      localStorage.removeItem('initializationInProgress');
-      localStorage.removeItem('initializationMethod');
-      localStorage.removeItem('initializationDownloadStatus');
+      storage.removeItem('initializationInProgress');
+      storage.removeItem('initializationMethod');
+      storage.removeItem('initializationDownloadStatus');
       setCurrentStep('pics-progress');
       console.log('[DepotInit] Step changed to pics-progress');
     } catch (err: any) {
@@ -426,9 +427,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setInitializing(false);
       setSelectedMethod(null);
       // Clear localStorage on error
-      localStorage.removeItem('initializationInProgress');
-      localStorage.removeItem('initializationMethod');
-      localStorage.removeItem('initializationDownloadStatus');
+      storage.removeItem('initializationInProgress');
+      storage.removeItem('initializationMethod');
+      storage.removeItem('initializationDownloadStatus');
     }
   };
 
@@ -484,9 +485,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           setInitializing(false);
           setSelectedMethod(null);
           setDownloadStatus(null);
-          localStorage.removeItem('initializationInProgress');
-          localStorage.removeItem('initializationMethod');
-          localStorage.removeItem('initializationDownloadStatus');
+          storage.removeItem('initializationInProgress');
+          storage.removeItem('initializationMethod');
+          storage.removeItem('initializationDownloadStatus');
           return;
         }
       }
@@ -499,9 +500,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setSelectedMethod(null);
       setDownloadStatus(null);
       // Clear localStorage since continue started successfully
-      localStorage.removeItem('initializationInProgress');
-      localStorage.removeItem('initializationMethod');
-      localStorage.removeItem('initializationDownloadStatus');
+      storage.removeItem('initializationInProgress');
+      storage.removeItem('initializationMethod');
+      storage.removeItem('initializationDownloadStatus');
       setCurrentStep('pics-progress');
       console.log('[DepotInit] Step changed to pics-progress');
     } catch (err: any) {
@@ -511,9 +512,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       setSelectedMethod(null);
       setDownloadStatus(null);
       // Clear localStorage on error
-      localStorage.removeItem('initializationInProgress');
-      localStorage.removeItem('initializationMethod');
-      localStorage.removeItem('initializationDownloadStatus');
+      storage.removeItem('initializationInProgress');
+      storage.removeItem('initializationMethod');
+      storage.removeItem('initializationDownloadStatus');
     }
   };
 

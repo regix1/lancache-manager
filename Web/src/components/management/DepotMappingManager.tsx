@@ -7,6 +7,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
 import { usePicsProgress } from '@hooks/usePicsProgress';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
+import { storage } from '@utils/storage';
 
 interface DepotMappingManagerProps {
   isAuthenticated: boolean;
@@ -51,8 +52,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Check for pending GitHub download from localStorage on mount
   useEffect(() => {
-    const downloadComplete = localStorage.getItem('githubDownloadComplete');
-    const downloadTime = localStorage.getItem('githubDownloadTime');
+    const downloadComplete = storage.getItem('githubDownloadComplete');
+    const downloadTime = storage.getItem('githubDownloadTime');
 
     if (downloadComplete === 'true' && downloadTime) {
       // Check if the download was within the last hour
@@ -65,8 +66,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         setDepotSource('incremental');
       } else {
         // Clear old download status
-        localStorage.removeItem('githubDownloadComplete');
-        localStorage.removeItem('githubDownloadTime');
+        storage.removeItem('githubDownloadComplete');
+        storage.removeItem('githubDownloadTime');
       }
     }
   }, []);
@@ -76,9 +77,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     if (depotProcessing && !depotProcessing.isRunning && githubDownloadComplete) {
       // Clear the flag after scan completes
       setGithubDownloadComplete(false);
-      localStorage.removeItem('githubDownloadComplete');
-      localStorage.removeItem('githubDownloadTime');
-      localStorage.removeItem('githubDownloading'); // Make sure this is also cleared
+      storage.removeItem('githubDownloadComplete');
+      storage.removeItem('githubDownloadTime');
+      storage.removeItem('githubDownloading'); // Make sure this is also cleared
     }
   }, [depotProcessing?.isRunning, githubDownloadComplete]);
 
@@ -145,8 +146,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     setGithubDownloading(true);
 
     // Set downloading flag in localStorage for UniversalNotificationBar
-    localStorage.setItem('githubDownloading', 'true');
-    localStorage.removeItem('githubDownloadComplete');
+    storage.setItem('githubDownloading', 'true');
+    storage.removeItem('githubDownloadComplete');
 
     try {
       await ApiService.downloadPrecreatedDepotData();
@@ -155,9 +156,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       setGithubDownloading(false);
 
       // Update localStorage flags
-      localStorage.removeItem('githubDownloading');
-      localStorage.setItem('githubDownloadComplete', 'true');
-      localStorage.setItem('githubDownloadTime', new Date().toISOString());
+      storage.removeItem('githubDownloading');
+      storage.setItem('githubDownloadComplete', 'true');
+      storage.setItem('githubDownloadTime', new Date().toISOString());
 
       // Refresh the PICS progress data to clear automaticScanSkipped flag
       await refreshProgress();
@@ -169,7 +170,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       setGithubDownloading(false);
 
       // Clear downloading flag on error
-      localStorage.removeItem('githubDownloading');
+      storage.removeItem('githubDownloading');
     } finally {
       setActionLoading(false);
       setOperationType(null);

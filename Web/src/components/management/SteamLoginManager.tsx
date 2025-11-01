@@ -8,6 +8,7 @@ import { SteamAuthModal } from '@components/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
+import { storage } from '@utils/storage';
 
 interface SteamLoginManagerProps {
   authMode: AuthMode;
@@ -50,7 +51,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   useEffect(() => {
     loadSteamAuthState();
     // Load auto-start preference from localStorage
-    const savedPref = localStorage.getItem('autoStartPics');
+    const savedPref = storage.getItem('autoStartPics');
     if (savedPref !== null) {
       setAutoStartPics(savedPref === 'true');
     }
@@ -78,7 +79,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
   const handleAutoStartPicsChange = (enabled: boolean) => {
     setAutoStartPics(enabled);
-    localStorage.setItem('autoStartPics', enabled.toString());
+    storage.setItem('autoStartPics', enabled.toString());
   };
 
   const handleModeChange = (newMode: string) => {

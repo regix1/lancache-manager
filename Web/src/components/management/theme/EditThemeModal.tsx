@@ -15,6 +15,7 @@ import { Checkbox } from '../../ui/Checkbox';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
 import { ColorGroup, Theme } from './types';
+import { storage } from '@utils/storage';
 
 interface EditThemeModalProps {
   opened: boolean;
@@ -59,12 +60,12 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
     // Save the previous color to history when user finishes editing
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
     const originalKey = `color_history_${editingTheme?.meta.id}_${key}_original`;
-    const existingHistory = localStorage.getItem(historyKey);
+    const existingHistory = storage.getItem(historyKey);
     let history: string[] = [];
 
     // Save original color if this is the first time (no history exists)
     if (!existingHistory) {
-      localStorage.setItem(originalKey, previousColor);
+      storage.setItem(originalKey, previousColor);
     }
 
     // Handle migration from old format (single string) to new format (array)
@@ -87,7 +88,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
       history.pop(); // Remove oldest (but original is safe in separate key)
     }
 
-    localStorage.setItem(historyKey, JSON.stringify(history));
+    storage.setItem(historyKey, JSON.stringify(history));
   };
 
   const handleEditColorChange = (key: string, value: string) => {
@@ -98,7 +99,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
   const restorePreviousColor = (key: string) => {
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
     const originalKey = `color_history_${editingTheme?.meta.id}_${key}_original`;
-    const existingHistory = localStorage.getItem(historyKey);
+    const existingHistory = storage.getItem(historyKey);
 
     if (existingHistory) {
       let history: string[] = [];
@@ -120,9 +121,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
         // Update localStorage with remaining history
         if (history.length > 0) {
-          localStorage.setItem(historyKey, JSON.stringify(history));
+          storage.setItem(historyKey, JSON.stringify(history));
         } else {
-          localStorage.removeItem(historyKey);
+          storage.removeItem(historyKey);
         }
 
         // Apply the previous color immediately
@@ -132,11 +133,11 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
       }
     } else {
       // No recent history, restore to original color and remove it (final undo)
-      const originalColor = localStorage.getItem(originalKey);
+      const originalColor = storage.getItem(originalKey);
       if (originalColor) {
         setEditedTheme((prev: any) => ({ ...prev, [key]: originalColor }));
         // Remove original after restoring to it (no more undos available)
-        localStorage.removeItem(originalKey);
+        storage.removeItem(originalKey);
       }
     }
   };
@@ -144,7 +145,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
   const getEditColorHistory = (key: string) => {
     const historyKey = `color_history_${editingTheme?.meta.id}_${key}`;
     const originalKey = `color_history_${editingTheme?.meta.id}_${key}_original`;
-    const existingHistory = localStorage.getItem(historyKey);
+    const existingHistory = storage.getItem(historyKey);
 
     if (existingHistory) {
       let history: string[] = [];
@@ -164,7 +165,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
     }
 
     // No recent history, check for original color
-    return localStorage.getItem(originalKey);
+    return storage.getItem(originalKey);
   };
 
   // Filter color groups based on search

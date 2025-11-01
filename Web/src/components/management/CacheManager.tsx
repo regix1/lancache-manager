@@ -5,6 +5,11 @@ import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useData } from '@contexts/DataContext';
 import { formatBytes } from '@utils/formatters';
+
+interface CacheClearOperationData {
+  operationId: string;
+  lastProgress?: number;
+}
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -45,7 +50,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
 
-  const cacheOp = useBackendOperation('activeCacheClearOperation', 'cacheClearing', 30);
+  const cacheOp = useBackendOperation<CacheClearOperationData>('activeCacheClearOperation', 'cacheClearing', 30);
 
   // Report cache clearing status to parent
 

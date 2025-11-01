@@ -13,6 +13,10 @@ import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useData } from '@contexts/DataContext';
 import { Card } from '@components/ui/Card';
+
+interface ServiceRemovalOperationData {
+  service: string;
+}
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -105,7 +109,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
 
-  const serviceRemovalOp = useBackendOperation('activeServiceRemoval', 'serviceRemoval', 30);
+  const serviceRemovalOp = useBackendOperation<ServiceRemovalOperationData>('activeServiceRemoval', 'serviceRemoval', 30);
 
   const clearOperationState = async () => {
     await serviceRemovalOp.clear();
