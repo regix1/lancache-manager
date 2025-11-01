@@ -185,10 +185,6 @@ public class RustLogRemovalService
 
                 if (exitCode == 0)
                 {
-                    // Small delay to ensure file operations are fully complete
-                    // (Windows file system may need a moment to finalize writes)
-                    await Task.Delay(100);
-
                     // Invalidate service counts cache so UI refreshes
                     await _cacheManagementService.InvalidateServiceCountsCache();
 

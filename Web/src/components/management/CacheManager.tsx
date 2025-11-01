@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Server, Trash2, AlertTriangle, Loader2, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
