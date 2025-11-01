@@ -27,6 +27,8 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 - [Getting Started](#getting-started)
 - [Admin Features](#admin-features)
 - [Custom Themes](#custom-themes)
+- [Optimization Settings](#optimization-settings)
+- [Image Caching](#image-caching)
 - [Depot Mappings](#depot-mappings)
 - [Grafana & Prometheus Integration](#grafana--prometheus-integration)
 - [API Examples](#api-examples)
@@ -83,7 +85,7 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 
 ### Admin Session Management
 
-<img width="1516" height="980" alt="Admin Page" src="https://github.com/user-attachments/assets/a7793069-b2ac-4795-856b-87593afedd0c" />
+<img width="1502" height="991" alt="Admin Page" src="https://github.com/user-attachments/assets/820bc238-8da0-4b89-830a-3b748b962e9e" />
 
 *Manage user sessions, view connected devices, and control access*
 
@@ -188,6 +190,12 @@ services:
       # Require API key for /metrics endpoint (default: false)
       # Set to 'true' to protect Prometheus metrics
       - Security__RequireAuthForMetrics=false
+
+      # Optimization Settings
+
+      # Enable garbage collection management (default: false)
+      # Set to 'true' to enable memory optimization controls in the UI
+      - Optimizations__EnableGarbageCollectionManagement=false
 ```
 
 Visit **http://localhost:8080** and get your **API key** from the logs:
@@ -251,28 +259,144 @@ Control who has access to your LANCache Manager through the Admin page:
 <a id="custom-themes"></a>
 ## Custom Themes [⬆](#-table-of-contents)
 
-Make LANCache Manager match your style:
+Fully customize LANCache Manager to match your personal style or branding:
 
-1. **Use Built-in Themes** - Choose from several pre-made themes including "LANCache Unofficial"
-2. **Create Your Own** - Use the theme editor to customize colors and appearance
-3. **Export & Share** - Download your theme as a TOML file
-4. **Import Themes** - Upload TOML files from others
+### Features
 
-### Theme File Example
+- **Built-in Themes** - Start with professionally designed themes like "LANCache Unofficial" and "Sage and Wood"
+- **Visual Theme Editor** - Live preview as you customize colors, backgrounds, and accents
+- **Community Themes** - Browse and install themes from the community gallery
+- **Import/Export** - Share your creations as TOML files
+- **Auto-Updates** - Installed themes can receive updates from creators
+- **Theme Preview** - See changes in real-time before applying
+
+### Creating a Custom Theme
+
+1. Go to **Management > Preferences > Theme Management**
+2. Click **"Create Theme"** or edit an existing one
+3. Customize colors, backgrounds, borders, and service icons
+4. Preview your changes live
+5. Save and apply your theme
+
+### Importing Community Themes
+
+1. Go to **Management > Preferences > Theme Management**
+2. Click **"Community Themes"**
+3. Browse available themes with previews
+4. Click **"Install"** on any theme you like
+5. Optionally enable auto-updates
+
+### Theme File Format
+
+Themes use TOML format for easy editing:
 
 ```toml
 [meta]
 name = "My Theme"
 id = "my-theme"
 isDark = true
+version = "1.0.0"
+author = "Your Name"
 
 [colors]
+# Primary colors
 primaryColor = "#3b82f6"
+secondaryColor = "#10b981"
+
+# Backgrounds
 bgPrimary = "#111827"
+bgSecondary = "#1f2937"
+bgHover = "#374151"
+
+# Text
 textPrimary = "#ffffff"
+textSecondary = "#d1d5db"
+textMuted = "#9ca3af"
+
+# Service icons (Steam, Epic, etc.)
+steam = "#1b2838"
+epic = "#2a2a2a"
+# ... and more
 ```
 
-Access theme management in **Management > Themes**
+### Theme Storage
+
+Themes are saved to `/data/themes/` and can be backed up with your data directory.
+
+<a id="optimization-settings"></a>
+## Optimization Settings [⬆](#-table-of-contents)
+
+### Memory Management (Advanced)
+
+LANCache Manager includes optional garbage collection controls for managing memory usage. This is disabled by default and only recommended for advanced users experiencing memory issues.
+
+**To enable:**
+
+```yaml
+environment:
+  - Optimizations__EnableGarbageCollectionManagement=true
+```
+
+Once enabled, you'll see an **Optimizations** section in the Management tab where you can:
+
+- **Set Collection Aggressiveness** - Control how often garbage collection runs (from disabled to every second)
+- **Configure Memory Threshold** - Set when GC should trigger (2GB - 16GB)
+- **Manual Trigger** - Run garbage collection on demand for testing
+
+**When to use this:**
+- You're running on low-memory systems (< 4GB RAM)
+- You notice memory usage climbing over time
+- You have limited resources and need tight memory control
+
+**When NOT to use this:**
+- Your system has adequate RAM (8GB+)
+- Performance is more important than memory usage
+- The default .NET memory management works fine for you
+
+### Performance Notes
+
+- **Disabled (default)**: Best performance, lets .NET handle memory automatically
+- **On Page Load**: Balanced approach, runs GC only when you open/refresh the page
+- **Timed intervals**: More aggressive, can impact performance but keeps memory lower
+
+<a id="image-caching"></a>
+## Image Caching [⬆](#-table-of-contents)
+
+LANCache Manager automatically caches game artwork to provide instant loading and reduce bandwidth usage.
+
+### How It Works
+
+- **First Load**: Game images are downloaded from Steam's CDN
+- **Subsequent Loads**: Images are served from local cache instantly
+- **Auto-Updates**: When Steam updates game artwork, the cache automatically refreshes
+- **Smart Handling**: Games without images are remembered to avoid repeated lookups
+
+### Cache Location
+
+Images are stored in `/data/cached-img/` inside your data directory.
+
+### Cache Management
+
+**Clear the cache:**
+```bash
+# Stop the container
+docker stop lancache-manager
+
+# Remove cached images
+rm -rf ./data/cached-img
+
+# Start the container
+docker start lancache-manager
+```
+
+The cache will rebuild automatically as you browse your downloads.
+
+### Benefits
+
+- **Instant Loading** - Game headers appear immediately when scrolling
+- **Reduced Bandwidth** - Steam images are fetched once, not repeatedly
+- **Always Fresh** - Automatically detects when Steam updates artwork
+- **Efficient Storage** - Only images you've seen are cached
 
 <a id="depot-mappings"></a>
 ## Depot Mappings [⬆](#-table-of-contents)
