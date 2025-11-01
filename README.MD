@@ -17,6 +17,8 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 
 ## 📑 Table of Contents
 
+*Click the ⬆ arrow on any section to return here*
+
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [Quick Start](#quick-start)
