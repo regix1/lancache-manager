@@ -126,6 +126,11 @@ public class ManagementController : ControllerBase
                 status = "running"
             });
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            // This is an expected error (read-only directories), already logged as warning in service layer
+            return StatusCode(403, new { error = ex.Message });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting cache clear operation");
@@ -179,6 +184,11 @@ public class ManagementController : ControllerBase
 
             await _cacheService.RemoveServiceFromLogs(service);
             return Ok(new { message = $"Removed {service} entries from logs" });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // This is an expected error (read-only directories), already logged as warning in service layer
+            return StatusCode(403, new { error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -598,6 +608,11 @@ public class ManagementController : ControllerBase
                 message = $"Successfully removed corrupted chunks for {request.Service}",
                 service = request.Service
             });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // This is an expected error (read-only directories), already logged as warning in service layer
+            return StatusCode(403, new { error = ex.Message });
         }
         catch (Exception ex)
         {
@@ -1184,6 +1199,11 @@ public class ManagementController : ControllerBase
                 report,
                 cacheInvalidated = true
             });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // This is an expected error (read-only directories), already logged as warning in service layer
+            return StatusCode(403, new { error = ex.Message });
         }
         catch (Exception ex)
         {
