@@ -14,20 +14,29 @@ public class GcMiddleware
     private readonly ILogger<GcMiddleware> _logger;
     private readonly SettingsRepository _gcSettingsService;
     private readonly IMemoryManager _memoryManager;
+    private readonly IConfiguration _configuration;
     private static DateTime _lastGcTime = DateTime.MinValue;
     private static readonly object _gcLock = new object();
 
-    public GcMiddleware(RequestDelegate next, ILogger<GcMiddleware> logger, SettingsRepository gcSettingsService, IMemoryManager memoryManager)
+    public GcMiddleware(RequestDelegate next, ILogger<GcMiddleware> logger, SettingsRepository gcSettingsService, IMemoryManager memoryManager, IConfiguration configuration)
     {
         _next = next;
         _logger = logger;
         _gcSettingsService = gcSettingsService;
         _memoryManager = memoryManager;
+        _configuration = configuration;
     }
 
     public async Task InvokeAsync(HttpContext context)
     {
         await _next(context);
+
+        // Check if GC management is enabled at all
+        var gcManagementEnabled = _configuration.GetValue<bool>("Optimizations:EnableGarbageCollectionManagement", false);
+        if (!gcManagementEnabled)
+        {
+            return;
+        }
 
         var now = DateTime.UtcNow;
 

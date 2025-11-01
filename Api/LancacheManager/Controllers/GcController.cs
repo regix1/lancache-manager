@@ -13,19 +13,31 @@ public class GcController : ControllerBase
     private readonly SettingsRepository _gcSettingsService;
     private readonly IMemoryManager _memoryManager;
     private readonly ILogger<GcController> _logger;
+    private readonly IConfiguration _configuration;
     private static DateTime _lastGcTriggerTime = DateTime.MinValue;
     private static readonly object _gcTriggerLock = new object();
 
-    public GcController(SettingsRepository gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger)
+    public GcController(SettingsRepository gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger, IConfiguration configuration)
     {
         _gcSettingsService = gcSettingsService;
         _memoryManager = memoryManager;
         _logger = logger;
+        _configuration = configuration;
+    }
+
+    private bool IsGcManagementEnabled()
+    {
+        return _configuration.GetValue<bool>("Optimizations:EnableGarbageCollectionManagement", false);
     }
 
     [HttpGet("settings")]
     public IActionResult GetSettings()
     {
+        if (!IsGcManagementEnabled())
+        {
+            return NotFound(new { error = "Garbage collection management is disabled" });
+        }
+
         try
         {
             var settings = _gcSettingsService.GetSettings();
@@ -46,6 +58,11 @@ public class GcController : ControllerBase
     [RequireAuth]
     public async Task<IActionResult> UpdateSettings([FromBody] UpdateGcSettingsRequest request)
     {
+        if (!IsGcManagementEnabled())
+        {
+            return NotFound(new { error = "Garbage collection management is disabled" });
+        }
+
         try
         {
             if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
@@ -88,6 +105,11 @@ public class GcController : ControllerBase
     [RequireAuth]
     public IActionResult TriggerGarbageCollection()
     {
+        if (!IsGcManagementEnabled())
+        {
+            return NotFound(new { error = "Garbage collection management is disabled" });
+        }
+
         try
         {
             var now = DateTime.UtcNow;

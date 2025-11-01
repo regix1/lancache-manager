@@ -28,3 +28,5 @@ services:
       - Security__EnableAuthentication=true    # GLOBAL: Set to 'false' to disable ALL authentication (dev/testing only)
       - Security__MaxAdminDevices=3            # Maximum number of admin devices that can share the same API key
       - Security__RequireAuthForMetrics=false  # Set to 'true' to require API key for /metrics endpoint (Prometheus/Grafana access)
+      # Optimization Settings
+      - Optimizations__EnableGarbageCollectionManagement=false  # Set to 'true' to enable garbage collection optimization controls

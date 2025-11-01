@@ -324,6 +324,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     errors: { id: number; message: string }[];
     success: string | null;
   }>({ errors: [], success: null });
+  const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
 
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
@@ -375,6 +376,22 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     setSuccessRef.current = setSuccess;
     refreshLogAndCorruptionRef.current = refreshLogAndCorruption;
   }, [addError, setSuccess, refreshLogAndCorruption]);
+
+  // Check if optimizations (GC management) is enabled
+  useEffect(() => {
+    const checkOptimizations = async () => {
+      try {
+        const response = await fetch('/api/gc/settings');
+        // If we get a successful response or any response other than 404, optimizations are enabled
+        setOptimizationsEnabled(response.ok);
+      } catch (err) {
+        // On error, assume disabled
+        setOptimizationsEnabled(false);
+      }
+    };
+
+    checkOptimizations();
+  }, []);
 
   // Initialize with migration
   useEffect(() => {
@@ -649,10 +666,14 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             {/* Preferences Section */}
             <CollapsibleSection title="Preferences" icon={Settings}>
               <ThemeManager isAuthenticated={isAuthenticated} />
-              <div className="mt-6">
-                <GcManager isAuthenticated={isAuthenticated} />
-              </div>
             </CollapsibleSection>
+
+            {/* Optimizations Section - Only show if enabled via environment variable */}
+            {optimizationsEnabled && (
+              <CollapsibleSection title="Optimizations" icon={Settings}>
+                <GcManager isAuthenticated={isAuthenticated} />
+              </CollapsibleSection>
+            )}
           </>
         )}
 
