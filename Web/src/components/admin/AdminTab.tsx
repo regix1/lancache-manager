@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, Trash2, RefreshCw, AlertTriangle, Clock, User, Users } from 'lucide-react';
+import { Shield, Trash2, RefreshCw, AlertTriangle, Clock, User, Users, Network } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
@@ -9,6 +9,8 @@ import ApiService from '@services/api.service';
 interface Session {
   id: string;
   deviceName: string | null;
+  ipAddress: string | null;
+  localIp: string | null;
   hostname: string | null;
   operatingSystem: string | null;
   browser: string | null;
@@ -370,6 +372,21 @@ const AdminTab: React.FC = () => {
                             <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
                               <User className="w-4 h-4" />
                               <span>{session.hostname}</span>
+                            </div>
+                          )}
+                          {session.ipAddress && (
+                            <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <Network className="w-4 h-4" />
+                              <span title={session.localIp ? `Local IP: ${session.localIp}` : undefined}>
+                                {(() => {
+                                  const cleanIp = session.ipAddress.replace('::ffff:', '');
+                                  // Check if it's a loopback address
+                                  if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
+                                    return 'localhost';
+                                  }
+                                  return cleanIp;
+                                })()}
+                              </span>
                             </div>
                           )}
                           {session.operatingSystem && (

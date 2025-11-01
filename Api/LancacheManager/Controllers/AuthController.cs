@@ -396,7 +396,8 @@ public class AuthController : ControllerBase
     {
         try
         {
-            var session = _guestSessionService.CreateSession(request);
+            var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+            var session = _guestSessionService.CreateSession(request, ipAddress);
             return Ok(new
             {
                 success = true,
@@ -451,6 +452,8 @@ public class AuthController : ControllerBase
             {
                 id = d.DeviceId,
                 deviceName = d.DeviceName,
+                ipAddress = d.IpAddress,
+                localIp = d.LocalIp,
                 hostname = d.Hostname,
                 operatingSystem = d.OperatingSystem,
                 browser = d.Browser,
@@ -468,6 +471,8 @@ public class AuthController : ControllerBase
             {
                 id = g.SessionId,
                 deviceName = g.DeviceName,
+                ipAddress = g.IpAddress,
+                localIp = (string?)null,
                 hostname = (string?)null,
                 operatingSystem = (string?)null,
                 browser = (string?)null,

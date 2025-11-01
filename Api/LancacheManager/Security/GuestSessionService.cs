@@ -32,6 +32,7 @@ public class GuestSessionService
     {
         public string SessionId { get; set; } = string.Empty;
         public string? DeviceName { get; set; }
+        public string? IpAddress { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime ExpiresAt { get; set; }
         public DateTime? LastSeenAt { get; set; }
@@ -50,6 +51,7 @@ public class GuestSessionService
     {
         public string SessionId { get; set; } = string.Empty;
         public string? DeviceName { get; set; }
+        public string? IpAddress { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime? LastSeenAt { get; set; }
         public DateTime ExpiresAt { get; set; }
@@ -62,7 +64,7 @@ public class GuestSessionService
     /// <summary>
     /// Create a new guest session
     /// </summary>
-    public GuestSession CreateSession(CreateGuestSessionRequest request)
+    public GuestSession CreateSession(CreateGuestSessionRequest request, string? ipAddress = null)
     {
         try
         {
@@ -70,6 +72,7 @@ public class GuestSessionService
             {
                 SessionId = request.SessionId,
                 DeviceName = request.DeviceName,
+                IpAddress = ipAddress,
                 CreatedAt = DateTime.UtcNow,
                 ExpiresAt = DateTime.UtcNow.AddHours(6),
                 LastSeenAt = DateTime.UtcNow,
@@ -156,6 +159,7 @@ public class GuestSessionService
                 {
                     SessionId = session.SessionId,
                     DeviceName = session.DeviceName,
+                    IpAddress = session.IpAddress,
                     CreatedAt = session.CreatedAt,
                     LastSeenAt = session.LastSeenAt,
                     ExpiresAt = session.ExpiresAt,
