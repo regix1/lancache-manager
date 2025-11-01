@@ -142,6 +142,12 @@ interface ThemeColors {
   securedAccessBg?: string;
   securedAccessText?: string;
   securedAccessBorder?: string;
+
+  // Session colors (for Users tab)
+  userSessionColor?: string;
+  userSessionBg?: string;
+  guestSessionColor?: string;
+  guestSessionBg?: string;
 }
 
 interface ThemeMeta {
@@ -396,7 +402,13 @@ class ThemeService {
           publicAccessBorder: 'rgba(16, 185, 129, 0.3)', // green-500 with 30% opacity
           securedAccessBg: 'rgba(245, 158, 11, 0.2)',    // yellow-500 with 20% opacity
           securedAccessText: '#fbbf24',                   // yellow-400
-          securedAccessBorder: 'rgba(245, 158, 11, 0.3)'  // yellow-500 with 30% opacity
+          securedAccessBorder: 'rgba(245, 158, 11, 0.3)',  // yellow-500 with 30% opacity
+
+          // Session colors
+          userSessionColor: '#3b82f6',               // Primary blue for authenticated users
+          userSessionBg: 'rgba(59, 130, 246, 0.15)', // Primary blue with 15% opacity
+          guestSessionColor: '#06b6d4',              // Cyan for guest users
+          guestSessionBg: 'rgba(6, 182, 212, 0.15)'  // Cyan with 15% opacity
         }
       },
       // In theme.service.ts, update the light-default theme:
@@ -551,7 +563,13 @@ class ThemeService {
           publicAccessBorder: '#86efac',  // green-300
           securedAccessBg: '#fef3c7',     // yellow-100
           securedAccessText: '#92400e',   // yellow-800
-          securedAccessBorder: '#fde047'  // yellow-300
+          securedAccessBorder: '#fde047', // yellow-300
+
+          // Session colors
+          userSessionColor: '#3b82f6',    // Primary blue for authenticated users
+          userSessionBg: '#dbeafe',       // Blue-100 for light theme
+          guestSessionColor: '#06b6d4',   // Cyan for guest users
+          guestSessionBg: '#cffafe'       // Cyan-100 for light theme
         }
       }
     ];
@@ -980,6 +998,12 @@ class ThemeService {
       --theme-secured-access-bg: ${colors.securedAccessBg};
       --theme-secured-access-text: ${colors.securedAccessText};
       --theme-secured-access-border: ${colors.securedAccessBorder};
+
+      /* Session Colors */
+      --theme-user-session: ${colors.userSessionColor || colors.primaryColor};
+      --theme-user-session-bg: ${colors.userSessionBg || 'rgba(59, 130, 246, 0.15)'};
+      --theme-guest-session: ${colors.guestSessionColor || colors.info};
+      --theme-guest-session-bg: ${colors.guestSessionBg || colors.infoBg};
     }
 
     /* Global Transitions */

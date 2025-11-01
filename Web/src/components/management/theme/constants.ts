@@ -52,6 +52,12 @@ export const pageDefinitions: PageGroup[] = [
     description: 'Service statistics table with platform-colored badges (Steam, Epic, Origin, Blizzard, WSUS, Riot), download counts, bandwidth totals, cache hit/miss bytes, and hit rate progress bars'
   },
   {
+    name: 'users',
+    label: 'Users',
+    icon: Users,
+    description: 'Session management for authenticated users and guests - USER/GUEST badges, user icons, IP addresses, device info, last seen timestamps, revoke/delete actions, and session statistics'
+  },
+  {
     name: 'management',
     label: 'Management',
     icon: Settings,
@@ -738,7 +744,48 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 10. PLATFORM SERVICES - Brand-specific colors
+  // 10. USER SESSIONS - Session management colors
+  {
+    name: 'sessions',
+    icon: Users,
+    description: 'Authenticated users and guests - Colors for session badges and icons in the Users tab',
+    colors: [
+      {
+        key: 'userSessionColor',
+        label: 'Authenticated User Color',
+        description: 'Icon and text color for authenticated users',
+        affects: ['USER badge text', 'Authenticated user icon', 'Authenticated stat card'],
+        supportsAlpha: true,
+        pages: ['users']
+      },
+      {
+        key: 'userSessionBg',
+        label: 'Authenticated User Background',
+        description: 'Background color for authenticated user badges',
+        affects: ['USER badge background', 'Authenticated icon background'],
+        supportsAlpha: true,
+        pages: ['users']
+      },
+      {
+        key: 'guestSessionColor',
+        label: 'Guest User Color',
+        description: 'Icon and text color for guest users',
+        affects: ['GUEST badge text', 'Guest user icon', 'Guest stat card'],
+        supportsAlpha: true,
+        pages: ['users']
+      },
+      {
+        key: 'guestSessionBg',
+        label: 'Guest User Background',
+        description: 'Background color for guest user badges',
+        affects: ['GUEST badge background', 'Guest icon background'],
+        supportsAlpha: true,
+        pages: ['users']
+      }
+    ]
+  },
+
+  // 11. PLATFORM SERVICES - Brand-specific colors
   {
     name: 'platforms',
     icon: Gamepad2,
@@ -795,7 +842,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 11. PERFORMANCE INDICATORS - Hit rate colors
+  // 12. PERFORMANCE INDICATORS - Hit rate colors
   {
     name: 'performance',
     icon: Activity,
@@ -868,7 +915,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 12. ACTION BUTTONS - Specialized action colors
+  // 13. ACTION BUTTONS - Specialized action colors
   {
     name: 'actions',
     icon: Sparkles,
@@ -925,7 +972,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 13. UTILITIES - Misc UI elements
+  // 14. UTILITIES - Misc UI elements
   {
     name: 'utilities',
     icon: Brush,

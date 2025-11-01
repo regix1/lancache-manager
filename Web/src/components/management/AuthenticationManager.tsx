@@ -273,10 +273,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         color={getAlertColor()}
         icon={getAlertIcon()}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex-1 min-w-0">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex-1 min-w-0 w-full sm:w-auto">
             <div className="flex items-center gap-2">
-              <span className="font-medium">
+              <span className="font-medium text-sm sm:text-base">
                 {getStatusText()}
               </span>
             </div>
@@ -291,7 +291,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2 ml-4">
+          <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-4">
             {authMode === 'authenticated' && (
               <>
                 <Button
@@ -301,8 +301,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                   leftSection={<LogOut className="w-3 h-3" />}
                   onClick={handleLogout}
                   loading={authLoading}
+                  className="flex-1 sm:flex-none"
                 >
-                  Logout
+                  <span className="hidden sm:inline">Logout</span>
+                  <span className="sm:hidden">Logout</span>
                 </Button>
                 {authMode === 'authenticated' && (
                   <Button
@@ -312,8 +314,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                     leftSection={<AlertCircle className="w-3 h-3" />}
                     onClick={handleRegenerateKey}
                     loading={authLoading}
+                    className="flex-1 sm:flex-none"
                   >
-                    Regenerate Key
+                    <span className="hidden sm:inline">Regenerate Key</span>
+                    <span className="sm:hidden">Regenerate</span>
                   </Button>
                 )}
               </>
@@ -329,8 +333,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                     onClick={handleStartGuestMode}
                     disabled={authLoading}
                     size="sm"
+                    className="flex-1 sm:flex-none"
                   >
-                    Guest Mode
+                    <span className="hidden sm:inline">Guest Mode</span>
+                    <span className="sm:hidden">Guest</span>
                   </Button>
                 )}
                 <Button
@@ -339,8 +345,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                   leftSection={<Key className="w-4 h-4" />}
                   onClick={() => setShowAuthModal(true)}
                   size="sm"
+                  className="flex-1 sm:flex-none"
                 >
-                  Authenticate
+                  <span className="hidden sm:inline">Authenticate</span>
+                  <span className="sm:hidden">Auth</span>
                 </Button>
               </>
             )}
@@ -352,8 +360,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                 size="sm"
                 leftSection={<Key className="w-3 h-3" />}
                 onClick={() => setShowAuthModal(true)}
+                className="w-full sm:w-auto"
               >
-                Full Access
+                <span className="hidden sm:inline">Full Access</span>
+                <span className="sm:hidden">Auth</span>
               </Button>
             )}
           </div>

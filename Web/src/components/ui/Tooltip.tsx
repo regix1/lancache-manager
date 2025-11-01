@@ -99,13 +99,13 @@ const EdgeTooltip: React.FC<{
   offset: number;
   contentClassName: string;
 }> = ({ trigger, content, position, offset, contentClassName }) => {
-  const rect = trigger.getBoundingClientRect();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     if (!ref.current) return;
 
+    const rect = trigger.getBoundingClientRect();
     const tooltipRect = ref.current.getBoundingClientRect();
     const viewportPadding = 12;
     let x = 0;
@@ -152,7 +152,7 @@ const EdgeTooltip: React.FC<{
     y = Math.max(viewportPadding, Math.min(y, window.innerHeight - tooltipRect.height - viewportPadding));
 
     setPos({ x, y });
-  }, [rect, position, offset]);
+  }, [trigger, position, offset]);
 
   return (
     <div

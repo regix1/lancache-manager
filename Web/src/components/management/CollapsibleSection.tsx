@@ -30,14 +30,14 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
     }}>
       <button
         onClick={handleToggle}
-        className={`w-full px-6 py-4 flex items-center justify-between text-left transition-all duration-200 ${
+        className={`w-full px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between text-left transition-all duration-200 ${
           alwaysOpen ? 'cursor-default' : 'hover:bg-themed-tertiary cursor-pointer'
         }`}
         disabled={alwaysOpen}
       >
-        <div className="flex items-center gap-3">
-          {Icon && <Icon className="w-5 h-5 text-themed-accent flex-shrink-0" />}
-          <h2 className="text-xl font-semibold text-themed-primary">{title}</h2>
+        <div className="flex items-center gap-2 sm:gap-3">
+          {Icon && <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-themed-accent flex-shrink-0" />}
+          <h2 className="text-lg sm:text-xl font-semibold text-themed-primary">{title}</h2>
         </div>
         {!alwaysOpen && (
           isOpen ? (
@@ -49,13 +49,13 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
       </button>
       {isOpen && (
         <div
-          className="px-6 pb-6 pt-4"
+          className="px-4 sm:px-6 pb-4 sm:pb-6 pt-3 sm:pt-4"
           style={{
             borderTop: '1px solid var(--theme-border-primary)',
             animation: 'expandDown 0.3s ease-out'
           }}
         >
-          <div className="space-y-6 section-dividers">
+          <div className="space-y-4 sm:space-y-6 section-dividers">
             {children}
           </div>
         </div>
