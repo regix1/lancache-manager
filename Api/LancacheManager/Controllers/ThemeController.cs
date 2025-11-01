@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using LancacheManager.Constants;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -14,6 +13,9 @@ public class ThemeController : ControllerBase
 {
     private readonly string _themesPath;
     private readonly ILogger<ThemeController> _logger;
+
+    // System theme IDs that cannot be deleted
+    private static readonly string[] SYSTEM_THEMES = { "dark-default", "light-default" };
 
     public ThemeController(IConfiguration configuration, ILogger<ThemeController> logger, IPathResolver pathResolver)
     {
@@ -50,7 +52,7 @@ public class ThemeController : ControllerBase
             var themeFiles = jsonFiles.Concat(tomlFiles).ToArray();
 
             // System themes are provided by frontend but marked as protected
-            var systemThemes = LancacheConstants.SYSTEM_THEMES;
+            var systemThemes = SYSTEM_THEMES;
 
             foreach (var file in themeFiles)
             {
@@ -271,7 +273,7 @@ public class ThemeController : ControllerBase
         }
 
         // Prevent deletion of system themes
-        if (LancacheConstants.SYSTEM_THEMES.Contains(id))
+        if (SYSTEM_THEMES.Contains(id))
         {
             _logger.LogWarning($"Attempted to delete system theme: {id}");
             return BadRequest(new
@@ -401,7 +403,6 @@ public class ThemeController : ControllerBase
     [RequireAuth]
     public IActionResult CleanupThemes()
     {
-        var systemThemes = new[] { "dark-default", "light-default" };
         var deletedThemes = new List<string>();
         var errors = new List<string>();
 
@@ -421,7 +422,7 @@ public class ThemeController : ControllerBase
                 var fileName = Path.GetFileNameWithoutExtension(file);
 
                 // Skip system themes
-                if (systemThemes.Contains(fileName))
+                if (SYSTEM_THEMES.Contains(fileName))
                 {
                     _logger.LogInformation($"Skipping system theme: {fileName}");
                     continue;
@@ -448,7 +449,7 @@ public class ThemeController : ControllerBase
                 message = $"Cleanup complete. Deleted {deletedThemes.Count} theme(s)",
                 deletedThemes,
                 errors,
-                remainingThemes = systemThemes
+                remainingThemes = SYSTEM_THEMES
             });
         }
         catch (Exception ex)
