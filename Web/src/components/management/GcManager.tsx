@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Save, RefreshCw, Info, Play } from 'lucide-react';
+import { Cpu, Save, RefreshCw, Info, Play, Loader2 } from 'lucide-react';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -185,7 +185,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     return (
       <Card>
         <div className="flex items-center justify-center p-8">
-          <RefreshCw className="w-6 h-6 animate-spin text-themed-primary" />
+          <Loader2 className="w-6 h-6 animate-spin text-themed-primary" />
           <span className="ml-2 text-themed-secondary">Loading GC settings...</span>
         </div>
       </Card>

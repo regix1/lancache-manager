@@ -8,7 +8,8 @@ import {
   Sun,
   ExternalLink,
   Eye,
-  EyeOff
+  EyeOff,
+  Loader2
 } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { Alert } from '../../ui/Alert';
@@ -334,7 +335,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       {updatingThemes.size > 0 && (
         <Alert color="blue">
           <div className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-4 h-4 animate-spin" />
             <span className="text-sm">
               Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''} to latest version...
             </span>
@@ -352,7 +353,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       {/* Loading State */}
       {loading && communityThemes.length === 0 && (
         <div className="text-center py-8 text-themed-muted">
-          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
           <p>Loading community themes...</p>
         </div>
       )}
@@ -402,7 +403,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                       )}
                       {isUpdating && (
                         <span className="px-2 py-0.5 text-xs rounded flex items-center gap-1" style={{ backgroundColor: 'var(--theme-info)', color: 'var(--theme-info-text)' }}>
-                          <RefreshCw className="w-3 h-3 animate-spin" />
+                          <Loader2 className="w-3 h-3 animate-spin" />
                           Updating...
                         </span>
                       )}

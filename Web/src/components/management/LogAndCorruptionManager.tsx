@@ -320,7 +320,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             size="sm"
             onClick={() => loadAllData(true)}
             disabled={isLoading || !!activeServiceRemoval || !!removingCorruption}
-            leftSection={<RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />}
+            leftSection={isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
           >
             Refresh All
           </Button>

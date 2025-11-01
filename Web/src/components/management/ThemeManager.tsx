@@ -10,7 +10,8 @@ import {
   Layers,
   Brush,
   Info,
-  Edit
+  Edit,
+  Loader2
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import authService from '../../services/auth.service';
@@ -499,7 +500,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
               title="Refresh themes"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
             </button>
           </div>
         </div>
