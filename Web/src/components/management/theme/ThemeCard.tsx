@@ -9,9 +9,11 @@ import {
   EyeOff,
   Edit,
   Download,
-  Trash2
+  Trash2,
+  Globe
 } from 'lucide-react';
 import { Theme } from './types';
+import { ActionMenu, ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '../../ui/ActionMenu';
 
 interface ThemeCardProps {
   theme: Theme;
@@ -44,6 +46,8 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   onDelete,
   onMenuToggle
 }) => {
+  const isMenuOpen = themeActionMenu === currentMenuId;
+
   return (
     <div
       className="rounded-lg p-4 transition-all hover:shadow-lg themed-card relative"
@@ -76,7 +80,23 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             {isSystem && (
               <Lock className="w-3 h-3 text-themed-muted" />
             )}
+            {theme.meta.isCommunityTheme && (
+              <span className="px-2 py-0.5 text-xs rounded bg-themed-info text-white flex items-center gap-1">
+                <Globe className="w-3 h-3" />
+                Community
+              </span>
+            )}
+            {theme.meta.basedOn && (
+              <span className="px-2 py-0.5 text-xs rounded bg-themed-accent text-white">
+                Custom
+              </span>
+            )}
           </div>
+          {theme.meta.basedOn && (
+            <p className="text-xs text-themed-muted mb-1">
+              Based on: {theme.meta.basedOn}
+            </p>
+          )}
           {theme.meta.description && (
             <p className="text-xs text-themed-muted mb-1">{theme.meta.description}</p>
           )}
@@ -87,95 +107,73 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
         </div>
 
         {/* Action Menu Button */}
-        <div className="relative">
-          <button
-            onClick={() => onMenuToggle(themeActionMenu === currentMenuId ? null : currentMenuId)}
-            className="p-1 rounded hover:bg-themed-hover transition-colors"
-          >
-            <MoreVertical className="w-4 h-4 text-themed-muted" />
-          </button>
-
-          {/* Dropdown Menu */}
-          {themeActionMenu === currentMenuId && (
-            <div
-              className="absolute right-0 mt-1 w-40 bg-themed-secondary rounded-lg shadow-lg z-10 animate-fadeIn origin-top-right"
-              style={{
-                border: '1px solid var(--theme-border-primary)',
-                animation: 'dropdownSlide 0.2s ease-out'
-              }}
+        <ActionMenu
+          isOpen={isMenuOpen}
+          onClose={() => onMenuToggle(null)}
+          trigger={
+            <button
+              onClick={() => onMenuToggle(themeActionMenu === currentMenuId ? null : currentMenuId)}
+              className="p-1 rounded hover:bg-themed-hover transition-colors"
             >
-              {!isActive && (
-                <button
-                  onClick={() => {
-                    onApplyTheme(currentMenuId);
-                    onMenuToggle(null);
-                  }}
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2 transition-colors duration-150"
-                >
-                  <Check className="w-3 h-3" />
-                  Apply Theme
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  onPreview(currentMenuId);
-                  onMenuToggle(null);
-                }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2"
-              >
-                {isPreviewing ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                {isPreviewing ? 'Stop Preview' : 'Preview'}
-              </button>
-              {!isSystem && isAuthenticated && (
-                <button
-                  onClick={() => {
-                    onEdit(theme);
-                    onMenuToggle(null);
-                  }}
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2 transition-colors duration-150"
-                >
-                  <Edit className="w-3 h-3" />
-                  Edit Theme
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  onExport(theme);
-                  onMenuToggle(null);
-                }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-themed-hover flex items-center gap-2"
-              >
-                <Download className="w-3 h-3" />
-                Export
-              </button>
-              {!isSystem && isAuthenticated && (
-                <>
-                  <div className="border-t my-1" style={{ borderColor: 'var(--theme-border-primary)' }} />
-                  <button
-                    onClick={() => {
-                      onDelete(currentMenuId, theme.meta.name);
-                      onMenuToggle(null);
-                    }}
-                    className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-all duration-150"
-                    style={{
-                      color: 'var(--theme-error-text)',
-                      backgroundColor: 'transparent'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = 'var(--theme-error-bg)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    Delete
-                  </button>
-                </>
-              )}
-            </div>
+              <MoreVertical className="w-4 h-4 text-themed-muted" />
+            </button>
+          }
+        >
+          {!isActive && (
+            <ActionMenuItem
+              onClick={() => {
+                onApplyTheme(currentMenuId);
+                onMenuToggle(null);
+              }}
+              icon={<Check className="w-3 h-3" />}
+            >
+              Apply Theme
+            </ActionMenuItem>
           )}
-        </div>
+          <ActionMenuItem
+            onClick={() => {
+              onPreview(currentMenuId);
+              onMenuToggle(null);
+            }}
+            icon={isPreviewing ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+          >
+            {isPreviewing ? 'Stop Preview' : 'Preview'}
+          </ActionMenuItem>
+          {!isSystem && isAuthenticated && (
+            <ActionMenuItem
+              onClick={() => {
+                onEdit(theme);
+                onMenuToggle(null);
+              }}
+              icon={<Edit className="w-3 h-3" />}
+            >
+              Edit Theme
+            </ActionMenuItem>
+          )}
+          <ActionMenuItem
+            onClick={() => {
+              onExport(theme);
+              onMenuToggle(null);
+            }}
+            icon={<Download className="w-3 h-3" />}
+          >
+            Export
+          </ActionMenuItem>
+          {!isSystem && isAuthenticated && (
+            <>
+              <ActionMenuDivider />
+              <ActionMenuDangerItem
+                onClick={() => {
+                  onDelete(currentMenuId, theme.meta.name);
+                  onMenuToggle(null);
+                }}
+                icon={<Trash2 className="w-3 h-3" />}
+              >
+                Delete
+              </ActionMenuDangerItem>
+            </>
+          )}
+        </ActionMenu>
       </div>
 
       {/* Color Preview Strip */}

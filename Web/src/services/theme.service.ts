@@ -160,6 +160,8 @@ interface ThemeMeta {
   sharpCorners?: boolean;
   disableFocusOutlines?: boolean;
   disableTooltips?: boolean;
+  isCommunityTheme?: boolean;
+  basedOn?: string;
 }
 
 interface Theme {
@@ -1156,6 +1158,8 @@ class ThemeService {
     if (theme.meta.sharpCorners !== undefined) toml += `sharpCorners = ${theme.meta.sharpCorners}\n`;
     if (theme.meta.disableFocusOutlines !== undefined) toml += `disableFocusOutlines = ${theme.meta.disableFocusOutlines}\n`;
     if (theme.meta.disableTooltips !== undefined) toml += `disableTooltips = ${theme.meta.disableTooltips}\n`;
+    if (theme.meta.isCommunityTheme !== undefined) toml += `isCommunityTheme = ${theme.meta.isCommunityTheme}\n`;
+    if (theme.meta.basedOn) toml += `basedOn = "${theme.meta.basedOn}"\n`;
     toml += '\n';
 
     toml += '[colors]\n';

@@ -17,6 +17,7 @@ import { Alert } from '../ui/Alert'; // Fixed import path
 import { Card } from '../ui/Card'; // Fixed import path
 import { Checkbox } from '../ui/Checkbox';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
+import { ActionMenu, ActionMenuItem } from '../ui/ActionMenu';
 
 // Import view components
 import CompactView from './CompactView';
@@ -893,49 +894,42 @@ const DownloadsTab: React.FC = () => {
               </div>
 
               {/* Export Button */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowExportOptions(!showExportOptions)}
-                  className="p-2 rounded hover:bg-themed-hover transition-colors"
-                  title="Export Data"
-                  disabled={exportLoading || itemsToDisplay.length === 0}
-                >
-                  {exportLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <DownloadIcon size={18} />
-                  )}
-                </button>
-                {showExportOptions && (
-                  <div
-                    className="absolute right-0 mt-2 w-48 rounded-lg shadow-lg bg-themed-primary border z-50"
-                    style={{
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
+              <ActionMenu
+                isOpen={showExportOptions}
+                onClose={() => setShowExportOptions(false)}
+                width="w-48"
+                trigger={
+                  <button
+                    onClick={() => setShowExportOptions(!showExportOptions)}
+                    className="p-2 rounded hover:bg-themed-hover transition-colors"
+                    title="Export Data"
+                    disabled={exportLoading || itemsToDisplay.length === 0}
                   >
-                    <div className="py-1">
-                      <button
-                        onClick={() => {
-                          handleExport('json');
-                          setShowExportOptions(false);
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-themed-hover transition-colors text-themed-secondary"
-                      >
-                        Export JSON
-                      </button>
-                      <button
-                        onClick={() => {
-                          handleExport('csv');
-                          setShowExportOptions(false);
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-themed-hover transition-colors text-themed-secondary"
-                      >
-                        Export CSV
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+                    {exportLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <DownloadIcon size={18} />
+                    )}
+                  </button>
+                }
+              >
+                <ActionMenuItem
+                  onClick={() => {
+                    handleExport('json');
+                    setShowExportOptions(false);
+                  }}
+                >
+                  Export JSON
+                </ActionMenuItem>
+                <ActionMenuItem
+                  onClick={() => {
+                    handleExport('csv');
+                    setShowExportOptions(false);
+                  }}
+                >
+                  Export CSV
+                </ActionMenuItem>
+              </ActionMenu>
 
               <button
                 onClick={() => setSettingsOpened(!settingsOpened)}

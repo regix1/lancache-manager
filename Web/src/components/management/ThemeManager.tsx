@@ -158,23 +158,36 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     try {
       const { name, description, author, version, isDark, customCSS, ...colors } = editedTheme;
 
+      // Check if this is a community theme - if so, create a copy instead of editing
+      const isCommunityTheme = editingTheme.meta.isCommunityTheme === true;
+      const newThemeId = isCommunityTheme
+        ? `${editingTheme.meta.id}-custom`
+        : editingTheme.meta.id;
+      const newThemeName = isCommunityTheme
+        ? `${name} (Custom)`
+        : name;
+
       const themeData = {
         meta: {
-          id: editingTheme.meta.id,
-          name,
+          id: newThemeId,
+          name: newThemeName,
           description,
           author,
           version,
-          isDark
+          isDark,
+          ...(isCommunityTheme ? {
+            basedOn: editingTheme.meta.name,
+            isCommunityTheme: false // Custom versions are not community themes
+          } : {})
         },
         colors,
         css: customCSS ? { content: customCSS } : undefined
       };
 
-      // Convert to TOML and upload (will overwrite existing file)
+      // Convert to TOML and upload
       const toml = themeService.exportTheme(themeData as any);
       const blob = new Blob([toml], { type: 'application/toml' });
-      const file = new File([blob], `${editingTheme.meta.id}.toml`, { type: 'application/toml' });
+      const file = new File([blob], `${newThemeId}.toml`, { type: 'application/toml' });
 
       const formData = new FormData();
       formData.append('file', file);
@@ -191,7 +204,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setEditModalOpen(false);
       setEditingTheme(null);
 
-      if (currentTheme === editingTheme.meta.id || previewTheme === editingTheme.meta.id) {
+      // If we created a copy and the original was active, switch to the copy
+      if (isCommunityTheme && (currentTheme === editingTheme.meta.id || previewTheme === editingTheme.meta.id)) {
+        await themeService.setTheme(newThemeId);
+        setCurrentTheme(newThemeId);
+        window.location.reload();
+      } else if (!isCommunityTheme && (currentTheme === editingTheme.meta.id || previewTheme === editingTheme.meta.id)) {
         await themeService.setTheme(editingTheme.meta.id);
         window.location.reload();
       }

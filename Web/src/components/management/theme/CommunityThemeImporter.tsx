@@ -139,8 +139,28 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     setSuccessMessage(null);
 
     try {
-      // Create a File object from the theme content
-      const blob = new Blob([theme.content], { type: 'application/toml' });
+      // Add isCommunityTheme flag to the TOML content
+      let modifiedContent = theme.content;
+
+      // Insert isCommunityTheme = true after the isDark line (or at end of meta section)
+      if (modifiedContent.includes('[meta]')) {
+        // Try to insert after isDark line if it exists
+        if (modifiedContent.match(/isDark\s*=\s*(true|false)/)) {
+          modifiedContent = modifiedContent.replace(
+            /(isDark\s*=\s*(?:true|false))/,
+            '$1\nisCommunityTheme = true'
+          );
+        } else {
+          // Otherwise insert before the [colors] section or next section
+          modifiedContent = modifiedContent.replace(
+            /(\n)(\[(?!meta))/,
+            '\nisCommunityTheme = true\n$2'
+          );
+        }
+      }
+
+      // Create a File object from the modified theme content
+      const blob = new Blob([modifiedContent], { type: 'application/toml' });
       const file = new File([blob], theme.fileName, { type: 'application/toml' });
 
       // Upload using the existing theme upload endpoint
@@ -233,7 +253,27 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     setUpdatingThemes(prev => new Set([...prev, theme.fileName]));
 
     try {
-      const blob = new Blob([theme.content], { type: 'application/toml' });
+      // Add isCommunityTheme flag to the TOML content
+      let modifiedContent = theme.content;
+
+      // Insert isCommunityTheme = true after the isDark line (or at end of meta section)
+      if (modifiedContent.includes('[meta]')) {
+        // Try to insert after isDark line if it exists
+        if (modifiedContent.match(/isDark\s*=\s*(true|false)/)) {
+          modifiedContent = modifiedContent.replace(
+            /(isDark\s*=\s*(?:true|false))/,
+            '$1\nisCommunityTheme = true'
+          );
+        } else {
+          // Otherwise insert before the [colors] section or next section
+          modifiedContent = modifiedContent.replace(
+            /(\n)(\[(?!meta))/,
+            '\nisCommunityTheme = true\n$2'
+          );
+        }
+      }
+
+      const blob = new Blob([modifiedContent], { type: 'application/toml' });
       const file = new File([blob], theme.fileName, { type: 'application/toml' });
 
       const formData = new FormData();

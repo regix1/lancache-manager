@@ -10,6 +10,8 @@ export interface Theme {
     isDark?: boolean;
     sharpCorners?: boolean;
     disableFocusOutlines?: boolean;
+    isCommunityTheme?: boolean; // Marks themes imported from community
+    basedOn?: string; // Original theme ID if this is a custom version
   };
   colors: any;
   custom?: any;
