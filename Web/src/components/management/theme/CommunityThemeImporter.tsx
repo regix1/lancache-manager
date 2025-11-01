@@ -60,12 +60,12 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     loadCommunityThemesAndCheckUpdates();
   }, []);
 
-  // Watch for changes in installed themes and check for updates
+  // Watch for changes in both community themes and installed themes, and auto-update when both are ready
   useEffect(() => {
     if (communityThemes.length > 0 && installedThemes.length > 0 && autoCheckUpdates && isAuthenticated) {
       checkAndUpdateThemes(communityThemes);
     }
-  }, [installedThemes]);
+  }, [communityThemes, installedThemes, autoCheckUpdates, isAuthenticated]);
 
   // Check which community themes are already installed
   const isThemeInstalled = (themeId: string): boolean => {
