@@ -514,28 +514,14 @@ Found a bug or have a feature request? [Open an issue](https://github.com/regix1
 
 ## Support
 
+If you find LANCache Manager useful and want to support development, consider buying me a coffee!
+
 <div align="center">
-  <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 20px; padding: 50px 60px; max-width: 600px; margin: 40px auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
-    <h3 style="color: #ffffff; font-size: 28px; margin-bottom: 15px; font-weight: 700;">Enjoying LANCache Manager?</h3>
-    <p style="color: #f0f0f0; font-size: 17px; margin-bottom: 35px; line-height: 1.6;">If this project has been helpful, consider supporting its development!</p>
 
-    <a href="https://www.buymeacoffee.com/regix" style="display: inline-block; transition: transform 0.3s ease;">
-      <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif"
-           alt="Buy Me A Coffee"
-           width="450"
-           height="450"
-           style="border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.4); margin: 10px 0;">
-    </a>
+<a href="https://www.buymeacoffee.com/regix">
+  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="450">
+</a>
 
-    <div style="margin-top: 30px;">
-      <a href="https://www.buymeacoffee.com/regix"
-         style="display: inline-block; background: #FFDD00; color: #000000; padding: 16px 40px; border-radius: 50px; font-size: 18px; font-weight: 700; text-decoration: none; box-shadow: 0 8px 20px rgba(255,221,0,0.4); transition: all 0.3s ease;">
-        ☕ Buy Me a Coffee
-      </a>
-    </div>
-
-    <p style="color: #e0e0e0; font-size: 14px; margin-top: 25px; font-style: italic;">Every coffee helps keep this project alive and growing!</p>
-  </div>
 </div>
 
 ## License
