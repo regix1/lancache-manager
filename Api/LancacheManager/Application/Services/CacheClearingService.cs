@@ -128,8 +128,20 @@ public class CacheClearingService : IHostedService
             _logger.LogInformation($"Executing cache clear operation {operation.Id}");
 
             operation.Status = ClearStatus.Preparing;
-            operation.StatusMessage = "Starting Rust cache cleaner...";
+            operation.StatusMessage = "Checking permissions...";
             await NotifyProgress(operation);
+
+            // Check write permissions for cache directory
+            if (!_pathResolver.IsCacheDirectoryWritable())
+            {
+                operation.Status = ClearStatus.Failed;
+                operation.Error = $"Cannot write to cache directory: {_cachePath}. Directory is mounted read-only. Remove :ro from the cache volume mount in docker-compose.yml.";
+                operation.EndTime = DateTime.UtcNow;
+                _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operation.Id, operation.Error);
+                await NotifyProgress(operation);
+                SaveOperationToState(operation);
+                return;
+            }
 
             if (!Directory.Exists(_cachePath))
             {

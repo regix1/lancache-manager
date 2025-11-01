@@ -175,19 +175,14 @@ public class CacheManagementService
 
             var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
 
-            // Test write permissions by trying to create a temp file
-            try
-            {
-                await File.WriteAllTextAsync(Path.Combine(logDir, ".write_test"), "test");
-                File.Delete(Path.Combine(logDir, ".write_test"));
-            }
-            catch (Exception ex)
+            // Check write permissions using PathResolver
+            if (!_pathResolver.IsLogsDirectoryWritable())
             {
                 var errorMsg = $"Cannot write to logs directory: {logDir}. " +
-                              "This may indicate: 1) Directory is mounted read-only, 2) Permission issues, 3) Directory doesn't exist. " +
-                              "Please ensure the logs directory exists and has write permissions.";
-                _logger.LogError(ex, errorMsg);
-                throw new UnauthorizedAccessException(errorMsg, ex);
+                              "Directory is mounted read-only. " +
+                              "Remove :ro from the logs volume mount in docker-compose.yml to enable log management features.";
+                _logger.LogWarning(errorMsg);
+                throw new UnauthorizedAccessException(errorMsg);
             }
 
             // Use Rust binary for fast log filtering
@@ -637,9 +632,29 @@ public class CacheManagementService
         {
             _logger.LogInformation("[CorruptionDetection] RemoveCorruptedChunks for service: {Service}", service);
 
-            var dbPath = _pathResolver.GetDatabasePath();
             var logDir = Path.GetDirectoryName(_logPath) ?? _pathResolver.GetLogsDirectory();
             var cacheDir = _cachePath;
+
+            // Check write permissions for both cache and logs directories
+            if (!_pathResolver.IsCacheDirectoryWritable())
+            {
+                var errorMsg = $"Cannot write to cache directory: {cacheDir}. " +
+                              "Directory is mounted read-only. " +
+                              "Remove :ro from the cache volume mount in docker-compose.yml to enable corruption removal.";
+                _logger.LogWarning(errorMsg);
+                throw new UnauthorizedAccessException(errorMsg);
+            }
+
+            if (!_pathResolver.IsLogsDirectoryWritable())
+            {
+                var errorMsg = $"Cannot write to logs directory: {logDir}. " +
+                              "Directory is mounted read-only. " +
+                              "Remove :ro from the logs volume mount in docker-compose.yml to enable corruption removal.";
+                _logger.LogWarning(errorMsg);
+                throw new UnauthorizedAccessException(errorMsg);
+            }
+
+            var dbPath = _pathResolver.GetDatabasePath();
             var dataDir = _pathResolver.GetDataDirectory();
             var progressPath = Path.Combine(dataDir, "corruption_removal_progress.json");
 
@@ -859,6 +874,16 @@ public class CacheManagementService
         try
         {
             _logger.LogInformation("[GameRemoval] Starting game cache removal for AppID {AppId}", gameAppId);
+
+            // Check write permissions for cache directory
+            if (!_pathResolver.IsCacheDirectoryWritable())
+            {
+                var errorMsg = $"Cannot write to cache directory: {_cachePath}. " +
+                              "Directory is mounted read-only. " +
+                              "Remove :ro from the cache volume mount in docker-compose.yml to enable game cache removal.";
+                _logger.LogWarning(errorMsg);
+                throw new UnauthorizedAccessException(errorMsg);
+            }
 
             var dataDir = _pathResolver.GetDataDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
