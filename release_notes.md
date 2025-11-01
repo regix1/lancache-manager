@@ -2,7 +2,7 @@
 
 ## Faster Downloads Tab - Images Load Instantly! 🚀
 
-**You asked, we delivered!** The Downloads Tab now loads game images at lightning speed.
+The Downloads Tab now loads game images at lightning speed.
 
 ### What You'll Notice
 
