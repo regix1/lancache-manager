@@ -55,6 +55,40 @@ public class CacheManagementService
         _logger.LogInformation($"CacheManagementService initialized - Cache: {_cachePath}, Logs: {_logPath}");
     }
 
+    /// <summary>
+    /// Waits for a process to exit with cancellation token support.
+    /// If cancelled, attempts to kill the process gracefully.
+    /// </summary>
+    private async Task WaitForProcessWithCancellationAsync(Process process, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation requested - try to kill the process
+            try
+            {
+                if (!process.HasExited)
+                {
+                    _logger.LogWarning("Cancellation requested - terminating process {ProcessName} (PID: {ProcessId})",
+                        process.ProcessName, process.Id);
+                    process.Kill(entireProcessTree: true);
+
+                    // Give it a moment to clean up
+                    await Task.Delay(100, CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to kill process during cancellation");
+            }
+
+            throw; // Re-throw the cancellation exception
+        }
+    }
+
     public CacheInfo GetCacheInfo()
     {
         var info = new CacheInfo();
@@ -159,7 +193,7 @@ public class CacheManagementService
         }
     }
 
-    public async Task RemoveServiceFromLogs(string service)
+    public async Task RemoveServiceFromLogs(string service, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -226,10 +260,10 @@ public class CacheManagementService
                 }
 
                 // Read stdout and stderr asynchronously to prevent buffer deadlock
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await process.WaitForExitAsync();
+                await WaitForProcessWithCancellationAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -261,7 +295,7 @@ public class CacheManagementService
         }
     }
 
-    public async Task<Dictionary<string, long>> GetServiceLogCounts(bool forceRefresh = false)
+    public async Task<Dictionary<string, long>> GetServiceLogCounts(bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -326,10 +360,10 @@ public class CacheManagementService
                 }
 
                 // Read stdout and stderr asynchronously to prevent buffer deadlock
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await process.WaitForExitAsync();
+                await WaitForProcessWithCancellationAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -545,7 +579,7 @@ public class CacheManagementService
     /// <summary>
     /// Get corruption summary with caching based on log file modification time
     /// </summary>
-    public async Task<Dictionary<string, long>> GetCorruptionSummary(bool forceRefresh = false)
+    public async Task<Dictionary<string, long>> GetCorruptionSummary(bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -581,10 +615,10 @@ public class CacheManagementService
                     throw new Exception("Failed to start corruption_manager process");
                 }
 
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await process.WaitForExitAsync();
+                await WaitForProcessWithCancellationAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -630,7 +664,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove corrupted chunks for a specific service (invalidates cache)
     /// </summary>
-    public async Task RemoveCorruptedChunks(string service)
+    public async Task RemoveCorruptedChunks(string service, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -693,10 +727,10 @@ public class CacheManagementService
                     throw new Exception("Failed to start corruption_manager process");
                 }
 
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await process.WaitForExitAsync();
+                await WaitForProcessWithCancellationAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -730,7 +764,7 @@ public class CacheManagementService
     /// <summary>
     /// Get detailed corruption information for a specific service
     /// </summary>
-    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false)
+    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -776,10 +810,10 @@ public class CacheManagementService
                         throw new Exception("Failed to start corruption_manager process");
                     }
 
-                    var outputTask = process.StandardOutput.ReadToEndAsync();
-                    var errorTask = process.StandardError.ReadToEndAsync();
+                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                    await process.WaitForExitAsync();
+                    await WaitForProcessWithCancellationAsync(process, cancellationToken);
 
                     var output = await outputTask;
                     var error = await errorTask;
@@ -874,7 +908,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific game
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveGameFromCache(uint gameAppId)
+    public async Task<GameCacheRemovalReport> RemoveGameFromCache(uint gameAppId, CancellationToken cancellationToken = default)
     {
         await _cacheLock.WaitAsync();
         try
@@ -938,10 +972,10 @@ public class CacheManagementService
                     throw new Exception("Failed to start game_cache_remover process");
                 }
 
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await process.WaitForExitAsync();
+                await WaitForProcessWithCancellationAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;

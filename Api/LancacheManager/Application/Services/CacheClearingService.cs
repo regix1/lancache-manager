@@ -78,6 +78,40 @@ public class CacheClearingService : IHostedService
         _logger.LogInformation($"CacheClearingService initialized with cache path: {_cachePath}");
     }
 
+    /// <summary>
+    /// Waits for a process to exit with cancellation token support.
+    /// If cancelled, attempts to kill the process gracefully.
+    /// </summary>
+    private async Task WaitForProcessWithCancellationAsync(Process process, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation requested - try to kill the process
+            try
+            {
+                if (!process.HasExited)
+                {
+                    _logger.LogWarning("Cancellation requested - terminating process {ProcessName} (PID: {ProcessId})",
+                        process.ProcessName, process.Id);
+                    process.Kill(entireProcessTree: true);
+
+                    // Give it a moment to clean up
+                    await Task.Delay(100, CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to kill process during cancellation");
+            }
+
+            throw; // Re-throw the cancellation exception
+        }
+    }
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         LoadPersistedOperations();
@@ -299,10 +333,10 @@ public class CacheClearingService : IHostedService
                 });
 
                 // Read output asynchronously
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync(operation.CancellationTokenSource?.Token ?? CancellationToken.None);
+                var errorTask = process.StandardError.ReadToEndAsync(operation.CancellationTokenSource?.Token ?? CancellationToken.None);
 
-                await process.WaitForExitAsync();
+                await WaitForProcessWithCancellationAsync(process, operation.CancellationTokenSource?.Token ?? CancellationToken.None);
                 await pollTask;
 
                 var output = await outputTask;
