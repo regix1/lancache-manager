@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, Trash2, RefreshCw, AlertTriangle, Clock, Users, Network } from 'lucide-react';
+import { Users, Trash2, RefreshCw, AlertTriangle, Clock, Network, Laptop } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
@@ -24,7 +24,7 @@ interface Session {
   type: 'authenticated' | 'guest';
 }
 
-const AdminTab: React.FC = () => {
+const UserTab: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -172,10 +172,10 @@ const AdminTab: React.FC = () => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg" style={{ backgroundColor: 'var(--theme-primary-subtle)' }}>
-            <Shield className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
+            <Users className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
           </div>
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>Admin Panel</h1>
+            <h1 className="text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>User Management</h1>
             <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
               Manage all users and sessions • Live refresh
             </p>
@@ -213,7 +213,7 @@ const AdminTab: React.FC = () => {
                   {sessions.filter(s => s.type === 'authenticated').length}
                 </p>
               </div>
-              <Shield className="w-8 h-8" style={{ color: 'var(--theme-success)' }} />
+              <Laptop className="w-8 h-8" style={{ color: 'var(--theme-success)' }} />
             </div>
           </div>
         </Card>
@@ -295,7 +295,7 @@ const AdminTab: React.FC = () => {
                             : 'var(--theme-info-bg)'
                         }}
                       >
-                        <Users
+                        <Laptop
                           className="w-5 h-5"
                           style={{
                             color: session.type === 'authenticated'
@@ -318,7 +318,7 @@ const AdminTab: React.FC = () => {
                                 border: '1px solid var(--theme-warning)'
                               }}
                             >
-                              ADMIN
+                              USER
                             </span>
                           )}
                           {session.type === 'guest' && (
@@ -385,13 +385,13 @@ const AdminTab: React.FC = () => {
                           )}
                           {session.operatingSystem && (
                             <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <Users className="w-4 h-4" />
+                              <Laptop className="w-4 h-4" />
                               <span>{session.operatingSystem}</span>
                             </div>
                           )}
                           {session.browser && (
                             <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
-                              <Users className="w-4 h-4" />
+                              <Laptop className="w-4 h-4" />
                               <span>{session.browser}</span>
                             </div>
                           )}
@@ -414,7 +414,13 @@ const AdminTab: React.FC = () => {
                           {session.revokedBy && session.type === 'guest' && (
                             <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
                               <Users className="w-4 h-4" />
-                              <span>Revoked by: {session.revokedBy}</span>
+                              <span>Revoked by: {(() => {
+                                const cleanIp = session.revokedBy.replace('::ffff:', '');
+                                if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
+                                  return 'localhost';
+                                }
+                                return cleanIp;
+                              })()}</span>
                             </div>
                           )}
                         </div>
@@ -473,8 +479,8 @@ const AdminTab: React.FC = () => {
             <div className="text-sm" style={{ color: 'var(--theme-info-text)' }}>
               <p className="font-semibold mb-1">About Session Management</p>
               <ul className="list-disc list-inside space-y-1">
-                <li>Only authenticated users (with API key) can access this admin panel</li>
-                <li><strong>Admin Users</strong> - Multiple admins can share the same API key (up to configured device limit)</li>
+                <li>Only authenticated users (with API key) can access this user management panel</li>
+                <li><strong>Authenticated Users</strong> - Multiple users can share the same API key (up to configured device limit)</li>
                 <li><strong>Authenticated</strong> sessions have registered with the API key and don't expire</li>
                 <li><strong>Guest</strong> sessions have temporary 6-hour access with read-only permissions</li>
                 <li><strong>Revoke</strong> - Immediately kicks out guest users (marks them as revoked)</li>
@@ -624,4 +630,4 @@ const AdminTab: React.FC = () => {
   );
 };
 
-export default AdminTab;
+export default UserTab;

@@ -22,8 +22,8 @@ const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
 const DownloadsTab = lazy(() => import('@components/downloads/DownloadsTab'));
 const ClientsTab = lazy(() => import('@components/clients/ClientsTab'));
 const ServicesTab = lazy(() => import('@components/services/ServicesTab'));
+const UserTab = lazy(() => import('@components/user/UserTab'));
 const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
-const AdminTab = lazy(() => import('@components/admin/AdminTab'));
 const MemoryDiagnostics = lazy(() => import('@components/memory/MemoryDiagnostics'));
 
 const AppContent: React.FC = () => {
@@ -332,10 +332,10 @@ const AppContent: React.FC = () => {
           return ClientsTab;
         case 'services':
           return ServicesTab;
+        case 'users':
+          return UserTab;
         case 'management':
           return ManagementTab;
-        case 'admin':
-          return AdminTab;
         default:
           return Dashboard;
       }
@@ -345,8 +345,8 @@ const AppContent: React.FC = () => {
       <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading..." />}>
         {activeTab === 'management' ? (
           <ManagementTab onApiKeyRegenerated={handleApiKeyRegenerated} />
-        ) : activeTab === 'admin' ? (
-          <AdminTab />
+        ) : activeTab === 'users' ? (
+          <UserTab />
         ) : (
           <TabComponent />
         )}

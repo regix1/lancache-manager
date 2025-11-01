@@ -370,7 +370,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 disabled={loading || mockMode || cacheReadOnly || checkingPermissions}
                 variant="filled"
                 color="blue"
-                leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
                 title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
               >
                 {loading ? 'Detecting...' : 'Detect Games'}

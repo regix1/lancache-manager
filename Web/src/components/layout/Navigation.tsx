@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { LayoutDashboard, Download, Users, Settings, Menu, X, Shield } from 'lucide-react';
+import { LayoutDashboard, Download, Laptop, Settings, Menu, X, Users } from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
 
 interface NavigationProps {
@@ -14,12 +14,12 @@ const Navigation: React.FC<NavigationProps> = React.memo(({ activeTab, setActive
   const allTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false },
     { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false },
-    { id: 'clients', label: 'Clients', icon: Users, requiresAuth: false },
-    { id: 'management', label: 'Management', icon: Settings, requiresAuth: false },
-    { id: 'admin', label: 'Admin', icon: Shield, requiresAuth: true }
+    { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false },
+    { id: 'users', label: 'Users', icon: Users, requiresAuth: true },
+    { id: 'management', label: 'Management', icon: Settings, requiresAuth: false }
   ];
 
-  // Filter tabs based on authentication - only show Admin tab to authenticated users (not guests)
+  // Filter tabs based on authentication - only show User tab to authenticated users (not guests)
   const tabs = useMemo(() => {
     return allTabs.filter(tab => {
       if (tab.requiresAuth) {
