@@ -32,7 +32,6 @@ public class GameImagesController : ControllerBase
     /// Proxy Steam game header images to avoid CORS issues
     /// </summary>
     [HttpGet("{appId}/header")]
-    [ResponseCache(Duration = 3600, Location = ResponseCacheLocation.Any, VaryByQueryKeys = new[] { "appId" })]
     public async Task<IActionResult> GetGameHeaderImage(uint appId, CancellationToken cancellationToken = default)
     {
         try
