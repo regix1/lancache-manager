@@ -15,6 +15,27 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 >
 > **Use `:latest` for production. Use `:dev` only for testing new features.**
 
+## 📑 Table of Contents
+
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Quick Start](#quick-start)
+  - [Basic Docker Run](#basic-docker-run)
+  - [Complete Docker Compose Example](#complete-docker-compose-example)
+- [Getting Started](#getting-started)
+- [Admin Features](#admin-features)
+- [Custom Themes](#custom-themes)
+- [Depot Mappings](#depot-mappings)
+- [Grafana & Prometheus Integration](#grafana--prometheus-integration)
+- [API Examples](#api-examples)
+- [Troubleshooting](#troubleshooting)
+- [Building from Source](#building-from-source)
+- [Contributing](#contributing)
+- [Support](#support)
+- [License](#license)
+
+---
+
 ## Screenshots
 
 <div align="center">
@@ -495,29 +516,23 @@ Found a bug or have a feature request? [Open an issue](https://github.com/regix1
 
 If you find LANCache Manager useful and want to support development, consider buying me a coffee!
 
-<div align="center">
+<p align="center">
+  <a href="https://www.buymeacoffee.com/regix" target="_blank" rel="noopener noreferrer">
+    <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="250">
+  </a>
+  &nbsp;&nbsp;&nbsp;
+  <strong style="font-size: 24px; color: #FFDD00;">│</strong>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://www.buymeacoffee.com/regix" target="_blank" rel="noopener noreferrer">
+    <img src="https://github.com/user-attachments/assets/6e2ff32c-bb4c-454a-a626-03be6e6de42d" alt="Buy Me A Coffee QR Code" width="200">
+  </a>
+</p>
 
-<table>
-<tr>
-<td align="center" style="padding: 20px;">
-<a href="https://www.buymeacoffee.com/regix" target="_blank" rel="noopener noreferrer">
-  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExcGw1bHduZGxrNjVzYnM3ZnppZmZ1YmV5Z2J3dThjMGJnNWswejFyaiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9cw/kmIZ4lx2ZHpr5jY0W4/giphy.gif" alt="Buy Me A Coffee" width="250">
-</a>
-<br/>
-<strong>Click to donate</strong>
-</td>
-<td style="border-left: 3px solid #FFDD00; padding: 0 30px;"></td>
-<td align="center" style="padding: 20px;">
-<a href="https://www.buymeacoffee.com/regix" target="_blank" rel="noopener noreferrer">
-  <img src="https://github.com/user-attachments/assets/6e2ff32c-bb4c-454a-a626-03be6e6de42d" alt="Buy Me A Coffee QR Code" width="200">
-</a>
-<br/>
-<strong>Or scan QR code</strong>
-</td>
-</tr>
-</table>
-
-</div>
+<p align="center">
+  <strong>Click to donate</strong>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <strong>Or scan QR code</strong>
+</p>
 
 ## License
 
