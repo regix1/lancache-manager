@@ -83,9 +83,9 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 
 *Create and customize themes to match your style*
 
-### Admin Session Management
+### Users
 
-<img width="1502" height="991" alt="Admin Page" src="https://github.com/user-attachments/assets/820bc238-8da0-4b89-830a-3b748b962e9e" />
+<img width="1502" height="991" alt="Users Page" src="https://github.com/user-attachments/assets/820bc238-8da0-4b89-830a-3b748b962e9e" />
 
 *Manage user sessions, view connected devices, and control access*
 
@@ -239,22 +239,50 @@ volumes:
 <a id="admin-features"></a>
 ## Admin Features [⬆](#-table-of-contents)
 
-### Session Management
+Access the **Users** tab (visible only to authenticated users) to manage all sessions and control access to your LANCache Manager.
 
-Control who has access to your LANCache Manager through the Admin page:
+### User Management
 
-- **View All Sessions** - See every connected device and guest session
-- **Device Information** - Check device names, IP addresses, operating systems, and browsers
-- **Session Control** - Revoke access or logout specific devices
-- **Device Limits** - Set maximum devices per API key (default: 3)
-- **Activity Tracking** - Monitor last-seen timestamps and connection history
+**Real-Time Session Monitoring**
+- Live refresh every 3 seconds shows current connection status
+- View total users, authenticated users, and guest sessions at a glance
+- Track all active and historical sessions in one place
+
+**Session Types**
+- **Authenticated Users** - Full access via API key, multiple devices can share the same key (configurable limit, default: 3)
+- **Guest Sessions** - Temporary 6-hour read-only access without requiring an API key
+
+**Detailed Session Information**
+- Device name and unique session ID
+- IP address (with localhost detection)
+- Operating system and browser
+- Creation time and last seen timestamp
+- Session expiry countdown (for guests)
+- Revocation status and history
+
+**Session Controls**
+- **Revoke** - Immediately kick out guest users (they'll see "expired" on next request)
+- **Delete** - Permanently remove session records from history
+- Visual indicators for expired, revoked, and active sessions
 
 ### API Key Management
 
-- **Automatic Generation** - API key is created on first startup
-- **Secure Storage** - Saved to `/data/api_key.txt`
-- **Device Tracking** - Each device using the API key is tracked separately
-- **Session Revocation** - Regenerating the API key revokes all active sessions
+**Setup & Storage**
+- API key automatically generated on first startup
+- Securely saved to `/data/api_key.txt`
+- Display in container logs for easy retrieval
+
+**Multi-Device Support**
+- Configure maximum devices per API key (default: 3)
+- Each device tracked separately with full session details
+- Regenerating the API key revokes all existing sessions
+
+**Access Control**
+```yaml
+environment:
+  # Maximum admin devices sharing the same API key (default: 3)
+  - Security__MaxAdminDevices=3
+```
 
 <a id="custom-themes"></a>
 ## Custom Themes [⬆](#-table-of-contents)
