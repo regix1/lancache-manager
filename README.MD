@@ -38,9 +38,8 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 
 ---
 
-## Screenshots
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="screenshots"></a>
+## Screenshots <sub>[⬆](#-table-of-contents)</sub>
 
 <div align="center">
 
@@ -100,9 +99,8 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 
 </div>
 
-## Features
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="features"></a>
+## Features <sub>[⬆](#-table-of-contents)</sub>
 
 - **Real-Time Monitoring** - Watch downloads happen live with bandwidth tracking and progress updates
 - **Game Identification** - Automatically identifies Steam games from depot IDs with support for custom mappings
@@ -115,9 +113,8 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 - **Read-Only Support** - Works with read-only volumes while clearly showing what's available
 - **Easy Depot Updates** - Download 290,000+ depot mappings from [lancache-pics](https://github.com/regix1/lancache-pics) with one click
 
-## Quick Start
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="quick-start"></a>
+## Quick Start <sub>[⬆](#-table-of-contents)</sub>
 
 ### Basic Docker Run
 
@@ -201,9 +198,8 @@ docker logs lancache-manager | grep "API Key"
 
 **API key is also saved to `/data/api_key.txt`**
 
-## Getting Started
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="getting-started"></a>
+## Getting Started <sub>[⬆](#-table-of-contents)</sub>
 
 ### First Time Setup
 
@@ -232,9 +228,8 @@ volumes:
   - /path/to/logs:/logs:ro     # Keep logs read-only (recommended)
 ```
 
-## Admin Features
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="admin-features"></a>
+## Admin Features <sub>[⬆](#-table-of-contents)</sub>
 
 ### Session Management
 
@@ -253,9 +248,8 @@ Control who has access to your LANCache Manager through the Admin page:
 - **Device Tracking** - Each device using the API key is tracked separately
 - **Session Revocation** - Regenerating the API key revokes all active sessions
 
-## Custom Themes
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="custom-themes"></a>
+## Custom Themes <sub>[⬆](#-table-of-contents)</sub>
 
 Make LANCache Manager match your style:
 
@@ -280,9 +274,8 @@ textPrimary = "#ffffff"
 
 Access theme management in **Management > Themes**
 
-## Depot Mappings
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="depot-mappings"></a>
+## Depot Mappings <sub>[⬆](#-table-of-contents)</sub>
 
 LANCache Manager automatically identifies Steam games using depot mappings from the community-maintained [lancache-pics](https://github.com/regix1/lancache-pics) repository.
 
@@ -306,9 +299,8 @@ For unrecognized games, private depots, or beta branches:
 
 You can also upload your own JSON file following the lancache-pics format.
 
-## Grafana & Prometheus Integration
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="grafana--prometheus-integration"></a>
+## Grafana & Prometheus Integration <sub>[⬆](#-table-of-contents)</sub>
 
 Export your cache statistics to Grafana for advanced visualization and monitoring.
 
@@ -402,9 +394,8 @@ curl http://localhost:8080/metrics
 curl -H "X-Api-Key: your-key-here" http://localhost:8080/metrics
 ```
 
-## API Examples
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="api-examples"></a>
+## API Examples <sub>[⬆](#-table-of-contents)</sub>
 
 Stats endpoints are **public** and don't require authentication. Management endpoints require your **API key**.
 
@@ -430,9 +421,8 @@ curl -X POST -H "X-Api-Key: your-key" \
 curl http://localhost:8080/metrics
 ```
 
-## Troubleshooting
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="troubleshooting"></a>
+## Troubleshooting <sub>[⬆](#-table-of-contents)</sub>
 
 ### Logs Not Processing?
 
@@ -497,9 +487,8 @@ If you see permission errors when trying to clear cache or remove games:
      - PGID=1006  # Your group ID
    ```
 
-## Building from Source
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="building-from-source"></a>
+## Building from Source <sub>[⬆](#-table-of-contents)</sub>
 
 **Requirements:** .NET 8 SDK, Node.js 20+, Rust 1.75+
 
@@ -532,15 +521,13 @@ docker buildx build \
   .
 ```
 
-## Contributing
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="contributing"></a>
+## Contributing <sub>[⬆](#-table-of-contents)</sub>
 
 Found a bug or have a feature request? [Open an issue](https://github.com/regix1/lancache-manager/issues) on GitHub!
 
-## Support
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="support"></a>
+## Support <sub>[⬆](#-table-of-contents)</sub>
 
 <div align="center">
 
@@ -562,8 +549,7 @@ If this project has been helpful, consider supporting its development!
 
 </div>
 
-## License
-
-<div align="right"><sub>[⬆ Back to top](#-table-of-contents)</sub></div>
+<a id="license"></a>
+## License <sub>[⬆](#-table-of-contents)</sub>
 
 [MIT License](https://github.com/regix1/lancache-manager/blob/main/LICENSE)
