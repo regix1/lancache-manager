@@ -225,31 +225,35 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const confirmRemoval = async () => {
     if (!gameToRemove) return;
 
-    setRemovingGameId(gameToRemove.game_app_id);
+    // Capture this value before any async operations
+    // (gameToRemove may be cleared if user clicks "Keep Working")
+    const gameAppId = gameToRemove.game_app_id;
+
+    setRemovingGameId(gameAppId);
     setError(null);
 
     try {
-      const result = await ApiService.removeGameFromCache(gameToRemove.game_app_id);
+      const result = await ApiService.removeGameFromCache(gameAppId);
 
       const message = `Removed ${result.report.game_name}: ${result.report.cache_files_deleted} cache files deleted, ${result.report.log_entries_removed} log entries removed, ${formatBytes(result.report.total_bytes_freed)} freed`;
 
       // Update background removal if minimized
       if (minimizedRemoval) {
-        updateBackgroundRemoval(gameToRemove.game_app_id, {
+        updateBackgroundRemoval(gameAppId, {
           status: 'completed',
           filesDeleted: result.report.cache_files_deleted,
           bytesFreed: result.report.total_bytes_freed
         });
         // Auto-clear after 10 seconds
         setTimeout(() => {
-          clearBackgroundRemoval(gameToRemove.game_app_id);
+          clearBackgroundRemoval(gameAppId);
         }, 10000);
       } else {
         onSuccess?.(message);
       }
 
       // Remove from the list
-      setGames((prev) => prev.filter((g) => g.game_app_id !== gameToRemove.game_app_id));
+      setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
       setTotalGames((prev) => prev - 1);
 
       // Trigger a refetch of all data to update Downloads tab
@@ -261,13 +265,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       // Update background removal if minimized
       if (minimizedRemoval) {
-        updateBackgroundRemoval(gameToRemove.game_app_id, {
+        updateBackgroundRemoval(gameAppId, {
           status: 'failed',
           error: errorMsg
         });
         // Auto-clear failed removals after 15 seconds
         setTimeout(() => {
-          clearBackgroundRemoval(gameToRemove.game_app_id);
+          clearBackgroundRemoval(gameAppId);
         }, 15000);
       } else {
         setError(errorMsg);
