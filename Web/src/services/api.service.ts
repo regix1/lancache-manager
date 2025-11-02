@@ -722,7 +722,7 @@ class ApiService {
     try {
       const res = await fetch(`${API_BASE}/management/cache/detect-games/${operationId}`, {
         headers: this.getHeaders(),
-        signal: AbortSignal.timeout(5000)
+        signal: AbortSignal.timeout(30000) // 30 seconds - status check can be slow with many games
       });
       return await this.handleResponse<GameDetectionStatus>(res);
     } catch (error) {

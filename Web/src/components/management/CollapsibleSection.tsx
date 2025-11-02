@@ -56,6 +56,7 @@ export const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
           }}
         >
           <div className="space-y-4 sm:space-y-6 section-dividers">
+            {/* Only render children when section is open to prevent unnecessary data loading */}
             {children}
           </div>
         </div>

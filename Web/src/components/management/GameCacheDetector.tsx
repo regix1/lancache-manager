@@ -33,7 +33,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showAllPaths, setShowAllPaths] = useState<Record<number, boolean>>({});
   const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const timeoutCountRef = useRef<number>(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
@@ -162,9 +161,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     try {
       const status = await ApiService.getGameDetectionStatus(operationId);
 
-      // Reset timeout counter on success
-      timeoutCountRef.current = 0;
-
       if (status.status === 'complete') {
         // Detection complete
         if (pollingIntervalRef.current) {
@@ -209,25 +205,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
       // If status is 'running', continue polling
     } catch (err: any) {
-      // Handle timeouts - stop polling after too many consecutive failures
+      // Log errors but continue polling - detection might just be slow
       if (err.name === 'TimeoutError' || err.message?.includes('timeout')) {
-        timeoutCountRef.current++;
-        console.warn(`[GameCacheDetector] Timeout ${timeoutCountRef.current}/5 checking detection status`);
-
-        if (timeoutCountRef.current >= 5) {
-          // Too many timeouts - stop polling
-          console.error('[GameCacheDetector] Too many timeouts, stopping polling');
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-          setLoading(false);
-          setError('Detection status check timed out - please refresh the page');
-        }
+        console.warn('[GameCacheDetector] Timeout checking detection status, will retry...');
       } else {
         console.error('[GameCacheDetector] Error polling detection status:', err);
       }
-      // Don't continue polling on repeated errors
+      // Continue polling - don't give up
     }
   };
 
@@ -248,7 +232,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setError(null);
     setGames([]);
     setTotalGames(0);
-    timeoutCountRef.current = 0; // Reset timeout counter
 
     try {
       // Start background detection
@@ -260,7 +243,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
       pollingIntervalRef.current = setInterval(() => {
         pollDetectionStatus(result.operationId);
-      }, 2000); // Poll every 2 seconds
+      }, 5000); // Poll every 5 seconds - detection can take a while
 
       // Poll immediately
       pollDetectionStatus(result.operationId);

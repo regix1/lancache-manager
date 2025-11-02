@@ -546,7 +546,18 @@ public class PicsDataService
             // Save any remaining updates
             if (updated > 0)
             {
-                await context.SaveChangesAsync(cancellationToken);
+                try
+                {
+                    await context.SaveChangesAsync(cancellationToken);
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    // Concurrency error - mappings may have been deleted during import
+                    // This can happen if depot mappings were cleared while import was running
+                    _logger.LogWarning("Concurrency conflict when saving updates - mappings may have been deleted. Clearing change tracker.");
+                    context.ChangeTracker.Clear();
+                    updated = 0; // Reset count since updates failed
+                }
             }
 
             _logger.LogInformation($"Imported PICS data: {newMappings.Count} new mappings, {updated} updated");

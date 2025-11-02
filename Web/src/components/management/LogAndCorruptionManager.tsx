@@ -97,9 +97,10 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
 
   // Shared State
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Start as false since we don't auto-load
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasInitiallyLoaded, setHasInitiallyLoaded] = useState(false);
+  const [hasEverLoadedData, setHasEverLoadedData] = useState(false); // Track if data has been loaded at least once
   const [logsReadOnly, setLogsReadOnly] = useState(false);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
@@ -113,17 +114,13 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   };
 
   useEffect(() => {
-    // Only load on initial mount
+    // Don't auto-load data on mount - too slow for large log files
+    // User must click "Load Data" button
+    // But still load permissions and restore state
     if (!hasInitiallyLoaded) {
-      // Defer heavy data loading to not block initial render
-      // Show UI first, then load data in background after 100ms
-      setTimeout(() => {
-        loadAllData();
-      }, 100);
-
-      // These are fast, can run immediately
       restoreServiceRemoval();
       loadDirectoryPermissions();
+      setHasInitiallyLoaded(true); // Mark as initialized but not loaded
     }
 
     // Expose reload function to parent via ref
@@ -155,6 +152,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       setCorruptionSummary(corruption);
       setLoadError(null);
       setHasInitiallyLoaded(true);
+      setHasEverLoadedData(true); // Mark that data has been loaded
     } catch (err: any) {
       console.error('Failed to load log and corruption data:', err);
       setLoadError(err.message || 'Failed to load service data');
@@ -414,7 +412,22 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 </Alert>
               )}
 
-              {isLoading ? (
+              {!hasEverLoadedData && !isLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-4">
+                  <p className="text-sm text-themed-secondary">Service log data not loaded yet</p>
+                  <Button
+                    variant="filled"
+                    color="blue"
+                    onClick={() => loadAllData()}
+                    leftSection={<RefreshCw className="w-4 h-4" />}
+                  >
+                    Load Service Log Data
+                  </Button>
+                  <p className="text-xs text-themed-muted max-w-md text-center">
+                    Loading service counts can take several minutes for large log files. Click to load when ready.
+                  </p>
+                </div>
+              ) : isLoading ? (
                 <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
                   <p className="text-sm text-themed-secondary">Scanning log files for services...</p>
@@ -523,7 +536,22 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 </Alert>
               )}
 
-              {isLoading ? (
+              {!hasEverLoadedData && !isLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-4">
+                  <p className="text-sm text-themed-secondary">Corruption data not loaded yet</p>
+                  <Button
+                    variant="filled"
+                    color="blue"
+                    onClick={() => loadAllData()}
+                    leftSection={<RefreshCw className="w-4 h-4" />}
+                  >
+                    Load Corruption Data
+                  </Button>
+                  <p className="text-xs text-themed-muted max-w-md text-center">
+                    Scanning logs for corruption can take several minutes for large files. Click to load when ready.
+                  </p>
+                </div>
+              ) : isLoading ? (
                 <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
                   <p className="text-sm text-themed-secondary">Scanning logs for corrupted chunks...</p>
