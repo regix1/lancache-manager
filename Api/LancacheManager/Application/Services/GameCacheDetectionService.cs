@@ -16,7 +16,7 @@ public class GameCacheDetectionService
     private readonly OperationStateService _operationStateService;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
 
-    // Cache for detection results - persists until backend restart
+    // Cache for detection results - temporary (clears on backend restart)
     private DetectionOperation? _cachedDetectionResult = null;
     private readonly object _cacheLock = new object();
 
@@ -371,6 +371,28 @@ public class GameCacheDetectionService
         {
             _logger.LogInformation("[GameDetection] Cache invalidated");
             _cachedDetectionResult = null;
+        }
+    }
+
+    public void RemoveGameFromCache(uint gameAppId)
+    {
+        lock (_cacheLock)
+        {
+            if (_cachedDetectionResult != null && _cachedDetectionResult.Games != null)
+            {
+                var beforeCount = _cachedDetectionResult.Games.Count;
+                _cachedDetectionResult.Games = _cachedDetectionResult.Games
+                    .Where(g => g.GameAppId != gameAppId)
+                    .ToList();
+
+                var afterCount = _cachedDetectionResult.Games.Count;
+                if (beforeCount != afterCount)
+                {
+                    _cachedDetectionResult.TotalGamesDetected = afterCount;
+                    _logger.LogInformation("[GameDetection] Removed game {AppId} from cache ({Before} -> {After} games)",
+                        gameAppId, beforeCount, afterCount);
+                }
+            }
         }
     }
 

@@ -854,11 +854,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     };
 
     const handleGameRemovalComplete = (payload: any) => {
-      console.log('[DataContext] GameRemovalComplete event received:', payload);
-
       if (payload.success) {
-        console.log(`[DataContext] Updating removal status for game ${payload.gameAppId} to completed`);
-
         // Update to completed status with stats
         updateBackgroundRemoval(payload.gameAppId, {
           status: 'completed',
@@ -869,15 +865,12 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
 
         // Clear after showing complete status for 5 seconds
         setTimeout(() => {
-          console.log(`[DataContext] Clearing background removal for game ${payload.gameAppId}`);
           clearBackgroundRemoval(payload.gameAppId);
         }, 5000);
 
         // Refresh data to update the games list
         fetchData();
       } else {
-        console.log(`[DataContext] Game removal failed for ${payload.gameAppId}: ${payload.message}`);
-
         // Update to failed status
         updateBackgroundRemoval(payload.gameAppId, {
           status: 'failed',
@@ -905,7 +898,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalComplete', handleGameRemovalComplete);
 
-    console.log('[DataContext] Subscribed to SignalR events including GameRemovalComplete');
+    console.log('[DataContext] Subscribed to SignalR events');
 
     // Cleanup: unsubscribe when component unmounts or dependencies change
     return () => {

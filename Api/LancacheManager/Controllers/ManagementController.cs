@@ -1206,13 +1206,12 @@ public class ManagementController : ControllerBase
 
                     var report = await cacheService.RemoveGameFromCache(gameAppId);
 
-                    // Invalidate game detection cache since we just removed a game
-                    gameCacheDetectionService.InvalidateCache();
+                    // Remove this specific game from the detection cache
+                    gameCacheDetectionService.RemoveGameFromCache(gameAppId);
                     logger.LogInformation("[Background] Successfully removed {GameName} ({AppId}) - {Files} files, {Bytes} bytes",
                         report.GameName, gameAppId, report.CacheFilesDeleted, report.TotalBytesFreed);
 
                     // Send completion notification via SignalR
-                    logger.LogInformation("[Background] Sending GameRemovalComplete SignalR event for game {AppId}", gameAppId);
                     await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
                     {
                         success = true,
@@ -1223,7 +1222,6 @@ public class ManagementController : ControllerBase
                         logEntriesRemoved = report.LogEntriesRemoved,
                         message = $"Successfully removed {report.GameName} from cache"
                     });
-                    logger.LogInformation("[Background] GameRemovalComplete SignalR event sent for game {AppId}", gameAppId);
                 }
                 catch (Exception ex)
                 {

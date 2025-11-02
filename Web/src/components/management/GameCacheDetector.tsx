@@ -6,7 +6,8 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
-import { useData } from '@contexts/DataContext';
+import { useData, useDataActions } from '@contexts/DataContext';
+import { gameDetectionCache } from '@utils/gameDetectionCache';
 import type { GameCacheInfo } from '../../types';
 
 interface GameCacheDetectorProps {
@@ -20,12 +21,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   isAuthenticated = false,
   onDataRefresh
 }) => {
-  const { addBackgroundRemoval, updateBackgroundRemoval, addNotification } = useData();
+  const { addNotification, addBackgroundRemoval, updateBackgroundRemoval } = useDataActions();
+  const { backgroundRemovals } = useData();
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [totalGames, setTotalGames] = useState<number>(0);
-  const [removingGameId, setRemovingGameId] = useState<number | null>(null);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
   const [expandingGameId, setExpandingGameId] = useState<number | null>(null);
@@ -56,14 +57,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (mockMode) return;
 
       try {
-        // First, try to load cached results immediately
-        const cachedResponse = await fetch('/api/management/cache/detect-games-cached');
-        const cached = await cachedResponse.json();
-
-        if (cached.hasCachedResults && cached.games && cached.games.length > 0) {
-          // Display cached results immediately
-          setGames(cached.games);
-          setTotalGames(cached.totalGamesDetected);
+        // Load from IndexedDB (supports large datasets)
+        const cachedData = await gameDetectionCache.loadGames();
+        if (cachedData && cachedData.games.length > 0) {
+          setGames(cachedData.games);
+          setTotalGames(cachedData.totalGamesDetected);
         }
 
         // Then check for active operations
@@ -113,6 +111,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setCurrentPage(1);
   }, [searchQuery]);
 
+  // Listen for completed game removals from SignalR
+  useEffect(() => {
+    const completedRemovals = backgroundRemovals.filter(r => r.status === 'completed');
+
+    completedRemovals.forEach(async (removal) => {
+      // Remove from UI and IndexedDB
+      setGames((prev) => {
+        const updated = prev.filter((g) => g.game_app_id !== removal.gameAppId);
+        return updated;
+      });
+      setTotalGames((prev) => prev - 1);
+
+      // Remove from IndexedDB
+      await gameDetectionCache.removeGame(removal.gameAppId);
+    });
+  }, [backgroundRemovals]);
+
   // Memoized filtered, sorted, and paginated games list
   const filteredAndSortedGames = useMemo(() => {
     // Filter by search query (search in game name or app ID)
@@ -151,6 +166,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         if (status.games && status.totalGamesDetected !== undefined) {
           setGames(status.games);
           setTotalGames(status.totalGamesDetected);
+
+          // Save to IndexedDB for persistence
+          await gameDetectionCache.saveGames(status.games, status.totalGamesDetected);
+
           if (status.totalGamesDetected > 0) {
             addNotification('success', `Detected ${status.totalGamesDetected} game${status.totalGamesDetected !== 1 ? 's' : ''} with cache files`);
           }
@@ -224,7 +243,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     const gameAppId = gameToRemove.game_app_id;
     const gameName = gameToRemove.game_name;
 
-    // Always add to background removals for tracking in UniversalNotificationBar
+    // Add to background removals for tracking (shows in notification bar and on Remove button)
     addBackgroundRemoval({
       gameAppId: gameAppId,
       gameName: gameName,
@@ -232,21 +251,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       status: 'removing'
     });
 
-    // Close modal immediately and show progress in UniversalNotificationBar
+    // Close modal immediately - progress shown via backgroundRemovals
     setGameToRemove(null);
-    setRemovingGameId(gameAppId);
     setError(null);
 
     try {
       const result = await ApiService.removeGameFromCache(gameAppId);
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
-      // Keep showing "removing..." status - game will disappear after background removal completes
+      // Game will be removed from list when SignalR GameRemovalComplete event arrives
       console.log(`Game removal started for AppID ${gameAppId}: ${result.message}`);
-
-      // Optimistically remove from UI immediately
-      setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
-      setTotalGames((prev) => prev - 1);
 
       // Trigger a refetch after removal likely completes to refresh downloads
       setTimeout(() => {
@@ -256,15 +270,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       const errorMsg = err.message || 'Failed to remove game from cache';
 
       // Update background removal to failed
-      // Auto-clear is handled by UniversalNotificationBar after 10 seconds
       updateBackgroundRemoval(gameAppId, {
         status: 'failed',
         error: errorMsg
       });
 
       console.error('Game removal error:', err);
-    } finally {
-      setRemovingGameId(null);
     }
   };
 
@@ -440,7 +451,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         variant="subtle"
                         size="sm"
                         className="flex-shrink-0"
-                        disabled={!!removingGameId || expandingGameId === game.game_app_id}
+                        disabled={expandingGameId === game.game_app_id}
                       >
                         {expandingGameId === game.game_app_id ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -477,14 +488,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       <Tooltip content="Remove all cache files for this game">
                         <Button
                           onClick={() => handleRemoveClick(game)}
-                          disabled={mockMode || removingGameId === game.game_app_id || !isAuthenticated || cacheReadOnly || checkingPermissions}
+                          disabled={
+                            mockMode ||
+                            backgroundRemovals.some(r => r.gameAppId === game.game_app_id && r.status === 'removing') ||
+                            !isAuthenticated ||
+                            cacheReadOnly ||
+                            checkingPermissions
+                          }
                           variant="filled"
                           color="red"
                           size="sm"
-                          loading={removingGameId === game.game_app_id}
+                          loading={backgroundRemovals.some(r => r.gameAppId === game.game_app_id && r.status === 'removing')}
                           title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
                         >
-                          {removingGameId !== game.game_app_id ? 'Remove' : 'Removing...'}
+                          {backgroundRemovals.some(r => r.gameAppId === game.game_app_id && r.status === 'removing') ? 'Removing...' : 'Remove'}
                         </Button>
                       </Tooltip>
                     </div>
