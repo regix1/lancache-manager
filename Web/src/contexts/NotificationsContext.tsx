@@ -92,7 +92,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const signalR = useSignalR();
 
   const addNotification = useCallback((notification: Omit<UnifiedNotification, 'id' | 'startedAt'>): string => {
-    const id = `${notification.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // For game_removal, use gameAppId in ID so SignalR handler can find it
+    const id = notification.type === 'game_removal' && notification.details?.gameAppId
+      ? `${notification.type}-${notification.details.gameAppId}`
+      : `${notification.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
     const newNotification: UnifiedNotification = {
       ...notification,
       id,
@@ -319,7 +323,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     // Game Removal Complete
     const handleGameRemovalComplete = (payload: any) => {
+      console.log('[NotificationsContext] GameRemovalComplete received:', payload);
       const notificationId = `game_removal-${payload.gameAppId}`;
+      console.log('[NotificationsContext] Looking for notification ID:', notificationId);
 
       if (payload.success) {
         setNotifications(prev =>

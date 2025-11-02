@@ -22,7 +22,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 }) => {
   const { addNotification, updateNotification, notifications } = useNotifications();
   const [loading, setLoading] = useState(false);
-  const [gameRemovalNotifications, setGameRemovalNotifications] = useState<Map<number, string>>(new Map());
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [totalGames, setTotalGames] = useState<number>(0);
@@ -251,7 +250,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     const gameName = gameToRemove.game_name;
 
     // Add notification for tracking (shows in notification bar and on Remove button)
-    const notifId = addNotification({
+    // Note: ID will be "game_removal-{gameAppId}" for SignalR handler to find it
+    addNotification({
       type: 'game_removal',
       status: 'running',
       message: `Removing ${gameName}...`,
@@ -260,9 +260,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         gameName: gameName
       }
     });
-
-    // Store notification ID for this game
-    setGameRemovalNotifications(prev => new Map(prev).set(gameAppId, notifId));
 
     // Close modal immediately - progress shown via notifications
     setGameToRemove(null);
@@ -282,14 +279,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to remove game from cache';
 
-      // Update notification to failed
-      const notifId = gameRemovalNotifications.get(gameAppId);
-      if (notifId) {
-        updateNotification(notifId, {
-          status: 'failed',
-          error: errorMsg
-        });
-      }
+      // Update notification to failed (ID is "game_removal-{gameAppId}")
+      const notifId = `game_removal-${gameAppId}`;
+      updateNotification(notifId, {
+        status: 'failed',
+        error: errorMsg
+      });
 
       console.error('Game removal error:', err);
     }
