@@ -3,8 +3,7 @@ import { Server, Trash2, AlertTriangle, Loader2, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
-import { useNotifications } from '@contexts/NotificationsContext';
-import { formatBytes } from '@utils/formatters';
+import { useSignalR } from '@contexts/SignalRContext';
 
 interface CacheClearOperationData {
   operationId: string;
@@ -14,7 +13,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
-import type { CacheClearStatus, Config } from '../../types';
+import type { Config } from '../../types';
 
 interface CacheManagerProps {
   isAuthenticated: boolean;
@@ -30,9 +29,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   onError,
   onSuccess
 }) => {
-  const { addNotification, updateNotification, removeNotification } = useNotifications();
-  const [cacheClearProgress, setCacheClearProgress] = useState<CacheClearStatus | null>(null);
-  const [cacheNotificationId, setCacheNotificationId] = useState<string | null>(null);
+  const signalR = useSignalR();
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
@@ -73,6 +70,22 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       clearInterval(cpuPollInterval);
     };
   }, []);
+
+  // Listen for cache clear completion to clear operation state
+  useEffect(() => {
+    if (mockMode) return;
+
+    const handleCacheClearComplete = async () => {
+      console.log('[CacheManager] CacheClearComplete received, clearing operation state');
+      await cacheOp.clear();
+    };
+
+    signalR.on('CacheClearComplete', handleCacheClearComplete);
+
+    return () => {
+      signalR.off('CacheClearComplete', handleCacheClearComplete);
+    };
+  }, [mockMode, signalR, cacheOp]);
 
   const loadConfig = async () => {
     try {
@@ -172,55 +185,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     if (cacheClear?.data?.operationId) {
       try {
         const status = await ApiService.getCacheClearStatus(cacheClear.data.operationId);
-        if (status && ['Running', 'Preparing'].includes(status.status)) {
-          setCacheClearProgress(status);
-          startCacheClearPolling(cacheClear.data.operationId);
-        } else {
+        if (!status || !['Running', 'Preparing'].includes(status.status)) {
+          // Operation is not running, clear the saved state
           await cacheOp.clear();
         }
+        // If still running, SignalR will handle all updates
       } catch (err) {
         await cacheOp.clear();
       }
-    }
-  };
-
-  const startCacheClearPolling = (operationId: string) => {
-    const pollInterval = setInterval(async () => {
-      try {
-        const status = await ApiService.getCacheClearStatus(operationId);
-        setCacheClearProgress(status);
-
-        if (['Running', 'Preparing'].includes(status.status)) {
-          await cacheOp.update({ lastProgress: status.percentComplete || status.progress || 0 });
-        } else {
-          handleCacheClearComplete(status);
-          clearInterval(pollInterval);
-        }
-      } catch (err) {
-        console.error('Error polling cache clear status:', err);
-        clearInterval(pollInterval);
-      }
-    }, 1000);
-  };
-
-  const handleCacheClearComplete = async (progress: CacheClearStatus) => {
-    await cacheOp.clear();
-
-    if (progress.status === 'Completed') {
-      onSuccess?.(`Cache cleared successfully! ${formatBytes(progress.bytesDeleted || 0)} freed.`);
-      setTimeout(() => {
-        setCacheClearProgress(null);
-      }, 2000);
-    } else if (progress.status === 'Failed') {
-      onError?.(`Cache clearing failed: ${progress.error || progress.message || 'Unknown error'}`);
-      setTimeout(() => {
-        setCacheClearProgress(null);
-      }, 5000);
-    } else if (progress.status === 'Cancelled') {
-      onSuccess?.('Cache clearing cancelled');
-      setCacheClearProgress(null);
-    } else {
-      setCacheClearProgress(null);
     }
   };
 
@@ -241,14 +213,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       const result = await ApiService.clearAllCache();
       if (result.operationId) {
         await cacheOp.save({ operationId: result.operationId });
-        setCacheClearProgress({
-          operationId: result.operationId,
-          status: 'Preparing',
-          statusMessage: 'Starting cache clear...',
-          percentComplete: 0,
-          bytesDeleted: 0
-        });
-        startCacheClearPolling(result.operationId);
+        // SignalR will handle all progress and completion updates via NotificationsContext
+        // Operation state will be cleared when CacheClearComplete event is received
       }
     } catch (err: any) {
       onError?.('Failed to start cache clearing: ' + (err?.message || 'Unknown error'));
@@ -257,75 +223,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
-  // Removed unused handleCancelCacheClear function
-
-  // Report cache clearing status for UniversalNotificationBar
-  useEffect(() => {
-    const isActive =
-      (cacheOp.operation as any)?.data &&
-      cacheClearProgress &&
-      ['Running', 'Preparing', 'Cancelling'].includes(cacheClearProgress.status);
-
-    if (isActive && cacheClearProgress) {
-      const status: 'running' | 'completed' | 'failed' =
-        cacheClearProgress.status === 'Cancelling' || cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing'
-          ? 'running'
-          : cacheClearProgress.status === 'Completed'
-          ? 'completed'
-          : 'failed';
-
-      // Add or update notification
-      if (cacheNotificationId) {
-        updateNotification(cacheNotificationId, {
-          status,
-          progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
-          message: status === 'running' ? 'Clearing cache...' : status === 'completed' ? 'Cache cleared successfully' : 'Cache clearing failed',
-          details: {
-            filesDeleted: cacheClearProgress.filesDeleted || 0
-          }
-        });
-      } else {
-        const notifId = addNotification({
-          type: 'cache_clearing',
-          status,
-          message: 'Clearing cache...',
-          progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
-          details: {
-            filesDeleted: cacheClearProgress.filesDeleted || 0
-          }
-        });
-        setCacheNotificationId(notifId);
-      }
-    } else if (cacheClearProgress?.status === 'Completed' && cacheNotificationId) {
-      updateNotification(cacheNotificationId, {
-        status: 'completed',
-        message: 'Cache cleared successfully',
-        progress: 100
-      });
-      setTimeout(() => {
-        removeNotification(cacheNotificationId);
-        setCacheNotificationId(null);
-      }, 3000);
-    } else if (cacheClearProgress?.status === 'Failed' && cacheNotificationId) {
-      updateNotification(cacheNotificationId, {
-        status: 'failed',
-        error: cacheClearProgress.error || 'Cache clearing failed'
-      });
-      setTimeout(() => {
-        removeNotification(cacheNotificationId);
-        setCacheNotificationId(null);
-      }, 5000);
-    } else if (!isActive && cacheNotificationId) {
-      removeNotification(cacheNotificationId);
-      setCacheNotificationId(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheOp.operation, cacheClearProgress]);
-
-  const isCacheClearingActive =
-    (cacheOp.operation as any)?.data &&
-    cacheClearProgress &&
-    ['Running', 'Preparing', 'Cancelling'].includes(cacheClearProgress.status);
+  // Cache clearing is managed as a background service
+  // All notifications are handled by NotificationsContext via SignalR events
+  const isCacheClearingActive = !!(cacheOp.operation as any)?.data;
 
   return (
     <>

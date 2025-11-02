@@ -400,6 +400,19 @@ public class CacheClearingService : IHostedService
                 _logger.LogInformation($"Cache clear completed in {duration.TotalSeconds:F1} seconds - Cleared {operation.DirectoriesProcessed} directories");
 
                 await NotifyProgress(operation);
+
+                // Send completion notification
+                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                {
+                    success = true,
+                    message = $"Successfully cleared {operation.DirectoriesProcessed} cache directories",
+                    directoriesProcessed = operation.DirectoriesProcessed,
+                    filesDeleted = operation.FilesDeleted,
+                    bytesDeleted = operation.BytesDeleted,
+                    duration = duration.TotalSeconds,
+                    timestamp = DateTime.UtcNow
+                });
+
                 SaveOperationToState(operation);
             }
         }
@@ -423,6 +436,16 @@ public class CacheClearingService : IHostedService
             operation.StatusMessage = $"Failed: {ex.Message}";
             operation.EndTime = DateTime.UtcNow;
             await NotifyProgress(operation);
+
+            // Send failure notification
+            await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+            {
+                success = false,
+                message = $"Cache clear failed: {ex.Message}",
+                error = ex.Message,
+                timestamp = DateTime.UtcNow
+            });
+
             SaveOperationToState(operation);
         }
     }

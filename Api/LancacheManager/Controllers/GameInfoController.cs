@@ -174,10 +174,10 @@ public class GameInfoController : ControllerBase
         {
             _logger.LogInformation("Received crawl interval request: {IntervalHours} hours", intervalHours);
 
-            // Allow 0 (disabled), or between 1 hour and 168 hours (1 week)
-            if (intervalHours < 0 || (intervalHours > 0 && intervalHours < 1) || intervalHours > 168)
+            // Allow 0 (disabled) or any positive value - frontend controls available options
+            if (intervalHours < 0)
             {
-                return BadRequest(new { error = $"Interval must be 0 (disabled) or between 1 and 168 hours. Received: {intervalHours}" });
+                return BadRequest(new { error = $"Interval must be 0 or a positive number. Received: {intervalHours}" });
             }
 
             _steamKit2Service.CrawlIntervalHours = intervalHours;

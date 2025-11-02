@@ -1,10 +1,12 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using LancacheManager.Data;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 using SteamKit2.Authentication;
@@ -23,6 +25,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     private readonly IPathResolver _pathResolver;
     private readonly StateRepository _stateService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IHubContext<DownloadHub> _hubContext;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -77,6 +80,19 @@ public class SteamKit2Service : IHostedService, IDisposable
     private string? _lastErrorMessage = null;
     private int _sessionStartDepotCount = 0;  // Track depot count at start of session
 
+    /// <summary>
+    /// Check if we're truly using Steam authenticated mode (not just connected)
+    /// </summary>
+    private bool IsSteamAuthenticated
+    {
+        get
+        {
+            var authMode = _stateService.GetSteamAuthMode();
+            var isAuthenticated = authMode == "authenticated" && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
+            return _isLoggedOn && isAuthenticated;
+        }
+    }
+
     public SteamKit2Service(
         ILogger<SteamKit2Service> logger,
         IServiceScopeFactory scopeFactory,
@@ -84,7 +100,8 @@ public class SteamKit2Service : IHostedService, IDisposable
         PicsDataService picsDataService,
         IPathResolver pathResolver,
         StateRepository stateService,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IHubContext<DownloadHub> hubContext)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -93,6 +110,7 @@ public class SteamKit2Service : IHostedService, IDisposable
         _pathResolver = pathResolver;
         _stateService = stateService;
         _httpClientFactory = httpClientFactory;
+        _hubContext = hubContext;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -345,6 +363,21 @@ public class SteamKit2Service : IHostedService, IDisposable
                             {
                                 _logger.LogWarning("Automatic incremental scan skipped - Steam requires full scan (change gap too large). User must manually trigger a full scan.");
                                 _automaticScanSkipped = true;
+
+                                // Send SignalR notification
+                                try
+                                {
+                                    await _hubContext.Clients.All.SendAsync("AutomaticScanSkipped", new
+                                    {
+                                        message = "Automatic scan skipped - full scan required",
+                                        timestamp = DateTime.UtcNow
+                                    });
+                                }
+                                catch (Exception signalREx)
+                                {
+                                    _logger.LogWarning(signalREx, "Failed to send AutomaticScanSkipped notification via SignalR");
+                                }
+
                                 return;
                             }
                             // Viability check passed - reset the flag since incremental is now viable
@@ -355,6 +388,21 @@ public class SteamKit2Service : IHostedService, IDisposable
                         {
                             _logger.LogWarning(ex, "Failed to check incremental viability, skipping automatic scan");
                             _automaticScanSkipped = true;
+
+                            // Send SignalR notification
+                            try
+                            {
+                                await _hubContext.Clients.All.SendAsync("AutomaticScanSkipped", new
+                                {
+                                    message = "Automatic scan skipped - viability check failed",
+                                    timestamp = DateTime.UtcNow
+                                });
+                            }
+                            catch (Exception signalREx)
+                            {
+                                _logger.LogWarning(signalREx, "Failed to send AutomaticScanSkipped notification via SignalR");
+                            }
+
                             return;
                         }
                     }
@@ -416,6 +464,21 @@ public class SteamKit2Service : IHostedService, IDisposable
                         {
                             _logger.LogWarning("Scheduled incremental scan skipped - Steam requires full scan (change gap too large). User must manually trigger a full scan.");
                             _automaticScanSkipped = true;
+
+                            // Send SignalR notification
+                            try
+                            {
+                                await _hubContext.Clients.All.SendAsync("AutomaticScanSkipped", new
+                                {
+                                    message = "Scheduled scan skipped - full scan required",
+                                    timestamp = DateTime.UtcNow
+                                });
+                            }
+                            catch (Exception signalREx)
+                            {
+                                _logger.LogWarning(signalREx, "Failed to send AutomaticScanSkipped notification via SignalR");
+                            }
+
                             return;
                         }
                         // Viability check passed - reset the flag since incremental is now viable
@@ -478,6 +541,11 @@ public class SteamKit2Service : IHostedService, IDisposable
 
                 // Success - exit retry loop
                 break;
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is expected - don't retry, just rethrow
+                throw;
             }
             catch (Exception ex) when (attempt < maxRetries)
             {
@@ -683,6 +751,7 @@ public class SteamKit2Service : IHostedService, IDisposable
                 _logger.LogInformation("Starting full PICS generation (will use Web API for app enumeration)");
                 _depotToAppMappings.Clear();
                 _appNames.Clear();
+                _scannedApps.Clear(); // Clear scanned apps list so all apps are rescanned
                 _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
             }
             else if (incrementalOnly)
@@ -863,6 +932,11 @@ public class SteamKit2Service : IHostedService, IDisposable
 
                                 await Task.Delay(100, ct);  // Small delay between DLC batches
                             }
+                            catch (OperationCanceledException)
+                            {
+                                // Cancellation is expected, just rethrow
+                                throw;
+                            }
                             catch (Exception ex)
                             {
                                 _logger.LogWarning(ex, "Failed to process DLC batch. Continuing...");
@@ -876,14 +950,40 @@ public class SteamKit2Service : IHostedService, IDisposable
 
                     _processedBatches++;
 
-                    // Progress updates every 50 batches instead of every 5
+                    // Send SignalR progress updates every 10 batches for smoother UI feedback
+                    if (_processedBatches % 10 == 0)
+                    {
+                        double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
+
+                        // Send progress via SignalR
+                        try
+                        {
+                            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+                            {
+                                status = "Scanning Steam PICS data",
+                                percentComplete,
+                                processedBatches = _processedBatches,
+                                totalBatches = allBatches.Count,
+                                depotMappingsFound = _depotToAppMappings.Count,
+                                isLoggedOn = IsSteamAuthenticated,
+                                message = $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to send PICS scan progress via SignalR");
+                        }
+                    }
+
+                    // Log progress and save every 50 batches to reduce I/O
                     if (_processedBatches % 50 == 0)
                     {
+                        double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
                         _logger.LogInformation(
                             "Processed {Processed}/{Total} batches ({Percent:F1}%); depot mappings found={Mappings}",
                             _processedBatches,
                             allBatches.Count,
-                            (_processedBatches * 100.0 / allBatches.Count),
+                            percentComplete,
                             _depotToAppMappings.Count);
 
                         // Use merge for incremental, full save for complete rebuild
@@ -893,6 +993,11 @@ public class SteamKit2Service : IHostedService, IDisposable
                     // Adaptive delay based on current performance
                     var delayMs = _depotToAppMappings.Count > 1000 ? 100 : 150;
                     await Task.Delay(delayMs, ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Cancellation is expected, just rethrow
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -927,17 +1032,61 @@ public class SteamKit2Service : IHostedService, IDisposable
             // Auto-apply depot mappings to downloads after PICS data is ready
             _currentStatus = "Applying depot mappings";
             _logger.LogInformation("Automatically applying depot mappings after PICS completion");
-            await UpdateDownloadsWithDepotMappings();
+
+            var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappings();
 
             _currentStatus = "Complete";
             _lastCrawlTime = DateTime.UtcNow;
             SaveLastCrawlTime();
+
+            // Send completion notification
+            try
+            {
+                var totalMappings = _depotToAppMappings.Count;
+                await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                {
+                    success = true,
+                    message = "Depot mapping completed successfully",
+                    totalMappings,
+                    downloadsUpdated,
+                    scanMode = incrementalOnly ? "incremental" : "full",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send depot mapping completion via SignalR");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is expected - don't log as error
+            _currentStatus = "Cancelled";
+            _logger.LogDebug("Depot mapping scan was cancelled");
+            // Don't send error notification for cancellation - it's handled elsewhere
+            throw;
         }
         catch (Exception ex)
         {
             _currentStatus = "Error occurred";
             _lastErrorMessage = ex.Message;
             _logger.LogError(ex, "Error building depot index");
+
+            // Send error notification
+            try
+            {
+                await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                {
+                    success = false,
+                    message = $"Depot mapping failed: {ex.Message}",
+                    error = ex.Message,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception signalREx)
+            {
+                _logger.LogWarning(signalREx, "Failed to send depot mapping error via SignalR");
+            }
         }
     }
 
@@ -1642,6 +1791,25 @@ public class SteamKit2Service : IHostedService, IDisposable
         _lastScanWasForced = false; // Reset flag at start of new scan
         _automaticScanSkipped = false; // Reset flag at start of new scan
 
+        // Send start notification via SignalR (fire-and-forget)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _hubContext.Clients.All.SendAsync("DepotMappingStarted", new
+                {
+                    scanMode = incrementalOnly ? "incremental" : "full",
+                    message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
+                    isLoggedOn = IsSteamAuthenticated,
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send depot mapping start notification via SignalR");
+            }
+        });
+
         // Dispose previous cancellation token source if it exists
         _currentRebuildCts?.Dispose();
 
@@ -1720,6 +1888,23 @@ public class SteamKit2Service : IHostedService, IDisposable
             }
 
             _logger.LogInformation("PICS rebuild cancelled successfully");
+
+            // Send cancellation notification via SignalR
+            try
+            {
+                await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                {
+                    success = true,
+                    cancelled = true,
+                    message = "Depot mapping scan cancelled",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception signalREx)
+            {
+                _logger.LogWarning(signalREx, "Failed to send depot mapping cancellation notification via SignalR");
+            }
+
             return true;
         }
         catch (Exception ex)
@@ -1851,7 +2036,7 @@ public class SteamKit2Service : IHostedService, IDisposable
     /// <summary>
     /// Update downloads that have depot IDs but no game information
     /// </summary>
-    private async Task UpdateDownloadsWithDepotMappings()
+    private async Task<(int updated, int notFound)> UpdateDownloadsWithDepotMappings()
     {
         try
         {
@@ -1867,6 +2052,8 @@ public class SteamKit2Service : IHostedService, IDisposable
 
             int updated = 0;
             int notFound = 0;
+            int processed = 0;
+            int totalDownloads = downloadsNeedingGameInfo.Count;
 
             foreach (var download in downloadsNeedingGameInfo)
             {
@@ -1941,6 +2128,30 @@ public class SteamKit2Service : IHostedService, IDisposable
                     _logger.LogWarning(ex, $"Failed to get game info for depot {download.DepotId}");
                     notFound++;
                 }
+
+                // Send progress updates every 100 downloads
+                processed++;
+                if (totalDownloads > 0 && processed % 100 == 0)
+                {
+                    double percentComplete = (double)processed / totalDownloads * 100;
+                    try
+                    {
+                        await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+                        {
+                            status = "Applying mappings to downloads",
+                            percentComplete,
+                            processedMappings = processed,
+                            totalMappings = totalDownloads,
+                            mappingsApplied = updated,
+                            isLoggedOn = IsSteamAuthenticated,
+                            message = $"Applying depot mappings to downloads... {processed}/{totalDownloads}"
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to send depot mapping progress via SignalR");
+                    }
+                }
             }
 
             if (updated > 0)
@@ -1952,10 +2163,35 @@ public class SteamKit2Service : IHostedService, IDisposable
             {
                 _logger.LogInformation($"No downloads updated, {notFound} depots without mappings");
             }
+
+            // Send final 100% progress update
+            if (totalDownloads > 0)
+            {
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+                    {
+                        status = "Finalizing depot mappings",
+                        percentComplete = 100.0,
+                        processedMappings = totalDownloads,
+                        totalMappings = totalDownloads,
+                        mappingsApplied = updated,
+                        isLoggedOn = IsSteamAuthenticated,
+                        message = $"Depot mapping complete - {updated} downloads updated"
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send final depot mapping progress via SignalR");
+                }
+            }
+
+            return (updated, notFound);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error updating downloads with depot mappings");
+            return (0, 0);
         }
     }
 

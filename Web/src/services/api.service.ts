@@ -323,6 +323,20 @@ class ApiService {
     }
   }
 
+  // Get database reset status
+  static async getDatabaseResetStatus(): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/management/database/reset-status`, {
+        signal: AbortSignal.timeout(5000),
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse<any>(res);
+    } catch (error) {
+      console.error('getDatabaseResetStatus error:', error);
+      throw error;
+    }
+  }
+
   // Legacy method for compatibility
   static async clearCache(service: string | null = null): Promise<any> {
     if (service) {

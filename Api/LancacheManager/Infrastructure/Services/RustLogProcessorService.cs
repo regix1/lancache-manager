@@ -361,33 +361,14 @@ public class RustLogProcessorService
             else
             {
                 // Non-zero exit code but not cancelled - this is an actual error
-                if (!silentMode)
-                {
-                    await _hubContext.Clients.All.SendAsync("ProcessingComplete", new
-                    {
-                        success = false,
-                        message = $"Log processing failed with exit code {exitCode}",
-                        timestamp = DateTime.UtcNow
-                    });
-                }
-
+                // Error is already logged, no need for SignalR notification as frontend uses BulkProcessingComplete
                 return false;
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting Rust log processor");
-
-            if (!silentMode)
-            {
-                await _hubContext.Clients.All.SendAsync("ProcessingComplete", new
-                {
-                    success = false,
-                    message = $"Log processing failed: {ex.Message}",
-                    timestamp = DateTime.UtcNow
-                });
-            }
-
+            // Error is already logged, no need for SignalR notification as frontend uses BulkProcessingComplete
             return false;
         }
         finally

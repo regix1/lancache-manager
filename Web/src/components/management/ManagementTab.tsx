@@ -402,65 +402,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       return;
     }
 
-    // Depot mapping handlers for operationStateService persistence
-    const handleDepotMappingStarted = async (payload: any) => {
-      console.log('[ManagementTab] DepotMappingStarted received:', payload);
-      // Persist state for recovery
-      try {
-        const state = {
-          id: 'depot-mapping',
-          isProcessing: true,
-          totalMappings: 0,
-          processedMappings: 0,
-          percentComplete: 0,
-          status: 'starting',
-          message: payload.message || 'Starting depot mapping post-processing...',
-          startedAt: new Date()
-        };
-        await operationStateService.saveState('activeDepotMapping', 'depotMapping', state, 60);
-      } catch (err) {
-        console.warn('[ManagementTab] Failed to save depot mapping state:', err);
-      }
-    };
-
-    const handleDepotMappingProgress = async (payload: any) => {
-      console.log('[ManagementTab] DepotMappingProgress received:', payload);
-      // Update persisted state
-      try {
-        const updates = {
-          isProcessing: payload.isProcessing,
-          totalMappings: payload.totalMappings,
-          processedMappings: payload.processedMappings,
-          mappingsApplied: payload.mappingsApplied,
-          percentComplete: payload.percentComplete,
-          status: payload.status,
-          message: payload.message
-        };
-        await operationStateService.updateState('activeDepotMapping', updates);
-      } catch (err) {
-        console.warn('[ManagementTab] Failed to update depot mapping state:', err);
-      }
-
-      // Clean up persisted state when complete
-      if (!payload.isProcessing || payload.status === 'complete') {
-        setTimeout(async () => {
-          try {
-            await operationStateService.removeState('activeDepotMapping');
-          } catch (err) {
-            console.warn('[ManagementTab] Failed to remove depot mapping state:', err);
-          }
-        }, 5000);
-      }
-    };
-
-    const handleDepotPostProcessingFailed = async () => {
-      // Clean up persisted state
-      try {
-        await operationStateService.removeState('activeDepotMapping');
-      } catch (err) {
-        console.warn('[ManagementTab] Failed to remove depot mapping state:', err);
-      }
-    };
+    // Note: Depot mapping events are now handled by NotificationsContext via SignalR
 
     const handleLogRemovalComplete = async (payload: any) => {
       // Management-specific: Refresh LogAndCorruptionManager component
@@ -481,33 +423,12 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     };
 
     // Subscribe to management-specific events
-    signalR.on('DepotMappingStarted', handleDepotMappingStarted);
-    signalR.on('DepotMappingProgress', handleDepotMappingProgress);
-    signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
 
     console.log('[ManagementTab] Subscribed to management-specific SignalR events');
 
-    // Note: Depot mapping state recovery is now handled automatically by SignalR
-    // in NotificationsContext, so we don't need manual recovery here
-    const recoverDepotMappingState = async () => {
-      // No-op: SignalR will restore the state automatically
-    };
-
-    // Note: Service removal state recovery is now handled automatically by SignalR
-    // in NotificationsContext, so we don't need manual recovery here
-    const recoverServiceRemovalState = async () => {
-      // No-op: SignalR will restore the state automatically
-    };
-
-    recoverDepotMappingState();
-    recoverServiceRemovalState();
-
     // Cleanup: unsubscribe from all events
     return () => {
-      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
-      signalR.off('DepotMappingProgress', handleDepotMappingProgress);
-      signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       console.log('[ManagementTab] Unsubscribed from management-specific SignalR events');
     };

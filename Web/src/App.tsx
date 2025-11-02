@@ -15,7 +15,7 @@ import UniversalNotificationBar from '@components/common/UniversalNotificationBa
 import DepotInitializationModal from '@components/initialization/DepotInitializationModal';
 import AuthenticationModal from '@components/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
-import { usePicsProgress } from '@hooks/usePicsProgress';
+import { useSignalR } from '@contexts/SignalRContext';
 import ApiService from '@services/api.service';
 import authService, { AuthMode } from '@services/auth.service';
 import { setServerTimezone } from '@utils/timezone';
@@ -59,16 +59,26 @@ const AppContent: React.FC = () => {
   const [checkingSetupStatus, setCheckingSetupStatus] = useState(true);
   const [showAutomaticScanSkippedModal, setShowAutomaticScanSkippedModal] = useState(false);
   const [hasShownScanSkippedModal, setHasShownScanSkippedModal] = useState(false);
-  const { progress } = usePicsProgress({ pollingInterval: 5000 });
+  const signalR = useSignalR();
 
-  // Detect when automatic scan is skipped and show modal (only for authenticated users)
+  // Listen for automatic scan skipped event via SignalR (for authenticated users)
   useEffect(() => {
-    if (progress?.automaticScanSkipped && !hasShownScanSkippedModal && !showAutomaticScanSkippedModal && authMode === 'authenticated') {
-      console.log('[App] Automatic scan skipped detected, showing modal');
-      setShowAutomaticScanSkippedModal(true);
-      setHasShownScanSkippedModal(true);
-    }
-  }, [progress?.automaticScanSkipped, hasShownScanSkippedModal, showAutomaticScanSkippedModal, authMode]);
+    if (!signalR || authMode !== 'authenticated') return;
+
+    const handleAutomaticScanSkipped = () => {
+      if (!hasShownScanSkippedModal && !showAutomaticScanSkippedModal) {
+        console.log('[App] Automatic scan skipped event received, showing modal');
+        setShowAutomaticScanSkippedModal(true);
+        setHasShownScanSkippedModal(true);
+      }
+    };
+
+    signalR.on('AutomaticScanSkipped', handleAutomaticScanSkipped);
+
+    return () => {
+      signalR.off('AutomaticScanSkipped', handleAutomaticScanSkipped);
+    };
+  }, [signalR, hasShownScanSkippedModal, showAutomaticScanSkippedModal, authMode]);
 
   // Fetch server timezone on mount
   useEffect(() => {

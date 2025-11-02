@@ -29,6 +29,9 @@ export function formatNextCrawlTime(
   } else if (typeof nextCrawlIn === 'object' && nextCrawlIn.totalHours !== undefined) {
     // Object with totalHours property
     totalSeconds = nextCrawlIn.totalHours * 3600;
+  } else if (typeof nextCrawlIn === 'object' && nextCrawlIn.hours !== undefined) {
+    // Object with {hours, minutes, seconds} properties
+    totalSeconds = (nextCrawlIn.hours * 3600) + (nextCrawlIn.minutes * 60) + nextCrawlIn.seconds;
   } else if (typeof nextCrawlIn === 'string') {
     // TimeSpan string format: "HH:MM:SS" or "D.HH:MM:SS"
     const parts = nextCrawlIn.split(':');
@@ -116,6 +119,9 @@ export function toTotalSeconds(timeValue: any): number {
     return timeValue.totalSeconds;
   } else if (typeof timeValue === 'object' && timeValue?.totalHours !== undefined) {
     return timeValue.totalHours * 3600;
+  } else if (typeof timeValue === 'object' && timeValue?.hours !== undefined) {
+    // Object with {hours, minutes, seconds} properties
+    return (timeValue.hours * 3600) + (timeValue.minutes * 60) + timeValue.seconds;
   } else if (typeof timeValue === 'string') {
     const parts = timeValue.split(':');
     if (parts.length >= 3) {

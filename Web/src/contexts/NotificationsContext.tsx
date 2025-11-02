@@ -57,9 +57,13 @@ export interface UnifiedNotification {
     mappingsApplied?: number;
     percentComplete?: number;
     isProcessing?: boolean;
+    isLoggedOn?: boolean;
 
     // For generic notifications
     notificationType?: 'success' | 'error' | 'info' | 'warning';
+
+    // Cancellation flag
+    cancelled?: boolean;
   };
 
   error?: string;
@@ -434,128 +438,313 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    // Depot Mapping
-    const handleDepotMappingStarted = (payload: any) => {
-      const notificationId = 'depot-mapping';
+    // Cache Clear Progress
+    const handleCacheClearProgress = (payload: any) => {
+      const notificationId = 'cache_clearing';
+
       setNotifications(prev => {
         const existing = prev.find(n => n.id === notificationId);
-        if (!existing) {
+        if (existing) {
+          return prev.map(n =>
+            n.id === notificationId
+              ? {
+                  ...n,
+                  message: payload.statusMessage || 'Clearing cache...',
+                  progress: payload.percentComplete || 0,
+                  details: {
+                    ...n.details,
+                    filesDeleted: payload.filesDeleted || 0,
+                    directoriesProcessed: payload.directoriesProcessed || 0,
+                    bytesDeleted: payload.bytesDeleted || 0
+                  }
+                }
+              : n
+          );
+        } else {
           return [...prev, {
             id: notificationId,
-            type: 'depot_mapping' as NotificationType,
+            type: 'cache_clearing' as NotificationType,
             status: 'running' as NotificationStatus,
-            message: payload.message || 'Starting depot mapping post-processing...',
+            message: payload.statusMessage || 'Clearing cache...',
+            progress: payload.percentComplete || 0,
             startedAt: new Date(),
             details: {
-              isProcessing: true,
-              totalMappings: 0,
-              processedMappings: 0,
-              percentComplete: 0
+              filesDeleted: payload.filesDeleted || 0,
+              directoriesProcessed: payload.directoriesProcessed || 0,
+              bytesDeleted: payload.bytesDeleted || 0
             }
           }];
         }
-        return prev;
       });
     };
 
+    // Cache Clear Complete
+    const handleCacheClearComplete = (payload: any) => {
+      console.log('[NotificationsContext] CacheClearComplete received:', payload);
+      const notificationId = 'cache_clearing';
+
+      if (payload.success) {
+        setNotifications(prev =>
+          prev.map(n =>
+            n.id === notificationId
+              ? {
+                  ...n,
+                  status: 'completed' as NotificationStatus,
+                  message: payload.message || 'Cache cleared successfully',
+                  details: {
+                    ...n.details,
+                    filesDeleted: payload.filesDeleted,
+                    directoriesProcessed: payload.directoriesProcessed
+                  }
+                }
+              : n
+          )
+        );
+
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        }, 5000);
+      } else {
+        setNotifications(prev =>
+          prev.map(n =>
+            n.id === notificationId
+              ? {
+                  ...n,
+                  status: 'failed' as NotificationStatus,
+                  error: payload.error || payload.message || 'Cache clear failed'
+                }
+              : n
+          )
+        );
+
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        }, 5000);
+      }
+    };
+
+    // Depot Mapping Started
+    const handleDepotMappingStarted = (payload: any) => {
+      console.log('[NotificationsContext] DepotMappingStarted received:', payload);
+      const notificationId = 'depot_mapping';
+
+      // Remove any existing depot mapping notifications and add new one with fixed ID
+      setNotifications(prev => {
+        const filtered = prev.filter(n => n.id !== notificationId);
+        return [...filtered, {
+          id: notificationId,
+          type: 'depot_mapping' as NotificationType,
+          status: 'running' as NotificationStatus,
+          message: payload.message || 'Starting depot mapping scan...',
+          startedAt: new Date(),
+          progress: 0,
+          details: {
+            isLoggedOn: payload.isLoggedOn
+          }
+        }];
+      });
+    };
+
+    // Depot Mapping Progress
     const handleDepotMappingProgress = (payload: any) => {
-      const notificationId = 'depot-mapping';
+      console.log('[NotificationsContext] DepotMappingProgress received:', payload);
+      const notificationId = 'depot_mapping';
       setNotifications(prev =>
         prev.map(n =>
           n.id === notificationId
             ? {
                 ...n,
-                message: payload.message,
+                progress: payload.percentComplete || 0,
+                message: payload.message || payload.status || 'Processing depot mappings...',
                 details: {
-                  isProcessing: payload.isProcessing,
-                  totalMappings: payload.totalMappings,
-                  processedMappings: payload.processedMappings,
-                  mappingsApplied: payload.mappingsApplied,
-                  percentComplete: payload.percentComplete
-                }
+                  ...n.details,
+                  isLoggedOn: payload.isLoggedOn !== undefined ? payload.isLoggedOn : n.details?.isLoggedOn
+                },
+                detailMessage: (() => {
+                  // PICS scan progress (processedBatches exists)
+                  if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
+                    return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
+                      payload.depotMappingsFound !== undefined ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found` : ''
+                    }`;
+                  }
+                  // Download mapping progress (processedMappings exists)
+                  if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
+                    return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
+                      payload.mappingsApplied !== undefined ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied` : ''
+                    }`;
+                  }
+                  return undefined;
+                })()
               }
             : n
         )
       );
+    };
 
-      // Clear when complete
-      if (!payload.isProcessing || payload.status === 'complete') {
+    // Depot Mapping Complete (added as new handler)
+    const handleDepotMappingComplete = (payload: any) => {
+      console.log('[NotificationsContext] DepotMappingComplete received:', payload);
+      const notificationId = 'depot_mapping';
+
+      // Handle cancellation
+      if (payload.cancelled) {
+        setNotifications(prev =>
+          prev.map(n =>
+            n.id === notificationId
+              ? {
+                  ...n,
+                  status: 'completed' as NotificationStatus,
+                  message: 'Depot mapping scan cancelled',
+                  progress: 100,
+                  details: {
+                    ...n.details,
+                    cancelled: true
+                  }
+                }
+              : n
+          )
+        );
+
+        // Auto-remove after 3 seconds
         setTimeout(() => {
           setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        }, 3000);
+        return;
       }
-    };
 
-    const handleDepotPostProcessingFailed = (payload: any) => {
-      setNotifications(prev => prev.filter(n => n.type !== 'depot_mapping'));
-      // Add error notification
-      const errorId = `generic-error-${Date.now()}`;
-      setNotifications(prev => [...prev, {
-        id: errorId,
-        type: 'generic' as NotificationType,
-        status: 'failed' as NotificationStatus,
-        message: payload?.error
-          ? `Depot mapping post-processing failed: ${payload.error}`
-          : 'Depot mapping post-processing failed.',
-        startedAt: new Date(),
-        details: {
-          notificationType: 'error'
-        }
-      }]);
+      if (payload.success) {
+        // Check if this was an incremental scan - if so, animate to 100% first
+        const isIncremental = payload.scanMode === 'incremental';
 
-      setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== errorId));
-      }, 5000);
-    };
+        if (isIncremental) {
+          // Animate progress to 100% over 1.5 seconds
+          const animationDuration = 1500; // ms
+          const steps = 30;
+          const interval = animationDuration / steps;
 
-    // PICS Scan Progress
-    const handlePicsProgress = (payload: any) => {
-      const notificationId = 'pics-scan';
+          setNotifications(prev => {
+            const notification = prev.find(n => n.id === notificationId);
+            if (!notification) return prev;
 
-      if (payload.status === 'complete' || !payload.isRunning) {
-        // Remove the notification when complete
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
-      } else if (payload.isRunning) {
-        setNotifications(prev => {
-          const existing = prev.find(n => n.id === notificationId);
-          const message = `Scanning Steam: ${payload.processedApps || 0}/${payload.totalApps || 0} apps`;
-          const progress = payload.progressPercent || 0;
+            const startProgress = notification.progress || 0;
+            const progressIncrement = (100 - startProgress) / steps;
+            let currentStep = 0;
 
-          if (existing) {
-            return prev.map(n =>
+            const animationInterval = setInterval(() => {
+              currentStep++;
+              const newProgress = Math.min(100, startProgress + (progressIncrement * currentStep));
+
+              setNotifications(prevNotes =>
+                prevNotes.map(n =>
+                  n.id === notificationId
+                    ? {
+                        ...n,
+                        progress: newProgress,
+                        message: newProgress >= 100
+                          ? (payload.message || 'Depot mapping completed successfully')
+                          : n.message
+                      }
+                    : n
+                )
+              );
+
+              if (currentStep >= steps) {
+                clearInterval(animationInterval);
+
+                // After animation, show completion status
+                setTimeout(() => {
+                  setNotifications(prevNotes =>
+                    prevNotes.map(n =>
+                      n.id === notificationId
+                        ? {
+                            ...n,
+                            status: 'completed' as NotificationStatus,
+                            message: payload.message || 'Depot mapping completed successfully',
+                            details: {
+                              ...n.details,
+                              totalMappings: payload.totalMappings,
+                              downloadsUpdated: payload.downloadsUpdated
+                            }
+                          }
+                        : n
+                    )
+                  );
+
+                  // Auto-remove after 5 seconds
+                  setTimeout(() => {
+                    setNotifications(prevNotes => prevNotes.filter(n => n.id !== notificationId));
+                  }, 5000);
+                }, 300); // Small delay after reaching 100%
+              }
+            }, interval);
+
+            return prev;
+          });
+        } else {
+          // Full scan - show completion immediately
+          setNotifications(prev =>
+            prev.map(n =>
               n.id === notificationId
                 ? {
                     ...n,
-                    message,
-                    progress,
+                    status: 'completed' as NotificationStatus,
+                    message: payload.message || `Depot mapping completed successfully`,
                     details: {
                       ...n.details,
-                      totalApps: payload.totalApps,
-                      processedApps: payload.processedApps,
-                      depotMappingsFound: payload.depotMappingsFound
+                      totalMappings: payload.totalMappings,
+                      downloadsUpdated: payload.downloadsUpdated
                     }
                   }
                 : n
-            );
-          } else {
-            return [...prev, {
-              id: notificationId,
-              type: 'depot_mapping' as NotificationType,
-              status: 'running' as NotificationStatus,
-              message,
-              progress,
-              startedAt: new Date(),
-              details: {
-                totalApps: payload.totalApps,
-                processedApps: payload.processedApps,
-                depotMappingsFound: payload.depotMappingsFound
-              }
-            }];
-          }
-        });
+            )
+          );
+
+          // Auto-remove after 5 seconds
+          setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== notificationId));
+          }, 5000);
+        }
+      } else {
+        setNotifications(prev =>
+          prev.map(n =>
+            n.id === notificationId
+              ? {
+                  ...n,
+                  status: 'failed' as NotificationStatus,
+                  error: payload.error || payload.message || 'Depot mapping failed'
+                }
+              : n
+          )
+        );
+
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        }, 5000);
       }
+    };
+
+    // Depot Post Processing Failed (placeholder for compatibility)
+    const handleDepotPostProcessingFailed = (payload: any) => {
+      console.log('[NotificationsContext] DepotPostProcessingFailed received:', payload);
+      addNotification({
+        type: 'depot_mapping',
+        status: 'failed',
+        message: payload.message || 'Depot post-processing failed',
+        error: payload.error,
+        details: {
+          notificationType: 'error'
+        }
+      });
+    };
+
+    // Pics Progress - DISABLED, now using DepotMappingProgress events instead
+    // This old handler was creating duplicate notifications and interfering with the new depot mapping notification
+    const handlePicsProgress = () => {
+      // No-op: Depot mapping progress is now handled by DepotMappingStarted/Progress/Complete events
+      // This prevents duplicate notifications and UI conflicts
     };
 
     // Subscribe to events
@@ -564,9 +753,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalComplete', handleGameRemovalComplete);
+    signalR.on('CacheClearProgress', handleCacheClearProgress);
+    signalR.on('CacheClearComplete', handleCacheClearComplete);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
+    signalR.on('DepotMappingComplete', handleDepotMappingComplete);
     signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
     signalR.on('PicsProgress', handlePicsProgress);
 
@@ -577,13 +769,261 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       signalR.off('GameRemovalComplete', handleGameRemovalComplete);
+      signalR.off('CacheClearProgress', handleCacheClearProgress);
+      signalR.off('CacheClearComplete', handleCacheClearComplete);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       signalR.off('DepotMappingStarted', handleDepotMappingStarted);
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
+      signalR.off('DepotMappingComplete', handleDepotMappingComplete);
       signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
       signalR.off('PicsProgress', handlePicsProgress);
     };
   }, [signalR]);
+
+  // Universal Recovery: Check all backend operations on mount
+  React.useEffect(() => {
+    const recoverAllOperations = async () => {
+      try {
+        // Run all recovery checks in parallel
+        await Promise.allSettled([
+          recoverLogProcessing(),
+          recoverServiceRemoval(),
+          recoverDepotMapping(),
+          recoverCacheClearing(),
+          recoverDatabaseReset(),
+          recoverGameDetection()
+        ]);
+      } catch (err) {
+        console.error('[NotificationsContext] Failed to recover operations:', err);
+      }
+    };
+
+    const recoverLogProcessing = async () => {
+      try {
+        const response = await fetch('/api/management/processing-status');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.isProcessing) {
+            const notificationId = 'log_processing';
+
+            setNotifications(prev => {
+              const existing = prev.find(n => n.id === notificationId);
+              if (existing) return prev;
+
+              const message = `Processing: ${data.mbProcessed?.toFixed(1) || 0} MB of ${data.mbTotal?.toFixed(1) || 0} MB`;
+              const detailMessage = `${data.entriesProcessed?.toLocaleString() || 0} of ${data.totalLines?.toLocaleString() || 0} entries`;
+
+              return [...prev, {
+                id: notificationId,
+                type: 'log_processing' as NotificationType,
+                status: 'running' as NotificationStatus,
+                message,
+                detailMessage,
+                progress: Math.min(99.9, data.percentComplete || 0),
+                startedAt: new Date(),
+                details: {
+                  mbProcessed: data.mbProcessed,
+                  mbTotal: data.mbTotal,
+                  entriesProcessed: data.entriesProcessed,
+                  totalLines: data.totalLines
+                }
+              }];
+            });
+
+            console.log('[NotificationsContext] Recovered log processing notification');
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    const recoverServiceRemoval = async () => {
+      try {
+        const response = await fetch('/api/management/logs/remove-status');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.isProcessing && data.service) {
+            const notificationId = 'service_removal';
+
+            setNotifications(prev => {
+              const existing = prev.find(n => n.id === notificationId);
+              if (existing) return prev;
+
+              return [...prev, {
+                id: notificationId,
+                type: 'service_removal' as NotificationType,
+                status: 'running' as NotificationStatus,
+                message: `Removing ${data.service} entries from logs`,
+                progress: data.percentComplete || 0,
+                startedAt: new Date(),
+                details: {
+                  service: data.service,
+                  linesProcessed: data.linesProcessed,
+                  linesRemoved: data.linesRemoved
+                }
+              }];
+            });
+
+            console.log('[NotificationsContext] Recovered service removal notification');
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    const recoverDepotMapping = async () => {
+      try {
+        const response = await fetch('/api/gameinfo/steamkit/progress');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.isRunning) {
+            const notificationId = 'depot_mapping';
+
+            setNotifications(prev => {
+              const existing = prev.find(n => n.id === notificationId);
+              if (existing) return prev;
+
+              return [...prev, {
+                id: notificationId,
+                type: 'depot_mapping' as NotificationType,
+                status: 'running' as NotificationStatus,
+                message: data.status || 'Processing depot mappings...',
+                startedAt: new Date(),
+                progress: data.progressPercent || 0,
+                details: {
+                  isLoggedOn: data.isLoggedOn
+                },
+                detailMessage: (() => {
+                  if (data.processedBatches !== undefined && data.totalBatches !== undefined) {
+                    return `${data.processedBatches.toLocaleString()} / ${data.totalBatches.toLocaleString()} batches${
+                      data.depotMappingsFound !== undefined ? ` • ${data.depotMappingsFound.toLocaleString()} mappings found` : ''
+                    }`;
+                  }
+                  return undefined;
+                })()
+              }];
+            });
+
+            console.log('[NotificationsContext] Recovered depot mapping notification');
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    const recoverCacheClearing = async () => {
+      try {
+        const response = await fetch('/api/management/cache/active-operations');
+        if (response.ok) {
+          const data = await response.json();
+
+          // Check if there are any active operations
+          if (data.hasActive && data.operations && data.operations.length > 0) {
+            // Get the first running operation
+            const activeOp = data.operations[0];
+            const notificationId = 'cache_clearing';
+
+            setNotifications(prev => {
+              const existing = prev.find(n => n.id === notificationId);
+              if (existing) return prev;
+
+              return [...prev, {
+                id: notificationId,
+                type: 'cache_clearing' as NotificationType,
+                status: 'running' as NotificationStatus,
+                message: activeOp.statusMessage || 'Clearing cache...',
+                progress: activeOp.percentComplete || 0,
+                startedAt: new Date(),
+                details: {
+                  filesDeleted: activeOp.filesDeleted || 0,
+                  directoriesProcessed: activeOp.directoriesProcessed || 0,
+                  bytesDeleted: activeOp.bytesDeleted || 0
+                }
+              }];
+            });
+
+            console.log('[NotificationsContext] Recovered cache clearing notification');
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    const recoverDatabaseReset = async () => {
+      try {
+        const response = await fetch('/api/management/database/reset-status');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.isProcessing) {
+            const notificationId = 'database-reset';
+
+            setNotifications(prev => {
+              const existing = prev.find(n => n.id === notificationId);
+              if (existing) return prev;
+
+              return [...prev, {
+                id: notificationId,
+                type: 'database_reset' as NotificationType,
+                status: 'running' as NotificationStatus,
+                message: data.message || 'Resetting database...',
+                progress: data.percentComplete || 0,
+                startedAt: new Date()
+              }];
+            });
+
+            console.log('[NotificationsContext] Recovered database reset notification');
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    const recoverGameDetection = async () => {
+      try {
+        const response = await fetch('/api/management/cache/detect-games-active');
+        if (response.ok) {
+          const data = await response.json();
+
+          if (data.hasActiveOperation && data.operation) {
+            const op = data.operation;
+            const notificationId = 'game_detection';
+
+            setNotifications(prev => {
+              const existing = prev.find(n => n.id === notificationId);
+              if (existing) return prev;
+
+              return [...prev, {
+                id: notificationId,
+                type: 'generic' as NotificationType,
+                status: 'running' as NotificationStatus,
+                message: op.statusMessage || 'Detecting games in cache...',
+                progress: op.percentComplete || 0,
+                startedAt: new Date(),
+                details: {
+                  notificationType: 'info' as const
+                }
+              }];
+            });
+
+            console.log('[NotificationsContext] Recovered game detection notification');
+          }
+        }
+      } catch (err) {
+        // Silently fail - operation not running
+      }
+    };
+
+    recoverAllOperations();
+  }, []); // Run once on mount
 
   const value = {
     notifications,

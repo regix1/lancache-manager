@@ -185,11 +185,14 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           'BulkProcessingComplete',
           'DepotMappingStarted',
           'DepotMappingProgress',
+          'DepotMappingComplete',
           'DepotPostProcessingFailed',
           'DatabaseResetProgress',
           'LogRemovalProgress',
           'LogRemovalComplete',
-          'GameRemovalComplete'
+          'GameRemovalComplete',
+          'CacheClearProgress',
+          'CacheClearComplete'
         ];
 
         allEvents.forEach(eventName => {
@@ -304,9 +307,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       // Clear all event handlers
       eventHandlersRef.current.clear();
 
-      // Reset flags
+      // Reset setup flag only (keep hasInitializedRef to prevent duplicate connections)
       isSettingUpRef.current = false;
-      hasInitializedRef.current = false; // Reset to allow reconnection on remount
     };
   }, [mockMode, setupConnection]);
 
