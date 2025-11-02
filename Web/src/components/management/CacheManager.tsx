@@ -3,7 +3,7 @@ import { Server, Trash2, AlertTriangle, Loader2, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
-import { useData } from '@contexts/DataContext';
+import { useNotifications } from '@contexts/NotificationsContext';
 import { formatBytes } from '@utils/formatters';
 
 interface CacheClearOperationData {
@@ -30,8 +30,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   onError,
   onSuccess
 }) => {
-  const { setBackgroundCacheClearing, updateBackgroundCacheClearing } = useData();
+  const { addNotification, updateNotification, removeNotification } = useNotifications();
   const [cacheClearProgress, setCacheClearProgress] = useState<CacheClearStatus | null>(null);
+  const [cacheNotificationId, setCacheNotificationId] = useState<string | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
@@ -258,7 +259,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Removed unused handleCancelCacheClear function
 
-  // Report cache clearing status to DataContext for UniversalNotificationBar
+  // Report cache clearing status for UniversalNotificationBar
   useEffect(() => {
     const isActive =
       (cacheOp.operation as any)?.data &&
@@ -266,42 +267,58 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       ['Running', 'Preparing', 'Cancelling'].includes(cacheClearProgress.status);
 
     if (isActive && cacheClearProgress) {
-      const status = cacheClearProgress.status === 'Cancelling'
-        ? 'clearing' // Keep showing as clearing while cancelling
-        : cacheClearProgress.status === 'Completed'
-        ? 'complete'
-        : cacheClearProgress.status === 'Failed'
-        ? 'failed'
-        : 'clearing';
+      const status: 'running' | 'completed' | 'failed' =
+        cacheClearProgress.status === 'Cancelling' || cacheClearProgress.status === 'Running' || cacheClearProgress.status === 'Preparing'
+          ? 'running'
+          : cacheClearProgress.status === 'Completed'
+          ? 'completed'
+          : 'failed';
 
-      setBackgroundCacheClearing({
-        id: (cacheOp.operation as any).data.operationId,
-        filesDeleted: cacheClearProgress.filesDeleted || 0,
-        progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
-        status,
-        startedAt: new Date()
-      });
-    } else if (cacheClearProgress?.status === 'Completed') {
-      updateBackgroundCacheClearing({
-        status: 'complete',
+      // Add or update notification
+      if (cacheNotificationId) {
+        updateNotification(cacheNotificationId, {
+          status,
+          progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
+          message: status === 'running' ? 'Clearing cache...' : status === 'completed' ? 'Cache cleared successfully' : 'Cache clearing failed',
+          details: {
+            filesDeleted: cacheClearProgress.filesDeleted || 0
+          }
+        });
+      } else {
+        const notifId = addNotification({
+          type: 'cache_clearing',
+          status,
+          message: 'Clearing cache...',
+          progress: cacheClearProgress.percentComplete || cacheClearProgress.progress || 0,
+          details: {
+            filesDeleted: cacheClearProgress.filesDeleted || 0
+          }
+        });
+        setCacheNotificationId(notifId);
+      }
+    } else if (cacheClearProgress?.status === 'Completed' && cacheNotificationId) {
+      updateNotification(cacheNotificationId, {
+        status: 'completed',
+        message: 'Cache cleared successfully',
         progress: 100
       });
       setTimeout(() => {
-        setBackgroundCacheClearing(null);
+        removeNotification(cacheNotificationId);
+        setCacheNotificationId(null);
       }, 3000);
-    } else if (cacheClearProgress?.status === 'Failed') {
-      updateBackgroundCacheClearing({
+    } else if (cacheClearProgress?.status === 'Failed' && cacheNotificationId) {
+      updateNotification(cacheNotificationId, {
         status: 'failed',
         error: cacheClearProgress.error || 'Cache clearing failed'
       });
       setTimeout(() => {
-        setBackgroundCacheClearing(null);
+        removeNotification(cacheNotificationId);
+        setCacheNotificationId(null);
       }, 5000);
-    } else {
-      setBackgroundCacheClearing(null);
+    } else if (!isActive && cacheNotificationId) {
+      removeNotification(cacheNotificationId);
+      setCacheNotificationId(null);
     }
-    // Note: setBackgroundCacheClearing and updateBackgroundCacheClearing are stable context functions
-    // and should not be in the dependency array to avoid infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheOp.operation, cacheClearProgress]);
 

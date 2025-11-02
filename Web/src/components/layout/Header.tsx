@@ -3,7 +3,7 @@ import TimeFilter from '../common/TimeFilter';
 import PollingRateSelector from '../common/PollingRateSelector';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
-import { useData } from '@contexts/DataContext';
+import { useMockMode } from '@contexts/MockModeContext';
 import authService from '@services/auth.service';
 
 interface HeaderProps {
@@ -17,7 +17,7 @@ const Header: React.FC<HeaderProps> = ({
   subtitle = 'High-performance cache monitoring & management',
   connectionStatus = 'connected'
 }) => {
-  const { mockMode } = useData();
+  const { mockMode } = useMockMode();
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [isRevoked, setIsRevoked] = useState(false);
   const [deviceId, setDeviceId] = useState('');

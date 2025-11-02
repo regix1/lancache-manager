@@ -11,7 +11,7 @@ import {
   List,
   Grid3x3,
 } from 'lucide-react';
-import { useData } from '../../contexts/DataContext'; // Fixed import path
+import { useDownloads } from '../../contexts/DownloadsContext';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { storage } from '@utils/storage';
 import { Alert } from '../ui/Alert'; // Fixed import path
@@ -72,14 +72,7 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 
 // Main Downloads Tab Component
 const DownloadsTab: React.FC = () => {
-  const {
-    latestDownloads = [],
-    loading,
-    mockMode,
-    apiDownloadCount,
-    updateMockDataCount,
-    updateApiDownloadCount
-  } = useData();
+  const { latestDownloads = [], loading } = useDownloads();
   const { timeRange } = useTimeFilter();
 
   // State management
@@ -130,14 +123,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES, settings.groupUnknownGames.toString());
   }, [settings]);
 
-  // Always fetch unlimited downloads from API to ensure we have all for grouping
-  useEffect(() => {
-    if (mockMode && updateMockDataCount) {
-      updateMockDataCount('unlimited');
-    } else if (!mockMode && updateApiDownloadCount) {
-      updateApiDownloadCount('unlimited');
-    }
-  }, [mockMode, updateMockDataCount, updateApiDownloadCount]);
+  // Note: Downloads are now always fetched from the context - no need to manage mock data count here
 
   // Track filter changes and show loading state
   useEffect(() => {
@@ -1041,7 +1027,7 @@ const DownloadsTab: React.FC = () => {
               <span className="whitespace-nowrap">
                 ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'}
                 {filteredDownloads.length !== latestDownloads.length &&
-                  ` of ${apiDownloadCount === 'unlimited' ? 'unlimited' : latestDownloads.length} total`})
+                  ` of ${latestDownloads.length} total`})
               </span>
             </span>
             {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (

@@ -1,8 +1,11 @@
 import React, { useState, Suspense, lazy, useEffect } from 'react';
-import { DataProvider, useData } from '@contexts/DataContext';
+import { NotificationsProvider } from '@contexts/NotificationsContext';
+import { StatsProvider, useStats } from '@contexts/StatsContext';
+import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { PollingRateProvider } from '@contexts/PollingRateContext';
 import { SignalRProvider } from '@contexts/SignalRContext';
+import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -27,12 +30,23 @@ const UserTab = lazy(() => import('@components/user/UserTab'));
 const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
 const MemoryDiagnostics = lazy(() => import('@components/memory/MemoryDiagnostics'));
 
+// Wrapper components to inject mockMode from context into providers
+const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { mockMode } = useMockMode();
+  return <StatsProvider mockMode={mockMode}>{children}</StatsProvider>;
+};
+
+const DownloadsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { mockMode } = useMockMode();
+  return <DownloadsProvider mockMode={mockMode}>{children}</DownloadsProvider>;
+};
+
 const AppContent: React.FC = () => {
   // Check if we're on a special route like /memory
   const isMemoryRoute = window.location.pathname === '/memory';
 
   const [activeTab, setActiveTab] = useState('dashboard');
-  const { connectionStatus } = useData();
+  const { connectionStatus } = useStats();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -509,15 +523,21 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ErrorBoundary>
-      <PollingRateProvider>
-        <TimeFilterProvider>
-          <SignalRProvider>
-            <DataProvider>
-              <AppContent />
-            </DataProvider>
-          </SignalRProvider>
-        </TimeFilterProvider>
-      </PollingRateProvider>
+      <MockModeProvider>
+        <PollingRateProvider>
+          <TimeFilterProvider>
+            <SignalRProvider>
+              <NotificationsProvider>
+                <StatsProviderWithMockMode>
+                  <DownloadsProviderWithMockMode>
+                    <AppContent />
+                  </DownloadsProviderWithMockMode>
+                </StatsProviderWithMockMode>
+              </NotificationsProvider>
+            </SignalRProvider>
+          </TimeFilterProvider>
+        </PollingRateProvider>
+      </MockModeProvider>
     </ErrorBoundary>
   );
 };

@@ -1,11 +1,11 @@
 import React from 'react';
-import { useData } from '../../contexts/DataContext';
+import { useStats } from '../../contexts/StatsContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 
 const ClientsTab: React.FC = () => {
-  const { clientStats } = useData();
+  const { clientStats } = useStats();
 
   return (
     <div className="space-y-6">

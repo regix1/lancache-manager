@@ -6,7 +6,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
-import { useData, useDataActions } from '@contexts/DataContext';
+import { useNotifications } from '@contexts/NotificationsContext';
 import { gameDetectionCache } from '@utils/gameDetectionCache';
 import type { GameCacheInfo } from '../../types';
 
@@ -21,9 +21,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   isAuthenticated = false,
   onDataRefresh
 }) => {
-  const { addNotification, addBackgroundRemoval, updateBackgroundRemoval } = useDataActions();
-  const { backgroundRemovals } = useData();
+  const { addNotification, updateNotification, notifications } = useNotifications();
   const [loading, setLoading] = useState(false);
+  const [gameRemovalNotifications, setGameRemovalNotifications] = useState<Map<number, string>>(new Map());
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [totalGames, setTotalGames] = useState<number>(0);
@@ -113,20 +113,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Listen for completed game removals from SignalR
   useEffect(() => {
-    const completedRemovals = backgroundRemovals.filter(r => r.status === 'completed');
+    const gameRemovalNotifs = notifications.filter(n => n.type === 'game_removal' && n.status === 'completed');
 
-    completedRemovals.forEach(async (removal) => {
+    gameRemovalNotifs.forEach(async (notif) => {
+      const gameAppId = notif.details?.gameAppId;
+      if (!gameAppId) return;
+
       // Remove from UI and IndexedDB
       setGames((prev) => {
-        const updated = prev.filter((g) => g.game_app_id !== removal.gameAppId);
+        const updated = prev.filter((g) => g.game_app_id !== gameAppId);
         return updated;
       });
       setTotalGames((prev) => prev - 1);
 
       // Remove from IndexedDB
-      await gameDetectionCache.removeGame(removal.gameAppId);
+      await gameDetectionCache.removeGame(gameAppId);
     });
-  }, [backgroundRemovals]);
+  }, [notifications]);
 
   // Memoized filtered, sorted, and paginated games list
   const filteredAndSortedGames = useMemo(() => {
@@ -171,7 +174,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           await gameDetectionCache.saveGames(status.games, status.totalGamesDetected);
 
           if (status.totalGamesDetected > 0) {
-            addNotification('success', `Detected ${status.totalGamesDetected} game${status.totalGamesDetected !== 1 ? 's' : ''} with cache files`);
+            addNotification({
+              type: 'generic',
+              status: 'completed',
+              message: `Detected ${status.totalGamesDetected} game${status.totalGamesDetected !== 1 ? 's' : ''} with cache files`,
+              details: { notificationType: 'success' }
+            });
           }
         }
       } else if (status.status === 'failed') {
@@ -184,7 +192,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         setLoading(false);
         const errorMsg = status.error || 'Detection failed';
         setError(errorMsg);
-        addNotification('error', errorMsg);
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMsg,
+          details: { notificationType: 'error' }
+        });
       }
       // If status is 'running', continue polling
     } catch (err: any) {
@@ -197,7 +210,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     if (mockMode) {
       const errorMsg = 'Detection disabled in mock mode';
       setError(errorMsg);
-      addNotification('error', errorMsg);
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: errorMsg,
+        details: { notificationType: 'error' }
+      });
       return;
     }
 
@@ -223,7 +241,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to start game detection';
       setError(errorMsg);
-      addNotification('error', errorMsg);
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: errorMsg,
+        details: { notificationType: 'error' }
+      });
       console.error('Game detection error:', err);
       setLoading(false);
     }
@@ -231,7 +254,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   const handleRemoveClick = (game: GameCacheInfo) => {
     if (!isAuthenticated) {
-      addNotification('error', 'Full authentication required for management operations');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Full authentication required for management operations',
+        details: { notificationType: 'error' }
+      });
       return;
     }
     setGameToRemove(game);
@@ -243,15 +271,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     const gameAppId = gameToRemove.game_app_id;
     const gameName = gameToRemove.game_name;
 
-    // Add to background removals for tracking (shows in notification bar and on Remove button)
-    addBackgroundRemoval({
-      gameAppId: gameAppId,
-      gameName: gameName,
-      startedAt: new Date(),
-      status: 'removing'
+    // Add notification for tracking (shows in notification bar and on Remove button)
+    const notifId = addNotification({
+      type: 'game_removal',
+      status: 'running',
+      message: `Removing ${gameName}...`,
+      details: {
+        gameAppId: gameAppId,
+        gameName: gameName
+      }
     });
 
-    // Close modal immediately - progress shown via backgroundRemovals
+    // Store notification ID for this game
+    setGameRemovalNotifications(prev => new Map(prev).set(gameAppId, notifId));
+
+    // Close modal immediately - progress shown via notifications
     setGameToRemove(null);
     setError(null);
 
@@ -269,11 +303,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to remove game from cache';
 
-      // Update background removal to failed
-      updateBackgroundRemoval(gameAppId, {
-        status: 'failed',
-        error: errorMsg
-      });
+      // Update notification to failed
+      const notifId = gameRemovalNotifications.get(gameAppId);
+      if (notifId) {
+        updateNotification(notifId, {
+          status: 'failed',
+          error: errorMsg
+        });
+      }
 
       console.error('Game removal error:', err);
     }
@@ -490,7 +527,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                           onClick={() => handleRemoveClick(game)}
                           disabled={
                             mockMode ||
-                            backgroundRemovals.some(r => r.gameAppId === game.game_app_id && r.status === 'removing') ||
+                            notifications.some(n => n.type === 'game_removal' && n.details?.gameAppId === game.game_app_id && n.status === 'running') ||
                             !isAuthenticated ||
                             cacheReadOnly ||
                             checkingPermissions
@@ -498,10 +535,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                           variant="filled"
                           color="red"
                           size="sm"
-                          loading={backgroundRemovals.some(r => r.gameAppId === game.game_app_id && r.status === 'removing')}
+                          loading={notifications.some(n => n.type === 'game_removal' && n.details?.gameAppId === game.game_app_id && n.status === 'running')}
                           title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
                         >
-                          {backgroundRemovals.some(r => r.gameAppId === game.game_app_id && r.status === 'removing') ? 'Removing...' : 'Remove'}
+                          {notifications.some(n => n.type === 'game_removal' && n.details?.gameAppId === game.game_app_id && n.status === 'running') ? 'Removing...' : 'Remove'}
                         </Button>
                       </Tooltip>
                     </div>

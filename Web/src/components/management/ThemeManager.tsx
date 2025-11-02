@@ -28,10 +28,10 @@ import { DeleteConfirmModal } from './theme/DeleteConfirmModal';
 import { CommunityThemeImporter } from './theme/CommunityThemeImporter';
 import { colorGroups } from './theme/constants';
 import { Theme, ThemeManagerProps } from './theme/types';
-import { useData } from '@contexts/DataContext';
+import { useNotifications } from '@contexts/NotificationsContext';
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
-  const { addNotification } = useData();
+  const { addNotification } = useNotifications();
 
   // State Management
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -363,12 +363,22 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   const handleFile = async (file: File) => {
     if (!file.name.endsWith('.toml')) {
-      addNotification('error', 'Please upload a .toml file');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Please upload a .toml file',
+        details: { notificationType: 'error' }
+      });
       return;
     }
 
     if (file.size > 1024 * 1024) {
-      addNotification('error', 'File size must be less than 1MB');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'File size must be less than 1MB',
+        details: { notificationType: 'error' }
+      });
       return;
     }
 
@@ -388,10 +398,20 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         throw new Error(error.error || 'Upload failed');
       }
 
-      addNotification('success', 'Theme uploaded successfully!');
+      addNotification({
+        type: 'generic',
+        status: 'completed',
+        message: 'Theme uploaded successfully!',
+        details: { notificationType: 'success' }
+      });
       await loadThemes();
     } catch (error: any) {
-      addNotification('error', error.message || 'Failed to upload theme');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: error.message || 'Failed to upload theme',
+        details: { notificationType: 'error' }
+      });
     } finally {
       setLoading(false);
     }

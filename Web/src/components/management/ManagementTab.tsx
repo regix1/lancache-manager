@@ -9,7 +9,9 @@ import {
   Plug,
   Settings
 } from 'lucide-react';
-import { useData, useDataActions } from '@contexts/DataContext';
+import { useStats } from '@contexts/StatsContext';
+import { useNotifications } from '@contexts/NotificationsContext';
+import { useMockMode } from '@contexts/MockModeContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
@@ -307,14 +309,9 @@ interface ManagementTabProps {
 }
 
 const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
-  const { mockMode } = useData();
-  const {
-    setMockMode,
-    fetchData,
-    setBackgroundDepotMapping,
-    addBackgroundServiceRemoval,
-    addNotification
-  } = useDataActions();
+  const { refreshStats } = useStats();
+  const { addNotification } = useNotifications();
+  const { mockMode, setMockMode } = useMockMode();
   const signalR = useSignalR();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
@@ -327,13 +324,23 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const logAndCorruptionReloadRef = useRef<(() => Promise<void>) | null>(null);
   const logAndCorruptionClearOpRef = useRef<(() => Promise<void>) | null>(null);
 
-  // Notification management using DataContext
+  // Notification management
   const addError = useCallback((message: string) => {
-    addNotification('error', message);
+    addNotification({
+      type: 'generic',
+      status: 'failed',
+      message,
+      details: { notificationType: 'error' }
+    });
   }, [addNotification]);
 
   const setSuccess = useCallback((message: string) => {
-    addNotification('success', message);
+    addNotification({
+      type: 'generic',
+      status: 'completed',
+      message,
+      details: { notificationType: 'success' }
+    });
   }, [addNotification]);
 
   // Helper function to refresh log & corruption management
@@ -481,55 +488,16 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
     console.log('[ManagementTab] Subscribed to management-specific SignalR events');
 
-    // Recover depot mapping state if page was refreshed during operation
+    // Note: Depot mapping state recovery is now handled automatically by SignalR
+    // in NotificationsContext, so we don't need manual recovery here
     const recoverDepotMappingState = async () => {
-      try {
-        const state = await operationStateService.getState('activeDepotMapping');
-        if (state?.data && state.data.isProcessing) {
-          console.log('[ManagementTab] Recovering depot mapping state:', state.data);
-          setBackgroundDepotMapping({
-            id: 'depot-mapping',
-            isProcessing: state.data.isProcessing,
-            totalMappings: state.data.totalMappings || 0,
-            processedMappings: state.data.processedMappings || 0,
-            mappingsApplied: state.data.mappingsApplied,
-            percentComplete: state.data.percentComplete || 0,
-            status: state.data.status || 'processing',
-            message: state.data.message || 'Depot mapping in progress...',
-            startedAt: state.data.startedAt ? new Date(state.data.startedAt) : new Date()
-          });
-        }
-      } catch (err) {
-        console.warn('[ManagementTab] Failed to recover depot mapping state:', err);
-      }
+      // No-op: SignalR will restore the state automatically
     };
 
-    // Recover service removal state if page was refreshed during operation
+    // Note: Service removal state recovery is now handled automatically by SignalR
+    // in NotificationsContext, so we don't need manual recovery here
     const recoverServiceRemovalState = async () => {
-      try {
-        const state = await operationStateService.getState('activeServiceRemoval');
-        if (state?.data?.service) {
-          // Check if operation is actually still running
-          const status = await ApiService.getLogRemovalStatus();
-          if (status && status.isProcessing) {
-            console.log('[ManagementTab] Recovering service removal state:', state.data);
-            addBackgroundServiceRemoval({
-              service: state.data.service,
-              status: 'removing',
-              message: `Removing ${state.data.service} entries...`,
-              progress: status.percentComplete || 0,
-              linesProcessed: status.linesProcessed || 0,
-              linesRemoved: status.linesRemoved || 0,
-              startedAt: new Date()
-            });
-          } else {
-            // Operation not running, clean up
-            await operationStateService.removeState('activeServiceRemoval');
-          }
-        }
-      } catch (err) {
-        console.warn('[ManagementTab] Failed to recover service removal state:', err);
-      }
+      // No-op: SignalR will restore the state automatically
     };
 
     recoverDepotMappingState();
@@ -590,7 +558,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 mockMode={mockMode}
                 onError={addError}
                 onSuccess={setSuccess}
-                onDataRefresh={fetchData}
+                onDataRefresh={refreshStats}
               />
 
               <CacheManager
@@ -606,7 +574,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 mockMode={mockMode}
                 onError={addError}
                 onSuccess={setSuccess}
-                onDataRefresh={fetchData}
+                onDataRefresh={refreshStats}
               />
 
               <LogAndCorruptionManager
@@ -623,7 +591,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
               <GameCacheDetector
                 mockMode={mockMode}
                 isAuthenticated={authMode === 'authenticated'}
-                onDataRefresh={fetchData}
+                onDataRefresh={refreshStats}
               />
             </CollapsibleSection>
 

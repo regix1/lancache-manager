@@ -3,7 +3,7 @@ import { Activity, Clock, Loader2 } from 'lucide-react';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
-import { useData } from '../../contexts/DataContext';
+import { useDownloads } from '../../contexts/DownloadsContext';
 
 interface DownloadGroup {
   id: string;
@@ -31,7 +31,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
     const [selectedService, setSelectedService] = useState<string>('all');
     const [selectedClient, setSelectedClient] = useState<string>('all');
     const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
-    const { activeDownloads, latestDownloads, loading } = useData();
+    const { activeDownloads, latestDownloads, loading } = useDownloads();
 
     // Touch/swipe handling
     const touchStartX = useRef<number>(0);

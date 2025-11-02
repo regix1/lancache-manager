@@ -1,12 +1,12 @@
 import React from 'react';
-import { useData } from '../../contexts/DataContext';
+import { useStats } from '../../contexts/StatsContext';
 import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { getServiceColorClass } from '../../utils/serviceColors';
 
 const ServicesTab: React.FC = () => {
-  const { serviceStats } = useData();
+  const { serviceStats } = useStats();
 
   return (
     <Card>

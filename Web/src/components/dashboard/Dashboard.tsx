@@ -16,7 +16,8 @@ import {
   LayoutGrid,
   X
 } from 'lucide-react';
-import { useData } from '../../contexts/DataContext';
+import { useStats } from '../../contexts/StatsContext';
+import { useDownloads } from '../../contexts/DownloadsContext';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
@@ -67,7 +68,8 @@ const StatTooltips: Record<string, string> = {
 };
 
 const Dashboard: React.FC = () => {
-  const { cacheInfo, activeDownloads, latestDownloads, clientStats, serviceStats, dashboardStats } = useData();
+  const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
+  const { activeDownloads, latestDownloads } = useDownloads();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate } = useTimeFilter();
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
@@ -132,7 +134,6 @@ const Dashboard: React.FC = () => {
       return true;
     });
   }, [clientStats, timeRange, getTimeRangeParams]);
-  const { loading } = useData(); // Use actual loading state from API
   const [showLoading, setShowLoading] = useState(false); // Delayed loading state
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

@@ -3,7 +3,6 @@ import { Zap, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
-import { useData } from '@contexts/DataContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -40,8 +39,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
-  const { setBackgroundLogProcessing, updateBackgroundLogProcessing } = useData();
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
+  // Local state for tracking processing UI (notifications handled by NotificationsContext)
+  // @ts-ignore - processingStatus is set but notifications are handled by NotificationsContext
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [steamAuthMode, setSteamAuthMode] = useState<'anonymous' | 'authenticated'>('anonymous');
@@ -97,38 +97,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
   }, [mockMode]);
 
-  // Report processing status to DataContext for UniversalNotificationBar
-  useEffect(() => {
-    if (isProcessingLogs && processingStatus) {
-      if (processingStatus.status === 'complete') {
-        updateBackgroundLogProcessing({
-          message: processingStatus.message,
-          detailMessage: processingStatus.detailMessage,
-          progress: processingStatus.progress,
-          status: 'complete'
-        });
-        // Clear after showing complete status
-        setTimeout(() => {
-          setBackgroundLogProcessing(null);
-        }, 5000);
-      } else {
-        setBackgroundLogProcessing({
-          id: 'log-processing',
-          message: processingStatus.message,
-          detailMessage: processingStatus.detailMessage,
-          progress: processingStatus.progress,
-          estimatedTime: processingStatus.estimatedTime,
-          status: processingStatus.status === 'processing' ? 'processing' : 'failed',
-          startedAt: new Date()
-        });
-      }
-    } else {
-      setBackgroundLogProcessing(null);
-    }
-    // Note: setBackgroundLogProcessing and updateBackgroundLogProcessing are stable context functions
-    // and should not be in the dependency array to avoid infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessingLogs, processingStatus]);
+  // Note: Log processing notifications are now handled automatically by SignalR
+  // in NotificationsContext, so we don't need to manually manage them here
 
   const parseMetric = (value: unknown) => {
     const numeric = Number(value ?? 0);

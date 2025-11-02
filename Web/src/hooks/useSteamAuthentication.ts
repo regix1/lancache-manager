@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import ApiService from '@services/api.service';
-import { useData } from '@contexts/DataContext';
+import { useNotifications } from '@contexts/NotificationsContext';
 
 export interface SteamAuthOptions {
   autoStartPics?: boolean;
@@ -32,7 +32,7 @@ export interface SteamAuthActions {
 
 export function useSteamAuthentication(options: SteamAuthOptions = {}) {
   const { autoStartPics = false, onSuccess } = options;
-  const { addNotification } = useData();
+  const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
@@ -78,18 +78,33 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
 
   const handleAuthenticate = async (): Promise<boolean> => {
     if (!username.trim() || !password.trim()) {
-      addNotification('error', 'Please enter both username and password');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Please enter both username and password',
+        details: { notificationType: 'error' }
+      });
       return false;
     }
 
     if (needsEmailCode && !emailCode.trim()) {
-      addNotification('error', 'Please enter your email verification code');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Please enter your email verification code',
+        details: { notificationType: 'error' }
+      });
       return false;
     }
 
     // If user chose manual code entry, require the code
     if (useManualCode && !twoFactorCode.trim()) {
-      addNotification('error', 'Please enter your 2FA code');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Please enter your 2FA code',
+        details: { notificationType: 'error' }
+      });
       return false;
     }
 
@@ -124,7 +139,12 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       try {
         result = await response.json();
       } catch (jsonError) {
-        addNotification('error', 'Invalid response from server');
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: 'Invalid response from server',
+          details: { notificationType: 'error' }
+        });
         setLoading(false);
         setWaitingForMobileConfirmation(false);
         return false;
@@ -149,12 +169,22 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
           return true; // Success
         } else {
           setWaitingForMobileConfirmation(false);
-          addNotification('error', result.message || 'Authentication failed');
+          addNotification({
+            type: 'generic',
+            status: 'failed',
+            message: result.message || 'Authentication failed',
+            details: { notificationType: 'error' }
+          });
           return false;
         }
       } else {
         setWaitingForMobileConfirmation(false);
-        addNotification('error', result.message || 'Authentication failed');
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: result.message || 'Authentication failed',
+          details: { notificationType: 'error' }
+        });
         return false;
       }
     } catch (err: any) {
@@ -162,7 +192,12 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       if (err.name !== 'AbortError') {
         setWaitingForMobileConfirmation(false);
         const errorMessage = err.message || 'Authentication failed';
-        addNotification('error', errorMessage);
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMessage,
+          details: { notificationType: 'error' }
+        });
       }
       return false;
     } finally {
