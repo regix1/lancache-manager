@@ -1,17 +1,20 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Loader2, X, User, UserX, Trash2, XCircle, Info } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useNotifications, UnifiedNotification } from '@contexts/NotificationsContext';
+import themeService from '@services/theme.service';
 
 // Unified notification component that handles all types
 const UnifiedNotificationItem = ({
   notification,
   onDismiss,
-  onCancel
+  onCancel,
+  isAnimatingOut
 }: {
   notification: UnifiedNotification;
   onDismiss: () => void;
   onCancel?: () => void;
+  isAnimatingOut?: boolean;
 }) => {
   const getStatusColor = () => {
     // Check for cancellation first
@@ -79,7 +82,9 @@ const UnifiedNotificationItem = ({
       className="flex items-center gap-3 p-2 rounded-lg"
       style={{
         backgroundColor: 'var(--theme-bg-secondary)',
-        borderLeft: `3px solid ${getStatusColor()}`
+        borderLeft: `3px solid ${getStatusColor()}`,
+        transition: 'opacity 0.3s ease-out',
+        opacity: isAnimatingOut ? 0 : 1
       }}
     >
       {getStatusIcon()}
@@ -277,6 +282,65 @@ const UnifiedNotificationItem = ({
 
 const UniversalNotificationBar: React.FC = () => {
   const { notifications, removeNotification } = useNotifications();
+  const [stickyDisabled, setStickyDisabled] = useState(themeService.getDisableStickyNotifications());
+  const [isAnimatingOut, setIsAnimatingOut] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
+  const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
+
+  // Listen for sticky notifications setting changes
+  useEffect(() => {
+    const handleStickyChange = () => {
+      setStickyDisabled(themeService.getDisableStickyNotifications());
+    };
+
+    window.addEventListener('stickynotificationschange', handleStickyChange);
+    return () => window.removeEventListener('stickynotificationschange', handleStickyChange);
+  }, []);
+
+  // Listen for notification removal events (for auto-dismiss animation)
+  useEffect(() => {
+    const handleNotificationRemoving = (event: CustomEvent) => {
+      const notificationId = event.detail.notificationId;
+      setDismissingIds(prev => new Set(prev).add(notificationId));
+    };
+
+    window.addEventListener('notification-removing', handleNotificationRemoving as EventListener);
+    return () => window.removeEventListener('notification-removing', handleNotificationRemoving as EventListener);
+  }, []);
+
+  // Handle animation when notifications appear/disappear
+  useEffect(() => {
+    if (notifications.length > 0) {
+      // Show immediately when notifications appear
+      setShouldRender(true);
+      setIsAnimatingOut(false);
+    } else if (shouldRender) {
+      // Start animation out when notifications are cleared
+      setIsAnimatingOut(true);
+      // Wait for animation to complete before unmounting
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsAnimatingOut(false);
+      }, 300); // Match this with CSS transition duration
+      return () => clearTimeout(timer);
+    }
+  }, [notifications.length, shouldRender]);
+
+  // Animated dismiss handler
+  const handleDismiss = (notificationId: string) => {
+    // Add to dismissing set to trigger animation
+    setDismissingIds(prev => new Set(prev).add(notificationId));
+
+    // Wait for animation to complete, then remove
+    setTimeout(() => {
+      removeNotification(notificationId);
+      setDismissingIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(notificationId);
+        return newSet;
+      });
+    }, 300); // Match CSS transition duration
+  };
 
   // Cancel handler for cache clearing
   const handleCancelCacheClearing = async (notificationId: string) => {
@@ -298,8 +362,8 @@ const UniversalNotificationBar: React.FC = () => {
     }
   };
 
-  // Don't render if no notifications
-  if (notifications.length === 0) {
+  // Don't render if no notifications and not animating
+  if (!shouldRender) {
     return null;
   }
 
@@ -308,7 +372,15 @@ const UniversalNotificationBar: React.FC = () => {
       className="w-full border-b shadow-sm"
       style={{
         backgroundColor: 'var(--theme-nav-bg)',
-        borderColor: 'var(--theme-nav-border)'
+        borderColor: 'var(--theme-nav-border)',
+        transition: 'transform 0.3s ease-out, opacity 0.3s ease-out',
+        transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
+        opacity: isAnimatingOut ? 0 : 1,
+        ...(stickyDisabled ? {} : {
+          position: 'sticky',
+          top: 0,
+          zIndex: 40
+        })
       }}
     >
       <div className="container mx-auto px-4 py-2 space-y-2">
@@ -317,7 +389,7 @@ const UniversalNotificationBar: React.FC = () => {
           <UnifiedNotificationItem
             key={notification.id}
             notification={notification}
-            onDismiss={() => removeNotification(notification.id)}
+            onDismiss={() => handleDismiss(notification.id)}
             onCancel={
               notification.type === 'cache_clearing'
                 ? () => handleCancelCacheClearing(notification.id)
@@ -325,6 +397,7 @@ const UniversalNotificationBar: React.FC = () => {
                 ? handleCancelDepotMapping
                 : undefined
             }
+            isAnimatingOut={dismissingIds.has(notification.id)}
           />
         ))}
       </div>

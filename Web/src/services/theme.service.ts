@@ -1138,6 +1138,11 @@ class ThemeService {
         storage.setItem('lancache_hide_about_sections', 'false'); // Default to showing about sections
       }
 
+      // Migration for disable sticky notifications feature
+      if (!storage.getItem('lancache_disable_sticky_notifications')) {
+        storage.setItem('lancache_disable_sticky_notifications', 'false'); // Default to sticky enabled
+      }
+
       // Set migration version to prevent future runs
       storage.setItem('lancache_migration_version', currentVersion);
     }
@@ -1262,6 +1267,17 @@ class ThemeService {
 
   getHideAboutSections(): boolean {
     return storage.getItem('lancache_hide_about_sections') === 'true';
+  }
+
+  setDisableStickyNotifications(enabled: boolean): void {
+    storage.setItem('lancache_disable_sticky_notifications', enabled.toString());
+
+    // Dispatch event for any components that need to react
+    window.dispatchEvent(new Event('stickynotificationschange'));
+  }
+
+  getDisableStickyNotifications(): boolean {
+    return storage.getItem('lancache_disable_sticky_notifications') === 'true';
   }
 
   async setTheme(themeId: string): Promise<void> {

@@ -56,6 +56,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [tooltipsDisabled, setTooltipsDisabled] = useState(false);
   const [picsAlwaysVisible, setPicsAlwaysVisible] = useState(false);
   const [hideAboutSections, setHideAboutSections] = useState(false);
+  const [disableStickyNotifications, setDisableStickyNotifications] = useState(false);
 
   const [editedTheme, setEditedTheme] = useState<any>({});
   const [newTheme, setNewTheme] = useState<any>({
@@ -91,6 +92,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setTooltipsDisabled(themeService.getDisableTooltips());
     setPicsAlwaysVisible(themeService.getPicsAlwaysVisible());
     setHideAboutSections(themeService.getHideAboutSections());
+    setDisableStickyNotifications(themeService.getDisableStickyNotifications());
   }, []);
 
   // Handler Functions
@@ -456,6 +458,11 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     themeService.setHideAboutSections(enabled);
   };
 
+  const handleDisableStickyNotificationsToggle = (enabled: boolean) => {
+    setDisableStickyNotifications(enabled);
+    themeService.setDisableStickyNotifications(enabled);
+  };
+
   // Utility Functions
   const toggleGroup = (groupName: string) => {
     setExpandedGroups(prev =>
@@ -644,6 +651,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   onChange={(e) => handleHideAboutSectionsToggle(e.target.checked)}
                   variant="rounded"
                   label="Hide Info Sections"
+                />
+                <Checkbox
+                  checked={disableStickyNotifications}
+                  onChange={(e) => handleDisableStickyNotificationsToggle(e.target.checked)}
+                  variant="rounded"
+                  label="Disable Sticky Notifications"
                 />
                 <Checkbox
                   checked={picsAlwaysVisible}

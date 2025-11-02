@@ -6,6 +6,7 @@ import React, {
   type ReactNode
 } from 'react';
 import { useSignalR } from './SignalRContext';
+import themeService from '@services/theme.service';
 
 // Unified notification type for all background operations
 export type NotificationType =
@@ -91,9 +92,27 @@ interface NotificationsProviderProps {
   children: ReactNode;
 }
 
+// Helper function to check if notifications should auto-dismiss
+const shouldAutoDismiss = (): boolean => {
+  return !themeService.getPicsAlwaysVisible();
+};
+
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
   const [notifications, setNotifications] = useState<UnifiedNotification[]>([]);
   const signalR = useSignalR();
+
+  // Helper function to remove notification with animation
+  const removeNotificationAnimated = useCallback((id: string) => {
+    // Dispatch event to trigger animation
+    window.dispatchEvent(new CustomEvent('notification-removing', {
+      detail: { notificationId: id }
+    }));
+
+    // Wait for animation to complete, then remove
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 300); // Match animation duration
+  }, []);
 
   const addNotification = useCallback((notification: Omit<UnifiedNotification, 'id' | 'startedAt'>): string => {
     // For game_removal, use gameAppId in ID so SignalR handler can find it
@@ -108,28 +127,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
     setNotifications(prev => [...prev, newNotification]);
 
-    // Auto-dismiss completed and failed notifications
-    if (notification.status === 'completed' || notification.status === 'failed') {
+    // Auto-dismiss completed and failed notifications (unless always visible is enabled)
+    if ((notification.status === 'completed' || notification.status === 'failed') && shouldAutoDismiss()) {
       setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== id));
+        removeNotificationAnimated(id);
       }, 5000); // Remove after 5 seconds
     }
 
     return id;
-  }, []);
+  }, [removeNotificationAnimated]);
 
   const updateNotification = useCallback((id: string, updates: Partial<UnifiedNotification>) => {
     setNotifications(prev =>
       prev.map(n => (n.id === id ? { ...n, ...updates } : n))
     );
 
-    // Auto-dismiss if updating to completed or failed status
-    if (updates.status === 'completed' || updates.status === 'failed') {
+    // Auto-dismiss if updating to completed or failed status (unless always visible is enabled)
+    if ((updates.status === 'completed' || updates.status === 'failed') && shouldAutoDismiss()) {
       setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== id));
+        removeNotificationAnimated(id);
       }, 5000); // Remove after 5 seconds
     }
-  }, []);
+  }, [removeNotificationAnimated]);
 
   const removeNotification = useCallback((id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
@@ -166,10 +185,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           return prev;
         });
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.type !== 'log_processing' || n.status !== 'completed'));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            // Get current notifications at time of timeout
+            setNotifications(prev => {
+              const completed = prev.find(n => n.type === 'log_processing' && n.status === 'completed');
+              if (completed) {
+                removeNotificationAnimated(completed.id);
+              }
+              return prev;
+            });
+          }, 5000);
+        }
       } else {
         const message = `Processing: ${payload.mbProcessed?.toFixed(1) || 0} MB of ${payload.mbTotal?.toFixed(1) || 0} MB`;
         const detailMessage = `${payload.entriesProcessed?.toLocaleString() || 0} of ${payload.totalLines?.toLocaleString() || 0} entries`;
@@ -236,10 +264,18 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         return prev;
       });
 
-      // Auto-remove after 5 seconds
-      setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.type !== 'log_processing' || n.status !== 'completed'));
-      }, 5000);
+      // Auto-remove after 5 seconds (unless always visible is enabled)
+      if (shouldAutoDismiss()) {
+        setTimeout(() => {
+          setNotifications(prev => {
+            const completed = prev.find(n => n.type === 'log_processing' && n.status === 'completed');
+            if (completed) {
+              removeNotificationAnimated(completed.id);
+            }
+            return prev;
+          });
+        }, 5000);
+      }
     };
 
     // Service Log Removal
@@ -301,10 +337,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       } else {
         setNotifications(prev =>
           prev.map(n =>
@@ -318,10 +356,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       }
     };
 
@@ -349,10 +389,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       } else {
         setNotifications(prev =>
           prev.map(n =>
@@ -366,10 +408,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       }
     };
 
@@ -384,17 +428,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               ? {
                   ...n,
                   status: 'completed' as NotificationStatus,
-                  message: 'Database reset completed - redirecting to home...',
+                  message: 'Database reset completed',
                   progress: 100
                 }
               : n
           )
         );
-
-        // Wait for database to fully reset before redirect
-        setTimeout(() => {
-          window.location.href = '/';
-        }, 2500);
       } else if (payload.status === 'error') {
         setNotifications(prev =>
           prev.map(n =>
@@ -408,9 +447,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       } else {
         setNotifications(prev => {
           const existing = prev.find(n => n.id === notificationId);
@@ -501,10 +543,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       } else {
         setNotifications(prev =>
           prev.map(n =>
@@ -518,10 +562,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       }
     };
 
@@ -607,10 +653,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 3 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 3000);
+        // Auto-remove after 3 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 3000);
+        }
         return;
       }
 
@@ -672,10 +720,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                     )
                   );
 
-                  // Auto-remove after 5 seconds
-                  setTimeout(() => {
-                    setNotifications(prevNotes => prevNotes.filter(n => n.id !== notificationId));
-                  }, 5000);
+                  // Auto-remove after 5 seconds (unless always visible is enabled)
+                  if (shouldAutoDismiss()) {
+                    setTimeout(() => {
+                      setNotifications(prevNotes => prevNotes.filter(n => n.id !== notificationId));
+                    }, 5000);
+                  }
                 }, 300); // Small delay after reaching 100%
               }
             }, interval);
@@ -701,10 +751,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             )
           );
 
-          // Auto-remove after 5 seconds
-          setTimeout(() => {
-            setNotifications(prev => prev.filter(n => n.id !== notificationId));
-          }, 5000);
+          // Auto-remove after 5 seconds (unless always visible is enabled)
+          if (shouldAutoDismiss()) {
+            setTimeout(() => {
+              removeNotificationAnimated(notificationId);
+            }, 5000);
+          }
         }
       } else {
         setNotifications(prev =>
@@ -719,10 +771,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           )
         );
 
-        // Auto-remove after 5 seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        }, 5000);
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       }
     };
 
@@ -778,7 +832,29 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
       signalR.off('PicsProgress', handlePicsProgress);
     };
-  }, [signalR]);
+  }, [signalR, removeNotificationAnimated]);
+
+  // Listen for changes to the "Always Visible" setting
+  React.useEffect(() => {
+    const handlePicsVisibilityChange = () => {
+      // When setting is disabled (auto-dismiss is now enabled), start timers for existing completed/failed notifications
+      if (shouldAutoDismiss()) {
+        notifications.forEach(notification => {
+          if (notification.status === 'completed' || notification.status === 'failed') {
+            // Determine timeout based on notification type
+            const timeout = notification.type === 'depot_mapping' && notification.details?.cancelled ? 3000 : 5000;
+
+            setTimeout(() => {
+              removeNotificationAnimated(notification.id);
+            }, timeout);
+          }
+        });
+      }
+    };
+
+    window.addEventListener('picsvisibilitychange', handlePicsVisibilityChange);
+    return () => window.removeEventListener('picsvisibilitychange', handlePicsVisibilityChange);
+  }, [notifications, removeNotificationAnimated]);
 
   // Universal Recovery: Check all backend operations on mount
   React.useEffect(() => {
