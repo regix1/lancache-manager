@@ -11,8 +11,8 @@ import type {
   Config,
   DashboardStats,
   CorruptedChunkDetail,
-  GameDetectionStatus,
-  GameCacheRemovalReport
+  GameDetectionStatus
+  // GameCacheRemovalReport // No longer used - game removal is fire-and-forget
 } from '../types';
 
 class ApiService {
@@ -745,15 +745,15 @@ class ApiService {
     }
   }
 
-  // Remove all cache files for a specific game (requires auth)
-  static async removeGameFromCache(gameAppId: number): Promise<{ message: string; report: GameCacheRemovalReport }> {
+  // Remove all cache files for a specific game (fire-and-forget, requires auth)
+  static async removeGameFromCache(gameAppId: number): Promise<{ message: string; gameAppId: number; status: string }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/game/${gameAppId}`, {
         method: 'DELETE',
         headers: this.getHeaders()
-        // No timeout - wait for backend to complete and return response
+        // Returns immediately with 202 Accepted - removal happens in background
       });
-      return await this.handleResponse<{ message: string; report: GameCacheRemovalReport }>(res);
+      return await this.handleResponse<{ message: string; gameAppId: number; status: string }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
       throw error;

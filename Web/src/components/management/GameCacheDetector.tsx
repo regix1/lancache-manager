@@ -240,21 +240,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     try {
       const result = await ApiService.removeGameFromCache(gameAppId);
 
-      // Update background removal to completed
-      // Auto-clear is handled by UniversalNotificationBar after 10 seconds
-      updateBackgroundRemoval(gameAppId, {
-        status: 'completed',
-        filesDeleted: result.report.cache_files_deleted,
-        logEntriesRemoved: result.report.log_entries_removed,
-        bytesFreed: result.report.total_bytes_freed
-      });
+      // Fire-and-forget: API returned 202 Accepted, removal is happening in background
+      // Keep showing "removing..." status - game will disappear after background removal completes
+      console.log(`Game removal started for AppID ${gameAppId}: ${result.message}`);
 
-      // Remove from the list
+      // Optimistically remove from UI immediately
       setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
       setTotalGames((prev) => prev - 1);
 
-      // Trigger a refetch of all data to update Downloads tab
-      onDataRefresh?.();
+      // Trigger a refetch after removal likely completes to refresh downloads
+      setTimeout(() => {
+        onDataRefresh?.();
+      }, 30000); // Refresh after 30 seconds
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to remove game from cache';
 
