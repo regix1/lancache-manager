@@ -24,6 +24,7 @@ public class ManagementController : ControllerBase
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly SteamAuthRepository _steamAuthStorage;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -38,7 +39,8 @@ public class ManagementController : ControllerBase
         RustDatabaseResetService rustDatabaseResetService,
         RustLogRemovalService rustLogRemovalService,
         SteamKit2Service steamKit2Service,
-        SteamAuthRepository steamAuthStorage)
+        SteamAuthRepository steamAuthStorage,
+        IServiceScopeFactory serviceScopeFactory)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -53,6 +55,7 @@ public class ManagementController : ControllerBase
         _rustLogRemovalService = rustLogRemovalService;
         _steamKit2Service = steamKit2Service;
         _steamAuthStorage = steamAuthStorage;
+        _serviceScopeFactory = serviceScopeFactory;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -1173,42 +1176,55 @@ public class ManagementController : ControllerBase
     }
 
     /// <summary>
-    /// Remove all cache files for a specific game
+    /// Remove all cache files for a specific game (fire-and-forget background operation)
     /// </summary>
     [HttpDelete("cache/game/{gameAppId}")]
     [RequireAuth]
-    public async Task<IActionResult> RemoveGameFromCache(uint gameAppId)
+    public IActionResult RemoveGameFromCache(uint gameAppId)
     {
         try
         {
-            _logger.LogInformation("Removing game {AppId} from cache", gameAppId);
+            _logger.LogInformation("Starting background game removal for AppID {AppId}", gameAppId);
 
-            var report = await _cacheService.RemoveGameFromCache(gameAppId);
-
-            // Invalidate game detection cache since we just removed a game
-            _gameCacheDetectionService.InvalidateCache();
-            _logger.LogInformation("Invalidated game detection cache after removing AppID {AppId}", gameAppId);
-
-            // Add cache-busting headers to force frontend to refetch downloads
-            Response.Headers["X-Cache-Invalidate"] = "downloads";
-            Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
-
-            return Ok(new
+            // Fire-and-forget: run in background using IServiceScopeFactory
+            _ = Task.Run(async () =>
             {
-                message = $"Successfully removed {report.GameName} from cache",
-                report,
-                cacheInvalidated = true
+                try
+                {
+                    // Create a new scope for the background task
+                    await using var scope = _serviceScopeFactory.CreateAsyncScope();
+                    var cacheService = scope.ServiceProvider.GetRequiredService<CacheManagementService>();
+                    var gameCacheDetectionService = scope.ServiceProvider.GetRequiredService<GameCacheDetectionService>();
+                    var logger = scope.ServiceProvider.GetRequiredService<ILogger<ManagementController>>();
+
+                    logger.LogInformation("[Background] Removing game {AppId} from cache", gameAppId);
+
+                    var report = await cacheService.RemoveGameFromCache(gameAppId);
+
+                    // Invalidate game detection cache since we just removed a game
+                    gameCacheDetectionService.InvalidateCache();
+                    logger.LogInformation("[Background] Successfully removed {GameName} ({AppId}) - {Files} files, {Bytes} bytes",
+                        report.GameName, gameAppId, report.CacheFilesDeleted, report.TotalBytesFreed);
+                }
+                catch (Exception ex)
+                {
+                    // Log errors but don't throw (fire-and-forget)
+                    _logger.LogError(ex, "[Background] Error removing game {AppId} from cache", gameAppId);
+                }
             });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            // This is an expected error (read-only directories), already logged as warning in service layer
-            return StatusCode(403, new { error = ex.Message });
+
+            // Return 202 Accepted immediately
+            return Accepted(new
+            {
+                message = $"Game removal started for AppID {gameAppId}",
+                gameAppId,
+                status = "processing"
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error removing game {AppId} from cache", gameAppId);
-            return StatusCode(500, new { error = $"Failed to remove game {gameAppId} from cache", details = ex.Message });
+            _logger.LogError(ex, "Error starting game removal for AppID {AppId}", gameAppId);
+            return StatusCode(500, new { error = $"Failed to start game removal for {gameAppId}", details = ex.Message });
         }
     }
 }
