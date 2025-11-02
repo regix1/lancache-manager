@@ -1164,9 +1164,9 @@ public class ManagementController : ControllerBase
     /// Get cached game detection results (if available)
     /// </summary>
     [HttpGet("cache/detect-games-cached")]
-    public IActionResult GetCachedGameDetection()
+    public async Task<IActionResult> GetCachedGameDetection()
     {
-        var cachedResult = _gameCacheDetectionService.GetCachedDetection();
+        var cachedResult = await _gameCacheDetectionService.GetCachedDetectionAsync();
 
         if (cachedResult == null || cachedResult.Status != "complete")
         {
@@ -1207,7 +1207,7 @@ public class ManagementController : ControllerBase
                     var report = await cacheService.RemoveGameFromCache(gameAppId);
 
                     // Remove this specific game from the detection cache
-                    gameCacheDetectionService.RemoveGameFromCache(gameAppId);
+                    await gameCacheDetectionService.RemoveGameFromCacheAsync(gameAppId);
                     logger.LogInformation("[Background] Successfully removed {GameName} ({AppId}) - {Files} files, {Bytes} bytes",
                         report.GameName, gameAppId, report.CacheFilesDeleted, report.TotalBytesFreed);
 

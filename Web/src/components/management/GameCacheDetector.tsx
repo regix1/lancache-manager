@@ -7,7 +7,6 @@ import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useNotifications } from '@contexts/NotificationsContext';
-import { gameDetectionCache } from '@utils/gameDetectionCache';
 import type { GameCacheInfo } from '../../types';
 
 interface GameCacheDetectorProps {
@@ -51,51 +50,26 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, []);
 
-  // Load cached summary on mount (fast, non-blocking)
+  // Load cached games from backend on mount
   useEffect(() => {
-    const loadCachedSummary = async () => {
+    const loadCachedGames = async () => {
       if (mockMode) return;
 
       try {
-        // Only load summary - show count immediately without loading all games
-        const summary = await gameDetectionCache.loadSummary();
-        if (summary && summary.totalGamesDetected > 0) {
-          setTotalGames(summary.totalGamesDetected);
-          // Games will be loaded lazily when user interacts (searches, pages, etc.)
+        const result = await ApiService.getCachedGameDetection();
+        if (result.hasCachedResults && result.games && result.totalGamesDetected) {
+          setGames(result.games);
+          setTotalGames(result.totalGamesDetected);
         }
       } catch (err) {
-        console.error('[GameCacheDetector] Failed to load summary:', err);
+        console.error('[GameCacheDetector] Failed to load cached games:', err);
         // Silent fail - not critical
       }
     };
 
-    loadCachedSummary();
+    loadCachedGames();
     loadDirectoryPermissions();
   }, [mockMode]); // Only run on mount or when mockMode changes
-
-  // Load full games list lazily when needed (after summary is shown)
-  useEffect(() => {
-    const loadGamesData = async () => {
-      if (mockMode || totalGames === 0) return;
-
-      // Only load if we have a count but no games yet
-      if (totalGames > 0 && games.length === 0) {
-        try {
-          const cachedData = await gameDetectionCache.loadGames();
-          if (cachedData && cachedData.games.length > 0) {
-            setGames(cachedData.games);
-          }
-        } catch (err) {
-          console.error('[GameCacheDetector] Failed to load games:', err);
-          // Silent fail - count is already shown
-        }
-      }
-    };
-
-    // Load games data after a delay to not block initial render
-    const timer = setTimeout(loadGamesData, 500);
-    return () => clearTimeout(timer);
-  }, [totalGames, games.length, mockMode]);
 
   const loadDirectoryPermissions = async () => {
     try {
@@ -119,19 +93,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   useEffect(() => {
     const gameRemovalNotifs = notifications.filter(n => n.type === 'game_removal' && n.status === 'completed');
 
-    gameRemovalNotifs.forEach(async (notif) => {
+    gameRemovalNotifs.forEach((notif) => {
       const gameAppId = notif.details?.gameAppId;
       if (!gameAppId) return;
 
-      // Remove from UI and IndexedDB
+      // Remove from UI (backend already removed from database)
       setGames((prev) => {
         const updated = prev.filter((g) => g.game_app_id !== gameAppId);
         return updated;
       });
       setTotalGames((prev) => prev - 1);
-
-      // Remove from IndexedDB
-      await gameDetectionCache.removeGame(gameAppId);
     });
   }, [notifications]);
 
@@ -174,8 +145,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           setGames(status.games);
           setTotalGames(status.totalGamesDetected);
 
-          // Save to IndexedDB for persistence
-          await gameDetectionCache.saveGames(status.games, status.totalGamesDetected);
+          // Backend already saved to database - no need to save locally
 
           if (status.totalGamesDetected > 0) {
             addNotification({

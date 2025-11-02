@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Application.Services;
 
@@ -14,11 +16,8 @@ public class GameCacheDetectionService
     private readonly ILogger<GameCacheDetectionService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly OperationStateService _operationStateService;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
-
-    // Cache for detection results - temporary (clears on backend restart)
-    private DetectionOperation? _cachedDetectionResult = null;
-    private readonly object _cacheLock = new object();
 
     public class DetectionOperation
     {
@@ -34,11 +33,13 @@ public class GameCacheDetectionService
     public GameCacheDetectionService(
         ILogger<GameCacheDetectionService> logger,
         IPathResolver pathResolver,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _operationStateService = operationStateService;
+        _dbContextFactory = dbContextFactory;
 
         // Restore any interrupted operations on startup
         RestoreInterruptedOperations();
@@ -145,11 +146,14 @@ public class GameCacheDetectionService
             string arguments;
             if (incremental)
             {
-                lock (_cacheLock)
+                // Load existing games from database
+                await using (var dbContext = await _dbContextFactory.CreateDbContextAsync())
                 {
-                    if (_cachedDetectionResult != null && _cachedDetectionResult.Games != null && _cachedDetectionResult.Games.Count > 0)
+                    var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
+                    if (cachedGames.Count > 0)
                     {
-                        existingGames = _cachedDetectionResult.Games;
+                        // Convert database records to GameCacheInfo
+                        existingGames = cachedGames.Select(ConvertToGameCacheInfo).ToList();
                         var excludedGameIds = existingGames.Select(g => g.GameAppId).ToList();
 
                         excludedIdsPath = Path.Combine(dataDir, $"excluded_game_ids_{operationId}.json");
@@ -258,12 +262,9 @@ public class GameCacheDetectionService
                 operation.Games = finalGames;
                 operation.TotalGamesDetected = totalGamesDetected;
 
-                // Cache the completed detection result (merged or full)
-                lock (_cacheLock)
-                {
-                    _cachedDetectionResult = operation;
-                    _logger.LogInformation("[GameDetection] Results cached - {Count} games total", totalGamesDetected);
-                }
+                // Save results to database (replaces in-memory cache)
+                await SaveGamesToDatabaseAsync(finalGames, incremental);
+                _logger.LogInformation("[GameDetection] Results saved to database - {Count} games total", totalGamesDetected);
 
                 // Update persisted state with complete status
                 _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
@@ -357,42 +358,48 @@ public class GameCacheDetectionService
         return _operations.Values.FirstOrDefault(op => op.Status == "running");
     }
 
-    public DetectionOperation? GetCachedDetection()
+    public async Task<DetectionOperation?> GetCachedDetectionAsync()
     {
-        lock (_cacheLock)
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
+
+        if (cachedGames.Count == 0)
         {
-            return _cachedDetectionResult;
+            return null;
         }
+
+        var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
+
+        return new DetectionOperation
+        {
+            OperationId = "cached",
+            StartTime = cachedGames.Max(g => g.LastDetectedUtc),
+            Status = "complete",
+            Message = $"Loaded {games.Count} games from cache",
+            Games = games,
+            TotalGamesDetected = games.Count
+        };
     }
 
-    public void InvalidateCache()
+    public async Task InvalidateCacheAsync()
     {
-        lock (_cacheLock)
-        {
-            _logger.LogInformation("[GameDetection] Cache invalidated");
-            _cachedDetectionResult = null;
-        }
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        await dbContext.CachedGameDetections.ExecuteDeleteAsync();
+        await dbContext.SaveChangesAsync();
+        _logger.LogInformation("[GameDetection] Cache invalidated - all cached games deleted from database");
     }
 
-    public void RemoveGameFromCache(uint gameAppId)
+    public async Task RemoveGameFromCacheAsync(uint gameAppId)
     {
-        lock (_cacheLock)
-        {
-            if (_cachedDetectionResult != null && _cachedDetectionResult.Games != null)
-            {
-                var beforeCount = _cachedDetectionResult.Games.Count;
-                _cachedDetectionResult.Games = _cachedDetectionResult.Games
-                    .Where(g => g.GameAppId != gameAppId)
-                    .ToList();
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        var game = await dbContext.CachedGameDetections.FirstOrDefaultAsync(g => g.GameAppId == gameAppId);
 
-                var afterCount = _cachedDetectionResult.Games.Count;
-                if (beforeCount != afterCount)
-                {
-                    _cachedDetectionResult.TotalGamesDetected = afterCount;
-                    _logger.LogInformation("[GameDetection] Removed game {AppId} from cache ({Before} -> {After} games)",
-                        gameAppId, beforeCount, afterCount);
-                }
-            }
+        if (game != null)
+        {
+            dbContext.CachedGameDetections.Remove(game);
+            await dbContext.SaveChangesAsync();
+            _logger.LogInformation("[GameDetection] Removed game {AppId} ({GameName}) from cache",
+                gameAppId, game.GameName);
         }
     }
 
@@ -437,6 +444,70 @@ public class GameCacheDetectionService
         {
             _logger.LogError(ex, "[GameDetection] Error restoring interrupted operations");
         }
+    }
+
+    private async Task SaveGamesToDatabaseAsync(List<GameCacheInfo> games, bool incremental)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        if (!incremental)
+        {
+            // Full scan - clear existing cache first
+            await dbContext.CachedGameDetections.ExecuteDeleteAsync();
+        }
+
+        var now = DateTime.UtcNow;
+
+        foreach (var game in games)
+        {
+            var cachedGame = new CachedGameDetection
+            {
+                GameAppId = game.GameAppId,
+                GameName = game.GameName,
+                CacheFilesFound = game.CacheFilesFound,
+                TotalSizeBytes = game.TotalSizeBytes,
+                DepotIdsJson = JsonSerializer.Serialize(game.DepotIds),
+                SampleUrlsJson = JsonSerializer.Serialize(game.SampleUrls),
+                CacheFilePathsJson = JsonSerializer.Serialize(game.CacheFilePaths),
+                LastDetectedUtc = now,
+                CreatedAtUtc = now
+            };
+
+            // Use upsert pattern - update if exists, insert if new
+            var existing = await dbContext.CachedGameDetections
+                .FirstOrDefaultAsync(g => g.GameAppId == game.GameAppId);
+
+            if (existing != null)
+            {
+                existing.GameName = cachedGame.GameName;
+                existing.CacheFilesFound = cachedGame.CacheFilesFound;
+                existing.TotalSizeBytes = cachedGame.TotalSizeBytes;
+                existing.DepotIdsJson = cachedGame.DepotIdsJson;
+                existing.SampleUrlsJson = cachedGame.SampleUrlsJson;
+                existing.CacheFilePathsJson = cachedGame.CacheFilePathsJson;
+                existing.LastDetectedUtc = now;
+            }
+            else
+            {
+                dbContext.CachedGameDetections.Add(cachedGame);
+            }
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static GameCacheInfo ConvertToGameCacheInfo(CachedGameDetection cached)
+    {
+        return new GameCacheInfo
+        {
+            GameAppId = cached.GameAppId,
+            GameName = cached.GameName,
+            CacheFilesFound = cached.CacheFilesFound,
+            TotalSizeBytes = cached.TotalSizeBytes,
+            DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
+            SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
+            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>()
+        };
     }
 
     private class GameDetectionResult

@@ -198,6 +198,18 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
     options.UseSqlite($"Data Source={dbPath}");
 });
 
+// Register DbContextFactory for singleton services that need to create multiple contexts
+// Use a custom factory to avoid lifetime conflicts with AddDbContext
+builder.Services.AddSingleton<IDbContextFactory<AppDbContext>>(serviceProvider =>
+{
+    var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
+    var dbPath = Path.Combine(pathResolver.GetDataDirectory(), "LancacheManager.db");
+    var connectionString = $"Data Source={dbPath}";
+
+    // Create a factory that returns new DbContext instances on demand
+    return new CustomDbContextFactory(connectionString);
+});
+
 // Register HttpClientFactory for better HTTP client management
 builder.Services.AddHttpClient();
 
@@ -514,4 +526,22 @@ static string FindProjectRootForDataProtection()
     }
 
     throw new DirectoryNotFoundException($"Could not find project root from: {currentDir}");
+}
+
+// Custom DbContext factory implementation for singleton services
+class CustomDbContextFactory : IDbContextFactory<AppDbContext>
+{
+    private readonly string _connectionString;
+
+    public CustomDbContextFactory(string connectionString)
+    {
+        _connectionString = connectionString;
+    }
+
+    public AppDbContext CreateDbContext()
+    {
+        var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
+        optionsBuilder.UseSqlite(_connectionString);
+        return new AppDbContext(optionsBuilder.Options);
+    }
 }

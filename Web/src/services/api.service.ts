@@ -11,7 +11,8 @@ import type {
   Config,
   DashboardStats,
   CorruptedChunkDetail,
-  GameDetectionStatus
+  GameDetectionStatus,
+  GameCacheInfo
   // GameCacheRemovalReport // No longer used - game removal is fire-and-forget
 } from '../types';
 
@@ -741,6 +742,20 @@ class ApiService {
       return await this.handleResponse<{ hasActiveOperation: boolean; operation?: GameDetectionStatus }>(res);
     } catch (error) {
       console.error('getActiveGameDetection error:', error);
+      throw error;
+    }
+  }
+
+  // Get cached game detection results from database (if available)
+  static async getCachedGameDetection(): Promise<{ hasCachedResults: boolean; games?: GameCacheInfo[]; totalGamesDetected?: number }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/detect-games-cached`, {
+        headers: this.getHeaders(),
+        signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
+      });
+      return await this.handleResponse<{ hasCachedResults: boolean; games?: GameCacheInfo[]; totalGamesDetected?: number }>(res);
+    } catch (error) {
+      console.error('getCachedGameDetection error:', error);
       throw error;
     }
   }

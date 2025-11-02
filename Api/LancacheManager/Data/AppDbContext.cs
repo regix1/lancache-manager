@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public DbSet<ServiceStats> ServiceStats { get; set; }
     public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
     public DbSet<LogEntryRecord> LogEntries { get; set; }
+    public DbSet<CachedGameDetection> CachedGameDetections { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -78,5 +79,15 @@ public class AppDbContext : DbContext
             .HasIndex(m => new { m.DepotId, m.AppId })
             .HasDatabaseName("IX_SteamDepotMappings_DepotId_AppId")
             .IsUnique();
+
+        // CachedGameDetection indexes
+        modelBuilder.Entity<CachedGameDetection>()
+            .HasIndex(c => c.GameAppId)
+            .HasDatabaseName("IX_CachedGameDetection_GameAppId")
+            .IsUnique();
+
+        modelBuilder.Entity<CachedGameDetection>()
+            .HasIndex(c => c.LastDetectedUtc)
+            .HasDatabaseName("IX_CachedGameDetection_LastDetectedUtc");
     }
 }
