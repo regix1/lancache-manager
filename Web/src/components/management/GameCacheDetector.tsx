@@ -33,6 +33,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showAllPaths, setShowAllPaths] = useState<Record<number, boolean>>({});
   const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutCountRef = useRef<number>(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
@@ -51,69 +52,51 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, []);
 
-  // Load cached results and check for active operations on mount
+  // Load cached summary on mount (fast, non-blocking)
   useEffect(() => {
-    const loadCachedAndCheckActive = async () => {
+    const loadCachedSummary = async () => {
       if (mockMode) return;
 
       try {
-        // First, load only the summary (fast - no large data transfer)
+        // Only load summary - show count immediately without loading all games
         const summary = await gameDetectionCache.loadSummary();
         if (summary && summary.totalGamesDetected > 0) {
           setTotalGames(summary.totalGamesDetected);
-
-          // Lazily load full game data in the background (non-blocking)
-          setTimeout(async () => {
-            try {
-              const cachedData = await gameDetectionCache.loadGames();
-              if (cachedData && cachedData.games.length > 0) {
-                setGames(cachedData.games);
-              }
-            } catch (err) {
-              console.error('[GameCacheDetector] Failed to load game details:', err);
-              // Don't show error - summary is already loaded
-            }
-          }, 100); // Small delay to prevent blocking
-        }
-
-        // Check for active operations (with timeout handling)
-        try {
-          const result = await ApiService.getActiveGameDetection();
-
-          if (result.hasActiveOperation && result.operation) {
-            // Resume polling for this operation
-            setLoading(true);
-            setError(null);
-
-            if (pollingIntervalRef.current) {
-              clearInterval(pollingIntervalRef.current);
-            }
-
-            pollingIntervalRef.current = setInterval(() => {
-              pollDetectionStatus(result.operation!.operationId);
-            }, 2000);
-
-            // Poll immediately
-            pollDetectionStatus(result.operation.operationId);
-          }
-        } catch (err: any) {
-          // Gracefully handle timeout - it's not critical
-          if (err.name === 'TimeoutError' || err.message?.includes('timeout')) {
-            console.warn('[GameCacheDetector] Timeout checking for active operations - skipping');
-          } else {
-            console.error('[GameCacheDetector] Error checking for active operation:', err);
-          }
-          // Don't show error to user - cached data is still shown
+          // Games will be loaded lazily when user interacts (searches, pages, etc.)
         }
       } catch (err) {
-        console.error('[GameCacheDetector] Error during initialization:', err);
-        // Don't show error to user - this is a background check
+        console.error('[GameCacheDetector] Failed to load summary:', err);
+        // Silent fail - not critical
       }
     };
 
-    loadCachedAndCheckActive();
+    loadCachedSummary();
     loadDirectoryPermissions();
   }, [mockMode]); // Only run on mount or when mockMode changes
+
+  // Load full games list lazily when needed (after summary is shown)
+  useEffect(() => {
+    const loadGamesData = async () => {
+      if (mockMode || totalGames === 0) return;
+
+      // Only load if we have a count but no games yet
+      if (totalGames > 0 && games.length === 0) {
+        try {
+          const cachedData = await gameDetectionCache.loadGames();
+          if (cachedData && cachedData.games.length > 0) {
+            setGames(cachedData.games);
+          }
+        } catch (err) {
+          console.error('[GameCacheDetector] Failed to load games:', err);
+          // Silent fail - count is already shown
+        }
+      }
+    };
+
+    // Load games data after a delay to not block initial render
+    const timer = setTimeout(loadGamesData, 500);
+    return () => clearTimeout(timer);
+  }, [totalGames, games.length, mockMode]);
 
   const loadDirectoryPermissions = async () => {
     try {
@@ -179,6 +162,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     try {
       const status = await ApiService.getGameDetectionStatus(operationId);
 
+      // Reset timeout counter on success
+      timeoutCountRef.current = 0;
+
       if (status.status === 'complete') {
         // Detection complete
         if (pollingIntervalRef.current) {
@@ -223,8 +209,25 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
       // If status is 'running', continue polling
     } catch (err: any) {
-      console.error('Error polling detection status:', err);
-      // Continue polling even on error - might be temporary network issue
+      // Handle timeouts - stop polling after too many consecutive failures
+      if (err.name === 'TimeoutError' || err.message?.includes('timeout')) {
+        timeoutCountRef.current++;
+        console.warn(`[GameCacheDetector] Timeout ${timeoutCountRef.current}/5 checking detection status`);
+
+        if (timeoutCountRef.current >= 5) {
+          // Too many timeouts - stop polling
+          console.error('[GameCacheDetector] Too many timeouts, stopping polling');
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+          setLoading(false);
+          setError('Detection status check timed out - please refresh the page');
+        }
+      } else {
+        console.error('[GameCacheDetector] Error polling detection status:', err);
+      }
+      // Don't continue polling on repeated errors
     }
   };
 
@@ -245,6 +248,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setError(null);
     setGames([]);
     setTotalGames(0);
+    timeoutCountRef.current = 0; // Reset timeout counter
 
     try {
       // Start background detection

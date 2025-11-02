@@ -115,7 +115,13 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   useEffect(() => {
     // Only load on initial mount
     if (!hasInitiallyLoaded) {
-      loadAllData();
+      // Defer heavy data loading to not block initial render
+      // Show UI first, then load data in background after 100ms
+      setTimeout(() => {
+        loadAllData();
+      }, 100);
+
+      // These are fast, can run immediately
       restoreServiceRemoval();
       loadDirectoryPermissions();
     }
