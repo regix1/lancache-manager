@@ -115,22 +115,36 @@ export class BrowserFingerprint {
   /**
    * Get or generate a stable device ID (synchronous)
    * - First checks localStorage for existing ID
+   * - Falls back to cookie if localStorage was cleared
    * - If not found, generates fingerprint-based ID
-   * - Stores the generated ID in localStorage for performance
+   * - Stores the generated ID in both localStorage and cookie for maximum persistence
    */
   static getOrCreateDeviceId(): string {
     const STORAGE_KEY = 'lancache_device_id';
 
     // Try to get from localStorage first
-    const storedId = localStorage.getItem(STORAGE_KEY);
+    let storedId = localStorage.getItem(STORAGE_KEY);
     if (storedId && storedId.length >= 32) {
       return storedId;
+    }
+
+    // Try to restore from cookie if localStorage was cleared
+    const cookieId = this.getCookie(STORAGE_KEY);
+    if (cookieId && cookieId.length >= 32) {
+      console.log('[BrowserFingerprint] Restored device ID from cookie backup');
+      // Restore to localStorage
+      try {
+        localStorage.setItem(STORAGE_KEY, cookieId);
+      } catch (e) {
+        console.warn('[BrowserFingerprint] Could not restore to localStorage:', e);
+      }
+      return cookieId;
     }
 
     // Generate fingerprint-based ID (synchronous)
     const fingerprintId = this.generate();
 
-    // Store it for future use
+    // Store it in both localStorage and cookie for maximum persistence
     try {
       localStorage.setItem(STORAGE_KEY, fingerprintId);
     } catch (e) {
@@ -138,6 +152,38 @@ export class BrowserFingerprint {
       console.warn('[BrowserFingerprint] Could not save to localStorage:', e);
     }
 
+    try {
+      this.setCookie(STORAGE_KEY, fingerprintId, 365); // 1 year expiry
+      console.log('[BrowserFingerprint] Device ID saved to localStorage and cookie backup');
+    } catch (e) {
+      console.warn('[BrowserFingerprint] Could not save to cookie:', e);
+    }
+
     return fingerprintId;
+  }
+
+  /**
+   * Set a cookie with expiration
+   */
+  private static setCookie(name: string, value: string, days: number): void {
+    const expires = new Date();
+    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+    document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
+  }
+
+  /**
+   * Get a cookie value
+   */
+  private static getCookie(name: string): string | null {
+    const nameEQ = name + '=';
+    const ca = document.cookie.split(';');
+    for (let i = 0; i < ca.length; i++) {
+      let c = ca[i];
+      while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+      if (c.indexOf(nameEQ) === 0) {
+        return decodeURIComponent(c.substring(nameEQ.length, c.length));
+      }
+    }
+    return null;
   }
 }
