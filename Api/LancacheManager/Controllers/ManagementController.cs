@@ -1212,6 +1212,7 @@ public class ManagementController : ControllerBase
                         report.GameName, gameAppId, report.CacheFilesDeleted, report.TotalBytesFreed);
 
                     // Send completion notification via SignalR
+                    logger.LogInformation("[Background] Sending GameRemovalComplete SignalR event for game {AppId}", gameAppId);
                     await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
                     {
                         success = true,
@@ -1222,6 +1223,7 @@ public class ManagementController : ControllerBase
                         logEntriesRemoved = report.LogEntriesRemoved,
                         message = $"Successfully removed {report.GameName} from cache"
                     });
+                    logger.LogInformation("[Background] GameRemovalComplete SignalR event sent for game {AppId}", gameAppId);
                 }
                 catch (Exception ex)
                 {
