@@ -57,34 +57,56 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (mockMode) return;
 
       try {
-        // Load from IndexedDB (supports large datasets)
-        const cachedData = await gameDetectionCache.loadGames();
-        if (cachedData && cachedData.games.length > 0) {
-          setGames(cachedData.games);
-          setTotalGames(cachedData.totalGamesDetected);
+        // First, load only the summary (fast - no large data transfer)
+        const summary = await gameDetectionCache.loadSummary();
+        if (summary && summary.totalGamesDetected > 0) {
+          setTotalGames(summary.totalGamesDetected);
+
+          // Lazily load full game data in the background (non-blocking)
+          setTimeout(async () => {
+            try {
+              const cachedData = await gameDetectionCache.loadGames();
+              if (cachedData && cachedData.games.length > 0) {
+                setGames(cachedData.games);
+              }
+            } catch (err) {
+              console.error('[GameCacheDetector] Failed to load game details:', err);
+              // Don't show error - summary is already loaded
+            }
+          }, 100); // Small delay to prevent blocking
         }
 
-        // Then check for active operations
-        const result = await ApiService.getActiveGameDetection();
+        // Check for active operations (with timeout handling)
+        try {
+          const result = await ApiService.getActiveGameDetection();
 
-        if (result.hasActiveOperation && result.operation) {
-          // Resume polling for this operation
-          setLoading(true);
-          setError(null);
+          if (result.hasActiveOperation && result.operation) {
+            // Resume polling for this operation
+            setLoading(true);
+            setError(null);
 
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+            }
+
+            pollingIntervalRef.current = setInterval(() => {
+              pollDetectionStatus(result.operation!.operationId);
+            }, 2000);
+
+            // Poll immediately
+            pollDetectionStatus(result.operation.operationId);
           }
-
-          pollingIntervalRef.current = setInterval(() => {
-            pollDetectionStatus(result.operation!.operationId);
-          }, 2000);
-
-          // Poll immediately
-          pollDetectionStatus(result.operation.operationId);
+        } catch (err: any) {
+          // Gracefully handle timeout - it's not critical
+          if (err.name === 'TimeoutError' || err.message?.includes('timeout')) {
+            console.warn('[GameCacheDetector] Timeout checking for active operations - skipping');
+          } else {
+            console.error('[GameCacheDetector] Error checking for active operation:', err);
+          }
+          // Don't show error to user - cached data is still shown
         }
       } catch (err) {
-        console.error('Error loading cached results or checking for active operation:', err);
+        console.error('[GameCacheDetector] Error during initialization:', err);
         // Don't show error to user - this is a background check
       }
     };

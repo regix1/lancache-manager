@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 
 export interface PicsProgress {
   isRunning: boolean;
@@ -33,14 +33,12 @@ export interface UsePicsProgressOptions {
 
 export function usePicsProgress(options: UsePicsProgressOptions = {}) {
   const {
-    pollingInterval = 2000,
     autoStart = true,
     mockMode = false
   } = options;
 
   const [progress, setProgress] = useState<PicsProgress | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchProgress = async () => {
     try {
@@ -58,53 +56,24 @@ export function usePicsProgress(options: UsePicsProgressOptions = {}) {
     }
   };
 
-  const startPolling = () => {
-    if (mockMode) return;
-
-    // Clear any existing interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-
-    // Initial fetch
-    fetchProgress();
-
-    // Set up polling
-    intervalRef.current = setInterval(() => {
-      fetchProgress();
-    }, pollingInterval);
-  };
-
-  const stopPolling = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  };
-
   const refresh = () => {
     fetchProgress();
   };
 
+  // Fetch initial state on mount (no polling - updates come from SignalR)
   useEffect(() => {
     if (mockMode) {
       return;
     }
 
     if (autoStart) {
-      startPolling();
+      fetchProgress();
     }
-
-    return () => {
-      stopPolling();
-    };
-  }, [mockMode]);
+  }, [mockMode, autoStart]);
 
   return {
     progress,
     error,
-    startPolling,
-    stopPolling,
     refresh
   };
 }

@@ -502,6 +502,56 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }, 5000);
     };
 
+    // PICS Scan Progress
+    const handlePicsProgress = (payload: any) => {
+      const notificationId = 'pics-scan';
+
+      if (payload.status === 'complete' || !payload.isRunning) {
+        // Remove the notification when complete
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        }, 5000);
+      } else if (payload.isRunning) {
+        setNotifications(prev => {
+          const existing = prev.find(n => n.id === notificationId);
+          const message = `Scanning Steam: ${payload.processedApps || 0}/${payload.totalApps || 0} apps`;
+          const progress = payload.progressPercent || 0;
+
+          if (existing) {
+            return prev.map(n =>
+              n.id === notificationId
+                ? {
+                    ...n,
+                    message,
+                    progress,
+                    details: {
+                      ...n.details,
+                      totalApps: payload.totalApps,
+                      processedApps: payload.processedApps,
+                      depotMappingsFound: payload.depotMappingsFound
+                    }
+                  }
+                : n
+            );
+          } else {
+            return [...prev, {
+              id: notificationId,
+              type: 'depot_mapping' as NotificationType,
+              status: 'running' as NotificationStatus,
+              message,
+              progress,
+              startedAt: new Date(),
+              details: {
+                totalApps: payload.totalApps,
+                processedApps: payload.processedApps,
+                depotMappingsFound: payload.depotMappingsFound
+              }
+            }];
+          }
+        });
+      }
+    };
+
     // Subscribe to events
     signalR.on('ProcessingProgress', handleProcessingProgress);
     signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
@@ -512,6 +562,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
+    signalR.on('PicsProgress', handlePicsProgress);
 
     // Cleanup
     return () => {
@@ -524,6 +575,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotMappingStarted', handleDepotMappingStarted);
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
+      signalR.off('PicsProgress', handlePicsProgress);
     };
   }, [signalR]);
 

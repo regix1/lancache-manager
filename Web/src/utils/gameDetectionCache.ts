@@ -103,6 +103,37 @@ class GameDetectionCache {
     }
   }
 
+  // Load only summary data without game list (for quick initialization)
+  async loadSummary(): Promise<{ totalGamesDetected: number; timestamp: number } | null> {
+    try {
+      const db = await this.getDB();
+      const transaction = db.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      const request = store.get('current');
+
+      return new Promise((resolve, reject) => {
+        request.onsuccess = () => {
+          const data = request.result as CachedGameData | undefined;
+          if (data) {
+            console.log(`[IndexedDB] Loaded summary: ${data.totalGamesDetected} games`);
+            resolve({
+              totalGamesDetected: data.totalGamesDetected,
+              timestamp: data.timestamp
+            });
+          } else {
+            resolve(null);
+          }
+        };
+        request.onerror = () => {
+          reject(new Error('Failed to load summary from IndexedDB'));
+        };
+      });
+    } catch (error) {
+      console.error('[IndexedDB] Failed to load summary:', error);
+      return null;
+    }
+  }
+
   async removeGame(gameAppId: number): Promise<void> {
     try {
       const data = await this.loadGames();

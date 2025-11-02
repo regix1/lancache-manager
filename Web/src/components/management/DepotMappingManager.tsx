@@ -6,6 +6,7 @@ import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
 import { usePicsProgress } from '@hooks/usePicsProgress';
+import { useNotifications } from '@contexts/NotificationsContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
 
@@ -38,6 +39,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     pollingInterval: 3000,
     mockMode
   });
+  const { notifications } = useNotifications();
   const [depotSource, setDepotSource] = useState<DepotSource>('incremental');
   const [changeGapWarning, setChangeGapWarning] = useState<{
     show: boolean;
@@ -130,6 +132,22 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       lastViabilityCheck.current = 0;
     }
   }, [depotProcessing, mockMode, isAuthenticated, actionLoading]);
+
+  // Listen for PICS scan completion via SignalR and refresh state
+  useEffect(() => {
+    const picsNotifications = notifications.filter(n =>
+      n.type === 'depot_mapping' &&
+      (n.status === 'completed' || n.status === 'failed')
+    );
+
+    if (picsNotifications.length > 0) {
+      // Refresh progress data when scan completes
+      setTimeout(() => {
+        refreshProgress();
+        onDataRefresh?.();
+      }, 1000);
+    }
+  }, [notifications, refreshProgress, onDataRefresh]);
 
   // Clear operation type when scan completes
   useEffect(() => {
