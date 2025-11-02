@@ -4,6 +4,8 @@ import React, {
   useState,
   useEffect,
   useRef,
+  useCallback,
+  useMemo,
   type ReactNode
 } from 'react';
 import ApiService from '@services/api.service';
@@ -134,6 +136,13 @@ interface BackgroundDepotMapping {
   isProcessing: boolean;
 }
 
+interface GenericNotification {
+  id: number;
+  type: 'success' | 'error' | 'info' | 'warning';
+  message: string;
+  createdAt: Date;
+}
+
 interface DashboardStats {
   totalBandwidthSaved: number;
   totalAddedToCache: number;
@@ -202,13 +211,48 @@ interface DataContextType {
   backgroundDepotMapping: BackgroundDepotMapping | null;
   setBackgroundDepotMapping: (mapping: BackgroundDepotMapping | null) => void;
   updateBackgroundDepotMapping: (updates: Partial<BackgroundDepotMapping>) => void;
+  genericNotifications: GenericNotification[];
+  addNotification: (type: 'success' | 'error' | 'info' | 'warning', message: string) => void;
+  clearNotification: (id: number) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
+const DataActionsContext = createContext<{
+  setMockMode: (mode: boolean) => void;
+  updateMockDataCount: (count: number | 'unlimited') => void;
+  updateApiDownloadCount: (count: number | 'unlimited') => void;
+  fetchData: () => Promise<void>;
+  clearAllData: () => void;
+  setIsProcessingLogs: (processing: boolean) => void;
+  setProcessingStatus: (status: ProcessingStatus | null) => void;
+  getCurrentRefreshInterval: () => number;
+  addBackgroundRemoval: (removal: BackgroundRemoval) => void;
+  updateBackgroundRemoval: (gameAppId: number, updates: Partial<BackgroundRemoval>) => void;
+  clearBackgroundRemoval: (gameAppId: number) => void;
+  setBackgroundLogProcessing: (processing: BackgroundLogProcessing | null) => void;
+  updateBackgroundLogProcessing: (updates: Partial<BackgroundLogProcessing>) => void;
+  setBackgroundCacheClearing: (clearing: BackgroundCacheClearing | null) => void;
+  updateBackgroundCacheClearing: (updates: Partial<BackgroundCacheClearing>) => void;
+  addBackgroundServiceRemoval: (removal: BackgroundServiceRemoval) => void;
+  updateBackgroundServiceRemoval: (service: string, updates: Partial<BackgroundServiceRemoval>) => void;
+  clearBackgroundServiceRemoval: (service: string) => void;
+  setBackgroundDatabaseReset: (reset: BackgroundDatabaseReset | null) => void;
+  updateBackgroundDatabaseReset: (updates: Partial<BackgroundDatabaseReset>) => void;
+  setBackgroundDepotMapping: (mapping: BackgroundDepotMapping | null) => void;
+  updateBackgroundDepotMapping: (updates: Partial<BackgroundDepotMapping>) => void;
+  addNotification: (type: 'success' | 'error' | 'info' | 'warning', message: string) => void;
+  clearNotification: (id: number) => void;
+} | undefined>(undefined);
 
 export const useData = () => {
   const context = useContext(DataContext);
   if (!context) throw new Error('useData must be used within DataProvider');
+  return context;
+};
+
+export const useDataActions = () => {
+  const context = useContext(DataActionsContext);
+  if (!context) throw new Error('useDataActions must be used within DataProvider');
   return context;
 };
 
@@ -258,6 +302,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
   const [backgroundServiceRemovals, setBackgroundServiceRemovals] = useState<BackgroundServiceRemoval[]>([]);
   const [backgroundDatabaseReset, setBackgroundDatabaseReset] = useState<BackgroundDatabaseReset | null>(null);
   const [backgroundDepotMapping, setBackgroundDepotMapping] = useState<BackgroundDepotMapping | null>(null);
+  const [genericNotifications, setGenericNotifications] = useState<GenericNotification[]>([]);
 
   const isInitialLoad = useRef(true);
   const hasData = useRef(false);
@@ -621,15 +666,218 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       fetchMediumData();
     };
 
-    // Subscribe to the event
-    signalR.on('DownloadsRefresh', handleDownloadsRefresh);
+    // Database reset progress handler
+    const handleDatabaseResetProgress = (payload: any) => {
+      if (payload.status === 'complete') {
+        updateBackgroundDatabaseReset({
+          status: 'complete',
+          message: 'Database reset completed - redirecting to home...',
+          progress: 100
+        });
+        // Wait for database to fully reset before redirect
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 2500);
+      } else if (payload.status === 'error') {
+        updateBackgroundDatabaseReset({
+          status: 'failed',
+          error: payload.message
+        });
+        addNotification('error', `Database reset failed: ${payload.message}`);
+        setTimeout(() => {
+          setBackgroundDatabaseReset(null);
+        }, 10000);
+      } else {
+        setBackgroundDatabaseReset({
+          id: 'database-reset',
+          message: payload.message || 'Resetting database...',
+          progress: payload.percentComplete || 0,
+          status: 'resetting',
+          startedAt: new Date()
+        });
+      }
+    };
 
-    console.log('[DataContext] Subscribed to SignalR DownloadsRefresh events');
+    // Depot mapping event handlers
+    const handleDepotMappingStarted = (payload: any) => {
+      console.log('[DataContext] DepotMappingStarted received:', payload);
+      const state = {
+        id: 'depot-mapping',
+        isProcessing: true,
+        totalMappings: 0,
+        processedMappings: 0,
+        percentComplete: 0,
+        status: 'starting',
+        message: payload.message || 'Starting depot mapping post-processing...',
+        startedAt: new Date()
+      };
+      setBackgroundDepotMapping(state);
+    };
+
+    const handleDepotMappingProgress = (payload: any) => {
+      console.log('[DataContext] DepotMappingProgress received:', payload);
+      const updates = {
+        isProcessing: payload.isProcessing,
+        totalMappings: payload.totalMappings,
+        processedMappings: payload.processedMappings,
+        mappingsApplied: payload.mappingsApplied,
+        percentComplete: payload.percentComplete,
+        status: payload.status,
+        message: payload.message
+      };
+      updateBackgroundDepotMapping(updates);
+
+      // Clear progress when complete
+      if (!payload.isProcessing || payload.status === 'complete') {
+        setTimeout(() => {
+          setBackgroundDepotMapping(null);
+        }, 5000);
+      }
+    };
+
+    const handleDepotPostProcessingFailed = (payload: any) => {
+      setBackgroundDepotMapping(null);
+      addNotification('error', payload?.error
+        ? `Depot mapping post-processing failed: ${payload.error}`
+        : 'Depot mapping post-processing failed.');
+    };
+
+    const handleProcessingProgress = (progress: any) => {
+      console.log('[DataContext] ProcessingProgress received:', progress);
+      const currentProgress = progress.percentComplete || progress.progress || 0;
+      const status = progress.status || 'processing';
+
+      if (status === 'complete') {
+        // Update to completed status
+        setBackgroundLogProcessing({
+          id: 'log-processing',
+          message: 'Processing Complete!',
+          detailMessage: `Successfully processed ${progress.entriesProcessed?.toLocaleString() || 0} entries`,
+          progress: 100,
+          status: 'complete',
+          startedAt: new Date()
+        });
+
+        // Clear after showing complete status for 3 seconds
+        setTimeout(() => {
+          setBackgroundLogProcessing(null);
+        }, 3000);
+      } else if (status === 'finalizing') {
+        updateBackgroundLogProcessing({
+          message: progress.message || 'Finalizing log processing...',
+          detailMessage: `Processed ${progress.entriesProcessed?.toLocaleString() || 0} entries`,
+          progress: currentProgress,
+          status: 'processing'
+        });
+      } else {
+        // Create or update log processing status
+        const message = `Processing: ${progress.mbProcessed?.toFixed(1) || 0} MB of ${progress.mbTotal?.toFixed(1) || 0} MB`;
+        const detailMessage = `${progress.entriesProcessed?.toLocaleString() || 0} of ${progress.totalLines?.toLocaleString() || 0} entries`;
+
+        if (backgroundLogProcessing) {
+          updateBackgroundLogProcessing({
+            message,
+            detailMessage,
+            progress: Math.min(99.9, currentProgress) // Cap at 99.9% until truly complete
+          });
+        } else {
+          setBackgroundLogProcessing({
+            id: 'log-processing',
+            message,
+            detailMessage,
+            progress: Math.min(99.9, currentProgress),
+            status: 'processing',
+            startedAt: new Date()
+          });
+        }
+      }
+    };
+
+    const handleBulkProcessingComplete = (result: any) => {
+      console.log('[DataContext] Log processing complete:', result);
+      // Update to completed status
+      setBackgroundLogProcessing({
+        id: 'log-processing',
+        message: 'Processing Complete!',
+        detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
+        progress: 100,
+        status: 'complete',
+        startedAt: new Date()
+      });
+
+      // Clear after showing complete status for 3 seconds
+      setTimeout(() => {
+        setBackgroundLogProcessing(null);
+      }, 3000);
+    };
+
+    const handleLogRemovalProgress = (payload: any) => {
+      // Update DataContext with removal progress for UniversalNotificationBar
+      if (payload.status === 'starting' || payload.status === 'removing') {
+        updateBackgroundServiceRemoval(payload.service, {
+          status: 'removing',
+          message: payload.message || `Removing ${payload.service} entries...`,
+          progress: payload.percentComplete || 0,
+          linesProcessed: payload.linesProcessed || 0,
+          linesRemoved: payload.linesRemoved || 0
+        });
+      }
+    };
+
+    const handleLogRemovalComplete = (payload: any) => {
+      if (payload.success) {
+        // Update to completed status
+        updateBackgroundServiceRemoval(payload.service, {
+          status: 'complete',
+          message: payload.message || `Removed ${payload.linesRemoved || 0} ${payload.service} entries`,
+          progress: 100
+        });
+
+        // Clear after showing complete status for 3 seconds
+        setTimeout(() => {
+          clearBackgroundServiceRemoval(payload.service);
+        }, 3000);
+      } else {
+        // Update to failed status
+        updateBackgroundServiceRemoval(payload.service, {
+          status: 'failed',
+          error: payload.message || 'Removal failed'
+        });
+
+        // Clear after showing error for 5 seconds
+        setTimeout(() => {
+          clearBackgroundServiceRemoval(payload.service);
+        }, 5000);
+
+        addNotification('error', `Failed to remove ${payload.service} logs: ${payload.message}`);
+      }
+    };
+
+    // Subscribe to the events
+    signalR.on('DownloadsRefresh', handleDownloadsRefresh);
+    signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
+    signalR.on('ProcessingProgress', handleProcessingProgress);
+    signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
+    signalR.on('DepotMappingStarted', handleDepotMappingStarted);
+    signalR.on('DepotMappingProgress', handleDepotMappingProgress);
+    signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
+    signalR.on('LogRemovalProgress', handleLogRemovalProgress);
+    signalR.on('LogRemovalComplete', handleLogRemovalComplete);
+
+    console.log('[DataContext] Subscribed to SignalR events');
 
     // Cleanup: unsubscribe when component unmounts or dependencies change
     return () => {
       signalR.off('DownloadsRefresh', handleDownloadsRefresh);
-      console.log('[DataContext] Unsubscribed from SignalR DownloadsRefresh events');
+      signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
+      signalR.off('ProcessingProgress', handleProcessingProgress);
+      signalR.off('BulkProcessingComplete', handleBulkProcessingComplete);
+      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
+      signalR.off('DepotMappingProgress', handleDepotMappingProgress);
+      signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
+      signalR.off('LogRemovalProgress', handleLogRemovalProgress);
+      signalR.off('LogRemovalComplete', handleLogRemovalComplete);
+      console.log('[DataContext] Unsubscribed from SignalR events');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency
@@ -837,7 +1085,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     };
   }, []);
 
-  const clearAllData = () => {
+  const clearAllData = useCallback(() => {
     setCacheInfo(null);
     setActiveDownloads([]);
     setLatestDownloads([]);
@@ -845,53 +1093,68 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     setServiceStats([]);
     setDashboardStats(null);
     hasData.current = false;
-  };
+  }, []);
 
-  const addBackgroundRemoval = (removal: BackgroundRemoval) => {
+  const addBackgroundRemoval = useCallback((removal: BackgroundRemoval) => {
     setBackgroundRemovals((prev) => [...prev, removal]);
-  };
+  }, []);
 
-  const updateBackgroundRemoval = (gameAppId: number, updates: Partial<BackgroundRemoval>) => {
+  const updateBackgroundRemoval = useCallback((gameAppId: number, updates: Partial<BackgroundRemoval>) => {
     setBackgroundRemovals((prev) =>
       prev.map((r) => (r.gameAppId === gameAppId ? { ...r, ...updates } : r))
     );
-  };
+  }, []);
 
-  const clearBackgroundRemoval = (gameAppId: number) => {
+  const clearBackgroundRemoval = useCallback((gameAppId: number) => {
     setBackgroundRemovals((prev) => prev.filter((r) => r.gameAppId !== gameAppId));
-  };
+  }, []);
 
-  const updateBackgroundLogProcessing = (updates: Partial<BackgroundLogProcessing>) => {
+  const updateBackgroundLogProcessing = useCallback((updates: Partial<BackgroundLogProcessing>) => {
     setBackgroundLogProcessing((prev) => (prev ? { ...prev, ...updates } : null));
-  };
+  }, []);
 
-  const updateBackgroundCacheClearing = (updates: Partial<BackgroundCacheClearing>) => {
+  const updateBackgroundCacheClearing = useCallback((updates: Partial<BackgroundCacheClearing>) => {
     setBackgroundCacheClearing((prev) => (prev ? { ...prev, ...updates } : null));
-  };
+  }, []);
 
-  const addBackgroundServiceRemoval = (removal: BackgroundServiceRemoval) => {
+  const addBackgroundServiceRemoval = useCallback((removal: BackgroundServiceRemoval) => {
     setBackgroundServiceRemovals((prev) => [...prev, removal]);
-  };
+  }, []);
 
-  const updateBackgroundServiceRemoval = (service: string, updates: Partial<BackgroundServiceRemoval>) => {
+  const updateBackgroundServiceRemoval = useCallback((service: string, updates: Partial<BackgroundServiceRemoval>) => {
     setBackgroundServiceRemovals((prev) =>
       prev.map((r) => (r.service === service ? { ...r, ...updates } : r))
     );
-  };
+  }, []);
 
-  const clearBackgroundServiceRemoval = (service: string) => {
+  const clearBackgroundServiceRemoval = useCallback((service: string) => {
     setBackgroundServiceRemovals((prev) => prev.filter((r) => r.service !== service));
-  };
+  }, []);
 
-  const updateBackgroundDatabaseReset = (updates: Partial<BackgroundDatabaseReset>) => {
+  const updateBackgroundDatabaseReset = useCallback((updates: Partial<BackgroundDatabaseReset>) => {
     setBackgroundDatabaseReset((prev) => (prev ? { ...prev, ...updates } : null));
-  };
+  }, []);
 
-  const updateBackgroundDepotMapping = (updates: Partial<BackgroundDepotMapping>) => {
+  const updateBackgroundDepotMapping = useCallback((updates: Partial<BackgroundDepotMapping>) => {
     setBackgroundDepotMapping((prev) => (prev ? { ...prev, ...updates } : null));
-  };
+  }, []);
 
-  const value: DataContextType = {
+  const addNotification = useCallback((type: 'success' | 'error' | 'info' | 'warning', message: string) => {
+    const notification: GenericNotification = {
+      id: Date.now(),
+      type,
+      message,
+      createdAt: new Date()
+    };
+    setGenericNotifications((prev) => [...prev, notification]);
+  }, []);
+
+  const clearNotification = useCallback((id: number) => {
+    setGenericNotifications((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
+  // Split into data (changes frequently) and actions (stable)
+  const dataValue: DataContextType = {
     mockMode,
     setMockMode,
     mockDownloadCount,
@@ -933,8 +1196,70 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     updateBackgroundDatabaseReset,
     backgroundDepotMapping,
     setBackgroundDepotMapping,
-    updateBackgroundDepotMapping
+    updateBackgroundDepotMapping,
+    genericNotifications,
+    addNotification,
+    clearNotification
   };
 
-  return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
+  // Memoize actions so they're stable and don't cause re-renders
+  const actionsValue = useMemo(() => ({
+    setMockMode,
+    updateMockDataCount,
+    updateApiDownloadCount,
+    fetchData,
+    clearAllData,
+    setIsProcessingLogs,
+    setProcessingStatus,
+    getCurrentRefreshInterval,
+    addBackgroundRemoval,
+    updateBackgroundRemoval,
+    clearBackgroundRemoval,
+    setBackgroundLogProcessing,
+    updateBackgroundLogProcessing,
+    setBackgroundCacheClearing,
+    updateBackgroundCacheClearing,
+    addBackgroundServiceRemoval,
+    updateBackgroundServiceRemoval,
+    clearBackgroundServiceRemoval,
+    setBackgroundDatabaseReset,
+    updateBackgroundDatabaseReset,
+    setBackgroundDepotMapping,
+    updateBackgroundDepotMapping,
+    addNotification,
+    clearNotification
+  }), [
+    setMockMode,
+    updateMockDataCount,
+    updateApiDownloadCount,
+    fetchData,
+    clearAllData,
+    setIsProcessingLogs,
+    setProcessingStatus,
+    getCurrentRefreshInterval,
+    addBackgroundRemoval,
+    updateBackgroundRemoval,
+    clearBackgroundRemoval,
+    setBackgroundLogProcessing,
+    updateBackgroundLogProcessing,
+    setBackgroundCacheClearing,
+    updateBackgroundCacheClearing,
+    addBackgroundServiceRemoval,
+    updateBackgroundServiceRemoval,
+    clearBackgroundServiceRemoval,
+    setBackgroundDatabaseReset,
+    updateBackgroundDatabaseReset,
+    setBackgroundDepotMapping,
+    updateBackgroundDepotMapping,
+    addNotification,
+    clearNotification
+  ]);
+
+  return (
+    <DataContext.Provider value={dataValue}>
+      <DataActionsContext.Provider value={actionsValue}>
+        {children}
+      </DataActionsContext.Provider>
+    </DataContext.Provider>
+  );
 };

@@ -1,11 +1,508 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Download, CheckCircle, AlertCircle, Loader2, X, User, UserX, Trash2, XCircle } from 'lucide-react';
+import { Download, CheckCircle, AlertCircle, Loader2, X, User, UserX, Trash2, XCircle, Info } from 'lucide-react';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
 import { usePicsProgress } from '@hooks/usePicsProgress';
 import { toTotalHours } from '@utils/timeFormatters';
 import { useData } from '@contexts/DataContext';
 import { storage } from '@utils/storage';
+
+const LogProcessingNotification = ({
+  processing,
+  onDismiss
+}: {
+  processing: any;
+  onDismiss: () => void;
+}) => {
+  if (!processing) return null;
+
+  return (
+    <div
+      className="flex items-center gap-3 p-2 rounded-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderLeft: `3px solid ${
+          processing.status === 'complete'
+            ? 'var(--theme-success)'
+            : processing.status === 'failed'
+            ? 'var(--theme-error)'
+            : 'var(--theme-info)'
+        }`
+      }}
+    >
+      {processing.status === 'processing' && (
+        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
+      )}
+      {processing.status === 'complete' && (
+        <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+      )}
+      {processing.status === 'failed' && (
+        <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-themed-primary truncate">
+          {processing.message}
+        </div>
+        {processing.detailMessage && (
+          <div className="text-xs text-themed-muted mt-0.5">{processing.detailMessage}</div>
+        )}
+        {processing.progress > 0 && processing.status === 'processing' && (
+          <div className="mt-2">
+            <div
+              className="w-full rounded-full h-2"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+            >
+              <div
+                className="h-2 rounded-full transition-all duration-300"
+                style={{
+                  backgroundColor: 'var(--theme-info)',
+                  width: `${Math.max(0, Math.min(100, processing.progress))}%`
+                }}
+              />
+            </div>
+            <div className="flex justify-between items-center mt-1">
+              <span className="text-xs text-themed-muted">
+                {processing.progress.toFixed(1)}% complete
+              </span>
+              {processing.estimatedTime && (
+                <span className="text-xs text-themed-muted">{processing.estimatedTime} remaining</span>
+              )}
+            </div>
+          </div>
+        )}
+        {processing.status === 'failed' && processing.error && (
+          <div className="text-xs text-themed-muted mt-0.5">{processing.error}</div>
+        )}
+      </div>
+      {(processing.status === 'complete' || processing.status === 'failed') && (
+        <button
+          onClick={onDismiss}
+          className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
+          aria-label="Dismiss"
+        >
+          <X className="w-4 h-4 text-themed-secondary" />
+        </button>
+      )}
+    </div>
+  );
+};
+
+const DatabaseResetNotification = ({
+  reset,
+  onDismiss
+}: {
+  reset: any;
+  onDismiss: () => void;
+}) => {
+  if (!reset) return null;
+
+  return (
+    <div
+      className="flex items-center gap-3 p-2 rounded-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderLeft: `3px solid ${
+          reset.status === 'complete'
+            ? 'var(--theme-success)'
+            : reset.status === 'failed'
+            ? 'var(--theme-error)'
+            : 'var(--theme-info)'
+        }`
+      }}
+    >
+      {reset.status === 'resetting' && (
+        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
+      )}
+      {reset.status === 'complete' && (
+        <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+      )}
+      {reset.status === 'failed' && (
+        <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-themed-primary truncate">
+          {reset.message}
+        </div>
+        {reset.progress > 0 && reset.status === 'resetting' && (
+          <div className="mt-2">
+            <div
+              className="w-full rounded-full h-2"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+            >
+              <div
+                className="h-2 rounded-full transition-all duration-300"
+                style={{
+                  backgroundColor: 'var(--theme-info)',
+                  width: `${Math.max(0, Math.min(100, reset.progress))}%`
+                }}
+              />
+            </div>
+            <div className="text-xs text-themed-muted mt-1">
+              {reset.progress.toFixed(1)}% complete
+            </div>
+          </div>
+        )}
+        {reset.status === 'failed' && reset.error && (
+          <div className="text-xs text-themed-muted mt-0.5">{reset.error}</div>
+        )}
+      </div>
+      {(reset.status === 'complete' || reset.status === 'failed') && (
+        <button
+          onClick={onDismiss}
+          className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
+          aria-label="Dismiss"
+        >
+          <X className="w-4 h-4 text-themed-secondary" />
+        </button>
+      )}
+    </div>
+  );
+};
+
+const CacheClearingNotification = ({
+  clearing,
+  onDismiss,
+  onCancel
+}: {
+  clearing: any;
+  onDismiss: () => void;
+  onCancel: () => void;
+}) => {
+  if (!clearing) return null;
+
+  return (
+    <div
+      className="flex items-center gap-3 p-2 rounded-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderLeft: `3px solid ${
+          clearing.status === 'complete'
+            ? 'var(--theme-success)'
+            : clearing.status === 'failed'
+            ? 'var(--theme-error)'
+            : 'var(--theme-info)'
+        }`
+      }}
+    >
+      {clearing.status === 'clearing' && (
+        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
+      )}
+      {clearing.status === 'complete' && (
+        <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+      )}
+      {clearing.status === 'failed' && (
+        <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-themed-primary truncate">
+          {clearing.status === 'clearing' && 'Clearing cache...'}
+          {clearing.status === 'complete' && 'Cache cleared successfully'}
+          {clearing.status === 'failed' && 'Cache clearing failed'}
+        </div>
+        <div className="text-xs text-themed-muted mt-0.5">
+          {clearing.filesDeleted.toLocaleString()} files deleted
+        </div>
+        {clearing.progress > 0 && clearing.status === 'clearing' && (
+          <div className="mt-2">
+            <div
+              className="w-full rounded-full h-2"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+            >
+              <div
+                className="h-2 rounded-full transition-all duration-300"
+                style={{
+                  backgroundColor: 'var(--theme-info)',
+                  width: `${Math.max(0, Math.min(100, clearing.progress))}%`
+                }}
+              />
+            </div>
+            <div className="text-xs text-themed-muted mt-1">
+              {clearing.progress.toFixed(1)}% complete
+            </div>
+          </div>
+        )}
+        {clearing.status === 'failed' && clearing.error && (
+          <div className="text-xs text-themed-muted mt-0.5">{clearing.error}</div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {clearing.status === 'clearing' && (
+          <button
+            onClick={onCancel}
+            className="p-1 rounded hover:bg-themed-hover transition-colors"
+            aria-label="Cancel operation"
+            title="Cancel cache clearing"
+          >
+            <X className="w-4 h-4 text-themed-secondary" />
+          </button>
+        )}
+        {(clearing.status === 'complete' || clearing.status === 'failed') && (
+          <button
+            onClick={onDismiss}
+            className="p-1 rounded hover:bg-themed-hover transition-colors"
+            aria-label="Dismiss"
+          >
+            <X className="w-4 h-4 text-themed-secondary" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const ServiceRemovalNotification = ({
+  removal,
+  onDismiss
+}: {
+  removal: any;
+  onDismiss: () => void;
+}) => {
+  return (
+    <div
+      className="flex items-center gap-3 p-2 rounded-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderLeft: `3px solid ${
+          removal.status === 'complete'
+            ? 'var(--theme-success)'
+            : removal.status === 'failed'
+            ? 'var(--theme-error)'
+            : 'var(--theme-warning)'
+        }`
+      }}
+    >
+      {removal.status === 'removing' && (
+        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
+      )}
+      {removal.status === 'complete' && (
+        <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+      )}
+      {removal.status === 'failed' && (
+        <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-themed-primary truncate">
+          {removal.message || (
+            <>
+              {removal.status === 'removing' && `Removing ${removal.service} logs...`}
+              {removal.status === 'complete' && `Removed ${removal.service} logs successfully`}
+              {removal.status === 'failed' && `Failed to remove ${removal.service} logs`}
+            </>
+          )}
+        </div>
+        {removal.status === 'removing' && removal.progress !== undefined && (
+          <div className="mt-1">
+            <div className="flex items-center justify-between text-xs text-themed-muted mb-0.5">
+              <span>{removal.progress.toFixed(1)}%</span>
+              {removal.linesProcessed !== undefined && removal.linesRemoved !== undefined && (
+                <span>{removal.linesRemoved.toLocaleString()} removed / {removal.linesProcessed.toLocaleString()} processed</span>
+              )}
+            </div>
+            <div className="w-full bg-themed-tertiary rounded-full h-1.5">
+              <div
+                className="h-1.5 rounded-full transition-all duration-300"
+                style={{
+                  width: `${removal.progress}%`,
+                  backgroundColor: 'var(--theme-warning)'
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {removal.status === 'failed' && removal.error && (
+          <div className="text-xs text-themed-muted mt-0.5">{removal.error}</div>
+        )}
+      </div>
+      {(removal.status === 'complete' || removal.status === 'failed') && (
+        <button
+          onClick={onDismiss}
+          className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
+          aria-label="Dismiss"
+        >
+          <X className="w-4 h-4 text-themed-secondary" />
+        </button>
+      )}
+    </div>
+  );
+};
+
+const DepotMappingNotification = ({
+  mapping
+}: {
+  mapping: any;
+}) => {
+  if (!mapping || !mapping.isProcessing) return null;
+
+  return (
+    <div
+      className="flex items-center gap-3 p-2 rounded-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderLeft: `3px solid var(--theme-warning)`
+      }}
+    >
+      <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-themed-primary truncate">
+          Depot Mapping: {mapping.processedMappings} / {mapping.totalMappings} downloads
+        </div>
+        <div className="text-xs text-themed-muted mt-0.5">
+          {mapping.message}
+          {mapping.mappingsApplied !== undefined && (
+            <span> • {mapping.mappingsApplied} mappings applied</span>
+          )}
+        </div>
+        {mapping.percentComplete > 0 && (
+          <div className="mt-2">
+            <div
+              className="w-full rounded-full h-2"
+              style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+            >
+              <div
+                className="h-2 rounded-full transition-all duration-300"
+                style={{
+                  backgroundColor: 'var(--theme-warning)',
+                  width: `${Math.max(0, Math.min(100, mapping.percentComplete))}%`
+                }}
+              />
+            </div>
+            <div className="text-xs text-themed-muted mt-1">
+              {mapping.percentComplete.toFixed(1)}% complete
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const GameRemovalNotification = ({
+  removal,
+  onDismiss
+}: {
+  removal: any;
+  onDismiss: () => void;
+}) => {
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+  };
+
+  return (
+    <div
+      className="flex items-center gap-3 p-2 rounded-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderLeft: `3px solid ${
+          removal.status === 'completed'
+            ? 'var(--theme-success)'
+            : removal.status === 'failed'
+            ? 'var(--theme-error)'
+            : 'var(--theme-info)'
+        }`
+      }}
+    >
+      {removal.status === 'removing' && (
+        <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
+      )}
+      {removal.status === 'completed' && (
+        <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
+      )}
+      {removal.status === 'failed' && (
+        <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <Trash2 className="w-3 h-3 text-themed-muted flex-shrink-0" />
+          <span className="text-sm font-medium text-themed-primary truncate">
+            {removal.status === 'removing' && `Removing ${removal.gameName}...`}
+            {removal.status === 'completed' && `Removed ${removal.gameName}`}
+            {removal.status === 'failed' && `Failed to remove ${removal.gameName}`}
+          </span>
+        </div>
+        {removal.status === 'completed' && removal.filesDeleted !== undefined && (
+          <div className="text-xs text-themed-muted mt-0.5">
+            {removal.filesDeleted.toLocaleString()} cache files deleted
+            {removal.logEntriesRemoved !== undefined && removal.logEntriesRemoved > 0 && ` • ${removal.logEntriesRemoved.toLocaleString()} log entries removed`}
+            {` • ${formatBytes(removal.bytesFreed || 0)} freed`}
+          </div>
+        )}
+        {removal.status === 'failed' && removal.error && (
+          <div className="text-xs text-themed-muted mt-0.5">{removal.error}</div>
+        )}
+      </div>
+      {(removal.status === 'completed' || removal.status === 'failed') && (
+        <button
+          onClick={onDismiss}
+          className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
+          aria-label="Dismiss"
+        >
+          <X className="w-4 h-4 text-themed-secondary" />
+        </button>
+      )}
+    </div>
+  );
+};
+
+const GenericNotificationItem = ({
+  notification,
+  onDismiss
+}: {
+  notification: any;
+  onDismiss: () => void;
+}) => {
+  const getNotificationColor = () => {
+    switch (notification.type) {
+      case 'success': return 'var(--theme-success)';
+      case 'error': return 'var(--theme-error)';
+      case 'warning': return 'var(--theme-warning)';
+      case 'info': return 'var(--theme-info)';
+      default: return 'var(--theme-info)';
+    }
+  };
+
+  const getNotificationIcon = () => {
+    switch (notification.type) {
+      case 'success':
+        return <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />;
+      case 'error':
+        return <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />;
+      case 'warning':
+        return <AlertCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />;
+      case 'info':
+        return <Info className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-info)' }} />;
+      default:
+        return <Info className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-info)' }} />;
+    }
+  };
+
+  return (
+    <div
+      className="flex items-center gap-3 p-2 rounded-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
+        borderLeft: `3px solid ${getNotificationColor()}`
+      }}
+    >
+      {getNotificationIcon()}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm text-themed-primary">
+          {notification.message}
+        </div>
+      </div>
+      <button
+        onClick={onDismiss}
+        className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
+        aria-label="Dismiss"
+      >
+        <X className="w-4 h-4 text-themed-secondary" />
+      </button>
+    </div>
+  );
+};
 
 const UniversalNotificationBar: React.FC = () => {
   const { progress } = usePicsProgress({ pollingInterval: 2000 });
@@ -21,7 +518,9 @@ const UniversalNotificationBar: React.FC = () => {
     clearBackgroundServiceRemoval,
     backgroundDatabaseReset,
     setBackgroundDatabaseReset,
-    backgroundDepotMapping
+    backgroundDepotMapping,
+    genericNotifications,
+    clearNotification
   } = useData();
   const [isVisible, setIsVisible] = useState(false);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -145,6 +644,31 @@ const UniversalNotificationBar: React.FC = () => {
     });
   }, [backgroundRemovals, clearBackgroundRemoval]);
 
+  // Auto-clear generic notifications after 10 seconds
+  const genericNotificationTimersRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+
+  useEffect(() => {
+    genericNotifications.forEach((notification) => {
+      // Only set timer if this notification doesn't already have one
+      if (!genericNotificationTimersRef.current.has(notification.id)) {
+        const timer = setTimeout(() => {
+          clearNotification(notification.id);
+          genericNotificationTimersRef.current.delete(notification.id);
+        }, 10000);
+        genericNotificationTimersRef.current.set(notification.id, timer);
+      }
+    });
+
+    // Clean up timers for notifications that no longer exist
+    const currentNotificationIds = new Set(genericNotifications.map(n => n.id));
+    genericNotificationTimersRef.current.forEach((timer, id) => {
+      if (!currentNotificationIds.has(id)) {
+        clearTimeout(timer);
+        genericNotificationTimersRef.current.delete(id);
+      }
+    });
+  }, [genericNotifications, clearNotification]);
+
   useEffect(() => {
     const hasBackgroundActivity =
       backgroundRemovals.length > 0 ||
@@ -152,7 +676,8 @@ const UniversalNotificationBar: React.FC = () => {
       backgroundCacheClearing !== null ||
       backgroundServiceRemovals.length > 0 ||
       backgroundDatabaseReset !== null ||
-      backgroundDepotMapping !== null;
+      backgroundDepotMapping !== null ||
+      genericNotifications.length > 0;
 
     // If alwaysVisible is enabled or GitHub download is active or background activity exists, always show the bar
     if (alwaysVisible || githubDownloadStatus === 'downloading' || hasBackgroundActivity) {
@@ -207,17 +732,19 @@ const UniversalNotificationBar: React.FC = () => {
     }
     // Note: wasRunning intentionally excluded from dependencies to prevent infinite loop
     // We read its current value but don't re-run when it changes
+    // Only track existence of background operations, not their content, to prevent flickering on progress updates
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     progress,
     alwaysVisible,
     githubDownloadStatus,
     backgroundRemovals.length,
-    backgroundLogProcessing,
-    backgroundCacheClearing,
+    backgroundLogProcessing !== null, // Only care if it exists
+    backgroundCacheClearing !== null, // Only care if it exists
     backgroundServiceRemovals.length,
-    backgroundDatabaseReset,
-    backgroundDepotMapping
+    backgroundDatabaseReset !== null, // Only care if it exists
+    backgroundDepotMapping !== null, // Only care if it exists
+    genericNotifications.length
   ]);
 
   // Cleanup timeout on unmount
@@ -229,6 +756,9 @@ const UniversalNotificationBar: React.FC = () => {
       // Clear all auto-clear timers
       autoClearTimersRef.current.forEach(timer => clearTimeout(timer));
       autoClearTimersRef.current.clear();
+      // Clear all generic notification timers
+      genericNotificationTimersRef.current.forEach(timer => clearTimeout(timer));
+      genericNotificationTimersRef.current.clear();
     };
   }, []);
 
@@ -241,19 +771,12 @@ const UniversalNotificationBar: React.FC = () => {
     backgroundCacheClearing ||
     backgroundServiceRemovals.length > 0 ||
     backgroundDatabaseReset ||
-    backgroundDepotMapping;
+    backgroundDepotMapping ||
+    genericNotifications.length > 0;
 
   if (!hasAnyActivity) {
     return null;
   }
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-  };
 
   const getStatusIcon = () => {
     if (githubDownloadStatus === 'downloading') {
@@ -422,394 +945,52 @@ const UniversalNotificationBar: React.FC = () => {
 
         {/* Background Removals */}
         {backgroundRemovals.map((removal) => (
-          <div
+          <GameRemovalNotification
             key={removal.gameAppId}
-            className="flex items-center gap-3 p-2 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderLeft: `3px solid ${
-                removal.status === 'completed'
-                  ? 'var(--theme-success)'
-                  : removal.status === 'failed'
-                  ? 'var(--theme-error)'
-                  : 'var(--theme-info)'
-              }`
-            }}
-          >
-            {removal.status === 'removing' && (
-              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
-            )}
-            {removal.status === 'completed' && (
-              <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
-            )}
-            {removal.status === 'failed' && (
-              <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <Trash2 className="w-3 h-3 text-themed-muted flex-shrink-0" />
-                <span className="text-sm font-medium text-themed-primary truncate">
-                  {removal.status === 'removing' && `Removing ${removal.gameName}...`}
-                  {removal.status === 'completed' &&
-                    `Removed ${removal.gameName}`}
-                  {removal.status === 'failed' && `Failed to remove ${removal.gameName}`}
-                </span>
-              </div>
-              {removal.status === 'completed' && removal.filesDeleted !== undefined && (
-                <div className="text-xs text-themed-muted mt-0.5">
-                  {removal.filesDeleted.toLocaleString()} cache files deleted
-                  {removal.logEntriesRemoved !== undefined && removal.logEntriesRemoved > 0 && ` • ${removal.logEntriesRemoved.toLocaleString()} log entries removed`}
-                  {` • ${formatBytes(removal.bytesFreed || 0)} freed`}
-                </div>
-              )}
-              {removal.status === 'failed' && removal.error && (
-                <div className="text-xs text-themed-muted mt-0.5">{removal.error}</div>
-              )}
-            </div>
-            {/* Only show X button when complete or failed, not during removal */}
-            {(removal.status === 'completed' || removal.status === 'failed') && (
-              <button
-                onClick={() => clearBackgroundRemoval(removal.gameAppId)}
-                className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
-                aria-label="Dismiss"
-              >
-                <X className="w-4 h-4 text-themed-secondary" />
-              </button>
-            )}
-          </div>
+            removal={removal}
+            onDismiss={() => clearBackgroundRemoval(removal.gameAppId)}
+          />
         ))}
 
         {/* Log Processing */}
-        {backgroundLogProcessing && (
-          <div
-            className="flex items-center gap-3 p-2 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderLeft: `3px solid ${
-                backgroundLogProcessing.status === 'complete'
-                  ? 'var(--theme-success)'
-                  : backgroundLogProcessing.status === 'failed'
-                  ? 'var(--theme-error)'
-                  : 'var(--theme-info)'
-              }`
-            }}
-          >
-            {backgroundLogProcessing.status === 'processing' && (
-              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
-            )}
-            {backgroundLogProcessing.status === 'complete' && (
-              <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
-            )}
-            {backgroundLogProcessing.status === 'failed' && (
-              <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-themed-primary truncate">
-                {backgroundLogProcessing.message}
-              </div>
-              {backgroundLogProcessing.detailMessage && (
-                <div className="text-xs text-themed-muted mt-0.5">{backgroundLogProcessing.detailMessage}</div>
-              )}
-              {backgroundLogProcessing.progress > 0 && backgroundLogProcessing.status === 'processing' && (
-                <div className="mt-2">
-                  <div
-                    className="w-full rounded-full h-2"
-                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                  >
-                    <div
-                      className="h-2 rounded-full transition-all duration-300"
-                      style={{
-                        backgroundColor: 'var(--theme-info)',
-                        width: `${Math.max(0, Math.min(100, backgroundLogProcessing.progress))}%`
-                      }}
-                    />
-                  </div>
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-xs text-themed-muted">
-                      {backgroundLogProcessing.progress.toFixed(1)}% complete
-                    </span>
-                    {backgroundLogProcessing.estimatedTime && (
-                      <span className="text-xs text-themed-muted">{backgroundLogProcessing.estimatedTime} remaining</span>
-                    )}
-                  </div>
-                </div>
-              )}
-              {backgroundLogProcessing.status === 'failed' && backgroundLogProcessing.error && (
-                <div className="text-xs text-themed-muted mt-0.5">{backgroundLogProcessing.error}</div>
-              )}
-            </div>
-            {/* Only show X button when complete or failed, not during processing */}
-            {(backgroundLogProcessing.status === 'complete' || backgroundLogProcessing.status === 'failed') && (
-              <button
-                onClick={() => setBackgroundLogProcessing(null)}
-                className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
-                aria-label="Dismiss"
-              >
-                <X className="w-4 h-4 text-themed-secondary" />
-              </button>
-            )}
-          </div>
-        )}
+        <LogProcessingNotification
+          processing={backgroundLogProcessing}
+          onDismiss={() => setBackgroundLogProcessing(null)}
+        />
 
         {/* Cache Clearing */}
-        {backgroundCacheClearing && (
-          <div
-            className="flex items-center gap-3 p-2 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderLeft: `3px solid ${
-                backgroundCacheClearing.status === 'complete'
-                  ? 'var(--theme-success)'
-                  : backgroundCacheClearing.status === 'failed'
-                  ? 'var(--theme-error)'
-                  : 'var(--theme-info)'
-              }`
-            }}
-          >
-            {backgroundCacheClearing.status === 'clearing' && (
-              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
-            )}
-            {backgroundCacheClearing.status === 'complete' && (
-              <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
-            )}
-            {backgroundCacheClearing.status === 'failed' && (
-              <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-themed-primary truncate">
-                {backgroundCacheClearing.status === 'clearing' && 'Clearing cache...'}
-                {backgroundCacheClearing.status === 'complete' && 'Cache cleared successfully'}
-                {backgroundCacheClearing.status === 'failed' && 'Cache clearing failed'}
-              </div>
-              <div className="text-xs text-themed-muted mt-0.5">
-                {backgroundCacheClearing.filesDeleted.toLocaleString()} files deleted
-              </div>
-              {backgroundCacheClearing.progress > 0 && backgroundCacheClearing.status === 'clearing' && (
-                <div className="mt-2">
-                  <div
-                    className="w-full rounded-full h-2"
-                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                  >
-                    <div
-                      className="h-2 rounded-full transition-all duration-300"
-                      style={{
-                        backgroundColor: 'var(--theme-info)',
-                        width: `${Math.max(0, Math.min(100, backgroundCacheClearing.progress))}%`
-                      }}
-                    />
-                  </div>
-                  <div className="text-xs text-themed-muted mt-1">
-                    {backgroundCacheClearing.progress.toFixed(1)}% complete
-                  </div>
-                </div>
-              )}
-              {backgroundCacheClearing.status === 'failed' && backgroundCacheClearing.error && (
-                <div className="text-xs text-themed-muted mt-0.5">{backgroundCacheClearing.error}</div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {/* Show X button during clearing (to cancel) or when complete/failed (to dismiss) */}
-              {backgroundCacheClearing.status === 'clearing' && (
-                <button
-                  onClick={handleCancelCacheClearing}
-                  className="p-1 rounded hover:bg-themed-hover transition-colors"
-                  aria-label="Cancel operation"
-                  title="Cancel cache clearing"
-                >
-                  <X className="w-4 h-4 text-themed-secondary" />
-                </button>
-              )}
-              {(backgroundCacheClearing.status === 'complete' || backgroundCacheClearing.status === 'failed') && (
-                <button
-                  onClick={() => setBackgroundCacheClearing(null)}
-                  className="p-1 rounded hover:bg-themed-hover transition-colors"
-                  aria-label="Dismiss"
-                >
-                  <X className="w-4 h-4 text-themed-secondary" />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        <CacheClearingNotification
+          clearing={backgroundCacheClearing}
+          onDismiss={() => setBackgroundCacheClearing(null)}
+          onCancel={handleCancelCacheClearing}
+        />
 
         {/* Service Removals */}
         {backgroundServiceRemovals.map((removal) => (
-          <div
+          <ServiceRemovalNotification
             key={`${removal.service}-${removal.startedAt.getTime()}`}
-            className="flex items-center gap-3 p-2 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderLeft: `3px solid ${
-                removal.status === 'complete'
-                  ? 'var(--theme-success)'
-                  : removal.status === 'failed'
-                  ? 'var(--theme-error)'
-                  : 'var(--theme-warning)'
-              }`
-            }}
-          >
-            {removal.status === 'removing' && (
-              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
-            )}
-            {removal.status === 'complete' && (
-              <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
-            )}
-            {removal.status === 'failed' && (
-              <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-themed-primary truncate">
-                {removal.message || (
-                  <>
-                    {removal.status === 'removing' && `Removing ${removal.service} logs...`}
-                    {removal.status === 'complete' && `Removed ${removal.service} logs successfully`}
-                    {removal.status === 'failed' && `Failed to remove ${removal.service} logs`}
-                  </>
-                )}
-              </div>
-              {removal.status === 'removing' && removal.progress !== undefined && (
-                <div className="mt-1">
-                  <div className="flex items-center justify-between text-xs text-themed-muted mb-0.5">
-                    <span>{removal.progress.toFixed(1)}%</span>
-                    {removal.linesProcessed !== undefined && removal.linesRemoved !== undefined && (
-                      <span>{removal.linesRemoved.toLocaleString()} removed / {removal.linesProcessed.toLocaleString()} processed</span>
-                    )}
-                  </div>
-                  <div className="w-full bg-themed-tertiary rounded-full h-1.5">
-                    <div
-                      className="h-1.5 rounded-full transition-all duration-300"
-                      style={{
-                        width: `${removal.progress}%`,
-                        backgroundColor: 'var(--theme-warning)'
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-              {removal.status === 'failed' && removal.error && (
-                <div className="text-xs text-themed-muted mt-0.5">{removal.error}</div>
-              )}
-            </div>
-            {/* Only show X button when complete or failed, not during removal */}
-            {(removal.status === 'complete' || removal.status === 'failed') && (
-              <button
-                onClick={() => clearBackgroundServiceRemoval(removal.service)}
-                className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
-                aria-label="Dismiss"
-              >
-                <X className="w-4 h-4 text-themed-secondary" />
-              </button>
-            )}
-          </div>
+            removal={removal}
+            onDismiss={() => clearBackgroundServiceRemoval(removal.service)}
+          />
         ))}
 
         {/* Database Reset */}
-        {backgroundDatabaseReset && (
-          <div
-            className="flex items-center gap-3 p-2 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderLeft: `3px solid ${
-                backgroundDatabaseReset.status === 'complete'
-                  ? 'var(--theme-success)'
-                  : backgroundDatabaseReset.status === 'failed'
-                  ? 'var(--theme-error)'
-                  : 'var(--theme-info)'
-              }`
-            }}
-          >
-            {backgroundDatabaseReset.status === 'resetting' && (
-              <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-info)' }} />
-            )}
-            {backgroundDatabaseReset.status === 'complete' && (
-              <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
-            )}
-            {backgroundDatabaseReset.status === 'failed' && (
-              <XCircle className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-themed-primary truncate">
-                {backgroundDatabaseReset.message}
-              </div>
-              {backgroundDatabaseReset.progress > 0 && backgroundDatabaseReset.status === 'resetting' && (
-                <div className="mt-2">
-                  <div
-                    className="w-full rounded-full h-2"
-                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                  >
-                    <div
-                      className="h-2 rounded-full transition-all duration-300"
-                      style={{
-                        backgroundColor: 'var(--theme-info)',
-                        width: `${Math.max(0, Math.min(100, backgroundDatabaseReset.progress))}%`
-                      }}
-                    />
-                  </div>
-                  <div className="text-xs text-themed-muted mt-1">
-                    {backgroundDatabaseReset.progress.toFixed(1)}% complete
-                  </div>
-                </div>
-              )}
-              {backgroundDatabaseReset.status === 'failed' && backgroundDatabaseReset.error && (
-                <div className="text-xs text-themed-muted mt-0.5">{backgroundDatabaseReset.error}</div>
-              )}
-            </div>
-            {/* Only show X button when complete or failed, not during reset */}
-            {(backgroundDatabaseReset.status === 'complete' || backgroundDatabaseReset.status === 'failed') && (
-              <button
-                onClick={() => setBackgroundDatabaseReset(null)}
-                className="flex-shrink-0 p-1 rounded hover:bg-themed-hover transition-colors"
-                aria-label="Dismiss"
-              >
-                <X className="w-4 h-4 text-themed-secondary" />
-              </button>
-            )}
-          </div>
-        )}
+        <DatabaseResetNotification
+          reset={backgroundDatabaseReset}
+          onDismiss={() => setBackgroundDatabaseReset(null)}
+        />
 
         {/* Depot Mapping */}
-        {backgroundDepotMapping && backgroundDepotMapping.isProcessing && (
-          <div
-            className="flex items-center gap-3 p-2 rounded-lg"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              borderLeft: `3px solid var(--theme-warning)`
-            }}
-          >
-            <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color: 'var(--theme-warning)' }} />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-themed-primary truncate">
-                Depot Mapping: {backgroundDepotMapping.processedMappings} / {backgroundDepotMapping.totalMappings} downloads
-              </div>
-              <div className="text-xs text-themed-muted mt-0.5">
-                {backgroundDepotMapping.message}
-                {backgroundDepotMapping.mappingsApplied !== undefined && (
-                  <span> • {backgroundDepotMapping.mappingsApplied} mappings applied</span>
-                )}
-              </div>
-              {backgroundDepotMapping.percentComplete > 0 && (
-                <div className="mt-2">
-                  <div
-                    className="w-full rounded-full h-2"
-                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-                  >
-                    <div
-                      className="h-2 rounded-full transition-all duration-300"
-                      style={{
-                        backgroundColor: 'var(--theme-warning)',
-                        width: `${Math.max(0, Math.min(100, backgroundDepotMapping.percentComplete))}%`
-                      }}
-                    />
-                  </div>
-                  <div className="text-xs text-themed-muted mt-1">
-                    {backgroundDepotMapping.percentComplete.toFixed(1)}% complete
-                  </div>
-                </div>
-              )}
-            </div>
-            {/* No X button - depot mapping cannot be cancelled */}
-          </div>
-        )}
+        <DepotMappingNotification mapping={backgroundDepotMapping} />
+
+        {/* Generic Notifications */}
+        {genericNotifications.map((notification) => (
+          <GenericNotificationItem
+            key={notification.id}
+            notification={notification}
+            onDismiss={() => clearNotification(notification.id)}
+          />
+        ))}
       </div>
     </div>
   );

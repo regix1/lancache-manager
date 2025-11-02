@@ -8,7 +8,7 @@ interface PollingRateSelectorProps {
   disabled?: boolean;
 }
 
-const PollingRateSelector: React.FC<PollingRateSelectorProps> = React.memo(({ disabled = false }) => {
+const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = false }) => {
   const { pollingRate, setPollingRate } = usePollingRate();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -158,11 +158,6 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = React.memo(({ di
       )}
     </div>
   );
-}, (prevProps, nextProps) => {
-  // Only re-render if disabled prop changes
-  return prevProps.disabled === nextProps.disabled;
-});
-
-PollingRateSelector.displayName = 'PollingRateSelector';
+};
 
 export default PollingRateSelector;

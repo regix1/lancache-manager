@@ -8,7 +8,7 @@ interface TimeFilterProps {
   disabled?: boolean;
 }
 
-const TimeFilter: React.FC<TimeFilterProps> = React.memo(({ disabled = false }) => {
+const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
   const {
     timeRange,
     setTimeRange,
@@ -218,11 +218,6 @@ const TimeFilter: React.FC<TimeFilterProps> = React.memo(({ disabled = false }) 
       )}
     </>
   );
-}, (prevProps, nextProps) => {
-  // Only re-render if disabled prop changes
-  return prevProps.disabled === nextProps.disabled;
-});
-
-TimeFilter.displayName = 'TimeFilter';
+};
 
 export default TimeFilter;

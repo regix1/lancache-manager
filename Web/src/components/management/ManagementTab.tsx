@@ -9,7 +9,7 @@ import {
   Plug,
   Settings
 } from 'lucide-react';
-import { useData } from '@contexts/DataContext';
+import { useData, useDataActions } from '@contexts/DataContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
@@ -24,7 +24,6 @@ import LogAndCorruptionManager from './LogAndCorruptionManager';
 import GameCacheDetector from './GameCacheDetector';
 import ThemeManager from './ThemeManager';
 import GcManager from './GcManager';
-import AlertsManager from './AlertsManager';
 import GrafanaEndpoints from './GrafanaEndpoints';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card } from '@components/ui/Card';
@@ -308,25 +307,17 @@ interface ManagementTabProps {
 }
 
 const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
+  const { mockMode } = useData();
   const {
-    mockMode,
     setMockMode,
     fetchData,
     setBackgroundDepotMapping,
-    updateBackgroundDepotMapping,
-    setBackgroundDatabaseReset,
-    updateBackgroundDatabaseReset,
     addBackgroundServiceRemoval,
-    updateBackgroundServiceRemoval,
-    clearBackgroundServiceRemoval
-  } = useData();
+    addNotification
+  } = useDataActions();
   const signalR = useSignalR();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
-  const [alerts, setAlerts] = useState<{
-    errors: { id: number; message: string }[];
-    success: string | null;
-  }>({ errors: [], success: null });
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
 
   // Use ref to ensure migration only happens once
@@ -336,25 +327,14 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const logAndCorruptionReloadRef = useRef<(() => Promise<void>) | null>(null);
   const logAndCorruptionClearOpRef = useRef<(() => Promise<void>) | null>(null);
 
-  // Alert management
+  // Notification management using DataContext
   const addError = useCallback((message: string) => {
-    setAlerts((prev) => ({
-      ...prev,
-      errors: [...prev.errors, { id: Date.now(), message }]
-    }));
-  }, []);
+    addNotification('error', message);
+  }, [addNotification]);
 
   const setSuccess = useCallback((message: string) => {
-    setAlerts((prev) => ({ ...prev, success: message }));
-    setTimeout(() => setAlerts((prev) => ({ ...prev, success: null })), 10000);
-  }, []);
-
-  const clearError = useCallback((id: number) => {
-    setAlerts((prev) => ({
-      ...prev,
-      errors: prev.errors.filter((e) => e.id !== id)
-    }));
-  }, []);
+    addNotification('success', message);
+  }, [addNotification]);
 
   // Helper function to refresh log & corruption management
   const refreshLogAndCorruption = useCallback(async () => {
@@ -362,10 +342,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     if (logAndCorruptionReloadRef.current) {
       await logAndCorruptionReloadRef.current();
     }
-  }, []);
-
-  const clearSuccess = useCallback(() => {
-    setAlerts((prev) => ({ ...prev, success: null }));
   }, []);
 
   // Refs for callbacks to avoid dependency issues in SignalR subscriptions
@@ -412,30 +388,28 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     initialize();
   }, [setSuccess]);
 
-  // Subscribe to SignalR events for depot mapping and management operations
+  // Subscribe to SignalR events for management-specific operations (operationStateService & component refreshes)
   useEffect(() => {
     if (mockMode) {
       // Don't subscribe in mock mode
       return;
     }
 
-    // Depot mapping event handlers
+    // Depot mapping handlers for operationStateService persistence
     const handleDepotMappingStarted = async (payload: any) => {
-      console.log('SignalR DepotMappingStarted received:', payload);
-      const state = {
-        id: 'depot-mapping',
-        isProcessing: true,
-        totalMappings: 0,
-        processedMappings: 0,
-        percentComplete: 0,
-        status: 'starting',
-        message: payload.message || 'Starting depot mapping post-processing...',
-        startedAt: new Date()
-      };
-      setBackgroundDepotMapping(state);
-
+      console.log('[ManagementTab] DepotMappingStarted received:', payload);
       // Persist state for recovery
       try {
+        const state = {
+          id: 'depot-mapping',
+          isProcessing: true,
+          totalMappings: 0,
+          processedMappings: 0,
+          percentComplete: 0,
+          status: 'starting',
+          message: payload.message || 'Starting depot mapping post-processing...',
+          startedAt: new Date()
+        };
         await operationStateService.saveState('activeDepotMapping', 'depotMapping', state, 60);
       } catch (err) {
         console.warn('[ManagementTab] Failed to save depot mapping state:', err);
@@ -443,30 +417,26 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     };
 
     const handleDepotMappingProgress = async (payload: any) => {
-      console.log('SignalR DepotMappingProgress received:', payload);
-      const updates = {
-        isProcessing: payload.isProcessing,
-        totalMappings: payload.totalMappings,
-        processedMappings: payload.processedMappings,
-        mappingsApplied: payload.mappingsApplied,
-        percentComplete: payload.percentComplete,
-        status: payload.status,
-        message: payload.message
-      };
-      updateBackgroundDepotMapping(updates);
-
+      console.log('[ManagementTab] DepotMappingProgress received:', payload);
       // Update persisted state
       try {
+        const updates = {
+          isProcessing: payload.isProcessing,
+          totalMappings: payload.totalMappings,
+          processedMappings: payload.processedMappings,
+          mappingsApplied: payload.mappingsApplied,
+          percentComplete: payload.percentComplete,
+          status: payload.status,
+          message: payload.message
+        };
         await operationStateService.updateState('activeDepotMapping', updates);
       } catch (err) {
         console.warn('[ManagementTab] Failed to update depot mapping state:', err);
       }
 
-      // Clear progress when complete
+      // Clean up persisted state when complete
       if (!payload.isProcessing || payload.status === 'complete') {
         setTimeout(async () => {
-          setBackgroundDepotMapping(null);
-          // Clean up persisted state
           try {
             await operationStateService.removeState('activeDepotMapping');
           } catch (err) {
@@ -476,12 +446,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       }
     };
 
-    const handleDepotPostProcessingFailed = async (payload: any) => {
-      setBackgroundDepotMapping(null);
-      addErrorRef.current(payload?.error
-        ? `Depot mapping post-processing failed: ${payload.error}`
-        : 'Depot mapping post-processing failed.');
-
+    const handleDepotPostProcessingFailed = async () => {
       // Clean up persisted state
       try {
         await operationStateService.removeState('activeDepotMapping');
@@ -490,73 +455,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       }
     };
 
-    const handleDatabaseResetProgress = (payload: any) => {
-      if (payload.status === 'complete') {
-        updateBackgroundDatabaseReset({
-          status: 'complete',
-          message: 'Database reset completed - redirecting to home...',
-          progress: 100
-        });
-        setSuccessRef.current('Database reset completed successfully - redirecting to home...');
-        // Wait longer to ensure database is fully reset before redirect
-        setTimeout(() => {
-          // Redirect to home page to properly handle authentication state
-          window.location.href = '/';
-        }, 2500);
-      } else if (payload.status === 'error') {
-        updateBackgroundDatabaseReset({
-          status: 'failed',
-          error: payload.message
-        });
-        addErrorRef.current(`Database reset failed: ${payload.message}`);
-        // Clear after a delay
-        setTimeout(() => {
-          setBackgroundDatabaseReset(null);
-        }, 10000);
-      } else {
-        // Update progress
-        setBackgroundDatabaseReset({
-          id: 'database-reset',
-          message: payload.message || 'Resetting database...',
-          progress: payload.percentComplete || 0,
-          status: 'resetting',
-          startedAt: new Date()
-        });
-      }
-    };
-
-    const handleBulkProcessingComplete = async (result: any) => {
-      console.log('Log processing complete:', result);
-      // Log processing is done, depot mapping can be triggered manually if needed
-    };
-
-    const handleLogRemovalProgress = (payload: any) => {
-      // Update DataContext with removal progress for UniversalNotificationBar
-      if (payload.status === 'starting' || payload.status === 'removing') {
-        updateBackgroundServiceRemoval(payload.service, {
-          status: 'removing',
-          message: payload.message || `Removing ${payload.service} entries...`,
-          progress: payload.percentComplete || 0,
-          linesProcessed: payload.linesProcessed || 0,
-          linesRemoved: payload.linesRemoved || 0
-        });
-      }
-    };
-
     const handleLogRemovalComplete = async (payload: any) => {
+      // Management-specific: Refresh LogAndCorruptionManager component
       if (payload.success) {
-        // Update to completed status
-        updateBackgroundServiceRemoval(payload.service, {
-          status: 'complete',
-          message: payload.message || `Removed ${payload.linesRemoved || 0} ${payload.service} entries`,
-          progress: 100
-        });
-
-        // Clear after showing complete status for 3 seconds
-        setTimeout(() => {
-          clearBackgroundServiceRemoval(payload.service);
-        }, 3000);
-
         // Clear LogAndCorruptionManager operation state
         if (logAndCorruptionClearOpRef.current) {
           await logAndCorruptionClearOpRef.current();
@@ -565,19 +466,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         // Refresh LogAndCorruptionManager
         await refreshLogAndCorruptionRef.current();
       } else {
-        // Update to failed status
-        updateBackgroundServiceRemoval(payload.service, {
-          status: 'failed',
-          error: payload.message || 'Removal failed'
-        });
-
-        // Clear after showing error for 5 seconds
-        setTimeout(() => {
-          clearBackgroundServiceRemoval(payload.service);
-        }, 5000);
-
-        addErrorRef.current(`Failed to remove ${payload.service} logs: ${payload.message}`);
-
         // Clear operation states on failure too
         if (logAndCorruptionClearOpRef.current) {
           await logAndCorruptionClearOpRef.current();
@@ -585,16 +473,13 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       }
     };
 
-    // Subscribe to all events
+    // Subscribe to management-specific events
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
-    signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
-    signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
-    signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
 
-    console.log('[ManagementTab] Subscribed to SignalR events');
+    console.log('[ManagementTab] Subscribed to management-specific SignalR events');
 
     // Recover depot mapping state if page was refreshed during operation
     const recoverDepotMappingState = async () => {
@@ -655,11 +540,8 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       signalR.off('DepotMappingStarted', handleDepotMappingStarted);
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
-      signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
-      signalR.off('BulkProcessingComplete', handleBulkProcessingComplete);
-      signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
-      console.log('[ManagementTab] Unsubscribed from SignalR events');
+      console.log('[ManagementTab] Unsubscribed from management-specific SignalR events');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency
@@ -667,8 +549,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   return (
     <>
       <div className="space-y-6">
-        {/* Regular Alerts Only - Background operations now shown in UniversalNotificationBar */}
-        <AlertsManager alerts={alerts} onClearError={clearError} onClearSuccess={clearSuccess} />
+        {/* All notifications now shown in UniversalNotificationBar */}
 
         {/* Authentication & Access Section - Always Open */}
         <CollapsibleSection title="Authentication & Access" icon={Shield} alwaysOpen>
@@ -742,8 +623,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
               <GameCacheDetector
                 mockMode={mockMode}
                 isAuthenticated={authMode === 'authenticated'}
-                onError={addError}
-                onSuccess={setSuccess}
                 onDataRefresh={fetchData}
               />
             </CollapsibleSection>

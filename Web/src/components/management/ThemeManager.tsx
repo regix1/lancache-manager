@@ -28,15 +28,16 @@ import { DeleteConfirmModal } from './theme/DeleteConfirmModal';
 import { CommunityThemeImporter } from './theme/CommunityThemeImporter';
 import { colorGroups } from './theme/constants';
 import { Theme, ThemeManagerProps } from './theme/types';
+import { useData } from '@contexts/DataContext';
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
+  const { addNotification } = useData();
+
   // State Management
   const [themes, setThemes] = useState<Theme[]>([]);
   const [currentTheme, setCurrentTheme] = useState('dark-default');
   const [loading, setLoading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -361,16 +362,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const handleFile = async (file: File) => {
-    setUploadError(null);
-    setUploadSuccess(null);
-
     if (!file.name.endsWith('.toml')) {
-      setUploadError('Please upload a .toml file');
+      addNotification('error', 'Please upload a .toml file');
       return;
     }
 
     if (file.size > 1024 * 1024) {
-      setUploadError('File size must be less than 1MB');
+      addNotification('error', 'File size must be less than 1MB');
       return;
     }
 
@@ -390,10 +388,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         throw new Error(error.error || 'Upload failed');
       }
 
-      setUploadSuccess('Theme uploaded successfully!');
+      addNotification('success', 'Theme uploaded successfully!');
       await loadThemes();
     } catch (error: any) {
-      setUploadError(error.message || 'Failed to upload theme');
+      addNotification('error', error.message || 'Failed to upload theme');
     } finally {
       setLoading(false);
     }
@@ -715,16 +713,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     </Button>
                   </div>
 
-                  {uploadError && (
-                    <Alert color="red" className="mt-3">
-                      {uploadError}
-                    </Alert>
-                  )}
-                  {uploadSuccess && (
-                    <Alert color="green" className="mt-3">
-                      {uploadSuccess}
-                    </Alert>
-                  )}
                 </div>
 
                 <div className="flex justify-center">

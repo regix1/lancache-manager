@@ -20,9 +20,6 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
       setShowAuthModal(false);
       // Continue to next step - true = using Steam auth
       onComplete(true);
-    },
-    onError: (message) => {
-      console.error('[SteamPicsAuthStep] Auth error:', message);
     }
   });
 

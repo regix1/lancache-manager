@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import ApiService from '@services/api.service';
+import { useData } from '@contexts/DataContext';
 
 export interface SteamAuthOptions {
   autoStartPics?: boolean;
   onSuccess?: (message: string) => void;
-  onError?: (message: string) => void;
 }
 
 export interface SteamAuthState {
@@ -17,7 +17,6 @@ export interface SteamAuthState {
   password: string;
   twoFactorCode: string;
   emailCode: string;
-  authError: string;
 }
 
 export interface SteamAuthActions {
@@ -25,7 +24,6 @@ export interface SteamAuthActions {
   setPassword: (value: string) => void;
   setTwoFactorCode: (value: string) => void;
   setEmailCode: (value: string) => void;
-  setAuthError: (value: string) => void;
   setUseManualCode: (value: boolean) => void;
   handleAuthenticate: () => Promise<boolean>;
   resetAuthForm: () => void;
@@ -33,7 +31,8 @@ export interface SteamAuthActions {
 }
 
 export function useSteamAuthentication(options: SteamAuthOptions = {}) {
-  const { autoStartPics = false, onSuccess, onError } = options;
+  const { autoStartPics = false, onSuccess } = options;
+  const { addNotification } = useData();
 
   const [loading, setLoading] = useState(false);
   const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
@@ -47,7 +46,6 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
   const [password, setPassword] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [emailCode, setEmailCode] = useState('');
-  const [authError, setAuthError] = useState('');
 
   // Cleanup: abort any pending requests when component unmounts
   useEffect(() => {
@@ -75,29 +73,27 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     setNeedsEmailCode(false);
     setWaitingForMobileConfirmation(false);
     setUseManualCode(false);
-    setAuthError('');
     setLoading(false);
   };
 
   const handleAuthenticate = async (): Promise<boolean> => {
     if (!username.trim() || !password.trim()) {
-      setAuthError('Please enter both username and password');
+      addNotification('error', 'Please enter both username and password');
       return false;
     }
 
     if (needsEmailCode && !emailCode.trim()) {
-      setAuthError('Please enter your email verification code');
+      addNotification('error', 'Please enter your email verification code');
       return false;
     }
 
     // If user chose manual code entry, require the code
     if (useManualCode && !twoFactorCode.trim()) {
-      setAuthError('Please enter your 2FA code');
+      addNotification('error', 'Please enter your 2FA code');
       return false;
     }
 
     setLoading(true);
-    setAuthError('');
 
     // Create abort controller for this request
     const controller = new AbortController();
@@ -128,7 +124,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       try {
         result = await response.json();
       } catch (jsonError) {
-        setAuthError('Invalid response from server');
+        addNotification('error', 'Invalid response from server');
         setLoading(false);
         setWaitingForMobileConfirmation(false);
         return false;
@@ -138,14 +134,12 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
         if (result.requiresTwoFactor) {
           setWaitingForMobileConfirmation(false);
           setNeedsTwoFactor(true);
-          setAuthError('');
           return false; // Stay in modal, show 2FA input
         }
 
         if (result.requiresEmailCode) {
           setWaitingForMobileConfirmation(false);
           setNeedsEmailCode(true);
-          setAuthError('');
           return false; // Stay in modal, wait for email code
         }
 
@@ -155,12 +149,12 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
           return true; // Success
         } else {
           setWaitingForMobileConfirmation(false);
-          setAuthError(result.message || 'Authentication failed');
+          addNotification('error', result.message || 'Authentication failed');
           return false;
         }
       } else {
         setWaitingForMobileConfirmation(false);
-        setAuthError(result.message || 'Authentication failed');
+        addNotification('error', result.message || 'Authentication failed');
         return false;
       }
     } catch (err: any) {
@@ -168,8 +162,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       if (err.name !== 'AbortError') {
         setWaitingForMobileConfirmation(false);
         const errorMessage = err.message || 'Authentication failed';
-        setAuthError(errorMessage);
-        onError?.(errorMessage);
+        addNotification('error', errorMessage);
       }
       return false;
     } finally {
@@ -187,8 +180,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     username,
     password,
     twoFactorCode,
-    emailCode,
-    authError
+    emailCode
   };
 
   const actions: SteamAuthActions = {
@@ -196,7 +188,6 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     setPassword,
     setTwoFactorCode,
     setEmailCode,
-    setAuthError,
     setUseManualCode,
     handleAuthenticate,
     resetAuthForm,

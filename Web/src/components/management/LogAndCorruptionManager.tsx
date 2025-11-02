@@ -28,14 +28,13 @@ const MAIN_SERVICES = [
   'gog', 'wsus', 'microsoft', 'sony', 'nintendo', 'apple'
 ];
 
-// Memoized Service Button Component
-const ServiceButton = React.memo<{
+const ServiceButton: React.FC<{
   service: string;
   count: number;
   isRemoving: boolean;
   isDisabled: boolean;
   onClick: () => void;
-}>(({ service, count, isRemoving, isDisabled, onClick }) => {
+}> = ({ service, count, isRemoving, isDisabled, onClick }) => {
   return (
     <Button
       onClick={onClick}
@@ -57,9 +56,7 @@ const ServiceButton = React.memo<{
       )}
     </Button>
   );
-});
-
-ServiceButton.displayName = 'ServiceButton';
+};
 
 interface LogAndCorruptionManagerProps {
   isAuthenticated: boolean;

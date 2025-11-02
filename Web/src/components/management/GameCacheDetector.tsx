@@ -12,19 +12,15 @@ import type { GameCacheInfo } from '../../types';
 interface GameCacheDetectorProps {
   mockMode?: boolean;
   isAuthenticated?: boolean;
-  onError?: (message: string) => void;
-  onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
 }
 
 const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   mockMode = false,
   isAuthenticated = false,
-  onError,
-  onSuccess,
   onDataRefresh
 }) => {
-  const { addBackgroundRemoval, updateBackgroundRemoval } = useData();
+  const { addBackgroundRemoval, updateBackgroundRemoval, addNotification } = useData();
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -156,7 +152,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           setGames(status.games);
           setTotalGames(status.totalGamesDetected);
           if (status.totalGamesDetected > 0) {
-            onSuccess?.(`Detected ${status.totalGamesDetected} game${status.totalGamesDetected !== 1 ? 's' : ''} with cache files`);
+            addNotification('success', `Detected ${status.totalGamesDetected} game${status.totalGamesDetected !== 1 ? 's' : ''} with cache files`);
           }
         }
       } else if (status.status === 'failed') {
@@ -169,7 +165,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         setLoading(false);
         const errorMsg = status.error || 'Detection failed';
         setError(errorMsg);
-        onError?.(errorMsg);
+        addNotification('error', errorMsg);
       }
       // If status is 'running', continue polling
     } catch (err: any) {
@@ -180,8 +176,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   const handleDetect = async () => {
     if (mockMode) {
-      setError('Detection disabled in mock mode');
-      onError?.('Detection disabled in mock mode');
+      const errorMsg = 'Detection disabled in mock mode';
+      setError(errorMsg);
+      addNotification('error', errorMsg);
       return;
     }
 
@@ -207,7 +204,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to start game detection';
       setError(errorMsg);
-      onError?.(errorMsg);
+      addNotification('error', errorMsg);
       console.error('Game detection error:', err);
       setLoading(false);
     }
@@ -215,7 +212,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   const handleRemoveClick = (game: GameCacheInfo) => {
     if (!isAuthenticated) {
-      onError?.('Full authentication required for management operations');
+      addNotification('error', 'Full authentication required for management operations');
       return;
     }
     setGameToRemove(game);
@@ -358,31 +355,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
           {!cacheReadOnly && (
             <>
-              {/* Error Alert */}
-              {error && !loading && (
-                <Alert color="red">
-                  <div>
-                    <p className="text-sm font-medium mb-1">Failed to detect games in cache</p>
-                    <p className="text-xs opacity-75">{error}</p>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={handleDetect}
-                      className="mt-2"
-                      leftSection={<Loader2 className="w-3 h-3" />}
-                    >
-                      Try Again
-                    </Button>
-                  </div>
-                </Alert>
-              )}
-
-              {/* Mock Mode Warning */}
-              {mockMode && (
-                <Alert color="yellow">
-                  Detection is disabled in mock mode
-                </Alert>
-              )}
 
               {/* Loading State */}
               {loading && (

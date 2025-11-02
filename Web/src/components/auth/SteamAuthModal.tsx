@@ -27,8 +27,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     username,
     password,
     twoFactorCode,
-    emailCode,
-    authError
+    emailCode
   } = state;
 
   const {
@@ -64,7 +63,6 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     setUsername(username);
     setPassword(password);
     setUseManualCode(true);
-    actions.setAuthError('');
   };
 
   return (
@@ -193,9 +191,6 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             </p>
           </div>
         )}
-
-        {/* Error Alert */}
-        {authError && <Alert color="red">{authError}</Alert>}
 
         {/* Information Alert */}
         <Alert color="blue">

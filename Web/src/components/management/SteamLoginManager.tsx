@@ -42,9 +42,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
       setShowAuthModal(false);
       loadSteamAuthState(); // Refresh to get the authenticated username
       onSuccess?.(message);
-    },
-    onError: (message) => {
-      onError?.(message);
     }
   });
 
