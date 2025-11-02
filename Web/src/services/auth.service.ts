@@ -50,6 +50,14 @@ class AuthService {
     this.apiKey = storage.getItem('lancache_api_key');
     this.isAuthenticated = false;
     this.authChecked = false;
+
+    // Log API key status for diagnostics
+    if (this.apiKey) {
+      console.log('[Auth] API key loaded from localStorage:', this.apiKey.substring(0, 20) + '...');
+    } else {
+      console.log('[Auth] No API key found in localStorage');
+    }
+
     this.startGuestModeTimer();
   }
 

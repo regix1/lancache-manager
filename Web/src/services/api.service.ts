@@ -42,6 +42,13 @@ class ApiService {
         throw new Error(errorData.message || 'Your guest session has been revoked');
       }
 
+      // Log authentication failure for diagnostics
+      console.error('[API] 401 Unauthorized - API key may be invalid or backend was restarted with new key', {
+        url: response.url,
+        errorMessage: errorData?.message,
+        hasStoredApiKey: !!authService['apiKey']
+      });
+
       // For other 401 errors, use standard handling
       authService.handleUnauthorized();
       throw new Error(errorData?.message || 'Authentication required');
