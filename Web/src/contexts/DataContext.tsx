@@ -853,6 +853,39 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       }
     };
 
+    const handleGameRemovalComplete = (payload: any) => {
+      if (payload.success) {
+        // Update to completed status with stats
+        updateBackgroundRemoval(payload.gameAppId, {
+          status: 'completed',
+          filesDeleted: payload.filesDeleted,
+          bytesFreed: payload.bytesFreed,
+          logEntriesRemoved: payload.logEntriesRemoved
+        });
+
+        // Clear after showing complete status for 5 seconds
+        setTimeout(() => {
+          clearBackgroundRemoval(payload.gameAppId);
+        }, 5000);
+
+        // Refresh data to update the games list
+        fetchData();
+      } else {
+        // Update to failed status
+        updateBackgroundRemoval(payload.gameAppId, {
+          status: 'failed',
+          error: payload.message || 'Removal failed'
+        });
+
+        // Clear after showing error for 5 seconds
+        setTimeout(() => {
+          clearBackgroundRemoval(payload.gameAppId);
+        }, 5000);
+
+        addNotification('error', `Failed to remove game: ${payload.message}`);
+      }
+    };
+
     // Subscribe to the events
     signalR.on('DownloadsRefresh', handleDownloadsRefresh);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
@@ -863,6 +896,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
     signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
+    signalR.on('GameRemovalComplete', handleGameRemovalComplete);
 
     console.log('[DataContext] Subscribed to SignalR events');
 
@@ -877,6 +911,7 @@ export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
       signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
+      signalR.off('GameRemovalComplete', handleGameRemovalComplete);
       console.log('[DataContext] Unsubscribed from SignalR events');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

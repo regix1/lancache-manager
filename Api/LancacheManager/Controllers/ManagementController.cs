@@ -3,7 +3,9 @@ using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Security;
+using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -25,6 +27,7 @@ public class ManagementController : ControllerBase
     private readonly SteamKit2Service _steamKit2Service;
     private readonly SteamAuthRepository _steamAuthStorage;
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -40,7 +43,8 @@ public class ManagementController : ControllerBase
         RustLogRemovalService rustLogRemovalService,
         SteamKit2Service steamKit2Service,
         SteamAuthRepository steamAuthStorage,
-        IServiceScopeFactory serviceScopeFactory)
+        IServiceScopeFactory serviceScopeFactory,
+        IHubContext<DownloadHub> hubContext)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -56,6 +60,7 @@ public class ManagementController : ControllerBase
         _steamKit2Service = steamKit2Service;
         _steamAuthStorage = steamAuthStorage;
         _serviceScopeFactory = serviceScopeFactory;
+        _hubContext = hubContext;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -1205,11 +1210,38 @@ public class ManagementController : ControllerBase
                     gameCacheDetectionService.InvalidateCache();
                     logger.LogInformation("[Background] Successfully removed {GameName} ({AppId}) - {Files} files, {Bytes} bytes",
                         report.GameName, gameAppId, report.CacheFilesDeleted, report.TotalBytesFreed);
+
+                    // Send completion notification via SignalR
+                    await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
+                    {
+                        success = true,
+                        gameAppId = report.GameAppId,
+                        gameName = report.GameName,
+                        filesDeleted = report.CacheFilesDeleted,
+                        bytesFreed = report.TotalBytesFreed,
+                        logEntriesRemoved = report.LogEntriesRemoved,
+                        message = $"Successfully removed {report.GameName} from cache"
+                    });
                 }
                 catch (Exception ex)
                 {
-                    // Log errors but don't throw (fire-and-forget)
+                    // Log errors and send failure notification
                     _logger.LogError(ex, "[Background] Error removing game {AppId} from cache", gameAppId);
+
+                    // Send failure notification via SignalR
+                    try
+                    {
+                        await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
+                        {
+                            success = false,
+                            gameAppId,
+                            message = $"Failed to remove game {gameAppId}: {ex.Message}"
+                        });
+                    }
+                    catch (Exception signalREx)
+                    {
+                        _logger.LogError(signalREx, "[Background] Failed to send SignalR notification for game {AppId}", gameAppId);
+                    }
                 }
             });
 
