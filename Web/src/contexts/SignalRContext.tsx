@@ -188,7 +188,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           'DepotPostProcessingFailed',
           'DatabaseResetProgress',
           'LogRemovalProgress',
-          'LogRemovalComplete'
+          'LogRemovalComplete',
+          'GameRemovalComplete'
         ];
 
         allEvents.forEach(eventName => {
