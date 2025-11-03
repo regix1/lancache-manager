@@ -302,6 +302,15 @@ const UniversalNotificationBar: React.FC = () => {
     const handleNotificationRemoving = (event: CustomEvent) => {
       const notificationId = event.detail.notificationId;
       setDismissingIds(prev => new Set(prev).add(notificationId));
+
+      // Clean up after animation completes
+      setTimeout(() => {
+        setDismissingIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(notificationId);
+          return newSet;
+        });
+      }, 300); // Match CSS transition duration
     };
 
     window.addEventListener('notification-removing', handleNotificationRemoving as EventListener);

@@ -336,6 +336,13 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
+  const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
+
+  // Wrapper to refresh both stats and game cache
+  const refreshStatsAndGameCache = () => {
+    refreshStats();
+    setGameCacheRefreshKey(prev => prev + 1);
+  };
 
   // Use ref to ensure migration only happens once
   const hasMigratedRef = useRef(false);
@@ -499,7 +506,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 mockMode={mockMode}
                 onError={addError}
                 onSuccess={setSuccess}
-                onDataRefresh={refreshStats}
+                onDataRefresh={refreshStatsAndGameCache}
               />
 
               <CacheManager
@@ -533,6 +540,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 mockMode={mockMode}
                 isAuthenticated={authMode === 'authenticated'}
                 onDataRefresh={refreshStats}
+                refreshKey={gameCacheRefreshKey}
               />
             </CollapsibleSection>
 

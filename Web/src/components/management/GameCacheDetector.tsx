@@ -13,12 +13,14 @@ interface GameCacheDetectorProps {
   mockMode?: boolean;
   isAuthenticated?: boolean;
   onDataRefresh?: () => void;
+  refreshKey?: number;
 }
 
 const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   mockMode = false,
   isAuthenticated = false,
-  onDataRefresh
+  onDataRefresh,
+  refreshKey = 0
 }) => {
   const { addNotification, updateNotification, notifications } = useNotifications();
   const [loading, setLoading] = useState(false);
@@ -49,7 +51,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, []);
 
-  // Load cached games from backend on mount
+  // Load cached games from backend on mount and when refreshKey changes
   useEffect(() => {
     const loadCachedGames = async () => {
       if (mockMode) return;
@@ -59,6 +61,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         if (result.hasCachedResults && result.games && result.totalGamesDetected) {
           setGames(result.games);
           setTotalGames(result.totalGamesDetected);
+        } else {
+          // No cached results - clear the display
+          setGames([]);
+          setTotalGames(0);
         }
       } catch (err) {
         console.error('[GameCacheDetector] Failed to load cached games:', err);
@@ -67,8 +73,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
 
     loadCachedGames();
-    loadDirectoryPermissions();
-  }, [mockMode]); // Only run on mount or when mockMode changes
+    if (refreshKey === 0) {
+      // Only check permissions on initial mount
+      loadDirectoryPermissions();
+    }
+  }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
 
   const loadDirectoryPermissions = async () => {
     try {
