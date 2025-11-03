@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Database, Clock, Zap, AlertCircle, Loader2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
@@ -6,7 +6,7 @@ import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
 import { useNotifications } from '@contexts/NotificationsContext';
-import { useSignalR } from '@contexts/SignalRContext';
+import { usePicsProgress } from '@contexts/PicsProgressContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
 
@@ -36,15 +36,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   onDataRefresh
 }) => {
   const { notifications } = useNotifications();
-  const signalR = useSignalR();
-  const [depotConfig, setDepotConfig] = useState<{
-    isRunning: boolean;
-    crawlIntervalHours: number;
-    crawlIncrementalMode: boolean;
-    nextCrawlIn: { hours: number; minutes: number; seconds: number } | null;
-    lastCrawlTime: string;
-    progressPercent: number;
-  } | null>(null);
+  const { progress: picsProgress, isLoading: picsLoading, refreshProgress } = usePicsProgress();
   const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
   const [depotSource, setDepotSource] = useState<DepotSource>('incremental');
   const [changeGapWarning, setChangeGapWarning] = useState<{
@@ -58,45 +50,25 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   const [githubDownloading, setGithubDownloading] = useState(false);
   const lastViabilityCheck = useRef<number>(0);
 
-  // Fetch depot configuration
-  const fetchDepotConfig = async () => {
-    if (mockMode) return;
+  // Derive depotConfig from picsProgress with nextCrawlIn conversion
+  const depotConfig = useMemo(() => {
+    if (!picsProgress) return null;
 
-    try {
-      const response = await fetch('/api/gameinfo/steamkit/progress');
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[DepotMapping] Fetched config from backend:', data);
-
-        // Convert nextCrawlIn from total seconds to {hours, minutes, seconds} object
-        let nextCrawlInObj = null;
-        if (data.nextCrawlIn !== null && data.nextCrawlIn !== undefined) {
-          const totalSeconds = Math.max(0, Math.floor(data.nextCrawlIn));
-          const hours = Math.floor(totalSeconds / 3600);
-          const minutes = Math.floor((totalSeconds % 3600) / 60);
-          const seconds = totalSeconds % 60;
-          nextCrawlInObj = { hours, minutes, seconds };
-          console.log('[DepotMapping] Converted nextCrawlIn from', data.nextCrawlIn, 'seconds to:', nextCrawlInObj);
-        }
-
-        setDepotConfig({
-          isRunning: data.isRunning || false,
-          crawlIntervalHours: data.crawlIntervalHours || 0,
-          crawlIncrementalMode: data.crawlIncrementalMode !== undefined ? data.crawlIncrementalMode : true,
-          nextCrawlIn: nextCrawlInObj,
-          lastCrawlTime: data.lastCrawlTime || new Date().toISOString(),
-          progressPercent: data.progressPercent || 0
-        });
-      }
-    } catch (err) {
-      console.error('[DepotMapping] Failed to fetch config:', err);
-    }
-  };
-
-  // Fetch config on mount
-  useEffect(() => {
-    fetchDepotConfig();
-  }, [mockMode]);
+    return {
+      isRunning: picsProgress.isRunning || false,
+      crawlIntervalHours: picsProgress.crawlIntervalHours || 0,
+      crawlIncrementalMode: picsProgress.crawlIncrementalMode !== undefined ? picsProgress.crawlIncrementalMode : true,
+      nextCrawlIn: picsProgress.nextCrawlIn !== undefined ? (() => {
+        const totalSeconds = Math.max(0, Math.floor(picsProgress.nextCrawlIn!));
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return { hours, minutes, seconds };
+      })() : null,
+      lastCrawlTime: picsProgress.lastCrawlTime,
+      progressPercent: picsProgress.progressPercent || 0
+    };
+  }, [picsProgress]);
 
   // Update local countdown when depotConfig changes
   useEffect(() => {
@@ -104,7 +76,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       console.log('[DepotMapping] Updating local countdown to:', depotConfig.nextCrawlIn);
       setLocalNextCrawlIn(depotConfig.nextCrawlIn);
     } else {
-      console.log('[DepotMapping] nextCrawlIn is null/undefined, not updating countdown');
+      console.log('[DepotMapping] nextCrawlIn is null/undefined, setting countdown to null');
+      setLocalNextCrawlIn(null);
     }
   }, [depotConfig?.nextCrawlIn]);
 
@@ -144,39 +117,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
     return () => clearInterval(timer);
   }, [localNextCrawlIn, depotConfig?.isRunning, depotConfig?.crawlIntervalHours]);
-
-  // Listen for depot mapping events via SignalR
-  useEffect(() => {
-    if (!signalR) return;
-
-    const handleDepotMappingStarted = () => {
-      setDepotConfig(prev => prev ? { ...prev, isRunning: true } : null);
-    };
-
-    const handleDepotMappingComplete = () => {
-      setDepotConfig(prev => prev ? { ...prev, isRunning: false, progressPercent: 100 } : null);
-      // Refresh config to get updated lastCrawlTime and nextCrawlIn
-      setTimeout(() => fetchDepotConfig(), 1000);
-    };
-
-    const handleDepotMappingProgress = (payload: any) => {
-      setDepotConfig(prev => prev ? {
-        ...prev,
-        isRunning: true,
-        progressPercent: payload.percentComplete || 0
-      } : null);
-    };
-
-    signalR.on('DepotMappingStarted', handleDepotMappingStarted);
-    signalR.on('DepotMappingComplete', handleDepotMappingComplete);
-    signalR.on('DepotMappingProgress', handleDepotMappingProgress);
-
-    return () => {
-      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
-      signalR.off('DepotMappingComplete', handleDepotMappingComplete);
-      signalR.off('DepotMappingProgress', handleDepotMappingProgress);
-    };
-  }, [signalR]);
 
   // Check for pending GitHub download from localStorage on mount
   useEffect(() => {
@@ -269,7 +209,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     if (picsNotifications.length > 0) {
       // Refresh progress data when scan completes
       setTimeout(() => {
-        fetchDepotConfig();
+        refreshProgress();
         onDataRefresh?.();
       }, 1000);
     }
@@ -305,7 +245,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       storage.setItem('githubDownloadTime', new Date().toISOString());
 
       // Refresh the depot config after download
-      await fetchDepotConfig();
+      await refreshProgress();
 
       setTimeout(() => onDataRefresh?.(), 2000);
     } catch (err: any) {
@@ -397,7 +337,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
 
   const formatNextRun = () => {
-    if (!depotConfig) return 'Loading...';
+    if (picsLoading || !depotConfig) return 'Loading...';
+    if (depotConfig.crawlIntervalHours === 0) return 'Disabled';
+    if (!localNextCrawlIn) return 'Calculating...';
     return formatNextCrawlTime(
       localNextCrawlIn,
       depotConfig.isRunning,
@@ -553,7 +495,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     });
 
                     // Refresh the progress data after updating the interval
-                    fetchDepotConfig();
+                    refreshProgress();
                   } catch (error) {
                     console.error('Failed to update crawl interval:', error);
                   }
@@ -580,7 +522,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     });
 
                     // Refresh the progress data after updating the scan mode
-                    fetchDepotConfig();
+                    refreshProgress();
                   } catch (error) {
                     console.error('Failed to update scan mode:', error);
                   }

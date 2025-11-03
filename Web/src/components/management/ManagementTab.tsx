@@ -13,6 +13,7 @@ import { useStats } from '@contexts/StatsContext';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useMockMode } from '@contexts/MockModeContext';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useAuth } from '@contexts/AuthContext';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import operationStateService from '@services/operationState.service';
@@ -333,8 +334,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const { addNotification } = useNotifications();
   const { mockMode, setMockMode } = useMockMode();
   const signalR = useSignalR();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
+  const { isAuthenticated, authMode } = useAuth();
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
 
@@ -470,8 +470,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
         {/* Authentication & Access Section - Always Open */}
         <CollapsibleSection title="Authentication & Access" icon={Shield} alwaysOpen>
           <AuthenticationManager
-            onAuthChange={setIsAuthenticated}
-            onAuthModeChange={setAuthMode}
             onError={addError}
             onSuccess={setSuccess}
             onApiKeyRegenerated={onApiKeyRegenerated}

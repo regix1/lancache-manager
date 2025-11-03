@@ -3,6 +3,7 @@ import { Zap, RefreshCw, PlayCircle, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useSteamAuth } from '@contexts/SteamAuthContext';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -16,12 +17,6 @@ interface LogProcessingManagerProps {
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
-}
-
-interface SteamAuthState {
-  mode: 'anonymous' | 'authenticated';
-  username?: string;
-  isAuthenticated: boolean;
 }
 
 interface ProcessingUIStatus {
@@ -39,12 +34,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
+  const { steamAuthMode } = useSteamAuth();
   const [isProcessingLogs, setIsProcessingLogs] = useState(false);
   // Local state for tracking processing UI (notifications handled by NotificationsContext)
   // @ts-ignore - processingStatus is set but notifications are handled by NotificationsContext
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [steamAuthMode, setSteamAuthMode] = useState<'anonymous' | 'authenticated'>('anonymous');
   const [confirmModal, setConfirmModal] = useState<
     | {
         title: string;
@@ -66,36 +61,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     onDataRefreshRef.current = onDataRefresh;
     mockModeRef.current = mockMode;
   }, [onDataRefresh, mockMode]);
-
-  // Load Steam auth status
-  useEffect(() => {
-    let lastMode: string | null = null;
-
-    const loadSteamAuthState = async () => {
-      try {
-        const response = await fetch('/api/management/steam-auth-status', {
-          headers: ApiService.getHeaders()
-        });
-        if (response.ok) {
-          const state: SteamAuthState = await response.json();
-          // Only update state if it actually changed
-          if (state.mode !== lastMode) {
-            lastMode = state.mode;
-            setSteamAuthMode(state.mode);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to load Steam auth state:', err);
-      }
-    };
-
-    if (!mockMode) {
-      loadSteamAuthState();
-      // Poll for changes every 10 seconds
-      const interval = setInterval(loadSteamAuthState, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [mockMode]);
 
   // Note: Log processing notifications are now handled automatically by SignalR
   // in NotificationsContext, so we don't need to manually manage them here

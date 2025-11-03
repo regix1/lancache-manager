@@ -3,6 +3,7 @@ import { Map, Loader2, SkipForward, CheckCircle, Home } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
+import { usePicsProgress } from '@contexts/PicsProgressContext';
 
 interface DepotMappingStepProps {
   onComplete: () => void;
@@ -10,76 +11,43 @@ interface DepotMappingStepProps {
 }
 
 export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, onSkip }) => {
+  const { progress: picsProgress } = usePicsProgress();
   const [mapping, setMapping] = useState(false);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<number>(0);
-  const [statusMessage, setStatusMessage] = useState<string>('');
   const [changeGapWarning, setChangeGapWarning] = useState<{
     show: boolean;
     changeGap: number;
     estimatedApps: number;
   } | null>(null);
 
+  // Derive progress and status from context
+  const progress = picsProgress?.progressPercent || 0;
+  const statusMessage = picsProgress?.status || '';
+  const isRunning = picsProgress?.isRunning || false;
+
   // Log when component mounts and check for active PICS scan
   useEffect(() => {
     console.log('[DepotMapping] Component mounted - Step 5 is now active');
 
     // Check if PICS scan is already running (page reload restoration)
-    const checkActiveScan = async () => {
-      try {
-        const response = await fetch('/api/gameinfo/steamkit/progress');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.isRunning) {
-            console.log('[DepotMapping] Detected active PICS scan on mount, restoring...');
-            setMapping(true);
-            setProgress(data.progressPercent || 0);
-            setStatusMessage(data.status || 'Processing...');
-          }
-        }
-      } catch (error) {
-        console.error('[DepotMapping] Failed to check PICS scan status:', error);
-      }
-    };
-
-    checkActiveScan();
+    if (picsProgress?.isRunning) {
+      console.log('[DepotMapping] Detected active PICS scan on mount, restoring...');
+      setMapping(true);
+    }
   }, []);
 
-  // Poll for PICS progress
+  // Watch for completion
   useEffect(() => {
-    if (!mapping) return;
-
-    const pollProgress = async () => {
-      try {
-        const response = await fetch('/api/gameinfo/steamkit/progress');
-        if (response.ok) {
-          const data = await response.json();
-
-          if (data.isRunning) {
-            setProgress(data.progressPercent || 0);
-            setStatusMessage(data.status || 'Processing...');
-          } else if (data.progressPercent === 100 || !data.isRunning) {
-            // PICS crawl completed
-            setProgress(100);
-            setStatusMessage('Applying depot mappings...');
-
-            // Give it a moment to ensure mappings are applied
-            setTimeout(() => {
-              setComplete(true);
-              setMapping(false);
-              console.log('[DepotMapping] Complete!');
-            }, 2000);
-          }
-        }
-      } catch (err) {
-        console.error('[DepotMapping] Error polling progress:', err);
-      }
-    };
-
-    const interval = setInterval(pollProgress, 1000);
-    return () => clearInterval(interval);
-  }, [mapping]);
+    if (mapping && !isRunning && progress >= 100) {
+      // PICS crawl completed
+      setTimeout(() => {
+        setComplete(true);
+        setMapping(false);
+        console.log('[DepotMapping] Complete!');
+      }, 2000);
+    }
+  }, [mapping, isRunning, progress]);
 
   const startDepotMapping = async () => {
     console.log('[DepotMapping] Starting depot mapping process...');
@@ -90,8 +58,6 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   const proceedWithScan = async (forceFull: boolean = false) => {
     console.log('[DepotMapping] Starting PICS scan...');
     setMapping(true);
-    setProgress(0);
-    setStatusMessage('Starting scan...');
 
     try {
       // Use incremental scan by default for initialization (faster), unless forcing full
@@ -123,18 +89,14 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   const handleDownloadFromGitHub = async () => {
     setChangeGapWarning(null);
     setMapping(true);
-    setProgress(0);
-    setStatusMessage('Downloading from GitHub...');
 
     try {
       await ApiService.downloadPrecreatedDepotData();
-      setProgress(100);
-      setStatusMessage('Download complete!');
 
       setTimeout(() => {
         setComplete(true);
         setMapping(false);
-      }, 1000);
+      }, 2000);
     } catch (err: any) {
       console.error('[DepotMapping] Error downloading from GitHub:', err);
       setError(err.message || 'Failed to download from GitHub');

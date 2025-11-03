@@ -6,6 +6,7 @@ import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SteamAuthModal } from '@components/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
+import { useSteamAuth } from '@contexts/SteamAuthContext';
 import ApiService from '@services/api.service';
 import { AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
@@ -17,20 +18,13 @@ interface SteamLoginManagerProps {
   onSuccess?: (message: string) => void;
 }
 
-interface SteamAuthState {
-  mode: 'anonymous' | 'authenticated';
-  username?: string;
-  isAuthenticated: boolean;
-}
-
 const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   authMode,
   mockMode,
   onError,
   onSuccess
 }) => {
-  const [steamAuthMode, setSteamAuthMode] = useState<'anonymous' | 'authenticated'>('anonymous');
-  const [authenticatedUsername, setAuthenticatedUsername] = useState<string>('');
+  const { steamAuthMode, username: authenticatedUsername, refreshSteamAuth, setSteamAuthMode: setContextSteamAuthMode, setUsername: setContextUsername } = useSteamAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
@@ -38,41 +32,20 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   const { state, actions } = useSteamAuthentication({
     autoStartPics,
     onSuccess: (message) => {
-      setSteamAuthMode('authenticated');
+      setContextSteamAuthMode('authenticated');
       setShowAuthModal(false);
-      loadSteamAuthState(); // Refresh to get the authenticated username
+      refreshSteamAuth(); // Refresh to get the authenticated username
       onSuccess?.(message);
     }
   });
 
   useEffect(() => {
-    loadSteamAuthState();
     // Load auto-start preference from localStorage
     const savedPref = storage.getItem('autoStartPics');
     if (savedPref !== null) {
       setAutoStartPics(savedPref === 'true');
     }
   }, []);
-
-  const loadSteamAuthState = async () => {
-    try {
-      const response = await fetch('/api/management/steam-auth-status', {
-        headers: ApiService.getHeaders()
-      });
-      if (response.ok) {
-        const authState: SteamAuthState = await response.json();
-        setSteamAuthMode(authState.mode);
-        // Store the authenticated username
-        if (authState.mode === 'authenticated' && authState.username) {
-          setAuthenticatedUsername(authState.username);
-        } else {
-          setAuthenticatedUsername('');
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load Steam auth state:', err);
-    }
-  };
 
   const handleAutoStartPicsChange = (enabled: boolean) => {
     setAutoStartPics(enabled);
@@ -103,8 +76,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
       });
 
       if (response.ok) {
-        setSteamAuthMode('anonymous');
-        setAuthenticatedUsername('');
+        setContextSteamAuthMode('anonymous');
+        setContextUsername('');
         onSuccess?.('Switched to anonymous Steam mode. Depot mappings preserved.');
       } else {
         const error = await response.json();

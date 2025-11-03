@@ -4,9 +4,13 @@ import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { PollingRateProvider } from '@contexts/PollingRateContext';
-import { SignalRProvider } from '@contexts/SignalRContext';
+import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
 import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
 import { GuestConfigProvider } from '@contexts/GuestConfigContext';
+import { PicsProgressProvider } from '@contexts/PicsProgressContext';
+import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
+import { SteamAuthProvider } from '@contexts/SteamAuthContext';
+import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -16,9 +20,7 @@ import UniversalNotificationBar from '@components/common/UniversalNotificationBa
 import DepotInitializationModal from '@components/initialization/DepotInitializationModal';
 import AuthenticationModal from '@components/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
-import { useSignalR } from '@contexts/SignalRContext';
 import ApiService from '@services/api.service';
-import authService, { AuthMode } from '@services/auth.service';
 import { setServerTimezone } from '@utils/timezone';
 import { storage } from '@utils/storage';
 
@@ -42,25 +44,30 @@ const DownloadsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = (
   return <DownloadsProvider mockMode={mockMode}>{children}</DownloadsProvider>;
 };
 
+const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { mockMode } = useMockMode();
+  return <PicsProgressProvider mockMode={mockMode}>{children}</PicsProgressProvider>;
+};
+
 const AppContent: React.FC = () => {
   // Check if we're on a special route like /memory
   const isMemoryRoute = window.location.pathname === '/memory';
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const { connectionStatus } = useStats();
+  const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
+  const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth } = useAuth();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
-  const [checkingAuth, setCheckingAuth] = useState(true);
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
   const [isInitializationFlowActive, setIsInitializationFlowActive] = useState(false);
-  const [setupCompleted, setSetupCompleted] = useState<boolean | null>(null);
-  const [hasProcessedLogs, setHasProcessedLogs] = useState<boolean | null>(null);
-  const [checkingSetupStatus, setCheckingSetupStatus] = useState(true);
   const [showAutomaticScanSkippedModal, setShowAutomaticScanSkippedModal] = useState(false);
   const [hasShownScanSkippedModal, setHasShownScanSkippedModal] = useState(false);
   const signalR = useSignalR();
+
+  // Derive setup state from context
+  const setupCompleted = setupStatus?.isCompleted ?? null;
+  const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
 
   // Listen for automatic scan skipped event via SignalR (for authenticated users)
   useEffect(() => {
@@ -102,133 +109,28 @@ const AppContent: React.FC = () => {
   // The manual trigger endpoint (/api/gc/trigger) bypasses threshold checks and
   // is only intended for the "Run GC Now" button in the management UI.
 
-  // Check authentication status first
+  // Handle initialization flow based on setup status from context
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        const authResult = await authService.checkAuth();
-        setIsAuthenticated(authResult.isAuthenticated);
-        setAuthMode(authResult.authMode);
-      } catch (error) {
-        console.error('Failed to check auth status:', error);
-        setIsAuthenticated(false);
-        setAuthMode('unauthenticated');
-      } finally {
-        setCheckingAuth(false);
+    if (checkingAuth || checkingSetupStatus) {
+      return; // Don't proceed until both checks are complete
+    }
+
+    // If setup is complete OR logs have been processed, clear any stale initialization flow
+    if (setupCompleted || hasProcessedLogs) {
+      setIsInitializationFlowActive(false);
+      storage.removeItem('initializationFlowActive');
+      storage.removeItem('initializationCurrentStep');
+      storage.removeItem('initializationInProgress');
+      storage.removeItem('initializationMethod');
+      storage.removeItem('initializationDownloadStatus');
+    } else {
+      // Only restore initialization flow from localStorage if setup is NOT complete
+      const storedFlow = storage.getItem('initializationFlowActive');
+      if (storedFlow === 'true') {
+        setIsInitializationFlowActive(true);
       }
-    };
-
-    checkAuthStatus();
-  }, []);
-
-  // Check authentication status periodically
-  useEffect(() => {
-    if (!checkingAuth) {
-      let lastAuthState = authService.isAuthenticated;
-      let lastAuthMode = authService.authMode;
-
-      const interval = setInterval(async () => {
-        const currentAuthState = authService.isAuthenticated;
-        const currentAuthMode = authService.authMode;
-
-        // Only update state if values actually changed
-        if (currentAuthState !== lastAuthState) {
-          setIsAuthenticated(currentAuthState);
-          lastAuthState = currentAuthState;
-        }
-        if (currentAuthMode !== lastAuthMode) {
-          setAuthMode(currentAuthMode);
-          lastAuthMode = currentAuthMode;
-        }
-
-        // Re-check auth with backend to detect revoked devices
-        if (currentAuthState && authService.authMode === 'authenticated') {
-          try {
-            const result = await authService.checkAuth();
-            if (!result.isAuthenticated || result.authMode !== 'authenticated') {
-              // Device was revoked! Force page reload to show login
-              console.warn('[Auth] Device authentication was revoked. Forcing reload...');
-              window.location.reload();
-            }
-          } catch (error) {
-            console.error('[Auth] Failed to verify authentication:', error);
-          }
-        }
-
-        // Re-check auth if in guest mode to get updated time
-        if (authService.authMode === 'guest' || authService.authMode === 'expired') {
-          const result = await authService.checkAuth();
-          if (result.authMode !== lastAuthMode) {
-            setAuthMode(result.authMode);
-            lastAuthMode = result.authMode;
-          }
-        }
-
-        // Detect if authentication state changed from authenticated to unauthenticated
-        if (lastAuthState && !currentAuthState && authService.authMode === 'unauthenticated') {
-          console.warn('[Auth] Authentication lost. Forcing reload...');
-          window.location.reload();
-        }
-      }, 5000); // Check every 5 seconds for revoked devices
-      return () => clearInterval(interval);
     }
-  }, [checkingAuth]);
-
-  // Check setup completion status (only after auth check is done)
-  useEffect(() => {
-    if (checkingAuth) {
-      return; // Don't check setup status until auth check is complete
-    }
-
-    // Skip setup check for guest mode
-    if (authMode === 'guest') {
-      setSetupCompleted(true);
-      setHasProcessedLogs(true);
-      setCheckingSetupStatus(false);
-      return;
-    }
-
-    const checkSetupCompletionStatus = async () => {
-      try {
-        const response = await fetch('/api/management/setup-status');
-        if (response.ok) {
-          const data = await response.json();
-          const setupComplete = data.isCompleted === true;
-          const logsProcessed = data.hasProcessedLogs === true;
-
-          setSetupCompleted(setupComplete);
-          setHasProcessedLogs(logsProcessed);
-
-          // If setup is complete OR logs have been processed, clear any stale initialization flow
-          if (setupComplete || logsProcessed) {
-            setIsInitializationFlowActive(false);
-            storage.removeItem('initializationFlowActive');
-            storage.removeItem('initializationCurrentStep');
-            storage.removeItem('initializationInProgress');
-            storage.removeItem('initializationMethod');
-            storage.removeItem('initializationDownloadStatus');
-          } else {
-            // Only restore initialization flow from localStorage if setup is NOT complete
-            const storedFlow = storage.getItem('initializationFlowActive');
-            if (storedFlow === 'true') {
-              setIsInitializationFlowActive(true);
-            }
-          }
-        } else {
-          setSetupCompleted(false);
-          setHasProcessedLogs(false);
-        }
-      } catch (error) {
-        console.error('Failed to check setup completion status:', error);
-        setSetupCompleted(false);
-        setHasProcessedLogs(false);
-      } finally {
-        setCheckingSetupStatus(false);
-      }
-    };
-
-    checkSetupCompletionStatus();
-  }, [checkingAuth, authMode]);
+  }, [checkingAuth, checkingSetupStatus, setupCompleted, hasProcessedLogs]);
 
   // Check if depot data exists (only after auth check is done)
   useEffect(() => {
@@ -272,7 +174,7 @@ const AppContent: React.FC = () => {
     storage.removeItem('initializationFlowActive');
 
     // Mark setup as completed
-    setSetupCompleted(true);
+    markSetupCompleted();
 
     // Double-check that depot is actually initialized before updating state
     try {
@@ -299,22 +201,18 @@ const AppContent: React.FC = () => {
 
   const handleAuthChanged = async () => {
     // Immediately check auth status without delay
-    const authResult = await authService.checkAuth();
-    setIsAuthenticated(authResult.isAuthenticated);
-    setAuthMode(authResult.authMode);
+    await refreshAuth();
   };
 
   const handleApiKeyRegenerated = () => {
-    // Set authentication to false and show the API key regeneration modal
-    setIsAuthenticated(false);
+    // Show the API key regeneration modal
     setShowApiKeyRegenerationModal(true);
   };
 
   const handleApiKeyRegenerationCompleted = async () => {
     // Close the regeneration modal and update authentication status
     setShowApiKeyRegenerationModal(false);
-    setIsAuthenticated(authService.isAuthenticated);
-    setAuthMode(authService.authMode);
+    await refreshAuth();
   };
 
   const handleAutomaticScanSkippedClose = () => {
@@ -538,15 +436,23 @@ const App: React.FC = () => {
         <PollingRateProvider>
           <TimeFilterProvider>
             <SignalRProvider>
-              <GuestConfigProvider>
-                <NotificationsProvider>
-                  <StatsProviderWithMockMode>
-                    <DownloadsProviderWithMockMode>
-                      <AppContent />
-                    </DownloadsProviderWithMockMode>
-                  </StatsProviderWithMockMode>
-                </NotificationsProvider>
-              </GuestConfigProvider>
+              <AuthProvider>
+                <GuestConfigProvider>
+                  <SetupStatusProvider>
+                    <SteamAuthProvider>
+                      <PicsProgressProviderWithMockMode>
+                        <NotificationsProvider>
+                          <StatsProviderWithMockMode>
+                            <DownloadsProviderWithMockMode>
+                              <AppContent />
+                            </DownloadsProviderWithMockMode>
+                          </StatsProviderWithMockMode>
+                        </NotificationsProvider>
+                      </PicsProgressProviderWithMockMode>
+                    </SteamAuthProvider>
+                  </SetupStatusProvider>
+                </GuestConfigProvider>
+              </AuthProvider>
             </SignalRProvider>
           </TimeFilterProvider>
         </PollingRateProvider>

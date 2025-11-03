@@ -1,28 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-
-interface PicsProgress {
-  isRunning: boolean;
-  status: string;
-  currentStatus?: string;
-  progress?: number;
-  progressPercent?: number;
-  appsProcessed?: number;
-  totalApps?: number;
-  processedApps?: number;
-  totalBatches?: number;
-  processedBatches?: number;
-  depotsFound?: number;
-  depotMappingsFound?: number;
-}
+import { usePicsProgress } from '@contexts/PicsProgressContext';
 
 interface PicsProgressStepProps {
   onComplete: () => void;
 }
 
 export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }) => {
-  const [progress, setProgress] = useState<PicsProgress | null>(null);
+  const { progress } = usePicsProgress();
   const [isComplete, setIsComplete] = useState(false);
 
   // Helper to determine if we're in initialization phase
@@ -39,9 +25,6 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
   const getStatusMessage = () => {
     if (!progress) return 'Initializing...';
 
-    // If we have a current status, use it
-    if (progress.currentStatus) return progress.currentStatus;
-
     // Otherwise use the main status, but enhance it if needed
     if (progress.status === 'Idle' && progress.isRunning) {
       return 'Connecting to Steam...';
@@ -50,40 +33,12 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
     return progress.status || 'Processing...';
   };
 
+  // Watch for completion
   useEffect(() => {
-    let pollingInterval: NodeJS.Timeout | null = null;
-
-    const checkProgress = async () => {
-      try {
-        const response = await fetch('/api/gameinfo/steamkit/progress');
-        if (response.ok) {
-          const data: PicsProgress = await response.json();
-          setProgress(data);
-
-          // Check if PICS crawl is complete
-          if (!data.isRunning && data.status === 'Complete') {
-            setIsComplete(true);
-            if (pollingInterval) {
-              clearInterval(pollingInterval);
-            }
-            // Don't auto-continue - let user click the Continue button
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch PICS progress:', error);
-      }
-    };
-
-    // Start polling
-    checkProgress();
-    pollingInterval = setInterval(checkProgress, 1000); // Poll every second
-
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-    };
-  }, [onComplete]);
+    if (progress && !progress.isRunning && progress.status === 'Complete') {
+      setIsComplete(true);
+    }
+  }, [progress]);
 
   return (
     <div className="space-y-6">
@@ -123,8 +78,8 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
             <div className="text-center py-4">
               <p className="text-lg font-semibold text-themed-primary mb-2">Setup Complete!</p>
               <p className="text-sm text-themed-secondary">
-                {progress?.depotMappingsFound || progress?.depotsFound
-                  ? `${(progress.depotMappingsFound || progress.depotsFound || 0).toLocaleString()} depot mappings ready`
+                {progress?.depotMappingsFound
+                  ? `${progress.depotMappingsFound.toLocaleString()} depot mappings ready`
                   : 'Depot mappings are ready'}
               </p>
             </div>
@@ -136,10 +91,9 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
 
               {/* Show app count if available and not in initialization */}
               {!isInitializing() &&
-               ((progress?.processedApps !== undefined && progress?.totalApps !== undefined && progress.totalApps > 0) ||
-                (progress?.appsProcessed !== undefined && progress?.totalApps !== undefined && progress.totalApps > 0)) && (
+               progress?.processedApps !== undefined && progress?.totalApps !== undefined && progress.totalApps > 0 && (
                 <p className="text-sm text-themed-secondary text-center">
-                  {(progress?.processedApps || progress?.appsProcessed || 0).toLocaleString()} / {progress.totalApps.toLocaleString()} apps processed
+                  {progress.processedApps.toLocaleString()} / {progress.totalApps.toLocaleString()} apps processed
                 </p>
               )}
 

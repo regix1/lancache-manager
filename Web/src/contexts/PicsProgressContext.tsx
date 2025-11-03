@@ -1,0 +1,181 @@
+import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useSignalR } from '@contexts/SignalRContext';
+
+/**
+ * PICS Progress Interface
+ * Matches the structure returned by /api/gameinfo/steamkit/progress
+ */
+export interface PicsProgress {
+  // Core status
+  isRunning: boolean;
+  status: string;
+
+  // Progress metrics
+  totalApps: number;
+  processedApps: number;
+  totalBatches: number;
+  processedBatches: number;
+  progressPercent: number;
+
+  // Depot information
+  depotMappingsFound: number;
+  depotMappingsFoundInSession?: number;
+
+  // Scheduling (what the API actually returns)
+  crawlIntervalHours: number;
+  crawlIncrementalMode: boolean;
+  lastCrawlTime?: string;        // ISO 8601 datetime string
+  nextCrawlIn?: number;           // Seconds remaining until next crawl
+
+  // Additional metadata
+  startTime?: string;
+  lastChangeNumber?: number;
+  failedBatches?: number;
+  remainingApps?: number[];
+
+  // Scan flags
+  isReady?: boolean;
+  lastScanWasForced?: boolean;
+  automaticScanSkipped?: boolean;
+
+  // Connection status
+  isConnected?: boolean;
+  isLoggedOn?: boolean;
+
+  // Error handling
+  errorMessage?: string | null;
+}
+
+interface PicsProgressContextType {
+  progress: PicsProgress | null;
+  isLoading: boolean;
+  refreshProgress: () => Promise<void>;
+}
+
+const PicsProgressContext = createContext<PicsProgressContextType | undefined>(undefined);
+
+export const usePicsProgress = () => {
+  const context = useContext(PicsProgressContext);
+  if (!context) {
+    throw new Error('usePicsProgress must be used within PicsProgressProvider');
+  }
+  return context;
+};
+
+interface PicsProgressProviderProps {
+  children: ReactNode;
+  mockMode?: boolean;
+}
+
+export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({ children, mockMode = false }) => {
+  const signalR = useSignalR();
+  const [progress, setProgress] = useState<PicsProgress | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchProgress = async () => {
+    if (mockMode) {
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/gameinfo/steamkit/progress');
+      if (response.ok) {
+        const data: PicsProgress = await response.json();
+        setProgress(data);
+      }
+    } catch (error) {
+      console.error('[PicsProgress] Failed to fetch progress:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const refreshProgress = async () => {
+    await fetchProgress();
+  };
+
+  // Initial fetch
+  useEffect(() => {
+    fetchProgress();
+  }, [mockMode]);
+
+  // Poll every 30 seconds to update countdown and status
+  useEffect(() => {
+    if (mockMode) return;
+
+    const interval = setInterval(() => {
+      fetchProgress();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [mockMode]);
+
+  // Listen for real-time depot mapping updates via SignalR
+  useEffect(() => {
+    if (mockMode) return;
+
+    const handleDepotMappingStarted = (payload: any) => {
+      console.log('[PicsProgress] Depot mapping started:', payload);
+      setProgress(prev => prev ? {
+        ...prev,
+        isRunning: true,
+        status: payload.status || 'Running',
+        totalApps: payload.totalApps || prev.totalApps,
+        processedApps: payload.processedApps || 0,
+        progressPercent: payload.progressPercent || 0,
+        startTime: payload.startTime || new Date().toISOString()
+      } : null);
+    };
+
+    const handleDepotMappingProgress = (payload: any) => {
+      console.log('[PicsProgress] Depot mapping progress:', payload);
+      setProgress(prev => prev ? {
+        ...prev,
+        isRunning: true,
+        status: payload.status || prev.status,
+        totalApps: payload.totalApps || prev.totalApps,
+        processedApps: payload.processedApps || prev.processedApps,
+        totalBatches: payload.totalBatches || prev.totalBatches,
+        processedBatches: payload.processedBatches || prev.processedBatches,
+        progressPercent: payload.progressPercent || prev.progressPercent,
+        depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
+        failedBatches: payload.failedBatches,
+        remainingApps: payload.remainingApps
+      } : null);
+    };
+
+    const handleDepotMappingComplete = (payload: any) => {
+      console.log('[PicsProgress] Depot mapping complete:', payload);
+      const now = new Date().toISOString();
+      setProgress(prev => prev ? {
+        ...prev,
+        isRunning: false,
+        status: 'Completed',
+        progressPercent: 100,
+        processedApps: payload.totalApps || prev.totalApps,
+        processedBatches: payload.totalBatches || prev.totalBatches,
+        depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
+        lastCrawlTime: now,
+        // Calculate next crawl time (convert hours to seconds)
+        nextCrawlIn: prev.crawlIntervalHours ? prev.crawlIntervalHours * 3600 : undefined
+      } : null);
+    };
+
+    signalR.on('DepotMappingStarted', handleDepotMappingStarted);
+    signalR.on('DepotMappingProgress', handleDepotMappingProgress);
+    signalR.on('DepotMappingComplete', handleDepotMappingComplete);
+
+    return () => {
+      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
+      signalR.off('DepotMappingProgress', handleDepotMappingProgress);
+      signalR.off('DepotMappingComplete', handleDepotMappingComplete);
+    };
+  }, [signalR, mockMode]);
+
+  return (
+    <PicsProgressContext.Provider value={{ progress, isLoading, refreshProgress }}>
+      {children}
+    </PicsProgressContext.Provider>
+  );
+};

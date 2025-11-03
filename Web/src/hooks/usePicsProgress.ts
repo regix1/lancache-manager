@@ -1,27 +1,11 @@
 import { useState, useEffect } from 'react';
+import type { PicsProgress } from '@contexts/PicsProgressContext';
 
-export interface PicsProgress {
-  isRunning: boolean;
-  status: string;
-  totalApps: number;
-  processedApps: number;
-  totalBatches: number;
-  processedBatches: number;
-  progressPercent: number;
-  depotMappingsFound: number;
-  depotMappingsFoundInSession: number;
-  isReady: boolean;
-  lastCrawlTime?: string;
-  nextCrawlIn: any;
-  crawlIntervalHours: number;
-  crawlIncrementalMode: boolean;
-  lastScanWasForced?: boolean;
-  automaticScanSkipped?: boolean;
-  isConnected: boolean;
-  isLoggedOn: boolean;
-  errorMessage?: string;
-}
-
+/**
+ * @deprecated Use PicsProgressContext instead via usePicsProgress() hook from @contexts/PicsProgressContext
+ * This hook is kept for backward compatibility but should not be used in new code.
+ * The context provides real-time SignalR updates and centralized state management.
+ */
 export interface UsePicsProgressOptions {
   /** Polling interval in milliseconds (default: 2000) */
   pollingInterval?: number;

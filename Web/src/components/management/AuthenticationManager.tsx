@@ -1,28 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Lock, Unlock, AlertCircle, AlertTriangle, Clock, Eye, LogOut } from 'lucide-react';
-import authService, { AuthMode } from '../../services/auth.service';
+import authService from '../../services/auth.service';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { Modal } from '../ui/Modal';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
+import { useAuth } from '@contexts/AuthContext';
 
 interface AuthenticationManagerProps {
-  onAuthChange?: (isAuthenticated: boolean) => void;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   onApiKeyRegenerated?: () => void;
-  onAuthModeChange?: (authMode: AuthMode) => void;
 }
 
 const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
-  onAuthChange,
   onError,
   onSuccess,
-  onApiKeyRegenerated,
-  onAuthModeChange
+  onApiKeyRegenerated
 }) => {
   const { guestDurationHours } = useGuestConfig();
-  const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
+  const { authMode, refreshAuth } = useAuth();
   const [guestTimeRemaining, setGuestTimeRemaining] = useState<number>(0);
   const [authChecking, setAuthChecking] = useState(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -38,10 +35,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
     // Set up callback for guest mode expiry
     authService.onGuestExpired(() => {
-      setAuthMode('expired');
       setGuestTimeRemaining(0);
-      onAuthChange?.(false);
-      onAuthModeChange?.('expired');
+      refreshAuth();
       onError?.('Guest session has expired. Please authenticate or start a new guest session.');
     });
 
@@ -49,7 +44,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       // Cleanup callback on unmount
       authService.onGuestExpired(null);
     };
-  }, [onAuthChange, onAuthModeChange, onError]);
+  }, [refreshAuth, onError]);
 
   // Update guest time remaining every minute
   useEffect(() => {
@@ -73,24 +68,21 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     try {
       const result = await authService.checkAuth();
       console.log('[AuthenticationManager] Auth check result:', result);
-      setAuthMode(result.authMode);
       setGuestTimeRemaining(result.guestTimeRemaining || 0);
       setHasData(result.hasData || false);
       setHasBeenInitialized(result.hasBeenInitialized || false);
 
-      onAuthChange?.(result.isAuthenticated);
-      onAuthModeChange?.(result.authMode);
+      // Refresh the global auth context
+      await refreshAuth();
 
       if (!result.isAuthenticated && authService.isRegistered() && result.authMode !== 'guest') {
         authService.clearAuthAndDevice();
       }
     } catch (error) {
       console.error('Auth check failed:', error);
-      setAuthMode('unauthenticated');
       setHasData(false);
       setHasBeenInitialized(false);
-      onAuthChange?.(false);
-      onAuthModeChange?.('unauthenticated');
+      await refreshAuth();
     } finally {
       setAuthChecking(false);
     }
@@ -109,12 +101,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       const result = await authService.register(apiKey);
 
       if (result.success) {
-        // Update state immediately to prevent modal flash
-        setAuthMode('authenticated');
-
-        // Then notify parent
-        onAuthChange?.(true);
-        onAuthModeChange?.('authenticated');
+        // Refresh auth context
+        await refreshAuth();
 
         // Close modal and clear
         setShowAuthModal(false);
@@ -133,10 +121,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
   const handleStartGuestMode = async () => {
     await authService.startGuestMode();
-    setAuthMode('guest');
     setGuestTimeRemaining(guestDurationHours * 60); // Convert hours to minutes
-    onAuthChange?.(false);
-    onAuthModeChange?.('guest');
+    await refreshAuth();
     setShowAuthModal(false);
     setApiKey('');
     setAuthError('');
@@ -170,9 +156,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
         // Store if user was in guest mode before regeneration
         const wasGuestMode = authMode === 'guest';
 
-        setAuthMode('unauthenticated');
-        onAuthChange?.(false);
-        onAuthModeChange?.('unauthenticated');
+        await refreshAuth();
         setShowAuthModal(false);
         onSuccess?.(result.message);
 
@@ -204,9 +188,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       const result = await authService.logout();
 
       if (result.success) {
-        setAuthMode('unauthenticated');
-        onAuthChange?.(false);
-        onAuthModeChange?.('unauthenticated');
+        await refreshAuth();
         onSuccess?.('Logged out successfully. This device slot is now available for another user.');
       } else {
         onError?.(result.message || 'Failed to logout');
