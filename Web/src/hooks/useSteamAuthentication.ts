@@ -7,7 +7,7 @@ export interface SteamAuthOptions {
   onSuccess?: (message: string) => void;
 }
 
-export interface SteamAuthState {
+export interface SteamLoginFlowState {
   loading: boolean;
   needsTwoFactor: boolean;
   needsEmailCode: boolean;
@@ -206,7 +206,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     }
   };
 
-  const state: SteamAuthState = {
+  const state: SteamLoginFlowState = {
     loading,
     needsTwoFactor,
     needsEmailCode,

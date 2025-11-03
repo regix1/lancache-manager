@@ -170,7 +170,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     try {
       await ApiService.setCacheDeleteMode(newMode);
       setDeleteMode(newMode);
-      const modeDesc = newMode === 'rsync' ? 'Rsync deletion' : newMode === 'full' ? 'Bulk directory removal' : 'Preserve structure';
+      const modeDesc = newMode === 'rsync' ? 'Rsync' : newMode === 'full' ? 'Fast Mode' : 'Safe Mode';
       onSuccess?.(`Delete mode set to: ${modeDesc}`);
     } catch (err: any) {
       console.error('Failed to update delete mode:', err);

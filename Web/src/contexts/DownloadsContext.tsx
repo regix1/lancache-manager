@@ -12,26 +12,7 @@ import MockDataService from '../test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
 import { usePollingRate } from './PollingRateContext';
 import { useSignalR } from './SignalRContext';
-
-export interface Download {
-  id: number;
-  service: string;
-  clientIp: string;
-  startTimeUtc: string;
-  endTimeUtc: string | null;
-  startTimeLocal: string;
-  endTimeLocal: string | null;
-  cacheHitBytes: number;
-  cacheMissBytes: number;
-  totalBytes: number;
-  cacheHitPercent: number;
-  isActive: boolean;
-  gameName?: string;
-  gameAppId?: number;
-  gameImageUrl?: string;
-  depotId?: number;
-  lastUrl?: string;
-}
+import type { Download } from '../types';
 
 interface DownloadsContextType {
   activeDownloads: Download[];

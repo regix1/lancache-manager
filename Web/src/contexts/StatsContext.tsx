@@ -12,62 +12,7 @@ import MockDataService from '../test/mockData.service';
 import { useTimeFilter } from './TimeFilterContext';
 import { usePollingRate } from './PollingRateContext';
 import { useSignalR } from './SignalRContext';
-
-export interface CacheInfo {
-  totalCacheSize: number;
-  usedCacheSize: number;
-  freeCacheSize: number;
-  usagePercent: number;
-  totalFiles: number;
-  serviceSizes: Record<string, number>;
-}
-
-export interface ClientStat {
-  clientIp: string;
-  totalCacheHitBytes: number;
-  totalCacheMissBytes: number;
-  totalBytes: number;
-  cacheHitPercent: number;
-  totalDownloads: number;
-  lastActivityUtc: string;
-  lastActivityLocal: string;
-}
-
-export interface ServiceStat {
-  service: string;
-  totalCacheHitBytes: number;
-  totalCacheMissBytes: number;
-  totalBytes: number;
-  cacheHitPercent: number;
-  totalDownloads: number;
-  lastActivityUtc: string;
-  lastActivityLocal: string;
-}
-
-export interface DashboardStats {
-  totalBandwidthSaved: number;
-  totalAddedToCache: number;
-  totalServed: number;
-  cacheHitRatio: number;
-  activeDownloads: number;
-  uniqueClients: number;
-  topService: string;
-  period: {
-    duration: string;
-    since?: Date | null;
-    bandwidthSaved: number;
-    addedToCache: number;
-    totalServed: number;
-    hitRatio: number;
-    downloads: number;
-  };
-  serviceBreakdown?: Array<{
-    service: string;
-    bytes: number;
-    percentage: number;
-  }>;
-  lastUpdated?: Date;
-}
+import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../types';
 
 interface StatsContextType {
   cacheInfo: CacheInfo | null;

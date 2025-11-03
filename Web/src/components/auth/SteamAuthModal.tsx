@@ -3,12 +3,12 @@ import { Key, Lock, Loader2 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { SteamAuthState, SteamAuthActions } from '@hooks/useSteamAuthentication';
+import { SteamLoginFlowState, SteamAuthActions } from '@hooks/useSteamAuthentication';
 
 interface SteamAuthModalProps {
   opened: boolean;
   onClose: () => void;
-  state: SteamAuthState;
+  state: SteamLoginFlowState;
   actions: SteamAuthActions;
 }
 

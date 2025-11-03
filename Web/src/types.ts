@@ -23,7 +23,9 @@ export interface Download {
   isActive: boolean;
   gameName?: string;
   gameAppId?: number;
+  gameImageUrl?: string;
   depotId?: number;
+  lastUrl?: string;
 }
 
 export interface DownloadSettings {

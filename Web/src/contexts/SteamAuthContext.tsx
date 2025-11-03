@@ -3,7 +3,7 @@ import ApiService from '@services/api.service';
 
 export type SteamAuthMode = 'anonymous' | 'authenticated';
 
-export interface SteamAuthState {
+export interface SteamAuthenticationState {
   mode: SteamAuthMode;
   username?: string;
   isAuthenticated: boolean;
@@ -43,7 +43,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
         headers: ApiService.getHeaders()
       });
       if (response.ok) {
-        const authState: SteamAuthState = await response.json();
+        const authState: SteamAuthenticationState = await response.json();
         setSteamAuthMode(authState.mode);
         setUsername(authState.mode === 'authenticated' && authState.username ? authState.username : '');
       }
