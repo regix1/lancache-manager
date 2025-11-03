@@ -787,27 +787,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    // Depot Post Processing Failed (placeholder for compatibility)
-    const handleDepotPostProcessingFailed = (payload: any) => {
-      console.log('[NotificationsContext] DepotPostProcessingFailed received:', payload);
-      addNotification({
-        type: 'depot_mapping',
-        status: 'failed',
-        message: payload.message || 'Depot post-processing failed',
-        error: payload.error,
-        details: {
-          notificationType: 'error'
-        }
-      });
-    };
-
-    // Pics Progress - DISABLED, now using DepotMappingProgress events instead
-    // This old handler was creating duplicate notifications and interfering with the new depot mapping notification
-    const handlePicsProgress = () => {
-      // No-op: Depot mapping progress is now handled by DepotMappingStarted/Progress/Complete events
-      // This prevents duplicate notifications and UI conflicts
-    };
-
     // Subscribe to events
     signalR.on('ProcessingProgress', handleProcessingProgress);
     signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
@@ -820,8 +799,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotMappingComplete', handleDepotMappingComplete);
-    signalR.on('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
-    signalR.on('PicsProgress', handlePicsProgress);
 
     // Cleanup
     return () => {
@@ -836,8 +813,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotMappingStarted', handleDepotMappingStarted);
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
-      signalR.off('DepotPostProcessingFailed', handleDepotPostProcessingFailed);
-      signalR.off('PicsProgress', handlePicsProgress);
     };
   }, [signalR, removeNotificationAnimated]);
 

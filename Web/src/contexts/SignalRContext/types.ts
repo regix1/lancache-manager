@@ -29,7 +29,6 @@ export const SIGNALR_EVENTS = [
   'DepotMappingStarted',
   'DepotMappingProgress',
   'DepotMappingComplete',
-  'DepotPostProcessingFailed',
   'DatabaseResetProgress',
   'LogRemovalProgress',
   'LogRemovalComplete',
