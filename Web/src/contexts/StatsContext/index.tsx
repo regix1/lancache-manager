@@ -4,26 +4,15 @@ import React, {
   useState,
   useEffect,
   useRef,
-  useCallback,
-  type ReactNode
+  useCallback
 } from 'react';
 import ApiService from '@services/api.service';
-import MockDataService from '../test/mockData.service';
-import { useTimeFilter } from './TimeFilterContext';
-import { usePollingRate } from './PollingRateContext';
-import { useSignalR } from './SignalRContext';
-import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../types';
-
-interface StatsContextType {
-  cacheInfo: CacheInfo | null;
-  clientStats: ClientStat[];
-  serviceStats: ServiceStat[];
-  dashboardStats: DashboardStats | null;
-  loading: boolean;
-  error: string | null;
-  connectionStatus: string;
-  refreshStats: () => Promise<void>;
-}
+import MockDataService from '../../test/mockData.service';
+import { useTimeFilter } from '../TimeFilterContext';
+import { usePollingRate } from '../PollingRateContext';
+import { useSignalR } from '../SignalRContext';
+import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
+import type { StatsContextType, StatsProviderProps } from './types';
 
 const StatsContext = createContext<StatsContextType | undefined>(undefined);
 
@@ -34,11 +23,6 @@ export const useStats = () => {
   }
   return context;
 };
-
-interface StatsProviderProps {
-  children: ReactNode;
-  mockMode?: boolean;
-}
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();

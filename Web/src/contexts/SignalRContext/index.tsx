@@ -1,22 +1,8 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo, type ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
-
-// Event handler type for SignalR events
-type EventHandler = (...args: any[]) => void | Promise<void>;
-
-interface SignalRContextType {
-  // Connection status
-  isConnected: boolean;
-  connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
-
-  // Subscribe/unsubscribe to events
-  on: (eventName: string, handler: EventHandler) => void;
-  off: (eventName: string, handler: EventHandler) => void;
-
-  // Connection info
-  connectionId: string | null;
-}
+import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
+import { SIGNALR_EVENTS } from './types';
 
 const SignalRContext = createContext<SignalRContextType | undefined>(undefined);
 
@@ -27,11 +13,6 @@ export const useSignalR = () => {
   }
   return context;
 };
-
-interface SignalRProviderProps {
-  children: ReactNode;
-  mockMode?: boolean;
-}
 
 export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mockMode = false }) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -179,24 +160,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Set up event dispatchers - these dispatch to our handlers map
       const setupEventDispatchers = () => {
-        const allEvents = [
-          'DownloadsRefresh',
-          'ProcessingProgress',
-          'BulkProcessingComplete',
-          'DepotMappingStarted',
-          'DepotMappingProgress',
-          'DepotMappingComplete',
-          'DepotPostProcessingFailed',
-          'DatabaseResetProgress',
-          'LogRemovalProgress',
-          'LogRemovalComplete',
-          'GameRemovalComplete',
-          'CacheClearProgress',
-          'CacheClearComplete',
-          'GuestDurationUpdated'
-        ];
-
-        allEvents.forEach(eventName => {
+        SIGNALR_EVENTS.forEach(eventName => {
           connection.on(eventName, (...args: any[]) => {
             // Dispatch to all registered handlers for this event
             const handlers = eventHandlersRef.current.get(eventName);

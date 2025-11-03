@@ -1,0 +1,43 @@
+import type { ReactNode } from 'react';
+
+// Event handler type for SignalR events
+export type EventHandler = (...args: any[]) => void | Promise<void>;
+
+export interface SignalRContextType {
+  // Connection status
+  isConnected: boolean;
+  connectionState: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+
+  // Subscribe/unsubscribe to events
+  on: (eventName: string, handler: EventHandler) => void;
+  off: (eventName: string, handler: EventHandler) => void;
+
+  // Connection info
+  connectionId: string | null;
+}
+
+export interface SignalRProviderProps {
+  children: ReactNode;
+  mockMode?: boolean;
+}
+
+// List of all SignalR events
+export const SIGNALR_EVENTS = [
+  'DownloadsRefresh',
+  'ProcessingProgress',
+  'BulkProcessingComplete',
+  'DepotMappingStarted',
+  'DepotMappingProgress',
+  'DepotMappingComplete',
+  'DepotPostProcessingFailed',
+  'DatabaseResetProgress',
+  'LogRemovalProgress',
+  'LogRemovalComplete',
+  'GameRemovalComplete',
+  'CacheClearProgress',
+  'CacheClearComplete',
+  'GuestDurationUpdated',
+  'AutomaticScanSkipped'
+] as const;
+
+export type SignalREvent = typeof SIGNALR_EVENTS[number];

@@ -400,7 +400,9 @@ public class ManagementController : ControllerBase
             var hasLogFiles = Directory.GetFiles(logDir, "access.log*").Any();
             if (!hasLogFiles)
             {
-                return Task.FromResult<IActionResult>(NotFound(new { error = $"No log files found in: {logDir}" }));
+                return Task.FromResult<IActionResult>(NotFound(new {
+                    error = $"No log files found in {logDir}. Please ensure your lancache is configured to write access logs."
+                }));
             }
 
             // Calculate total size of all log files for display

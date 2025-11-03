@@ -55,8 +55,32 @@ class ApiService {
     }
 
     if (!response.ok) {
-      const error = await response.text().catch(() => '');
-      throw new Error(`HTTP ${response.status}: ${error || response.statusText}`);
+      const errorText = await response.text().catch(() => '');
+
+      // Try to parse error as JSON for structured error messages
+      let errorData = null;
+      try {
+        errorData = errorText ? JSON.parse(errorText) : null;
+      } catch (parseError) {
+        // Not JSON, use default error format
+      }
+
+      // If we have a structured error with helpful fields, use them
+      if (errorData) {
+        if (errorData.message && errorData.details && errorData.suggestion) {
+          // Full structured error
+          throw new Error(`${errorData.message}\n\n${errorData.details}\n\n${errorData.suggestion}`);
+        } else if (errorData.message) {
+          // Just a message field
+          throw new Error(errorData.message);
+        } else if (errorData.error) {
+          // Legacy error field
+          throw new Error(errorData.error);
+        }
+      }
+
+      // Default error format
+      throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
     }
     return response.json();
   }
