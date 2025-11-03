@@ -1,8 +1,10 @@
 using LancacheManager.Application.Services;
 using LancacheManager.Data;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -19,6 +21,7 @@ public class AuthController : ControllerBase
     private readonly StateRepository _stateService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly SteamAuthRepository _steamAuthStorage;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     public AuthController(
         ApiKeyService apiKeyService,
@@ -29,7 +32,8 @@ public class AuthController : ControllerBase
         AppDbContext dbContext,
         StateRepository stateService,
         SteamKit2Service steamKit2Service,
-        SteamAuthRepository steamAuthStorage)
+        SteamAuthRepository steamAuthStorage,
+        IHubContext<DownloadHub> hubContext)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -40,6 +44,7 @@ public class AuthController : ControllerBase
         _stateService = stateService;
         _steamKit2Service = steamKit2Service;
         _steamAuthStorage = steamAuthStorage;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -577,8 +582,61 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpGet("guest/config/duration")]
+    public IActionResult GetGuestSessionDuration()
+    {
+        try
+        {
+            var durationHours = _guestSessionService.GetGuestSessionDurationHours();
+            return Ok(new
+            {
+                durationHours = durationHours
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting guest session duration");
+            return StatusCode(500, new { error = "Failed to get guest session duration", message = ex.Message });
+        }
+    }
+
+    [HttpPost("guest/config/duration")]
+    [RequireAuth]
+    public IActionResult SetGuestSessionDuration([FromBody] SetGuestSessionDurationRequest request)
+    {
+        try
+        {
+            if (request.DurationHours < 1 || request.DurationHours > 168)
+            {
+                return BadRequest(new { error = "Duration must be between 1 and 168 hours" });
+            }
+
+            _guestSessionService.SetGuestSessionDurationHours(request.DurationHours);
+
+            // Broadcast duration change to all connected clients
+            _hubContext.Clients.All.SendAsync("GuestDurationUpdated", new { durationHours = request.DurationHours });
+
+            return Ok(new
+            {
+                success = true,
+                durationHours = request.DurationHours,
+                message = $"Guest session duration updated to {request.DurationHours} hour{(request.DurationHours != 1 ? "s" : "")}"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting guest session duration");
+            return StatusCode(500, new { error = "Failed to set guest session duration", message = ex.Message });
+        }
+    }
+
     public class ValidateGuestSessionRequest
     {
         public string SessionId { get; set; } = string.Empty;
+    }
+
+    public class SetGuestSessionDurationRequest
+    {
+        public int DurationHours { get; set; }
     }
 }

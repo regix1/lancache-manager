@@ -4,6 +4,7 @@ import authService, { AuthMode } from '../../services/auth.service';
 import { Button } from '../ui/Button';
 import { Alert } from '../ui/Alert';
 import { Modal } from '../ui/Modal';
+import { useGuestConfig } from '@contexts/GuestConfigContext';
 
 interface AuthenticationManagerProps {
   onAuthChange?: (isAuthenticated: boolean) => void;
@@ -20,6 +21,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   onApiKeyRegenerated,
   onAuthModeChange
 }) => {
+  const { guestDurationHours } = useGuestConfig();
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [guestTimeRemaining, setGuestTimeRemaining] = useState<number>(0);
   const [authChecking, setAuthChecking] = useState(true);
@@ -129,16 +131,16 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     }
   };
 
-  const handleStartGuestMode = () => {
-    authService.startGuestMode();
+  const handleStartGuestMode = async () => {
+    await authService.startGuestMode();
     setAuthMode('guest');
-    setGuestTimeRemaining(6 * 60); // 6 hours in minutes
+    setGuestTimeRemaining(guestDurationHours * 60); // Convert hours to minutes
     onAuthChange?.(false);
     onAuthModeChange?.('guest');
     setShowAuthModal(false);
     setApiKey('');
     setAuthError('');
-    onSuccess?.('Guest mode activated! You have 6 hours to view data before re-authentication is required.');
+    onSuccess?.(`Guest mode activated! You have ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''} to view data before re-authentication is required.`);
   };
 
   const formatTimeRemaining = (minutes: number): string => {

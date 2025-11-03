@@ -192,7 +192,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           'LogRemovalComplete',
           'GameRemovalComplete',
           'CacheClearProgress',
-          'CacheClearComplete'
+          'CacheClearComplete',
+          'GuestDurationUpdated'
         ];
 
         allEvents.forEach(eventName => {

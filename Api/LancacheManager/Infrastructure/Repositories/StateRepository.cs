@@ -48,6 +48,7 @@ public class StateRepository : IStateRepository
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
+        public int GuestSessionDurationHours { get; set; } = 6; // Default to 6 hours
 
         // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
         // This property is kept temporarily for backward compatibility during migration
@@ -79,6 +80,7 @@ public class StateRepository : IStateRepository
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false;
+        public int GuestSessionDurationHours { get; set; } = 6;
 
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
@@ -476,6 +478,7 @@ public class StateRepository : IStateRepository
             LastUpdated = persisted.LastUpdated,
             HasDataLoaded = persisted.HasDataLoaded,
             HasProcessedLogs = persisted.HasProcessedLogs,
+            GuestSessionDurationHours = persisted.GuestSessionDurationHours,
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -508,6 +511,7 @@ public class StateRepository : IStateRepository
             LastUpdated = state.LastUpdated,
             HasDataLoaded = state.HasDataLoaded,
             HasProcessedLogs = state.HasProcessedLogs,
+            GuestSessionDurationHours = state.GuestSessionDurationHours,
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
@@ -591,4 +595,15 @@ public class StateRepository : IStateRepository
 
     // NOTE: GuardData methods removed - modern Steam auth uses refresh tokens only
     // GetSteamGuardData() and SetSteamGuardData() are no longer needed
+
+    // Guest Session Duration Methods
+    public int GetGuestSessionDurationHours()
+    {
+        return GetState().GuestSessionDurationHours;
+    }
+
+    public void SetGuestSessionDurationHours(int hours)
+    {
+        UpdateState(state => state.GuestSessionDurationHours = hours);
+    }
 }

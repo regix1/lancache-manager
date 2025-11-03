@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -8,14 +9,18 @@ public class GuestSessionService
 {
     private readonly ILogger<GuestSessionService> _logger;
     private readonly IPathResolver _pathResolver;
+    private readonly StateRepository _stateRepository;
+    private readonly IConfiguration _configuration;
     private readonly string _sessionsDirectory;
     private readonly Dictionary<string, GuestSession> _sessionCache = new();
     private readonly object _cacheLock = new();
 
-    public GuestSessionService(ILogger<GuestSessionService> logger, IPathResolver pathResolver)
+    public GuestSessionService(ILogger<GuestSessionService> logger, IPathResolver pathResolver, StateRepository stateRepository, IConfiguration configuration)
     {
         _logger = logger;
         _pathResolver = pathResolver;
+        _stateRepository = stateRepository;
+        _configuration = configuration;
         _sessionsDirectory = Path.Combine(_pathResolver.GetDevicesDirectory(), "guest_sessions");
 
         // Create directory if it doesn't exist
@@ -25,7 +30,25 @@ public class GuestSessionService
             _logger.LogInformation("Created guest sessions directory: {Directory}", _sessionsDirectory);
         }
 
+        // Initialize guest session duration from appsettings.json if not already set
+        InitializeGuestSessionDuration();
+
         LoadGuestSessions();
+    }
+
+    private void InitializeGuestSessionDuration()
+    {
+        // Check if duration is at default value (6 hours), if so, load from appsettings
+        var currentDuration = _stateRepository.GetGuestSessionDurationHours();
+        if (currentDuration == 6)
+        {
+            var configuredDuration = _configuration.GetValue<int>("Security:GuestSessionDurationHours", 6);
+            if (configuredDuration != 6)
+            {
+                _stateRepository.SetGuestSessionDurationHours(configuredDuration);
+                _logger.LogInformation("Initialized guest session duration from appsettings: {Hours} hours", configuredDuration);
+            }
+        }
     }
 
     public class GuestSession
@@ -93,7 +116,7 @@ public class GuestSessionService
                 OperatingSystem = request.OperatingSystem,
                 Browser = request.Browser,
                 CreatedAt = DateTime.UtcNow,
-                ExpiresAt = DateTime.UtcNow.AddHours(6),
+                ExpiresAt = DateTime.UtcNow.AddHours(GetGuestSessionDurationHours()),
                 LastSeenAt = DateTime.UtcNow,
                 IsRevoked = false
             };
@@ -370,5 +393,28 @@ public class GuestSessionService
     {
         var safeFileName = string.Concat(sessionId.Where(c => char.IsLetterOrDigit(c) || c == '-'));
         return Path.Combine(_sessionsDirectory, $"{safeFileName}.json");
+    }
+
+    /// <summary>
+    /// Get the configured guest session duration in hours
+    /// </summary>
+    public int GetGuestSessionDurationHours()
+    {
+        return _stateRepository.GetGuestSessionDurationHours();
+    }
+
+    /// <summary>
+    /// Update the guest session duration configuration
+    /// Persists to state.json file
+    /// </summary>
+    public void SetGuestSessionDurationHours(int hours)
+    {
+        if (hours < 1 || hours > 168) // Between 1 hour and 1 week
+        {
+            throw new ArgumentException("Guest session duration must be between 1 and 168 hours");
+        }
+
+        _stateRepository.SetGuestSessionDurationHours(hours);
+        _logger.LogInformation("Guest session duration updated to {Hours} hours (persisted to state.json)", hours);
     }
 }

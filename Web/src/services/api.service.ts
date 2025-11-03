@@ -810,6 +810,34 @@ class ApiService {
       throw error;
     }
   }
+
+  // Get guest session duration configuration
+  static async getGuestSessionDuration(): Promise<{ durationHours: number }> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, {
+        headers: this.getHeaders()
+      });
+      return await this.handleResponse<{ durationHours: number }>(res);
+    } catch (error) {
+      console.error('getGuestSessionDuration error:', error);
+      throw error;
+    }
+  }
+
+  // Set guest session duration configuration
+  static async setGuestSessionDuration(durationHours: number): Promise<{ success: boolean; durationHours: number; message: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ durationHours })
+      });
+      return await this.handleResponse<{ success: boolean; durationHours: number; message: string }>(res);
+    } catch (error) {
+      console.error('setGuestSessionDuration error:', error);
+      throw error;
+    }
+  }
 }
 
 export default ApiService;

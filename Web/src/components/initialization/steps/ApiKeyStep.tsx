@@ -1,6 +1,7 @@
 import React from 'react';
 import { Key, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { useGuestConfig } from '@contexts/GuestConfigContext';
 
 interface ApiKeyStepProps {
   apiKey: string;
@@ -29,6 +30,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
   onStartGuestMode,
   onContinueAsAdmin
 }) => {
+  const { guestDurationHours } = useGuestConfig();
   // Simplified UI when authentication is globally disabled
   if (authDisabled) {
     return (
@@ -60,9 +62,9 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
             onClick={onStartGuestMode}
             disabled={checkingDataAvailability || !dataAvailable}
             fullWidth
-            title={!dataAvailable ? 'No data available. Complete setup first.' : 'Read-only access for 6 hours'}
+            title={!dataAvailable ? 'No data available. Complete setup first.' : `Read-only access for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`}
           >
-            {!dataAvailable ? 'Continue as Guest (No Data Available)' : 'Continue as Guest (6 hours)'}
+            {!dataAvailable ? 'Continue as Guest (No Data Available)' : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
           </Button>
         </div>
 
@@ -74,7 +76,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
              }}>
           <p className="text-sm">
             <strong>Authentication is disabled:</strong><br/>
-            Admin mode provides full access without requiring an API key. Guest mode provides read-only access for 6 hours.
+            Admin mode provides full access without requiring an API key. Guest mode provides read-only access for {guestDurationHours} hour{guestDurationHours !== 1 ? 's' : ''}.
           </p>
         </div>
 
@@ -98,7 +100,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       <p className="text-themed-secondary text-center mb-6">
         {apiKeyOnlyMode
           ? 'Your API key has been regenerated. Enter the new API key for full access, or continue as guest to view data only:'
-          : 'Enter your API key for full management access, or continue as guest to view data for 6 hours:'
+          : `Enter your API key for full management access, or continue as guest to view data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}:`
         }
       </p>
 
@@ -145,9 +147,9 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
                 onClick={onStartGuestMode}
                 disabled={authenticating || checkingDataAvailability || !dataAvailable}
                 fullWidth
-                title={!dataAvailable ? 'No data available. Complete setup first.' : 'View data for 6 hours'}
+                title={!dataAvailable ? 'No data available. Complete setup first.' : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`}
               >
-                {!dataAvailable ? 'Guest Mode (No Data Available)' : 'Continue as Guest (6 hours)'}
+                {!dataAvailable ? 'Guest Mode (No Data Available)' : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
               </Button>
             </>
           )}

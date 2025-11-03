@@ -327,7 +327,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       return;
     }
 
-    authService.startGuestMode();
+    await authService.startGuestMode();
     onAuthChanged?.();
 
     const setupResponse = await fetch('/api/management/setup-status');

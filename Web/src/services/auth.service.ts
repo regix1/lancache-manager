@@ -105,8 +105,21 @@ class AuthService {
 
   public async startGuestMode(): Promise<void> {
     const now = Date.now();
-    const sixHoursInMs = 6 * 60 * 60 * 1000; // 6 hours
-    const expiryTime = now + sixHoursInMs;
+
+    // Fetch guest session duration from backend (default to 6 hours if fetch fails)
+    let durationHours = 6;
+    try {
+      const durationResponse = await fetch(`${API_URL}/api/auth/guest/config/duration`);
+      if (durationResponse.ok) {
+        const durationData = await durationResponse.json();
+        durationHours = durationData.durationHours || 6;
+      }
+    } catch (error) {
+      console.warn('[Auth] Failed to fetch guest session duration, using default 6 hours:', error);
+    }
+
+    const durationInMs = durationHours * 60 * 60 * 1000;
+    const expiryTime = now + durationInMs;
 
     // Generate a unique guest session ID
     const guestSessionId = `guest_${this.deviceId}_${now}`;
@@ -133,7 +146,7 @@ class AuthService {
           browser: this.getBrowser()
         })
       });
-      console.log('[Auth] Guest session registered with backend:', guestSessionId);
+      console.log('[Auth] Guest session registered with backend:', guestSessionId, 'Duration:', durationHours, 'hours');
     } catch (error) {
       console.warn('[Auth] Failed to register guest session with backend:', error);
       // Continue with guest mode even if backend registration fails

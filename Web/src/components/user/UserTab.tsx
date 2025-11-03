@@ -4,6 +4,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
 
 interface Session {
@@ -35,6 +36,8 @@ const UserTab: React.FC = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
+  const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
+  const [updatingDuration, setUpdatingDuration] = useState(false);
 
   const loadSessions = async (showLoading = false) => {
     try {
@@ -62,9 +65,44 @@ const UserTab: React.FC = () => {
     }
   };
 
+  const loadGuestDuration = async () => {
+    try {
+      const result = await ApiService.getGuestSessionDuration();
+      setGuestDurationHours(result.durationHours);
+    } catch (err) {
+      console.error('Failed to load guest session duration:', err);
+      // Use default value on error
+    }
+  };
+
+  const handleUpdateDuration = async (newDuration: number) => {
+    try {
+      setUpdatingDuration(true);
+      await ApiService.setGuestSessionDuration(newDuration);
+      setGuestDurationHours(newDuration);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update guest session duration');
+    } finally {
+      setUpdatingDuration(false);
+    }
+  };
+
+  const durationOptions = [
+    { value: '1', label: '1 hour' },
+    { value: '2', label: '2 hours' },
+    { value: '3', label: '3 hours' },
+    { value: '6', label: '6 hours' },
+    { value: '12', label: '12 hours' },
+    { value: '24', label: '24 hours (1 day)' },
+    { value: '48', label: '48 hours (2 days)' },
+    { value: '72', label: '72 hours (3 days)' },
+    { value: '168', label: '168 hours (1 week)' }
+  ];
+
   useEffect(() => {
     // Initial load with loading spinner
     loadSessions(true);
+    loadGuestDuration();
 
     // Live refresh every 3 seconds for near-realtime updates (without loading spinner)
     const refreshInterval = setInterval(() => {
@@ -533,6 +571,34 @@ const UserTab: React.FC = () => {
         </div>
       </Card>
 
+      {/* Guest Session Configuration */}
+      <Card>
+        <h3 className="text-lg font-semibold text-themed-primary mb-4 flex items-center gap-2">
+          <Clock className="w-5 h-5" />
+          Guest Session Configuration
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-themed-primary mb-2">
+              Guest Session Duration
+            </label>
+            <div className="flex items-center gap-3">
+              <EnhancedDropdown
+                options={durationOptions}
+                value={guestDurationHours.toString()}
+                onChange={(value) => handleUpdateDuration(Number(value))}
+                disabled={updatingDuration}
+                className="w-64"
+              />
+              {updatingDuration && <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />}
+            </div>
+            <p className="text-xs text-themed-muted mt-2">
+              How long guest sessions remain valid before expiring
+            </p>
+          </div>
+        </div>
+      </Card>
+
       {/* Info Card */}
       <Card className="about-section">
         <div
@@ -550,7 +616,7 @@ const UserTab: React.FC = () => {
                 <li className="pl-1">Only authenticated users (with API key) can access this user management panel</li>
                 <li className="pl-1"><strong>Authenticated Users</strong> - Multiple users can share the same API key (up to configured device limit)</li>
                 <li className="pl-1"><strong>Authenticated</strong> sessions have registered with the API key and don't expire</li>
-                <li className="pl-1"><strong>Guest</strong> sessions have temporary 6-hour access with read-only permissions</li>
+                <li className="pl-1"><strong>Guest</strong> sessions have temporary {guestDurationHours}-hour access with read-only permissions</li>
                 <li className="pl-1"><strong>Revoke</strong> - Immediately kicks out guest users (marks them as revoked)</li>
                 <li className="pl-1"><strong>Delete</strong> - Permanently removes the session record from history</li>
                 <li className="pl-1">Revoked guests will see an "expired" message on their next request</li>

@@ -6,6 +6,7 @@ import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { PollingRateProvider } from '@contexts/PollingRateContext';
 import { SignalRProvider } from '@contexts/SignalRContext';
 import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
+import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -537,13 +538,15 @@ const App: React.FC = () => {
         <PollingRateProvider>
           <TimeFilterProvider>
             <SignalRProvider>
-              <NotificationsProvider>
-                <StatsProviderWithMockMode>
-                  <DownloadsProviderWithMockMode>
-                    <AppContent />
-                  </DownloadsProviderWithMockMode>
-                </StatsProviderWithMockMode>
-              </NotificationsProvider>
+              <GuestConfigProvider>
+                <NotificationsProvider>
+                  <StatsProviderWithMockMode>
+                    <DownloadsProviderWithMockMode>
+                      <AppContent />
+                    </DownloadsProviderWithMockMode>
+                  </StatsProviderWithMockMode>
+                </NotificationsProvider>
+              </GuestConfigProvider>
             </SignalRProvider>
           </TimeFilterProvider>
         </PollingRateProvider>

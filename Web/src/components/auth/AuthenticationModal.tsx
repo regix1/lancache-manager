@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, Key, Eye, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
+import { useGuestConfig } from '@contexts/GuestConfigContext';
 
 interface AuthenticationModalProps {
   onAuthComplete: () => void;
@@ -18,6 +19,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   subtitle = 'Please enter your API key to continue',
   allowGuestMode = true
 }) => {
+  const { guestDurationHours } = useGuestConfig();
   const [apiKey, setApiKey] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -87,7 +89,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       return;
     }
 
-    authService.startGuestMode();
+    await authService.startGuestMode();
     onAuthChanged?.();
     setTimeout(() => onAuthComplete(), 1000);
   };
@@ -125,7 +127,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         {/* Content */}
         <div className="mb-8">
           <p className="text-themed-secondary text-center mb-6">
-            Enter your API key for full management access, or continue as guest to view data for 6 hours:
+            Enter your API key for full management access, or continue as guest to view data for {guestDurationHours} hour{guestDurationHours !== 1 ? 's' : ''}:
           </p>
 
           {/* API Key Form */}
@@ -177,9 +179,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     onClick={handleStartGuestMode}
                     disabled={authenticating || checkingDataAvailability || !dataAvailable}
                     fullWidth
-                    title={!dataAvailable ? 'No data available. Complete setup first.' : 'View data for 6 hours'}
+                    title={!dataAvailable ? 'No data available. Complete setup first.' : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`}
                   >
-                    {!dataAvailable ? 'Guest Mode (No Data Available)' : 'Continue as Guest (6 hours)'}
+                    {!dataAvailable ? 'Guest Mode (No Data Available)' : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
                   </Button>
                 </>
               )}
