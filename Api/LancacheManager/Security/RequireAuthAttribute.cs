@@ -157,7 +157,7 @@ public class AuthenticationMiddleware
                         {
                             error = "Session revoked",
                             message = reason == "revoked"
-                                ? "Your guest session has been revoked by an administrator."
+                                ? "Your guest session has been revoked."
                                 : "Your guest session has expired. Please restart guest mode.",
                             code = "GUEST_SESSION_REVOKED"
                         }));

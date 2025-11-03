@@ -134,7 +134,7 @@ public class ApiKeyService
             .Replace("/", "_")
             .Replace("=", "");
 
-        return $"lm_admin_{key}"; // Prefix to identify as LancacheManager admin key
+        return $"lm_{key}"; // Prefix to identify as LancacheManager key
     }
 
     public void DisplayApiKey(IConfiguration configuration, DeviceAuthService? deviceAuthService = null)
@@ -170,7 +170,7 @@ public class ApiKeyService
         Console.WriteLine("│                       LANCACHE MANAGER - API KEY                           │");
         Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
         Console.WriteLine("");
-        Console.WriteLine("  ADMIN API KEY (Full Access)");
+        Console.WriteLine("  API KEY (Full Access)");
         Console.WriteLine($"  {apiKey}");
         Console.WriteLine("");
         Console.WriteLine($"  File: {_apiKeyPath}");
@@ -181,18 +181,18 @@ public class ApiKeyService
         {
             var devices = deviceAuthService.GetAllDevices();
             var activeDevices = devices.Count(d => !d.IsExpired);
-            Console.WriteLine($"  Admin Devices: {activeDevices} of {maxDevices} slots used");
+            Console.WriteLine($"  Registered Devices: {activeDevices} of {maxDevices} slots used");
             Console.WriteLine("");
         }
         else
         {
-            Console.WriteLine($"  Admin Devices: Up to {maxDevices} devices can share this key");
+            Console.WriteLine($"  Registered Devices: Up to {maxDevices} devices can share this key");
             Console.WriteLine("");
         }
 
         Console.WriteLine("  IMPORTANT:");
-        Console.WriteLine("  • Save this key securely - it provides full admin access");
-        Console.WriteLine("  • Multiple admins can share the same key");
+        Console.WriteLine("  • Save this key securely - it provides full access");
+        Console.WriteLine("  • Multiple users can share the same key");
         Console.WriteLine("  • Guest mode available for temporary access (6 hours, read-only)");
         Console.WriteLine("");
         Console.WriteLine("────────────────────────────────────────────────────────────────────────────");

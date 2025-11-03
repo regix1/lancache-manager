@@ -286,6 +286,38 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpPost("database/reset-selected")]
+    [RequireAuth]
+    public async Task<IActionResult> ResetSelectedTables([FromBody] List<string> tableNames)
+    {
+        try
+        {
+            if (tableNames == null || !tableNames.Any())
+            {
+                return BadRequest(new { error = "No tables selected" });
+            }
+
+            _logger.LogInformation($"Starting selective database reset for tables: {string.Join(", ", tableNames)}");
+
+            // Use C# implementation with SignalR updates
+            await _dbService.ResetSelectedTables(tableNames);
+            _logger.LogInformation("Selective database reset completed");
+
+            return Ok(new
+            {
+                message = $"Successfully reset {tableNames.Count} table(s)",
+                tables = tableNames,
+                status = "completed",
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting selected tables");
+            return StatusCode(500, new { error = "Failed to reset selected tables", details = ex.Message });
+        }
+    }
+
 
     [HttpPost("reset-logs")]
     [RequireAuth]

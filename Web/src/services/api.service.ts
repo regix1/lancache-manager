@@ -368,6 +368,21 @@ class ApiService {
     }
   }
 
+  // Reset selected database tables (requires auth)
+  static async resetSelectedTables(tableNames: string[]): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/management/database/reset-selected`, {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(tableNames)
+      });
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('resetSelectedTables error:', error);
+      throw error;
+    }
+  }
+
   // Reset log position (requires auth)
   static async resetLogPosition(position: 'top' | 'bottom' = 'bottom'): Promise<any> {
     try {

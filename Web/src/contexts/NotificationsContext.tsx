@@ -428,12 +428,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               ? {
                   ...n,
                   status: 'completed' as NotificationStatus,
-                  message: 'Database reset completed',
+                  message: payload.message || 'Database reset completed',
                   progress: 100
                 }
               : n
           )
         );
+
+        // Auto-remove after 5 seconds (unless always visible is enabled)
+        if (shouldAutoDismiss()) {
+          setTimeout(() => {
+            removeNotificationAnimated(notificationId);
+          }, 5000);
+        }
       } else if (payload.status === 'error') {
         setNotifications(prev =>
           prev.map(n =>

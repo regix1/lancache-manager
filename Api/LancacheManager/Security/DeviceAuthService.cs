@@ -94,8 +94,8 @@ public class DeviceAuthService
                 };
             }
 
-            // Get max admin devices from configuration (default to 3)
-            var maxAdminDevices = _configuration.GetValue<int>("Security:MaxAdminDevices", 3);
+            // Get max devices from configuration (default to 3)
+            var maxDevices = _configuration.GetValue<int>("Security:MaxAdminDevices", 3);
 
             // Encrypt the API key with device-specific encryption
             var encryptedKey = EncryptApiKey(request.ApiKey, request.DeviceId);
@@ -123,10 +123,10 @@ public class DeviceAuthService
                 }
             }
 
-            // Check how many devices are currently using the admin API key
+            // Check how many devices are currently using the API key
             lock (_cacheLock)
             {
-                var devicesUsingAdminKey = _deviceCache.Values.Where(d =>
+                var devicesUsingApiKey = _deviceCache.Values.Where(d =>
                 {
                     // Skip if this is the same device (allow re-registration)
                     if (d.DeviceId == request.DeviceId)
@@ -134,7 +134,7 @@ public class DeviceAuthService
                         return false;
                     }
 
-                    // Check if device is using a valid admin key
+                    // Check if device is using a valid key
                     try
                     {
                         var existingKey = DecryptApiKey(d.EncryptedApiKey, d.DeviceId);
@@ -146,15 +146,15 @@ public class DeviceAuthService
                     }
                 }).ToList();
 
-                if (devicesUsingAdminKey.Count >= maxAdminDevices)
+                if (devicesUsingApiKey.Count >= maxDevices)
                 {
-                    _logger.LogWarning("Device registration denied: Maximum admin devices ({MaxDevices}) already registered. New device: {NewDevice} from IP {IP}",
-                        maxAdminDevices, request.DeviceId, ipAddress);
+                    _logger.LogWarning("Device registration denied: Maximum devices ({MaxDevices}) already registered. New device: {NewDevice} from IP {IP}",
+                        maxDevices, request.DeviceId, ipAddress);
 
                     return new AuthResponse
                     {
                         Success = false,
-                        Message = $"Maximum number of admin devices ({maxAdminDevices}) already registered. Please log out from another device first or increase MAX_ADMIN_DEVICES in configuration."
+                        Message = $"Maximum number of devices ({maxDevices}) already registered. Please log out from another device first or increase MAX_ADMIN_DEVICES in configuration."
                     };
                 }
             }
@@ -463,7 +463,7 @@ public class DeviceAuthService
     }
 
     /// <summary>
-    /// Get all registered devices (for admin viewing)
+    /// Get all registered devices (for viewing)
     /// </summary>
     public List<DeviceInfo> GetAllDevices()
     {
@@ -598,7 +598,7 @@ public class DeviceAuthService
     }
 
     /// <summary>
-    /// Device information for admin display (no sensitive data)
+    /// Device information for display (no sensitive data)
     /// </summary>
     public class DeviceInfo
     {
