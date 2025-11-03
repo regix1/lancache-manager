@@ -17,6 +17,7 @@ public class GameCacheDetectionService
     private readonly IPathResolver _pathResolver;
     private readonly OperationStateService _operationStateService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly SteamKit2Service _steamKit2Service;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
 
     public class DetectionOperation
@@ -34,12 +35,14 @@ public class GameCacheDetectionService
         ILogger<GameCacheDetectionService> logger,
         IPathResolver pathResolver,
         OperationStateService operationStateService,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        SteamKit2Service steamKit2Service)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _operationStateService = operationStateService;
         _dbContextFactory = dbContextFactory;
+        _steamKit2Service = steamKit2Service;
 
         // Restore any interrupted operations on startup
         RestoreInterruptedOperations();
@@ -108,6 +111,106 @@ public class GameCacheDetectionService
         return operationId;
     }
 
+    /// <summary>
+    /// Count unknown games (games with names starting with "Unknown Game") in cached results
+    /// </summary>
+    private async Task<int> CountUnknownGamesAsync()
+    {
+        try
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            var unknownCount = await dbContext.CachedGameDetections
+                .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
+                .CountAsync();
+            return unknownCount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameDetection] Failed to count unknown games");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Check if unknown depot IDs now have mappings available in SteamDepotMappings
+    /// Returns the count of unknown depot IDs that now have mappings
+    /// </summary>
+    private async Task<(int totalUnknowns, int nowMapped)> CheckUnknownDepotsForMappingsAsync()
+    {
+        try
+        {
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+            // Get unknown games from cache (depot IDs stored as game_app_id for unknowns)
+            var unknownGames = await dbContext.CachedGameDetections
+                .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
+                .ToListAsync();
+
+            if (unknownGames.Count == 0)
+            {
+                return (0, 0);
+            }
+
+            // Extract depot IDs from unknown game names
+            // Game names like "Unknown Game (Depot 123456)" -> extract 123456
+            var unknownDepotIds = unknownGames
+                .Select(g => g.GameAppId) // For unknown games, depot ID is stored as game_app_id
+                .ToHashSet();
+
+            // Check how many of these depot IDs now have mappings in SteamDepotMappings
+            var mappedCount = await dbContext.SteamDepotMappings
+                .Where(m => unknownDepotIds.Contains(m.DepotId))
+                .Select(m => m.DepotId)
+                .Distinct()
+                .CountAsync();
+
+            return (unknownGames.Count, mappedCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameDetection] Failed to check unknown depots for mappings");
+            return (0, 0);
+        }
+    }
+
+    /// <summary>
+    /// Smart pre-check: If 3+ unknown games detected in cache, check if depot mappings are now available
+    /// If mappings exist, invalidate cache to trigger fresh scan with new mappings
+    /// </summary>
+    private async Task<bool> ApplyMappingsPreCheckAsync(DetectionOperation operation)
+    {
+        try
+        {
+            var (totalUnknowns, nowMapped) = await CheckUnknownDepotsForMappingsAsync();
+
+            if (totalUnknowns >= 3 && nowMapped > 0)
+            {
+                _logger.LogInformation("[GameDetection] Found {UnknownCount} unknown games in cache, {MappedCount} now have depot mappings available",
+                    totalUnknowns, nowMapped);
+                operation.Message = $"Found {nowMapped} new depot mapping(s) for unknown games - invalidating cache...";
+
+                // Invalidate cache so the scan will pick up the new mappings
+                await InvalidateCacheAsync();
+
+                _logger.LogInformation("[GameDetection] Cache invalidated - fresh scan will use new depot mappings");
+                operation.Message = $"Cache invalidated - scanning with {nowMapped} new mapping(s)...";
+                return true;
+            }
+            else if (totalUnknowns >= 3)
+            {
+                _logger.LogInformation("[GameDetection] Found {UnknownCount} unknown games but no new depot mappings available - proceeding with scan",
+                    totalUnknowns);
+            }
+
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameDetection] Pre-check mapping failed, continuing with scan anyway");
+            return false;
+        }
+    }
+
     private async Task RunDetectionAsync(string operationId, bool incremental)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
@@ -121,6 +224,12 @@ public class GameCacheDetectionService
         try
         {
             _logger.LogInformation("[GameDetection] Starting detection for operation {OperationId} (incremental={Incremental})", operationId, incremental);
+
+            // Smart pre-check: If incremental scan and we have 3+ unknown games, try applying mappings first
+            if (incremental)
+            {
+                await ApplyMappingsPreCheckAsync(operation);
+            }
 
             var dataDir = _pathResolver.GetDataDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
