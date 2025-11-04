@@ -158,7 +158,7 @@ const AppContent: React.FC = () => {
   useEffect(() => {
     if (!signalR || authMode !== 'authenticated') return;
 
-    const handleAutomaticScanSkipped = (data: any) => {
+    const handleAutomaticScanSkipped = () => {
       // Only show if not already showing and not dismissed
       if (!showFullScanRequiredModal && !wasModalDismissed()) {
         setFullScanModalChangeGap(160000); // Default large gap
