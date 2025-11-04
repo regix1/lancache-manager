@@ -144,6 +144,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }
   }, [notifications]);
 
+  // Listen for log processing completion and re-check if logs are now available
+  useEffect(() => {
+    const logProcessingNotifs = notifications.filter(n => n.type === 'log_processing' && n.status === 'completed');
+
+    if (logProcessingNotifs.length > 0) {
+      // Logs were processed, re-check if LogEntries now exist in database
+      console.log('[GameCacheDetector] Log processing completed, re-checking database LogEntries');
+      checkIfLogsProcessed();
+    }
+  }, [notifications]);
+
   // Memoized filtered, sorted, and paginated games list
   const filteredAndSortedGames = useMemo(() => {
     // Filter by search query (search in game name or app ID)
