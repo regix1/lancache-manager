@@ -96,11 +96,11 @@ export interface DashboardStats {
     hitRatio: number;
     downloads: number;
   };
-  serviceBreakdown?: Array<{
+  serviceBreakdown?: {
     service: string;
     bytes: number;
     percentage: number;
-  }>;
+  }[];
   lastUpdated?: Date;
 }
 

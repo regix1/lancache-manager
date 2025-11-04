@@ -146,7 +146,13 @@ class AuthService {
           browser: this.getBrowser()
         })
       });
-      console.log('[Auth] Guest session registered with backend:', guestSessionId, 'Duration:', durationHours, 'hours');
+      console.log(
+        '[Auth] Guest session registered with backend:',
+        guestSessionId,
+        'Duration:',
+        durationHours,
+        'hours'
+      );
     } catch (error) {
       console.warn('[Auth] Failed to register guest session with backend:', error);
       // Continue with guest mode even if backend registration fails
@@ -291,7 +297,11 @@ class AuthService {
 
         // If device is not authenticated but auth is required, clear the stored device ID
         // This handles the case where the backend was reset
-        if (result.requiresAuth && !result.isAuthenticated && result.authenticationType !== 'device') {
+        if (
+          result.requiresAuth &&
+          !result.isAuthenticated &&
+          result.authenticationType !== 'device'
+        ) {
           this.clearAuthAndDevice();
         }
 
@@ -300,7 +310,8 @@ class AuthService {
           requiresAuth: result.requiresAuth,
           isAuthenticated: result.isAuthenticated,
           authMode: currentAuthMode,
-          guestTimeRemaining: currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined,
+          guestTimeRemaining:
+            currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined,
           hasData: result.hasData || false,
           hasEverBeenSetup: result.hasEverBeenSetup || false,
           hasBeenInitialized: result.hasBeenInitialized || false,
@@ -533,7 +544,7 @@ class AuthService {
 
   getAuthHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
-      'X-Device-Id': this.deviceId  // Always send device ID for identification
+      'X-Device-Id': this.deviceId // Always send device ID for identification
     };
 
     // Add API key for authenticated users
@@ -559,7 +570,9 @@ class AuthService {
   }
 
   handleUnauthorized(): void {
-    console.warn('[Auth] Unauthorized access detected - device was likely revoked. Forcing reload...');
+    console.warn(
+      '[Auth] Unauthorized access detected - device was likely revoked. Forcing reload...'
+    );
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     storage.removeItem('lancache_auth_registered');

@@ -9,7 +9,9 @@ const ClientsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl sm:text-2xl font-bold text-themed-primary tracking-tight hidden md:block">Clients</h2>
+      <h2 className="text-xl sm:text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
+        Clients
+      </h2>
 
       <Card>
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-themed-primary">
@@ -34,11 +36,21 @@ const ClientsTab: React.FC = () => {
               {clientStats.length > 0 ? (
                 clientStats.map((client, idx) => (
                   <tr key={idx} className="hover:bg-themed-hover transition-colors">
-                    <td className="py-3 text-themed-primary font-medium text-sm whitespace-nowrap">{client.clientIp}</td>
-                    <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">{client.totalDownloads}</td>
-                    <td className="py-3 text-themed-secondary text-sm whitespace-nowrap">{formatBytes(client.totalBytes)}</td>
-                    <td className="py-3 cache-hit hidden md:table-cell text-sm whitespace-nowrap">{formatBytes(client.totalCacheHitBytes)}</td>
-                    <td className="py-3 cache-miss hidden md:table-cell text-sm whitespace-nowrap">{formatBytes(client.totalCacheMissBytes)}</td>
+                    <td className="py-3 text-themed-primary font-medium text-sm whitespace-nowrap">
+                      {client.clientIp}
+                    </td>
+                    <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
+                      {client.totalDownloads}
+                    </td>
+                    <td className="py-3 text-themed-secondary text-sm whitespace-nowrap">
+                      {formatBytes(client.totalBytes)}
+                    </td>
+                    <td className="py-3 cache-hit hidden md:table-cell text-sm whitespace-nowrap">
+                      {formatBytes(client.totalCacheHitBytes)}
+                    </td>
+                    <td className="py-3 cache-miss hidden md:table-cell text-sm whitespace-nowrap">
+                      {formatBytes(client.totalCacheMissBytes)}
+                    </td>
                     <td className="py-3">
                       <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
                         <div className="w-full sm:w-16 lg:w-24 progress-track rounded-full h-2">
@@ -52,7 +64,9 @@ const ClientsTab: React.FC = () => {
                         </span>
                       </div>
                     </td>
-                    <td className="py-3 text-themed-muted text-xs hidden lg:table-cell whitespace-nowrap">{formatDateTime(client.lastActivityLocal)}</td>
+                    <td className="py-3 text-themed-muted text-xs hidden lg:table-cell whitespace-nowrap">
+                      {formatDateTime(client.lastActivityLocal)}
+                    </td>
                   </tr>
                 ))
               ) : (

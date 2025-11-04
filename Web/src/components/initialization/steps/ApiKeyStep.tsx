@@ -62,31 +62,43 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
             onClick={onStartGuestMode}
             disabled={checkingDataAvailability || !dataAvailable}
             fullWidth
-            title={!dataAvailable ? 'No data available. Complete setup first.' : `Read-only access for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`}
+            title={
+              !dataAvailable
+                ? 'No data available. Complete setup first.'
+                : `Read-only access for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`
+            }
           >
-            {!dataAvailable ? 'Continue as Guest (No Data Available)' : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
+            {!dataAvailable
+              ? 'Continue as Guest (No Data Available)'
+              : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
           </Button>
         </div>
 
-        <div className="mt-6 p-4 rounded-lg"
-             style={{
-               backgroundColor: 'var(--theme-info-bg)',
-               borderColor: 'var(--theme-info)',
-               color: 'var(--theme-info-text)'
-             }}>
+        <div
+          className="mt-6 p-4 rounded-lg"
+          style={{
+            backgroundColor: 'var(--theme-info-bg)',
+            borderColor: 'var(--theme-info)',
+            color: 'var(--theme-info-text)'
+          }}
+        >
           <p className="text-sm">
-            <strong>Authentication is disabled:</strong><br/>
-            Admin mode provides full access without requiring an API key. Guest mode provides read-only access for {guestDurationHours} hour{guestDurationHours !== 1 ? 's' : ''}.
+            <strong>Authentication is disabled:</strong>
+            <br />
+            Admin mode provides full access without requiring an API key. Guest mode provides
+            read-only access for {guestDurationHours} hour{guestDurationHours !== 1 ? 's' : ''}.
           </p>
         </div>
 
         {authError && (
-          <div className="mt-4 p-4 rounded-lg"
-               style={{
-                 backgroundColor: 'var(--theme-error-bg)',
-                 borderColor: 'var(--theme-error)',
-                 color: 'var(--theme-error-text)'
-               }}>
+          <div
+            className="mt-4 p-4 rounded-lg"
+            style={{
+              backgroundColor: 'var(--theme-error-bg)',
+              borderColor: 'var(--theme-error)',
+              color: 'var(--theme-error-text)'
+            }}
+          >
             <p className="text-sm">{authError}</p>
           </div>
         )}
@@ -100,16 +112,13 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       <p className="text-themed-secondary text-center mb-6">
         {apiKeyOnlyMode
           ? 'Your API key has been regenerated. Enter the new API key for full access, or continue as guest to view data only:'
-          : `Enter your API key for full management access, or continue as guest to view data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}:`
-        }
+          : `Enter your API key for full management access, or continue as guest to view data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}:`}
       </p>
 
       {/* API Key Form */}
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-themed-primary mb-2">
-            API Key
-          </label>
+          <label className="block text-sm font-medium text-themed-primary mb-2">API Key</label>
           <input
             type="text"
             value={apiKey}
@@ -124,7 +133,13 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
           <Button
             variant="filled"
             color="blue"
-            leftSection={authenticating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+            leftSection={
+              authenticating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Key className="w-4 h-4" />
+              )
+            }
             onClick={onAuthenticate}
             disabled={authenticating || !apiKey.trim()}
             fullWidth
@@ -147,9 +162,15 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
                 onClick={onStartGuestMode}
                 disabled={authenticating || checkingDataAvailability || !dataAvailable}
                 fullWidth
-                title={!dataAvailable ? 'No data available. Complete setup first.' : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`}
+                title={
+                  !dataAvailable
+                    ? 'No data available. Complete setup first.'
+                    : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`
+                }
               >
-                {!dataAvailable ? 'Guest Mode (No Data Available)' : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
+                {!dataAvailable
+                  ? 'Guest Mode (No Data Available)'
+                  : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
               </Button>
             </>
           )}
@@ -157,25 +178,31 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       </div>
 
       {/* API Key Help */}
-      <div className="mt-6 p-4 rounded-lg"
-           style={{
-             backgroundColor: 'var(--theme-info-bg)',
-             borderColor: 'var(--theme-info)',
-             color: 'var(--theme-info-text)'
-           }}>
+      <div
+        className="mt-6 p-4 rounded-lg"
+        style={{
+          backgroundColor: 'var(--theme-info-bg)',
+          borderColor: 'var(--theme-info)',
+          color: 'var(--theme-info-text)'
+        }}
+      >
         <p className="text-sm">
-          <strong>Where to find your API key:</strong><br/>
-          The API key was displayed when you first started the server. Check your server logs for "API Key:" or look in the <code>data/api_key.txt</code> file.
+          <strong>Where to find your API key:</strong>
+          <br />
+          The API key was displayed when you first started the server. Check your server logs for
+          "API Key:" or look in the <code>data/api_key.txt</code> file.
         </p>
       </div>
 
       {authError && (
-        <div className="mt-4 p-4 rounded-lg"
-             style={{
-               backgroundColor: 'var(--theme-error-bg)',
-               borderColor: 'var(--theme-error)',
-               color: 'var(--theme-error-text)'
-             }}>
+        <div
+          className="mt-4 p-4 rounded-lg"
+          style={{
+            backgroundColor: 'var(--theme-error-bg)',
+            borderColor: 'var(--theme-error)',
+            color: 'var(--theme-error-text)'
+          }}
+        >
           <p className="text-sm">{authError}</p>
         </div>
       )}

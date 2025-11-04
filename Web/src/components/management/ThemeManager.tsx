@@ -27,7 +27,7 @@ import EditThemeModal from './theme/EditThemeModal';
 import { DeleteConfirmModal } from './theme/DeleteConfirmModal';
 import { CommunityThemeImporter } from './theme/CommunityThemeImporter';
 import { colorGroups } from './theme/constants';
-import { Theme, ThemeManagerProps } from './theme/types';
+import { type Theme, type ThemeManagerProps } from './theme/types';
 import { useNotifications } from '@contexts/NotificationsContext';
 
 const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
@@ -41,7 +41,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
-  const [themePendingDeletion, setThemePendingDeletion] = useState<{ id: string; name: string } | null>(null);
+  const [themePendingDeletion, setThemePendingDeletion] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [showCleanupModal, setShowCleanupModal] = useState(false);
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>(['foundation']);
@@ -163,12 +166,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
       // Check if this is a community theme - if so, create a copy instead of editing
       const isCommunityTheme = editingTheme.meta.isCommunityTheme === true;
-      const newThemeId = isCommunityTheme
-        ? `${editingTheme.meta.id}-custom`
-        : editingTheme.meta.id;
-      const newThemeName = isCommunityTheme
-        ? `${name} (Custom)`
-        : name;
+      const newThemeId = isCommunityTheme ? `${editingTheme.meta.id}-custom` : editingTheme.meta.id;
+      const newThemeName = isCommunityTheme ? `${name} (Custom)` : name;
 
       const themeData = {
         meta: {
@@ -178,10 +177,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           author,
           version,
           isDark,
-          ...(isCommunityTheme ? {
-            basedOn: editingTheme.meta.name,
-            isCommunityTheme: false // Custom versions are not community themes
-          } : {})
+          ...(isCommunityTheme
+            ? {
+                basedOn: editingTheme.meta.name,
+                isCommunityTheme: false // Custom versions are not community themes
+              }
+            : {})
         },
         colors,
         css: customCSS ? { content: customCSS } : undefined
@@ -208,11 +209,17 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setEditingTheme(null);
 
       // If we created a copy and the original was active, switch to the copy
-      if (isCommunityTheme && (currentTheme === editingTheme.meta.id || previewTheme === editingTheme.meta.id)) {
+      if (
+        isCommunityTheme &&
+        (currentTheme === editingTheme.meta.id || previewTheme === editingTheme.meta.id)
+      ) {
         await themeService.setTheme(newThemeId);
         setCurrentTheme(newThemeId);
         window.location.reload();
-      } else if (!isCommunityTheme && (currentTheme === editingTheme.meta.id || previewTheme === editingTheme.meta.id)) {
+      } else if (
+        !isCommunityTheme &&
+        (currentTheme === editingTheme.meta.id || previewTheme === editingTheme.meta.id)
+      ) {
         await themeService.setTheme(editingTheme.meta.id);
         window.location.reload();
       }
@@ -319,7 +326,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   const confirmCleanup = async () => {
     setLoading(true);
     try {
-      const customThemes = themes.filter(t => !isSystemTheme(t.meta.id));
+      const customThemes = themes.filter((t) => !isSystemTheme(t.meta.id));
 
       for (const theme of customThemes) {
         await fetch(`${API_BASE}/theme/${theme.meta.id}`, {
@@ -431,7 +438,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
   };
 
   const downloadSampleTheme = () => {
-    const sampleTheme = themes.find(t => t.meta.id === 'dark-default');
+    const sampleTheme = themes.find((t) => t.meta.id === 'dark-default');
     if (sampleTheme) {
       handleExportTheme(sampleTheme);
     }
@@ -465,10 +472,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   // Utility Functions
   const toggleGroup = (groupName: string) => {
-    setExpandedGroups(prev =>
-      prev.includes(groupName)
-        ? prev.filter(g => g !== groupName)
-        : [...prev, groupName]
+    setExpandedGroups((prev) =>
+      prev.includes(groupName) ? prev.filter((g) => g !== groupName) : [...prev, groupName]
     );
   };
 
@@ -482,7 +487,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
   // Open Create Modal with current theme colors as defaults
   const openCreateModal = () => {
-    const currentThemeData = themes.find(t => t.meta.id === currentTheme);
+    const currentThemeData = themes.find((t) => t.meta.id === currentTheme);
     if (currentThemeData) {
       setNewTheme({
         name: '',
@@ -577,7 +582,10 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 mb-6 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+        <div
+          className="flex gap-2 mb-6 border-b"
+          style={{ borderColor: 'var(--theme-border-secondary)' }}
+        >
           <button
             onClick={() => setActiveTab('themes')}
             className={`px-4 py-2 font-medium transition-colors ${
@@ -597,7 +605,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                 ? 'text-themed-accent'
                 : 'text-themed-muted hover:text-themed-primary'
             }`}
-            style={activeTab === 'customize' ? { borderBottom: '2px solid var(--theme-primary)' } : {}}
+            style={
+              activeTab === 'customize' ? { borderBottom: '2px solid var(--theme-primary)' } : {}
+            }
           >
             <Brush className="w-4 h-4 inline-block mr-2" />
             Customize
@@ -669,9 +679,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
             {/* Theme Cards Grid */}
             <div className="mb-6">
-              <h4 className="text-sm font-medium mb-3 text-themed-secondary">
-                Installed Themes
-              </h4>
+              <h4 className="text-sm font-medium mb-3 text-themed-secondary">Installed Themes</h4>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 {themes.map((theme) => (
                   <ThemeCard
@@ -716,7 +724,9 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                       dragActive ? 'bg-purple-900 bg-opacity-20' : ''
                     }`}
                     style={{
-                      border: dragActive ? '2px dashed var(--theme-primary)' : '2px dashed var(--theme-border-secondary)'
+                      border: dragActive
+                        ? '2px dashed var(--theme-primary)'
+                        : '2px dashed var(--theme-border-secondary)'
                     }}
                     onDragEnter={handleDrag}
                     onDragLeave={handleDrag}
@@ -745,7 +755,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                       Browse Files
                     </Button>
                   </div>
-
                 </div>
 
                 <div className="flex justify-center">
@@ -796,12 +805,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                 >
                   Download Sample
                 </Button>
-                {themes.find(t => t.meta.id === currentTheme) && !isSystemTheme(currentTheme) && (
+                {themes.find((t) => t.meta.id === currentTheme) && !isSystemTheme(currentTheme) && (
                   <Button
                     variant="default"
                     size="sm"
                     leftSection={<Edit className="w-4 h-4" />}
-                    onClick={() => handleEditTheme(themes.find(t => t.meta.id === currentTheme)!)}
+                    onClick={() => handleEditTheme(themes.find((t) => t.meta.id === currentTheme)!)}
                     disabled={!isAuthenticated}
                   >
                     Edit Current Theme
@@ -811,13 +820,21 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             </div>
 
             <div className="p-4 rounded-lg bg-themed-tertiary">
-              <h4 className="text-sm font-semibold text-themed-primary mb-3">Color Groups Overview</h4>
-              <div className="text-xs text-themed-muted mb-3">Themes contain {colorGroups.reduce((acc, g) => acc + g.colors.length, 0)} customizable colors organized into groups:</div>
+              <h4 className="text-sm font-semibold text-themed-primary mb-3">
+                Color Groups Overview
+              </h4>
+              <div className="text-xs text-themed-muted mb-3">
+                Themes contain {colorGroups.reduce((acc, g) => acc + g.colors.length, 0)}{' '}
+                customizable colors organized into groups:
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {colorGroups.map((group) => {
                   const Icon = group.icon;
                   return (
-                    <div key={group.name} className="flex items-start gap-2 text-sm p-2 rounded hover:bg-themed-hover transition-colors">
+                    <div
+                      key={group.name}
+                      className="flex items-start gap-2 text-sm p-2 rounded hover:bg-themed-hover transition-colors"
+                    >
                       <Icon className="w-4 h-4 text-themed-accent mt-0.5" />
                       <div>
                         <span className="text-themed-primary font-medium capitalize">

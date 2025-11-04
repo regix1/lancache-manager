@@ -126,7 +126,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
         body: JSON.stringify({
           username,
           password,
-          twoFactorCode: (needsTwoFactor || useManualCode) ? twoFactorCode : undefined,
+          twoFactorCode: needsTwoFactor || useManualCode ? twoFactorCode : undefined,
           emailCode: needsEmailCode ? emailCode : undefined,
           // Allow mobile confirmation unless user explicitly chose manual code entry
           allowMobileConfirmation: !useManualCode,

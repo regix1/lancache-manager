@@ -15,7 +15,7 @@ import { useMockMode } from '@contexts/MockModeContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
 import ApiService from '@services/api.service';
-import { AuthMode } from '@services/auth.service';
+import { type AuthMode } from '@services/auth.service';
 import operationStateService from '@services/operationState.service';
 
 // Import manager components
@@ -129,10 +129,8 @@ const DatabaseManager: React.FC<{
   ];
 
   const handleTableToggle = (tableName: string) => {
-    setSelectedTables(prev =>
-      prev.includes(tableName)
-        ? prev.filter(t => t !== tableName)
-        : [...prev, tableName]
+    setSelectedTables((prev) =>
+      prev.includes(tableName) ? prev.filter((t) => t !== tableName) : [...prev, tableName]
     );
   };
 
@@ -140,7 +138,7 @@ const DatabaseManager: React.FC<{
     if (selectedTables.length === tables.length) {
       setSelectedTables([]);
     } else {
-      setSelectedTables(tables.map(t => t.name));
+      setSelectedTables(tables.map((t) => t.name));
     }
   };
 
@@ -182,7 +180,7 @@ const DatabaseManager: React.FC<{
   };
 
   const getSelectedTableInfo = () => {
-    return tables.filter(t => selectedTables.includes(t.name));
+    return tables.filter((t) => selectedTables.includes(t.name));
   };
 
   return (
@@ -194,7 +192,8 @@ const DatabaseManager: React.FC<{
         </div>
 
         <p className="text-themed-secondary mb-4">
-          Select which database tables you want to clear. Cached files on disk will remain untouched.
+          Select which database tables you want to clear. Cached files on disk will remain
+          untouched.
         </p>
 
         {/* Select All / Deselect All */}
@@ -203,9 +202,7 @@ const DatabaseManager: React.FC<{
             checked={selectedTables.length === tables.length}
             onChange={handleSelectAll}
             label={
-              selectedTables.length === tables.length
-                ? 'Deselect All Tables'
-                : 'Select All Tables'
+              selectedTables.length === tables.length ? 'Deselect All Tables' : 'Select All Tables'
             }
             variant="rounded"
           />
@@ -213,7 +210,7 @@ const DatabaseManager: React.FC<{
 
         {/* Table Selection */}
         <div className="space-y-3 mb-4">
-          {tables.map(table => (
+          {tables.map((table) => (
             <label
               key={table.name}
               className="p-3 rounded-lg cursor-pointer flex items-start gap-3"
@@ -238,7 +235,10 @@ const DatabaseManager: React.FC<{
         </div>
 
         {/* Action Button */}
-        <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--theme-border-primary)' }}>
+        <div
+          className="flex items-center justify-between pt-4 border-t"
+          style={{ borderColor: 'var(--theme-border-primary)' }}
+        >
           <div className="text-sm text-themed-secondary">
             {selectedTables.length > 0
               ? `${selectedTables.length} table(s) selected`
@@ -246,7 +246,9 @@ const DatabaseManager: React.FC<{
           </div>
           <Button
             onClick={handleClearSelected}
-            disabled={loading || mockMode || authMode !== 'authenticated' || selectedTables.length === 0}
+            disabled={
+              loading || mockMode || authMode !== 'authenticated' || selectedTables.length === 0
+            }
             loading={loading}
             variant="filled"
             color="red"
@@ -278,7 +280,7 @@ const DatabaseManager: React.FC<{
           </p>
 
           <div className="space-y-2">
-            {getSelectedTableInfo().map(table => (
+            {getSelectedTableInfo().map((table) => (
               <div
                 key={table.name}
                 className="p-3 rounded-lg"
@@ -341,7 +343,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   // Wrapper to refresh both stats and game cache
   const refreshStatsAndGameCache = () => {
     refreshStats();
-    setGameCacheRefreshKey(prev => prev + 1);
+    setGameCacheRefreshKey((prev) => prev + 1);
   };
 
   // Use ref to ensure migration only happens once
@@ -352,23 +354,29 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const logAndCorruptionClearOpRef = useRef<(() => Promise<void>) | null>(null);
 
   // Notification management
-  const addError = useCallback((message: string) => {
-    addNotification({
-      type: 'generic',
-      status: 'failed',
-      message,
-      details: { notificationType: 'error' }
-    });
-  }, [addNotification]);
+  const addError = useCallback(
+    (message: string) => {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message,
+        details: { notificationType: 'error' }
+      });
+    },
+    [addNotification]
+  );
 
-  const setSuccess = useCallback((message: string) => {
-    addNotification({
-      type: 'generic',
-      status: 'completed',
-      message,
-      details: { notificationType: 'success' }
-    });
-  }, [addNotification]);
+  const setSuccess = useCallback(
+    (message: string) => {
+      addNotification({
+        type: 'generic',
+        status: 'completed',
+        message,
+        details: { notificationType: 'success' }
+      });
+    },
+    [addNotification]
+  );
 
   // Helper function to refresh log & corruption management
   const refreshLogAndCorruption = useCallback(async () => {
@@ -559,7 +567,8 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             <div className="text-center py-8">
               <p className="text-themed-secondary text-lg mb-2">Guest Mode Active</p>
               <p className="text-themed-muted text-sm">
-                Management features are disabled in guest mode. Please authenticate to access full functionality.
+                Management features are disabled in guest mode. Please authenticate to access full
+                functionality.
               </p>
             </div>
           </Card>

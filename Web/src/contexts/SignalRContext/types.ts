@@ -39,4 +39,4 @@ export const SIGNALR_EVENTS = [
   'AutomaticScanSkipped'
 ] as const;
 
-export type SignalREvent = typeof SIGNALR_EVENTS[number];
+export type SignalREvent = (typeof SIGNALR_EVENTS)[number];

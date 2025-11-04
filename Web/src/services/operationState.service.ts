@@ -51,22 +51,19 @@ class OperationStateService {
   ): Promise<OperationState> {
     return this.queueRequest(async () => {
       try {
-        const response = await this.fetchWithRetry(
-          `${API_URL}/api/operationstate`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...authService.getAuthHeaders()
-            },
-            body: JSON.stringify({
-              key,
-              type,
-              data,
-              expirationMinutes
-            })
-          }
-        );
+        const response = await this.fetchWithRetry(`${API_URL}/api/operationstate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authService.getAuthHeaders()
+          },
+          body: JSON.stringify({
+            key,
+            type,
+            data,
+            expirationMinutes
+          })
+        });
 
         if (!response.ok) {
           const error = await response.text();
@@ -168,7 +165,12 @@ class OperationStateService {
   }
 
   async migrateFromLocalStorage(): Promise<number> {
-    const keys = ['activeCacheClearOperation', 'activeLogProcessing', 'activeServiceRemoval', 'activeDepotMapping'];
+    const keys = [
+      'activeCacheClearOperation',
+      'activeLogProcessing',
+      'activeServiceRemoval',
+      'activeDepotMapping'
+    ];
     let migrated = 0;
 
     for (const key of keys) {
@@ -222,7 +224,7 @@ class OperationStateService {
     this.activeRequests++;
 
     try {
-      await new Promise(resolve => setTimeout(resolve, this.REQUEST_DELAY_MS));
+      await new Promise((resolve) => setTimeout(resolve, this.REQUEST_DELAY_MS));
       const result = await request.execute();
       request.resolve(result);
     } catch (error) {
@@ -262,7 +264,7 @@ class OperationStateService {
 
       if (attempt < maxRetries - 1) {
         const delay = initialDelay * Math.pow(2, attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Clock, Calendar, ChevronDown, Loader2, Radio } from 'lucide-react';
-import { useTimeFilter, TimeRange } from '@contexts/TimeFilterContext';
+import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
 import DateRangePicker from './DateRangePicker';
 import { Tooltip } from '@components/ui/Tooltip';
 
@@ -80,7 +80,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
       });
       return `${start} - ${end}`;
     }
-    const option = timeOptions.find(opt => opt.value === timeRange);
+    const option = timeOptions.find((opt) => opt.value === timeRange);
     return option?.shortLabel || option?.label || 'Last 24H';
   };
 
@@ -96,7 +96,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
                 className={`flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-lg border text-sm transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 style={{
                   backgroundColor: 'var(--theme-bg-secondary)',
-                  borderColor: showDropdown ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
+                  borderColor: showDropdown
+                    ? 'var(--theme-border-focus)'
+                    : 'var(--theme-border-primary)',
                   cursor: disabled ? 'not-allowed' : 'pointer'
                 }}
                 onMouseEnter={(e) =>
@@ -128,7 +130,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
               className={`flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-lg border text-sm transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               style={{
                 backgroundColor: 'var(--theme-bg-secondary)',
-                borderColor: showDropdown ? 'var(--theme-border-focus)' : 'var(--theme-border-primary)',
+                borderColor: showDropdown
+                  ? 'var(--theme-border-focus)'
+                  : 'var(--theme-border-primary)',
                 cursor: disabled ? 'not-allowed' : 'pointer'
               }}
               onMouseEnter={(e) =>
@@ -155,47 +159,48 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
           )}
 
           {showDropdown && (
-          <div
-            className="absolute right-0 top-full mt-2 w-48 rounded-lg shadow-xl z-[99999]"
-            style={{
-              backgroundColor: 'var(--theme-bg-secondary)',
-              border: '1px solid var(--theme-border-primary)'
-            }}
-          >
-            <div className="p-1">
-              <div className="px-2 py-1.5 text-xs font-semibold text-[var(--theme-text-secondary)]">
-                Time Range
-              </div>
-              {timeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => handleTimeRangeChange(option.value)}
-                  className={`
+            <div
+              className="absolute right-0 top-full mt-2 w-48 rounded-lg shadow-xl z-[99999]"
+              style={{
+                backgroundColor: 'var(--theme-bg-secondary)',
+                border: '1px solid var(--theme-border-primary)'
+              }}
+            >
+              <div className="p-1">
+                <div className="px-2 py-1.5 text-xs font-semibold text-[var(--theme-text-secondary)]">
+                  Time Range
+                </div>
+                {timeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => handleTimeRangeChange(option.value)}
+                    className={`
                     w-full flex items-center justify-between px-3 py-2 rounded text-sm transition-colors
-                    ${timeRange === option.value
-                      ? 'bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]'
-                      : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                    ${
+                      timeRange === option.value
+                        ? 'bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]'
+                        : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
                     }
                   `}
-                >
-                  <span className="flex items-center gap-1.5">
-                    {option.value === 'custom' && <Calendar className="w-3.5 h-3.5" />}
-                    {option.label}
-                  </span>
-                  {timeRange === option.value && (
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  )}
-                </button>
-              ))}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {option.value === 'custom' && <Calendar className="w-3.5 h-3.5" />}
+                      {option.label}
+                    </span>
+                    {timeRange === option.value && (
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                          fillRule="evenodd"
+                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </div>
 
         {timeRange === 'live' && !timeFilterLoading && !disabled && (

@@ -38,7 +38,7 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
     if (isNaN(date.getTime())) return 'Invalid Date';
 
     // Get server timezone from config (set on app startup from docker-compose TZ)
-    let serverTimezone = getServerTimezone();
+    const serverTimezone = getServerTimezone();
 
     // Use 24-hour format for UTC, otherwise let locale decide
     const isUTC = serverTimezone === 'UTC';

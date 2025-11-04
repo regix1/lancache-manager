@@ -70,12 +70,12 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
   };
 
   const getCurrentLabel = () => {
-    const option = pollingOptions.find(opt => opt.value === pollingRate);
+    const option = pollingOptions.find((opt) => opt.value === pollingRate);
     return option?.shortLabel || '10s';
   };
 
   const getCurrentTooltip = () => {
-    const option = pollingOptions.find(opt => opt.value === pollingRate);
+    const option = pollingOptions.find((opt) => opt.value === pollingRate);
     return `Polling Rate: ${option?.description || 'Updates every 10 seconds'}`;
   };
 
@@ -99,9 +99,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
           }
         >
           <Gauge className="w-4 h-4 text-[var(--theme-primary)]" />
-          <span className="font-medium text-[var(--theme-text-primary)]">
-            {getCurrentLabel()}
-          </span>
+          <span className="font-medium text-[var(--theme-text-primary)]">{getCurrentLabel()}</span>
           <ChevronDown
             className={`w-4 h-4 transition-transform duration-200 ${
               showDropdown ? 'rotate-180' : ''
@@ -128,9 +126,10 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
                 onClick={() => handlePollingRateChange(option.value)}
                 className={`
                   w-full px-3 py-2 rounded text-sm transition-colors text-left
-                  ${pollingRate === option.value
-                    ? 'bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]'
-                    : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
+                  ${
+                    pollingRate === option.value
+                      ? 'bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]'
+                      : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
                   }
                 `}
               >
@@ -141,9 +140,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
                       {option.description}
                     </span>
                   </div>
-                  <span className="ml-2 text-xs font-mono opacity-60">
-                    {option.shortLabel}
-                  </span>
+                  <span className="ml-2 text-xs font-mono opacity-60">{option.shortLabel}</span>
                 </div>
               </button>
             ))}

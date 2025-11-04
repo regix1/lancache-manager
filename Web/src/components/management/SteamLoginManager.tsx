@@ -8,7 +8,7 @@ import { SteamAuthModal } from '@components/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import ApiService from '@services/api.service';
-import { AuthMode } from '@services/auth.service';
+import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
 
 interface SteamLoginManagerProps {
@@ -24,7 +24,13 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   onError,
   onSuccess
 }) => {
-  const { steamAuthMode, username: authenticatedUsername, refreshSteamAuth, setSteamAuthMode: setContextSteamAuthMode, setUsername: setContextUsername } = useSteamAuth();
+  const {
+    steamAuthMode,
+    username: authenticatedUsername,
+    refreshSteamAuth,
+    setSteamAuthMode: setContextSteamAuthMode,
+    setUsername: setContextUsername
+  } = useSteamAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
@@ -141,7 +147,9 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 Depot Mapping After Login
               </p>
               <p className="text-xs text-themed-muted">
-                {autoStartPics ? 'Automatically rebuild depot mappings after login' : 'Manually trigger depot mapping rebuild after login'}
+                {autoStartPics
+                  ? 'Automatically rebuild depot mappings after login'
+                  : 'Manually trigger depot mapping rebuild after login'}
               </p>
             </div>
             <div className="flex gap-2">

@@ -100,42 +100,40 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       <div
         className="absolute inset-0 opacity-5"
         style={{
-          backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 35px, var(--theme-text-primary) 35px, var(--theme-text-primary) 70px)`,
+          backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 35px, var(--theme-text-primary) 35px, var(--theme-text-primary) 70px)`
         }}
       />
 
-      <div className="relative z-10 max-w-4xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
-           style={{
-             backgroundColor: 'var(--theme-bg-secondary)',
-             borderColor: 'var(--theme-primary)'
-           }}>
-
+      <div
+        className="relative z-10 max-w-4xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
+        style={{
+          backgroundColor: 'var(--theme-bg-secondary)',
+          borderColor: 'var(--theme-primary)'
+        }}
+      >
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-               style={{ backgroundColor: 'var(--theme-primary)/10' }}>
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
+            style={{ backgroundColor: 'var(--theme-primary)/10' }}
+          >
             <AlertTriangle size={32} style={{ color: 'var(--theme-primary)' }} />
           </div>
-          <h1 className="text-3xl font-bold text-themed-primary mb-2">
-            {title}
-          </h1>
-          <p className="text-lg text-themed-secondary">
-            {subtitle}
-          </p>
+          <h1 className="text-3xl font-bold text-themed-primary mb-2">{title}</h1>
+          <p className="text-lg text-themed-secondary">{subtitle}</p>
         </div>
 
         {/* Content */}
         <div className="mb-8">
           <p className="text-themed-secondary text-center mb-6">
-            Enter your API key for full management access, or continue as guest to view data for {guestDurationHours} hour{guestDurationHours !== 1 ? 's' : ''}:
+            Enter your API key for full management access, or continue as guest to view data for{' '}
+            {guestDurationHours} hour{guestDurationHours !== 1 ? 's' : ''}:
           </p>
 
           {/* API Key Form */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-themed-primary mb-2">
-                API Key
-              </label>
+              <label className="block text-sm font-medium text-themed-primary mb-2">API Key</label>
               <input
                 type="text"
                 value={apiKey}
@@ -156,7 +154,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               <Button
                 variant="filled"
                 color="blue"
-                leftSection={authenticating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                leftSection={
+                  authenticating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Key className="w-4 h-4" />
+                  )
+                }
                 onClick={handleAuthenticate}
                 disabled={authenticating || !apiKey.trim()}
                 fullWidth
@@ -179,9 +183,15 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     onClick={handleStartGuestMode}
                     disabled={authenticating || checkingDataAvailability || !dataAvailable}
                     fullWidth
-                    title={!dataAvailable ? 'No data available. Complete setup first.' : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`}
+                    title={
+                      !dataAvailable
+                        ? 'No data available. Complete setup first.'
+                        : `View data for ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''}`
+                    }
                   >
-                    {!dataAvailable ? 'Guest Mode (No Data Available)' : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
+                    {!dataAvailable
+                      ? 'Guest Mode (No Data Available)'
+                      : `Continue as Guest (${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''})`}
                   </Button>
                 </>
               )}
@@ -189,25 +199,31 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           </div>
 
           {/* API Key Help */}
-          <div className="mt-6 p-4 rounded-lg"
-               style={{
-                 backgroundColor: 'var(--theme-info-bg)',
-                 borderColor: 'var(--theme-info)',
-                 color: 'var(--theme-info-text)'
-               }}>
+          <div
+            className="mt-6 p-4 rounded-lg"
+            style={{
+              backgroundColor: 'var(--theme-info-bg)',
+              borderColor: 'var(--theme-info)',
+              color: 'var(--theme-info-text)'
+            }}
+          >
             <p className="text-sm">
-              <strong>Where to find your API key:</strong><br/>
-              The API key was displayed when you first started the server. Check your server logs for "API Key:" or look in the <code>data/api_key.txt</code> file.
+              <strong>Where to find your API key:</strong>
+              <br />
+              The API key was displayed when you first started the server. Check your server logs
+              for "API Key:" or look in the <code>data/api_key.txt</code> file.
             </p>
           </div>
 
           {authError && (
-            <div className="mt-4 p-4 rounded-lg"
-                 style={{
-                   backgroundColor: 'var(--theme-error-bg)',
-                   borderColor: 'var(--theme-error)',
-                   color: 'var(--theme-error-text)'
-                 }}>
+            <div
+              className="mt-4 p-4 rounded-lg"
+              style={{
+                backgroundColor: 'var(--theme-error-bg)',
+                borderColor: 'var(--theme-error)',
+                color: 'var(--theme-error-text)'
+              }}
+            >
               <p className="text-sm">{authError}</p>
             </div>
           )}

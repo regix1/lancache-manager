@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo
+} from 'react';
 import * as signalR from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
@@ -16,7 +24,9 @@ export const useSignalR = () => {
 
 export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mockMode = false }) => {
   const [isConnected, setIsConnected] = useState(false);
-  const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected');
+  const [connectionState, setConnectionState] = useState<
+    'disconnected' | 'connecting' | 'connected' | 'reconnecting'
+  >('disconnected');
   const [connectionId, setConnectionId] = useState<string | null>(null);
 
   const connectionRef = useRef<signalR.HubConnection | null>(null);
@@ -43,7 +53,10 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     eventHandlersRef.current.get(eventName)!.add(handler);
 
     // If connection exists and is connected, add the handler to SignalR
-    if (connectionRef.current && connectionRef.current.state === signalR.HubConnectionState.Connected) {
+    if (
+      connectionRef.current &&
+      connectionRef.current.state === signalR.HubConnectionState.Connected
+    ) {
       // SignalR handlers are already set up to dispatch to our handlers map
       // No need to call connection.on again
     }
@@ -75,10 +88,16 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     }
 
     // Check if we already have a valid connection
-    if (connectionRef.current &&
-        (connectionRef.current.state === signalR.HubConnectionState.Connected ||
-         connectionRef.current.state === signalR.HubConnectionState.Connecting)) {
-      console.log('[SignalR] Connection already exists (state:', connectionRef.current.state, '), skipping setup');
+    if (
+      connectionRef.current &&
+      (connectionRef.current.state === signalR.HubConnectionState.Connected ||
+        connectionRef.current.state === signalR.HubConnectionState.Connecting)
+    ) {
+      console.log(
+        '[SignalR] Connection already exists (state:',
+        connectionRef.current.state,
+        '), skipping setup'
+      );
       return;
     }
 
@@ -160,12 +179,12 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Set up event dispatchers - these dispatch to our handlers map
       const setupEventDispatchers = () => {
-        SIGNALR_EVENTS.forEach(eventName => {
+        SIGNALR_EVENTS.forEach((eventName) => {
           connection.on(eventName, (...args: any[]) => {
             // Dispatch to all registered handlers for this event
             const handlers = eventHandlersRef.current.get(eventName);
             if (handlers && handlers.size > 0) {
-              handlers.forEach(handler => {
+              handlers.forEach((handler) => {
                 try {
                   handler(...args);
                 } catch (error) {
@@ -195,7 +214,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         await connection.stop();
         isSettingUpRef.current = false;
       }
-
     } catch (error) {
       console.error('[SignalR] Connection failed:', error);
       isSettingUpRef.current = false;
@@ -264,7 +282,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         console.log('[SignalR] Stopping connection on unmount');
         const connToStop = connectionRef.current;
         connectionRef.current = null;
-        connToStop.stop().catch(err => {
+        connToStop.stop().catch((err) => {
           console.error('[SignalR] Error stopping connection:', err);
         });
       }
@@ -278,17 +296,16 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   }, [mockMode, setupConnection]);
 
   // Memoize the context value to prevent unnecessary re-renders
-  const value: SignalRContextType = useMemo(() => ({
-    isConnected,
-    connectionState,
-    on,
-    off,
-    connectionId
-  }), [isConnected, connectionState, on, off, connectionId]);
-
-  return (
-    <SignalRContext.Provider value={value}>
-      {children}
-    </SignalRContext.Provider>
+  const value: SignalRContextType = useMemo(
+    () => ({
+      isConnected,
+      connectionState,
+      on,
+      off,
+      connectionId
+    }),
+    [isConnected, connectionState, on, off, connectionId]
   );
+
+  return <SignalRContext.Provider value={value}>{children}</SignalRContext.Provider>;
 };

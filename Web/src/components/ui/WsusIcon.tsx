@@ -20,7 +20,14 @@ export const WsusIcon: React.FC<WsusIconProps> = ({ size = 24, className = '', s
       xmlns="http://www.w3.org/2000/svg"
     >
       <defs>
-        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="-0.1" x2="25.632" y1="5.358" y2="17.357">
+        <linearGradient
+          id={gradientId}
+          gradientUnits="userSpaceOnUse"
+          x1="-0.1"
+          x2="25.632"
+          y1="5.358"
+          y2="17.357"
+        >
           <stop offset="0" stopColor="#fff" stopOpacity="0.2" />
           <stop offset="1" stopColor="#fff" stopOpacity="0" />
         </linearGradient>

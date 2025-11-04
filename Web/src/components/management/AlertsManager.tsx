@@ -23,22 +23,13 @@ const AlertsManager: React.FC<AlertsManagerProps> = ({ alerts, onClearError, onC
   return (
     <div className="space-y-4">
       {alerts.errors?.map((error) => (
-        <Alert
-          key={error.id}
-          color="red"
-          withCloseButton
-          onClose={() => onClearError(error.id)}
-        >
+        <Alert key={error.id} color="red" withCloseButton onClose={() => onClearError(error.id)}>
           {error.message}
         </Alert>
       ))}
 
       {alerts.success && (
-        <Alert
-          color="green"
-          withCloseButton={!!onClearSuccess}
-          onClose={onClearSuccess}
-        >
+        <Alert color="green" withCloseButton={!!onClearSuccess} onClose={onClearSuccess}>
           {alerts.success}
         </Alert>
       )}

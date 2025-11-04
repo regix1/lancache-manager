@@ -173,8 +173,6 @@ interface Theme {
 }
 
 class ThemeService {
-
-
   // Get the best text color for a given background using theme colors
   public getContrastText(background: string): string {
     if (!background || background === 'transparent') {
@@ -182,8 +180,9 @@ class ThemeService {
     }
 
     // Get the actual theme button text color
-    const buttonText = getComputedStyle(document.documentElement)
-      .getPropertyValue('--theme-button-text').trim() || '#ffffff';
+    const buttonText =
+      getComputedStyle(document.documentElement).getPropertyValue('--theme-button-text').trim() ||
+      '#ffffff';
 
     // For primary color backgrounds, always use the theme's button text
     return buttonText;
@@ -285,7 +284,7 @@ class ThemeService {
           textMuted: '#9ca3af',
           textAccent: '#60a5fa',
           textPlaceholder: '#6b7280',
-          
+
           // Drag handle
           dragHandleColor: '#6b7280',
           dragHandleHover: '#60a5fa',
@@ -400,18 +399,18 @@ class ThemeService {
           scrollbarHover: '#9CA3AF',
 
           // Access indicator colors
-          publicAccessBg: 'rgba(16, 185, 129, 0.2)',  // green-500 with 20% opacity
-          publicAccessText: '#34d399',                 // green-400
+          publicAccessBg: 'rgba(16, 185, 129, 0.2)', // green-500 with 20% opacity
+          publicAccessText: '#34d399', // green-400
           publicAccessBorder: 'rgba(16, 185, 129, 0.3)', // green-500 with 30% opacity
-          securedAccessBg: 'rgba(245, 158, 11, 0.2)',    // yellow-500 with 20% opacity
-          securedAccessText: '#fbbf24',                   // yellow-400
-          securedAccessBorder: 'rgba(245, 158, 11, 0.3)',  // yellow-500 with 30% opacity
+          securedAccessBg: 'rgba(245, 158, 11, 0.2)', // yellow-500 with 20% opacity
+          securedAccessText: '#fbbf24', // yellow-400
+          securedAccessBorder: 'rgba(245, 158, 11, 0.3)', // yellow-500 with 30% opacity
 
           // Session colors
-          userSessionColor: '#3b82f6',               // Primary blue for authenticated users
+          userSessionColor: '#3b82f6', // Primary blue for authenticated users
           userSessionBg: 'rgba(59, 130, 246, 0.15)', // Primary blue with 15% opacity
-          guestSessionColor: '#06b6d4',              // Cyan for guest users
-          guestSessionBg: 'rgba(6, 182, 212, 0.15)'  // Cyan with 15% opacity
+          guestSessionColor: '#06b6d4', // Cyan for guest users
+          guestSessionBg: 'rgba(6, 182, 212, 0.15)' // Cyan with 15% opacity
         }
       },
       // In theme.service.ts, update the light-default theme:
@@ -446,7 +445,7 @@ class ThemeService {
           textMuted: '#6b7280',
           textAccent: '#2563eb',
           textPlaceholder: '#9ca3af',
-          
+
           // Drag handle
           dragHandleColor: '#9ca3af',
           dragHandleHover: '#2563eb',
@@ -561,18 +560,18 @@ class ThemeService {
           scrollbarHover: '#6b7280',
 
           // Access indicator colors
-          publicAccessBg: '#d1fae5',      // green-100
-          publicAccessText: '#047857',    // green-800
-          publicAccessBorder: '#86efac',  // green-300
-          securedAccessBg: '#fef3c7',     // yellow-100
-          securedAccessText: '#92400e',   // yellow-800
+          publicAccessBg: '#d1fae5', // green-100
+          publicAccessText: '#047857', // green-800
+          publicAccessBorder: '#86efac', // green-300
+          securedAccessBg: '#fef3c7', // yellow-100
+          securedAccessText: '#92400e', // yellow-800
           securedAccessBorder: '#fde047', // yellow-300
 
           // Session colors
-          userSessionColor: '#3b82f6',    // Primary blue for authenticated users
-          userSessionBg: '#dbeafe',       // Blue-100 for light theme
-          guestSessionColor: '#06b6d4',   // Cyan for guest users
-          guestSessionBg: '#cffafe'       // Cyan-100 for light theme
+          userSessionColor: '#3b82f6', // Primary blue for authenticated users
+          userSessionBg: '#dbeafe', // Blue-100 for light theme
+          guestSessionColor: '#06b6d4', // Cyan for guest users
+          guestSessionBg: '#cffafe' // Cyan-100 for light theme
         }
       }
     ];
@@ -650,7 +649,9 @@ class ThemeService {
       return theme;
     } catch (error: any) {
       if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-        throw new Error('Cannot save theme: API server is not running. Please start the LANCache Manager API service.');
+        throw new Error(
+          'Cannot save theme: API server is not running. Please start the LANCache Manager API service.'
+        );
       }
       throw error;
     }
@@ -800,7 +801,7 @@ class ThemeService {
     root.removeAttribute('data-theme');
     root.removeAttribute('data-theme-id');
     this.currentTheme = null;
-    
+
     // Clear all saved theme data
     storage.removeItem('lancache_selected_theme');
     storage.removeItem('lancache_theme_css');
@@ -835,15 +836,18 @@ class ThemeService {
     const existingDisableFocusOutlines = storage.getItem('lancache_disable_focus_outlines');
     const existingDisableTooltips = storage.getItem('lancache_disable_tooltips');
 
-    const sharpCorners = existingSharpCorners !== null
-      ? existingSharpCorners === 'true'
-      : (theme.meta.sharpCorners ?? false);
-    const disableFocusOutlines = existingDisableFocusOutlines !== null
-      ? existingDisableFocusOutlines === 'true'
-      : (theme.meta.disableFocusOutlines ?? false);
-    const disableTooltips = existingDisableTooltips !== null
-      ? existingDisableTooltips === 'true'
-      : (theme.meta.disableTooltips ?? false);
+    const sharpCorners =
+      existingSharpCorners !== null
+        ? existingSharpCorners === 'true'
+        : (theme.meta.sharpCorners ?? false);
+    const disableFocusOutlines =
+      existingDisableFocusOutlines !== null
+        ? existingDisableFocusOutlines === 'true'
+        : (theme.meta.disableFocusOutlines ?? false);
+    const disableTooltips =
+      existingDisableTooltips !== null
+        ? existingDisableTooltips === 'true'
+        : (theme.meta.disableTooltips ?? false);
 
     // Update localStorage if not already set
     if (existingSharpCorners === null) {
@@ -857,7 +861,10 @@ class ThemeService {
     }
 
     // Apply focus outlines setting
-    document.documentElement.setAttribute('data-disable-focus-outlines', disableFocusOutlines.toString());
+    document.documentElement.setAttribute(
+      'data-disable-focus-outlines',
+      disableFocusOutlines.toString()
+    );
 
     // Apply tooltips setting
     document.documentElement.setAttribute('data-disable-tooltips', disableTooltips.toString());
@@ -1044,7 +1051,7 @@ class ThemeService {
     root.setAttribute('data-theme', theme.meta.isDark ? 'dark' : 'light');
     root.setAttribute('data-theme-id', theme.meta.id);
     this.currentTheme = theme;
-    
+
     // Save the theme ID and CSS for instant loading on next page load
     storage.setItem('lancache_selected_theme', theme.meta.id);
     storage.setItem('lancache_theme_css', themeStyles);
@@ -1060,7 +1067,10 @@ class ThemeService {
 
     // Initialize focus outlines setting
     const disableFocusOutlines = this.getDisableFocusOutlines();
-    document.documentElement.setAttribute('data-disable-focus-outlines', disableFocusOutlines.toString());
+    document.documentElement.setAttribute(
+      'data-disable-focus-outlines',
+      disableFocusOutlines.toString()
+    );
 
     // Initialize tooltips setting
     const disableTooltips = this.getDisableTooltips();
@@ -1170,10 +1180,14 @@ class ThemeService {
     if (theme.meta.author) toml += `author = "${theme.meta.author}"\n`;
     if (theme.meta.version) toml += `version = "${theme.meta.version}"\n`;
     if (theme.meta.isDark !== undefined) toml += `isDark = ${theme.meta.isDark}\n`;
-    if (theme.meta.sharpCorners !== undefined) toml += `sharpCorners = ${theme.meta.sharpCorners}\n`;
-    if (theme.meta.disableFocusOutlines !== undefined) toml += `disableFocusOutlines = ${theme.meta.disableFocusOutlines}\n`;
-    if (theme.meta.disableTooltips !== undefined) toml += `disableTooltips = ${theme.meta.disableTooltips}\n`;
-    if (theme.meta.isCommunityTheme !== undefined) toml += `isCommunityTheme = ${theme.meta.isCommunityTheme}\n`;
+    if (theme.meta.sharpCorners !== undefined)
+      toml += `sharpCorners = ${theme.meta.sharpCorners}\n`;
+    if (theme.meta.disableFocusOutlines !== undefined)
+      toml += `disableFocusOutlines = ${theme.meta.disableFocusOutlines}\n`;
+    if (theme.meta.disableTooltips !== undefined)
+      toml += `disableTooltips = ${theme.meta.disableTooltips}\n`;
+    if (theme.meta.isCommunityTheme !== undefined)
+      toml += `isCommunityTheme = ${theme.meta.isCommunityTheme}\n`;
     if (theme.meta.basedOn) toml += `basedOn = "${theme.meta.basedOn}"\n`;
     toml += '\n';
 

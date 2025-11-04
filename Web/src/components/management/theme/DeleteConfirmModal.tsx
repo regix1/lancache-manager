@@ -36,8 +36,8 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
     >
       <div className="space-y-4">
         <p className="text-themed-secondary">
-          Delete theme <strong>{themeName}</strong>? This will permanently remove the theme files from
-          the server.
+          Delete theme <strong>{themeName}</strong>? This will permanently remove the theme files
+          from the server.
         </p>
 
         <Alert color="yellow">

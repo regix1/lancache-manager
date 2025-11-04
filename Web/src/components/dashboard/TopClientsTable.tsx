@@ -105,10 +105,18 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                     key={`${client.clientIp}-${idx}`}
                     className="hover:bg-themed-hover transition-colors"
                   >
-                    <td className="py-3 text-themed-primary whitespace-nowrap">{client.clientIp}</td>
-                    <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">{formatBytes(client.totalBytes)}</td>
-                    <td className="py-3 cache-hit hidden md:table-cell whitespace-nowrap">{formatBytes(client.totalCacheHitBytes)}</td>
-                    <td className="py-3 cache-miss hidden md:table-cell whitespace-nowrap">{formatBytes(client.totalCacheMissBytes)}</td>
+                    <td className="py-3 text-themed-primary whitespace-nowrap">
+                      {client.clientIp}
+                    </td>
+                    <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
+                      {formatBytes(client.totalBytes)}
+                    </td>
+                    <td className="py-3 cache-hit hidden md:table-cell whitespace-nowrap">
+                      {formatBytes(client.totalCacheHitBytes)}
+                    </td>
+                    <td className="py-3 cache-miss hidden md:table-cell whitespace-nowrap">
+                      {formatBytes(client.totalCacheMissBytes)}
+                    </td>
                     <td className="py-3">
                       <span
                         className={`px-2 py-1 rounded text-xs hit-rate-badge whitespace-nowrap ${
@@ -118,7 +126,9 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                         {formatPercent(client.cacheHitPercent)}
                       </span>
                     </td>
-                    <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">{formatDateTime(client.lastActivityLocal)}</td>
+                    <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">
+                      {formatDateTime(client.lastActivityLocal)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

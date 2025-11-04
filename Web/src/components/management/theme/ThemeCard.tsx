@@ -12,8 +12,13 @@ import {
   Trash2,
   Globe
 } from 'lucide-react';
-import { Theme } from './types';
-import { ActionMenu, ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '../../ui/ActionMenu';
+import { type Theme } from './types';
+import {
+  ActionMenu,
+  ActionMenuItem,
+  ActionMenuDivider,
+  ActionMenuDangerItem
+} from '../../ui/ActionMenu';
 
 interface ThemeCardProps {
   theme: Theme;
@@ -52,9 +57,13 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
     <div
       className="rounded-lg p-4 transition-all hover:shadow-lg themed-card relative"
       style={{
-        border: `2px solid ${isActive ? 'var(--theme-primary)' :
-                    isPreviewing ? 'var(--theme-warning)' :
-                    'var(--theme-border-primary)'}`
+        border: `2px solid ${
+          isActive
+            ? 'var(--theme-primary)'
+            : isPreviewing
+              ? 'var(--theme-warning)'
+              : 'var(--theme-border-primary)'
+        }`
       }}
     >
       {/* Theme Header */}
@@ -68,18 +77,14 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               <Sun className="w-3 h-3 text-themed-warning" />
             )}
             {isActive && (
-              <span className="px-2 py-0.5 text-xs rounded themed-button-primary">
-                Active
-              </span>
+              <span className="px-2 py-0.5 text-xs rounded themed-button-primary">Active</span>
             )}
             {isPreviewing && (
               <span className="px-2 py-0.5 text-xs rounded bg-themed-warning text-themed-primary">
                 Preview
               </span>
             )}
-            {isSystem && (
-              <Lock className="w-3 h-3 text-themed-muted" />
-            )}
+            {isSystem && <Lock className="w-3 h-3 text-themed-muted" />}
             {theme.meta.isCommunityTheme && (
               <span className="px-2 py-0.5 text-xs rounded bg-themed-info text-white flex items-center gap-1">
                 <Globe className="w-3 h-3" />
@@ -93,9 +98,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             )}
           </div>
           {theme.meta.basedOn && (
-            <p className="text-xs text-themed-muted mb-1">
-              Based on: {theme.meta.basedOn}
-            </p>
+            <p className="text-xs text-themed-muted mb-1">Based on: {theme.meta.basedOn}</p>
           )}
           {theme.meta.description && (
             <p className="text-xs text-themed-muted mb-1">{theme.meta.description}</p>

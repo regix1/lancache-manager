@@ -114,7 +114,10 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         }}
       >
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <ChevronDown size={16} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          size={16}
+          className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {isOpen && (
@@ -133,7 +136,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           }}
         >
           <div className="py-1">
-            {options.map((option) => (
+            {options.map((option) =>
               option.value === 'divider' ? (
                 <div
                   key={option.value}
@@ -161,8 +164,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                       ? 'bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]'
                       : 'text-[var(--theme-text-secondary)]'
                   } ${
-                    options.findIndex(opt => opt.value === 'divider') !== -1 &&
-                    options.findIndex(opt => opt.value === option.value) > options.findIndex(opt => opt.value === 'divider')
+                    options.findIndex((opt) => opt.value === 'divider') !== -1 &&
+                    options.findIndex((opt) => opt.value === option.value) >
+                      options.findIndex((opt) => opt.value === 'divider')
                       ? 'opacity-75 text-xs pl-6'
                       : ''
                   }`}
@@ -171,7 +175,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                   {option.label}
                 </button>
               )
-            ))}
+            )}
           </div>
         </div>
       )}

@@ -3,7 +3,7 @@ import { Key, Lock, Loader2 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { SteamLoginFlowState, SteamAuthActions } from '@hooks/useSteamAuthentication';
+import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 
 interface SteamAuthModalProps {
   opened: boolean;
@@ -79,7 +79,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
     >
       <div className="space-y-4">
         <p className="text-themed-secondary text-sm">
-          Login with your Steam account to access playtest and restricted games. Your credentials are never stored - only refresh tokens are saved.
+          Login with your Steam account to access playtest and restricted games. Your credentials
+          are never stored - only refresh tokens are saved.
         </p>
 
         {/* Waiting for Mobile Confirmation */}
@@ -88,14 +89,11 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             <div className="space-y-3">
               <p className="font-medium">Check your Steam Mobile App</p>
               <p className="text-sm">
-                A confirmation request has been sent to your Steam Mobile App. Please open the app and tap "Approve" to complete the login.
+                A confirmation request has been sent to your Steam Mobile App. Please open the app
+                and tap "Approve" to complete the login.
               </p>
               <div className="pt-2">
-                <Button
-                  size="sm"
-                  variant="default"
-                  onClick={handleSwitchToManualCode}
-                >
+                <Button size="sm" variant="default" onClick={handleSwitchToManualCode}>
                   Use 2FA Code Instead
                 </Button>
               </div>
@@ -180,11 +178,14 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
             <p className="text-xs text-themed-muted mt-2">
               {useManualCode ? (
                 <>
-                  Enter the 2FA code from your authenticator app. You can switch back to mobile confirmation by closing and reopening the login dialog.
+                  Enter the 2FA code from your authenticator app. You can switch back to mobile
+                  confirmation by closing and reopening the login dialog.
                 </>
               ) : (
                 <>
-                  <strong>Option 1:</strong> Check your Steam Mobile App and tap "Approve" to confirm this login<br />
+                  <strong>Option 1:</strong> Check your Steam Mobile App and tap "Approve" to
+                  confirm this login
+                  <br />
                   <strong>Option 2:</strong> Enter the 2FA code from your authenticator app above
                 </>
               )}
@@ -221,7 +222,11 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 (useManualCode && !twoFactorCode.trim())
               }
             >
-              {needsEmailCode ? 'Verify Email Code' : (needsTwoFactor || useManualCode) ? 'Confirm Login' : 'Login'}
+              {needsEmailCode
+                ? 'Verify Email Code'
+                : needsTwoFactor || useManualCode
+                  ? 'Confirm Login'
+                  : 'Login'}
             </Button>
           )}
         </div>

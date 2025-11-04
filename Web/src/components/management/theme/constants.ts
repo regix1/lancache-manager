@@ -18,7 +18,7 @@ import {
   BarChart3,
   Layers
 } from 'lucide-react';
-import { ColorGroup, PageGroup } from './types';
+import { type ColorGroup, type PageGroup } from './types';
 
 export const pageDefinitions: PageGroup[] = [
   {
@@ -31,43 +31,50 @@ export const pageDefinitions: PageGroup[] = [
     name: 'dashboard',
     label: 'Dashboard',
     icon: Home,
-    description: '8 stat cards (Total Cache, Used Space, Bandwidth Saved, Added to Cache, Total Served, Active Downloads, Active Clients, Cache Hit Ratio), service chart, recent downloads panel, top clients table, and drag-to-reorder handles'
+    description:
+      '8 stat cards (Total Cache, Used Space, Bandwidth Saved, Added to Cache, Total Served, Active Downloads, Active Clients, Cache Hit Ratio), service chart, recent downloads panel, top clients table, and drag-to-reorder handles'
   },
   {
     name: 'downloads',
     label: 'Downloads',
     icon: Download,
-    description: 'Download cards with game banners, service/client filters (dropdowns), checkboxes (show metadata, hide localhost, etc.), pagination controls, cache hit/miss badges, view mode toggles (compact/normal), and export buttons'
+    description:
+      'Download cards with game banners, service/client filters (dropdowns), checkboxes (show metadata, hide localhost, etc.), pagination controls, cache hit/miss badges, view mode toggles (compact/normal), and export buttons'
   },
   {
     name: 'clients',
     label: 'Clients',
     icon: Users,
-    description: 'Client statistics table showing IP addresses, download counts, bandwidth usage, cache hit/miss bytes, hit rate progress bars, and last activity timestamps'
+    description:
+      'Client statistics table showing IP addresses, download counts, bandwidth usage, cache hit/miss bytes, hit rate progress bars, and last activity timestamps'
   },
   {
     name: 'services',
     label: 'Services',
     icon: Server,
-    description: 'Service statistics table with platform-colored badges (Steam, Epic, Origin, Blizzard, WSUS, Riot), download counts, bandwidth totals, cache hit/miss bytes, and hit rate progress bars'
+    description:
+      'Service statistics table with platform-colored badges (Steam, Epic, Origin, Blizzard, WSUS, Riot), download counts, bandwidth totals, cache hit/miss bytes, and hit rate progress bars'
   },
   {
     name: 'users',
     label: 'Users',
     icon: Users,
-    description: 'Session management for authenticated users and guests - USER/GUEST badges, user icons, IP addresses, device info, last seen timestamps, revoke/delete actions, and session statistics'
+    description:
+      'Session management for authenticated users and guests - USER/GUEST badges, user icons, IP addresses, device info, last seen timestamps, revoke/delete actions, and session statistics'
   },
   {
     name: 'management',
     label: 'Management',
     icon: Settings,
-    description: 'Authentication (API keys), Steam integration, database reset/clear buttons, cache management, log processing, corruption detection, game cache detector, theme customization (modals, color pickers, checkboxes, sliders), GC settings, alert banners, and Grafana endpoints'
+    description:
+      'Authentication (API keys), Steam integration, database reset/clear buttons, cache management, log processing, corruption detection, game cache detector, theme customization (modals, color pickers, checkboxes, sliders), GC settings, alert banners, and Grafana endpoints'
   },
   {
     name: 'charts',
     label: 'Charts & Graphs',
     icon: BarChart3,
-    description: 'Enhanced service charts with 8 data series colors, cache hit/miss colors, grid lines, axis labels, legends, and performance trend visualizations'
+    description:
+      'Enhanced service charts with 8 data series colors, cache hit/miss colors, grid lines, axis labels, legends, and performance trend visualizations'
   }
 ];
 
@@ -76,7 +83,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'foundation',
     icon: Palette,
-    description: 'Primary, secondary, and accent colors - The core colors that define your theme\'s visual identity',
+    description:
+      "Primary, secondary, and accent colors - The core colors that define your theme's visual identity",
     colors: [
       {
         key: 'primaryColor',
@@ -109,7 +117,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'content',
     icon: Type,
-    description: 'Headings, body text, labels, and descriptions - Controls all text colors throughout the app',
+    description:
+      'Headings, body text, labels, and descriptions - Controls all text colors throughout the app',
     colors: [
       {
         key: 'textPrimary',
@@ -158,7 +167,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'layout',
     icon: Layout,
-    description: 'Backgrounds, cards, panels, and surfaces - Controls layering and depth in your theme',
+    description:
+      'Backgrounds, cards, panels, and surfaces - Controls layering and depth in your theme',
     colors: [
       {
         key: 'bgPrimary',
@@ -223,7 +233,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'interactive',
     icon: Component,
-    description: 'Buttons, inputs, checkboxes, and sliders - All interactive controls and form elements',
+    description:
+      'Buttons, inputs, checkboxes, and sliders - All interactive controls and form elements',
     colors: [
       {
         key: 'buttonBg',
@@ -278,7 +289,7 @@ export const colorGroups: ColorGroup[] = [
         label: 'Checkbox Accent',
         description: 'Checkbox checked state color',
         affects: ['Checkbox checkmarks', 'Checkbox backgrounds'],
-        supportsAlpha: false,  // Browser overrides alpha for accessibility
+        supportsAlpha: false, // Browser overrides alpha for accessibility
         pages: ['downloads', 'management']
       },
       {
@@ -286,7 +297,7 @@ export const colorGroups: ColorGroup[] = [
         label: 'Checkbox Border',
         description: 'Checkbox border color when unchecked',
         affects: ['Checkbox borders', 'Unchecked state'],
-        supportsAlpha: true  // Custom styling, supports alpha
+        supportsAlpha: true // Custom styling, supports alpha
       },
       {
         key: 'checkboxBg',
@@ -341,7 +352,7 @@ export const colorGroups: ColorGroup[] = [
         label: 'Slider Accent',
         description: 'Range slider accent color',
         affects: ['Slider thumbs', 'Slider filled tracks'],
-        supportsAlpha: false,  // Browser overrides alpha for accessibility
+        supportsAlpha: false, // Browser overrides alpha for accessibility
         pages: ['management']
       },
       {
@@ -414,13 +425,20 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'feedback',
     icon: AlertCircle,
-    description: 'Success, warning, error, and info states - Alert banners, notifications, and status messages',
+    description:
+      'Success, warning, error, and info states - Alert banners, notifications, and status messages',
     colors: [
       {
         key: 'success',
         label: 'Success Primary',
         description: 'Success state primary color (border for alerts)',
-        affects: ['Success icons', 'Success buttons', 'Positive actions', 'Alert borders', 'Success notifications'],
+        affects: [
+          'Success icons',
+          'Success buttons',
+          'Positive actions',
+          'Alert borders',
+          'Success notifications'
+        ],
         supportsAlpha: true,
         pages: ['dashboard', 'management']
       },
@@ -428,7 +446,13 @@ export const colorGroups: ColorGroup[] = [
         key: 'successBg',
         label: 'Success Background',
         description: 'Success state background (alert background)',
-        affects: ['Success alerts', 'Success badges', 'Success cards', 'Alert backgrounds', 'Success banners'],
+        affects: [
+          'Success alerts',
+          'Success badges',
+          'Success cards',
+          'Alert backgrounds',
+          'Success banners'
+        ],
         supportsAlpha: true,
         pages: ['downloads']
       },
@@ -468,7 +492,13 @@ export const colorGroups: ColorGroup[] = [
         key: 'error',
         label: 'Error Primary',
         description: 'Error state primary color (border for alerts)',
-        affects: ['Error icons', 'Delete buttons', 'Critical actions', 'Alert borders', 'Error notifications'],
+        affects: [
+          'Error icons',
+          'Delete buttons',
+          'Critical actions',
+          'Alert borders',
+          'Error notifications'
+        ],
         supportsAlpha: true,
         pages: []
       },
@@ -476,7 +506,13 @@ export const colorGroups: ColorGroup[] = [
         key: 'errorBg',
         label: 'Error Background',
         description: 'Error state background (alert background)',
-        affects: ['Error alerts', 'Error badges', 'Alert backgrounds', 'Error banners', 'Danger zones'],
+        affects: [
+          'Error alerts',
+          'Error badges',
+          'Alert backgrounds',
+          'Error banners',
+          'Danger zones'
+        ],
         supportsAlpha: true,
         pages: ['management']
       },
@@ -500,7 +536,13 @@ export const colorGroups: ColorGroup[] = [
         key: 'infoBg',
         label: 'Info Background',
         description: 'Information state background (alert background)',
-        affects: ['Info alerts', 'Info cards', 'Alert backgrounds', 'Notification panels', 'Info banners'],
+        affects: [
+          'Info alerts',
+          'Info cards',
+          'Alert backgrounds',
+          'Notification panels',
+          'Info banners'
+        ],
         supportsAlpha: true,
         pages: ['management']
       },
@@ -519,7 +561,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'navigation',
     icon: Layout,
-    description: 'Header, tabs, and menus - Top navigation bar, active/inactive tabs, and mobile menu',
+    description:
+      'Header, tabs, and menus - Top navigation bar, active/inactive tabs, and mobile menu',
     colors: [
       {
         key: 'navBg',
@@ -584,7 +627,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'dataDisplay',
     icon: Activity,
-    description: 'Charts, graphs, and progress bars - Data visualization colors for all chart types',
+    description:
+      'Charts, graphs, and progress bars - Data visualization colors for all chart types',
     colors: [
       {
         key: 'progressBg',
@@ -748,7 +792,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'sessions',
     icon: Users,
-    description: 'Authenticated users and guests - Colors for session badges and icons in the Users tab',
+    description:
+      'Authenticated users and guests - Colors for session badges and icons in the Users tab',
     colors: [
       {
         key: 'userSessionColor',
@@ -789,7 +834,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'platforms',
     icon: Gamepad2,
-    description: 'Steam, Epic, Origin, Blizzard, WSUS, Riot - Platform-specific colors for badges and charts',
+    description:
+      'Steam, Epic, Origin, Blizzard, WSUS, Riot - Platform-specific colors for badges and charts',
     colors: [
       {
         key: 'steamColor',
@@ -846,7 +892,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'performance',
     icon: Activity,
-    description: 'Cache hit rate badges - High/medium/low performance indicators for cache efficiency',
+    description:
+      'Cache hit rate badges - High/medium/low performance indicators for cache efficiency',
     colors: [
       {
         key: 'hitRateHighBg',
@@ -919,7 +966,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'actions',
     icon: Sparkles,
-    description: 'Reset, Process, and Delete buttons - Special action buttons in the management page',
+    description:
+      'Reset, Process, and Delete buttons - Special action buttons in the management page',
     colors: [
       {
         key: 'actionResetBg',
@@ -976,7 +1024,8 @@ export const colorGroups: ColorGroup[] = [
   {
     name: 'utilities',
     icon: Brush,
-    description: 'Scrollbars and icon backgrounds - Specialized colors for dashboard stat card icons',
+    description:
+      'Scrollbars and icon backgrounds - Specialized colors for dashboard stat card icons',
     colors: [
       {
         key: 'scrollbarTrack',

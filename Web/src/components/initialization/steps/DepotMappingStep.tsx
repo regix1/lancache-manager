@@ -55,7 +55,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
     await proceedWithScan(false);
   };
 
-  const proceedWithScan = async (forceFull: boolean = false) => {
+  const proceedWithScan = async (forceFull = false) => {
     console.log('[DepotMapping] Starting PICS scan...');
     setMapping(true);
 
@@ -115,20 +115,24 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   return (
     <div className="space-y-6">
       {/* Modern Card Layout */}
-      <div className="rounded-xl overflow-hidden border"
-           style={{
-             backgroundColor: 'var(--theme-card-bg)',
-             borderColor: 'var(--theme-card-border)'
-           }}>
+      <div
+        className="rounded-xl overflow-hidden border"
+        style={{
+          backgroundColor: 'var(--theme-card-bg)',
+          borderColor: 'var(--theme-card-border)'
+        }}
+      >
         {/* Gradient Banner with Icon */}
-        <div className="relative h-32 flex items-center justify-center"
-             style={{
-               background: complete
-                 ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
-                 : mapping
-                   ? 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
-                   : 'linear-gradient(135deg, var(--theme-info) 0%, var(--theme-info-dark, var(--theme-info)) 100%)'
-             }}>
+        <div
+          className="relative h-32 flex items-center justify-center"
+          style={{
+            background: complete
+              ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
+              : mapping
+                ? 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
+                : 'linear-gradient(135deg, var(--theme-info) 0%, var(--theme-info-dark, var(--theme-info)) 100%)'
+          }}
+        >
           {complete ? (
             <CheckCircle size={64} className="text-white" />
           ) : mapping ? (
@@ -151,14 +155,16 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
           {/* Info Box (when not mapping and not complete) */}
           {!mapping && !complete && (
-            <div className="p-4 rounded-lg mb-6"
-                 style={{
-                   backgroundColor: 'var(--theme-info-bg)',
-                   color: 'var(--theme-info-text)'
-                 }}>
+            <div
+              className="p-4 rounded-lg mb-6"
+              style={{
+                backgroundColor: 'var(--theme-info-bg)',
+                color: 'var(--theme-info-text)'
+              }}
+            >
               <p className="text-sm mb-2">
-                This step will run an incremental PICS scan to update depot mappings, then apply them to your downloads.
-                This helps you see game names instead of depot IDs.
+                This step will run an incremental PICS scan to update depot mappings, then apply
+                them to your downloads. This helps you see game names instead of depot IDs.
               </p>
               <p className="text-sm font-semibold">
                 You can skip this step and map depots later from the Management tab.
@@ -169,14 +175,14 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           {/* Progress Display */}
           {mapping && !complete && (
             <div className="space-y-4 mb-6">
-              <div className="p-6 rounded-lg text-center"
-                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+              <div
+                className="p-6 rounded-lg text-center"
+                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              >
                 <p className="text-lg font-semibold text-themed-primary mb-1">
                   {statusMessage || 'Processing...'}
                 </p>
-                <p className="text-sm text-themed-secondary">
-                  {progress.toFixed(0)}% complete
-                </p>
+                <p className="text-sm text-themed-secondary">{progress.toFixed(0)}% complete</p>
               </div>
             </div>
           )}
@@ -184,40 +190,59 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           {/* Completion Summary */}
           {complete && (
             <div className="space-y-4 mb-6">
-              <div className="p-4 rounded-lg"
-                   style={{
-                     backgroundColor: 'var(--theme-success-bg)',
-                     color: 'var(--theme-success-text)'
-                   }}>
+              <div
+                className="p-4 rounded-lg"
+                style={{
+                  backgroundColor: 'var(--theme-success-bg)',
+                  color: 'var(--theme-success-text)'
+                }}
+              >
                 <p className="text-sm flex items-center justify-center gap-2">
                   <CheckCircle className="w-4 h-4" />
                   Setup complete! Your Lancache Manager is ready to use.
                 </p>
               </div>
 
-              <div className="p-6 rounded-lg"
-                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+              <div
+                className="p-6 rounded-lg"
+                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              >
                 <div className="text-center">
                   <h3 className="text-lg font-semibold text-themed-primary mb-3">What's Next?</h3>
                   <ul className="text-sm text-themed-secondary space-y-2 text-left max-w-md mx-auto">
                     <li className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                      <CheckCircle
+                        className="w-4 h-4 flex-shrink-0 mt-0.5"
+                        style={{ color: 'var(--theme-success)' }}
+                      />
                       <span>PICS depot mappings updated</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                      <CheckCircle
+                        className="w-4 h-4 flex-shrink-0 mt-0.5"
+                        style={{ color: 'var(--theme-success)' }}
+                      />
                       <span>Cache logs have been processed</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                      <CheckCircle
+                        className="w-4 h-4 flex-shrink-0 mt-0.5"
+                        style={{ color: 'var(--theme-success)' }}
+                      />
                       <span>Downloads are mapped to games</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <Home className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-primary)' }} />
+                      <Home
+                        className="w-4 h-4 flex-shrink-0 mt-0.5"
+                        style={{ color: 'var(--theme-primary)' }}
+                      />
                       <span>View your dashboard to see cache statistics</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <Home className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-primary)' }} />
+                      <Home
+                        className="w-4 h-4 flex-shrink-0 mt-0.5"
+                        style={{ color: 'var(--theme-primary)' }}
+                      />
                       <span>Check the Downloads tab to see identified games</span>
                     </li>
                   </ul>
@@ -228,11 +253,13 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
           {/* Error Message */}
           {error && (
-            <div className="p-4 rounded-lg mb-6"
-                 style={{
-                   backgroundColor: 'var(--theme-error-bg)',
-                   color: 'var(--theme-error-text)'
-                 }}>
+            <div
+              className="p-4 rounded-lg mb-6"
+              style={{
+                backgroundColor: 'var(--theme-error-bg)',
+                color: 'var(--theme-error-text)'
+              }}
+            >
               <p className="text-sm">{error}</p>
             </div>
           )}

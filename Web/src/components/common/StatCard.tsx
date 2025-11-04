@@ -21,7 +21,8 @@ const StatCard: React.FC<StatCardProps> = ({
   tooltip
 }) => {
   // Check if tooltips are disabled globally
-  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+  const tooltipsDisabled =
+    document.documentElement.getAttribute('data-disable-tooltips') === 'true';
   const showTooltipIndicators = tooltip && !tooltipsDisabled;
 
   // Map color names to CSS variables
@@ -55,7 +56,9 @@ const StatCard: React.FC<StatCardProps> = ({
           <p
             className="text-sm font-medium inline-block transition-colors"
             style={{
-              color: showTooltipIndicators ? 'var(--theme-text-secondary)' : 'var(--theme-text-muted)',
+              color: showTooltipIndicators
+                ? 'var(--theme-text-secondary)'
+                : 'var(--theme-text-muted)',
               borderBottom: showTooltipIndicators ? '1px dotted currentColor' : 'none',
               paddingBottom: showTooltipIndicators ? '1px' : '0',
               opacity: showTooltipIndicators ? '0.9' : '1'
@@ -63,7 +66,10 @@ const StatCard: React.FC<StatCardProps> = ({
           >
             {title}
           </p>
-          <p className="text-2xl font-bold mt-1 transition-all duration-300" style={{ color: 'var(--theme-text-primary)' }}>
+          <p
+            className="text-2xl font-bold mt-1 transition-all duration-300"
+            style={{ color: 'var(--theme-text-primary)' }}
+          >
             {value}
           </p>
           {subtitle && (

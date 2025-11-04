@@ -79,7 +79,7 @@
   select,
   textarea,
   a,
-  div[role="button"],
+  div[role='button'],
   *[tabindex] {
     --tw-ring-shadow: 0 0 #0000 !important;
     --tw-ring-offset-shadow: 0 0 #0000 !important;
@@ -90,7 +90,7 @@
   select:focus,
   textarea:focus,
   a:focus,
-  div[role="button"]:focus,
+  div[role='button']:focus,
   *[tabindex]:focus {
     --tw-ring-shadow: 0 0 #0000 !important;
     --tw-ring-offset-shadow: 0 0 #0000 !important;
@@ -114,9 +114,9 @@
   input:focus,
   select:focus,
   textarea:focus,
-  [role="button"]:focus,
-  [role="menuitem"]:focus,
-  [role="option"]:focus,
+  [role='button']:focus,
+  [role='menuitem']:focus,
+  [role='option']:focus,
   [tabindex]:focus {
     outline: 0 !important;
     outline: none !important;
@@ -161,7 +161,7 @@
 
 @layer components {
   /* ===== MOBILE RESPONSIVE UTILITIES ===== */
-  
+
   /* Extra small screens (below 480px) */
   @media (max-width: 479px) {
     .xs\:block {
@@ -174,14 +174,14 @@
       display: flex;
     }
   }
-  
+
   /* Small screens and up (480px+) */
   @media (min-width: 480px) {
     .xs\:block {
       display: block;
     }
   }
-  
+
   /* Mobile-first dropdown positioning */
   .mobile-dropdown {
     @apply absolute z-20 rounded-lg shadow-lg min-w-full max-h-60 overflow-y-auto;
@@ -191,7 +191,7 @@
     width: 100%;
     min-width: max-content;
   }
-  
+
   /* On larger screens, allow right positioning */
   @media (min-width: 640px) {
     .mobile-dropdown.sm\:right-0 {
@@ -222,13 +222,13 @@
   .mobile-button-group {
     @apply flex flex-col sm:flex-row gap-2 sm:gap-3;
   }
-  
+
   .mobile-button-group .mobile-button {
     @apply w-full sm:w-auto;
   }
 
   /* ===== UNIVERSAL OVERLAY FIXES ===== */
-  
+
   /* Fix ALL dropdown containers */
   .custom-dropdown,
   .relative:has(> .absolute),
@@ -240,10 +240,10 @@
   /* Fix ALL absolute positioned overlays */
   .absolute.z-20,
   .absolute.z-10,
-  .absolute[class*="top-"],
-  .absolute[class*="right-"],
-  .absolute[class*="left-"],
-  .absolute[class*="bottom-"],
+  .absolute[class*='top-'],
+  .absolute[class*='right-'],
+  .absolute[class*='left-'],
+  .absolute[class*='bottom-'],
   .custom-dropdown .absolute,
   .relative > .absolute {
     position: absolute !important;
@@ -300,9 +300,9 @@
 
   /* Radix UI or similar library tooltips */
   [data-radix-popper-content-wrapper],
-  [data-state="open"],
-  [data-state="closed"],
-  [role="tooltip"] {
+  [data-state='open'],
+  [data-state='closed'],
+  [role='tooltip'] {
     position: absolute !important;
     z-index: 100000 !important;
   }
@@ -355,15 +355,15 @@
   .animate-pulse-slow {
     animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
-  
+
   .smooth-transition {
     @apply transition-all duration-300 ease-in-out;
   }
-  
+
   .hover-lift {
     @apply hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200;
   }
-  
+
   .button-press {
     @apply active:scale-95 transition-transform duration-75;
   }
@@ -737,35 +737,35 @@
 
   /* Remove blue outline on click, keep for keyboard navigation */
   /* Only apply when user has disabled focus outlines */
-  [data-disable-focus-outlines="true"] .no-click-outline {
+  [data-disable-focus-outlines='true'] .no-click-outline {
     outline: none !important;
     box-shadow: none !important;
   }
 
-  [data-disable-focus-outlines="true"] .no-click-outline:focus {
+  [data-disable-focus-outlines='true'] .no-click-outline:focus {
     outline: none !important;
     box-shadow: none !important;
   }
 
-  [data-disable-focus-outlines="true"] .no-click-outline:focus-visible {
+  [data-disable-focus-outlines='true'] .no-click-outline:focus-visible {
     outline: 2px solid var(--theme-card-outline) !important;
     outline-offset: 2px !important;
     box-shadow: none !important;
   }
 
   /* Also apply to buttons and interactive elements when disabled */
-  [data-disable-focus-outlines="true"] button:focus,
-  [data-disable-focus-outlines="true"] a:focus,
-  [data-disable-focus-outlines="true"] input:focus:not([type="checkbox"]):not([type="range"]),
-  [data-disable-focus-outlines="true"] select:focus,
-  [data-disable-focus-outlines="true"] textarea:focus {
+  [data-disable-focus-outlines='true'] button:focus,
+  [data-disable-focus-outlines='true'] a:focus,
+  [data-disable-focus-outlines='true'] input:focus:not([type='checkbox']):not([type='range']),
+  [data-disable-focus-outlines='true'] select:focus,
+  [data-disable-focus-outlines='true'] textarea:focus {
     outline: none !important;
     box-shadow: none !important;
   }
 
   /* Keep focus-visible for accessibility */
-  [data-disable-focus-outlines="true"] button:focus-visible,
-  [data-disable-focus-outlines="true"] a:focus-visible {
+  [data-disable-focus-outlines='true'] button:focus-visible,
+  [data-disable-focus-outlines='true'] a:focus-visible {
     outline: 2px solid var(--theme-primary) !important;
     outline-offset: 2px !important;
   }
@@ -792,7 +792,7 @@
   }
 
   /* Checkbox styling - Modern and Pretty */
-  input[type="checkbox"] {
+  input[type='checkbox'] {
     -webkit-appearance: none;
     appearance: none;
     width: 20px;
@@ -805,12 +805,12 @@
     transition: all 0.2s ease;
   }
 
-  input[type="checkbox"]:checked {
+  input[type='checkbox']:checked {
     background: var(--theme-checkbox-accent);
     border-color: var(--theme-checkbox-accent);
   }
 
-  input[type="checkbox"]:checked::after {
+  input[type='checkbox']:checked::after {
     content: '';
     position: absolute;
     left: 5px;
@@ -822,23 +822,23 @@
     transform: rotate(45deg);
   }
 
-  input[type="checkbox"]:hover {
+  input[type='checkbox']:hover {
     border-color: var(--theme-checkbox-accent);
     box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.1);
   }
 
-  input[type="checkbox"]:focus {
+  input[type='checkbox']:focus {
     outline: none;
     box-shadow: 0 0 0 3px rgba(var(--theme-primary-rgb), 0.2);
   }
 
-  input[type="checkbox"]:disabled {
+  input[type='checkbox']:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
 
   /* Range/Slider styling - Modern and Pretty */
-  input[type="range"] {
+  input[type='range'] {
     -webkit-appearance: none;
     appearance: none;
     background: transparent;
@@ -847,7 +847,7 @@
   }
 
   /* Track styling - Webkit */
-  input[type="range"]::-webkit-slider-runnable-track {
+  input[type='range']::-webkit-slider-runnable-track {
     background: var(--theme-slider-track);
     height: 6px;
     border-radius: 3px;
@@ -856,7 +856,7 @@
   }
 
   /* Track styling - Firefox */
-  input[type="range"]::-moz-range-track {
+  input[type='range']::-moz-range-track {
     background: var(--theme-slider-track);
     height: 6px;
     border-radius: 3px;
@@ -865,7 +865,7 @@
   }
 
   /* Thumb styling - Webkit */
-  input[type="range"]::-webkit-slider-thumb {
+  input[type='range']::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
     background: var(--theme-slider-thumb);
@@ -874,50 +874,60 @@
     height: 18px;
     width: 18px;
     margin-top: -7px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.2),
+      0 1px 2px rgba(0, 0, 0, 0.1);
     transition: all 0.2s ease;
   }
 
   /* Thumb styling - Firefox */
-  input[type="range"]::-moz-range-thumb {
+  input[type='range']::-moz-range-thumb {
     background: var(--theme-slider-thumb);
     border: 2px solid var(--theme-bg-primary);
     border-radius: 50%;
     height: 18px;
     width: 18px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.2),
+      0 1px 2px rgba(0, 0, 0, 0.1);
     transition: all 0.2s ease;
     cursor: pointer;
   }
 
   /* Hover state for thumb */
-  input[type="range"]:hover::-webkit-slider-thumb {
+  input[type='range']:hover::-webkit-slider-thumb {
     transform: scale(1.1);
-    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.15);
+    box-shadow:
+      0 3px 6px rgba(0, 0, 0, 0.3),
+      0 2px 4px rgba(0, 0, 0, 0.15);
   }
 
-  input[type="range"]:hover::-moz-range-thumb {
+  input[type='range']:hover::-moz-range-thumb {
     transform: scale(1.1);
-    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.15);
+    box-shadow:
+      0 3px 6px rgba(0, 0, 0, 0.3),
+      0 2px 4px rgba(0, 0, 0, 0.15);
   }
 
   /* Active/focus state */
-  input[type="range"]:focus {
+  input[type='range']:focus {
     outline: none;
   }
 
-  input[type="range"]:focus::-webkit-slider-thumb {
-    box-shadow: 0 0 0 4px rgba(var(--theme-primary-rgb), 0.1),
-                0 3px 6px rgba(0, 0, 0, 0.3);
+  input[type='range']:focus::-webkit-slider-thumb {
+    box-shadow:
+      0 0 0 4px rgba(var(--theme-primary-rgb), 0.1),
+      0 3px 6px rgba(0, 0, 0, 0.3);
   }
 
-  input[type="range"]:focus::-moz-range-thumb {
-    box-shadow: 0 0 0 4px rgba(var(--theme-primary-rgb), 0.1),
-                0 3px 6px rgba(0, 0, 0, 0.3);
+  input[type='range']:focus::-moz-range-thumb {
+    box-shadow:
+      0 0 0 4px rgba(var(--theme-primary-rgb), 0.1),
+      0 3px 6px rgba(0, 0, 0, 0.3);
   }
 
   /* Progress fill effect (for Webkit - shows filled portion) */
-  input[type="range"] {
+  input[type='range'] {
     background-image: linear-gradient(
       to right,
       var(--theme-slider-accent) 0%,
@@ -1048,7 +1058,7 @@
   }
 
   /* Hide about/info sections when setting is enabled */
-  [data-hide-about-sections="true"] .about-section {
+  [data-hide-about-sections='true'] .about-section {
     display: none !important;
   }
 
@@ -1381,16 +1391,36 @@
 }
 
 /* Staggered animations */
-.animate-stagger-1 { animation-delay: 50ms; }
-.animate-stagger-2 { animation-delay: 100ms; }
-.animate-stagger-3 { animation-delay: 150ms; }
-.animate-stagger-4 { animation-delay: 200ms; }
-.animate-stagger-5 { animation-delay: 250ms; }
-.animate-stagger-6 { animation-delay: 300ms; }
-.animate-stagger-7 { animation-delay: 350ms; }
-.animate-stagger-8 { animation-delay: 400ms; }
-.animate-stagger-9 { animation-delay: 450ms; }
-.animate-stagger-10 { animation-delay: 500ms; }
+.animate-stagger-1 {
+  animation-delay: 50ms;
+}
+.animate-stagger-2 {
+  animation-delay: 100ms;
+}
+.animate-stagger-3 {
+  animation-delay: 150ms;
+}
+.animate-stagger-4 {
+  animation-delay: 200ms;
+}
+.animate-stagger-5 {
+  animation-delay: 250ms;
+}
+.animate-stagger-6 {
+  animation-delay: 300ms;
+}
+.animate-stagger-7 {
+  animation-delay: 350ms;
+}
+.animate-stagger-8 {
+  animation-delay: 400ms;
+}
+.animate-stagger-9 {
+  animation-delay: 450ms;
+}
+.animate-stagger-10 {
+  animation-delay: 500ms;
+}
 
 /* Smooth data transition animations */
 .animate-fadeIn {

@@ -32,9 +32,7 @@ const Footer: React.FC = () => {
       }}
     >
       <div className="container mx-auto px-4">
-        <p>
-          LANCache Manager v{version}
-        </p>
+        <p>LANCache Manager v{version}</p>
       </div>
     </footer>
   );

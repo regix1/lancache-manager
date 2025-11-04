@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Server, Trash2, AlertTriangle, Loader2, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
-import { AuthMode } from '@services/auth.service';
+import { type AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
 
@@ -48,7 +48,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
 
-  const cacheOp = useBackendOperation<CacheClearOperationData>('activeCacheClearOperation', 'cacheClearing', 30);
+  const cacheOp = useBackendOperation<CacheClearOperationData>(
+    'activeCacheClearOperation',
+    'cacheClearing',
+    30
+  );
 
   // Report cache clearing status to parent
 
@@ -156,7 +160,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     try {
       await ApiService.setCacheThreadCount(newThreadCount);
       setThreadCount(newThreadCount);
-      onSuccess?.(`Cache clearing will now use ${newThreadCount} thread${newThreadCount > 1 ? 's' : ''}`);
+      onSuccess?.(
+        `Cache clearing will now use ${newThreadCount} thread${newThreadCount > 1 ? 's' : ''}`
+      );
     } catch (err: any) {
       console.error('Failed to update thread count:', err);
       onError?.(err?.message || 'Failed to update thread count');
@@ -170,7 +176,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     try {
       await ApiService.setCacheDeleteMode(newMode);
       setDeleteMode(newMode);
-      const modeDesc = newMode === 'rsync' ? 'Rsync' : newMode === 'full' ? 'Fast Mode' : 'Safe Mode';
+      const modeDesc =
+        newMode === 'rsync' ? 'Rsync' : newMode === 'full' ? 'Fast Mode' : 'Safe Mode';
       onSuccess?.(`Delete mode set to: ${modeDesc}`);
     } catch (err: any) {
       console.error('Failed to update delete mode:', err);
@@ -265,7 +272,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   <>
                     <p className="text-themed-secondary">
                       Manage cached game files in{' '}
-                      <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">{config.cachePath}</code>
+                      <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">
+                        {config.cachePath}
+                      </code>
                     </p>
                     <p className="text-xs text-themed-muted mt-1 flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
@@ -306,8 +315,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     {deleteMode === 'rsync'
                       ? 'Rsync with empty directory (network storage)'
                       : deleteMode === 'full'
-                      ? 'Bulk directory removal (faster)'
-                      : 'Individual file deletion (slower, keeps structure)'}
+                        ? 'Bulk directory removal (faster)'
+                        : 'Individual file deletion (slower, keeps structure)'}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -316,7 +325,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     variant={deleteMode === 'preserve' ? 'filled' : 'default'}
                     color={deleteMode === 'preserve' ? 'blue' : undefined}
                     onClick={() => handleDeleteModeChange('preserve')}
-                    disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    disabled={
+                      deleteModeLoading ||
+                      mockMode ||
+                      isCacheClearingActive ||
+                      authMode !== 'authenticated' ||
+                      cacheReadOnly
+                    }
                     title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                   >
                     Safe Mode
@@ -326,7 +341,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     variant={deleteMode === 'full' ? 'filled' : 'default'}
                     color={deleteMode === 'full' ? 'green' : undefined}
                     onClick={() => handleDeleteModeChange('full')}
-                    disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    disabled={
+                      deleteModeLoading ||
+                      mockMode ||
+                      isCacheClearingActive ||
+                      authMode !== 'authenticated' ||
+                      cacheReadOnly
+                    }
                     title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                   >
                     Fast Mode
@@ -337,7 +358,13 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       variant={deleteMode === 'rsync' ? 'filled' : 'default'}
                       color={deleteMode === 'rsync' ? 'purple' : undefined}
                       onClick={() => handleDeleteModeChange('rsync')}
-                      disabled={deleteModeLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                      disabled={
+                        deleteModeLoading ||
+                        mockMode ||
+                        isCacheClearingActive ||
+                        authMode !== 'authenticated' ||
+                        cacheReadOnly
+                      }
                       title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                     >
                       Rsync
@@ -359,7 +386,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     size="sm"
                     variant="default"
                     onClick={() => handleThreadCountChange(threadCount - 1)}
-                    disabled={threadCount <= 1 || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    disabled={
+                      threadCount <= 1 ||
+                      threadCountLoading ||
+                      mockMode ||
+                      isCacheClearingActive ||
+                      authMode !== 'authenticated' ||
+                      cacheReadOnly
+                    }
                     title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                   >
                     -
@@ -372,7 +406,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     size="sm"
                     variant="default"
                     onClick={() => handleThreadCountChange(threadCount + 1)}
-                    disabled={threadCount >= cpuCount || threadCountLoading || mockMode || isCacheClearingActive || authMode !== 'authenticated' || cacheReadOnly}
+                    disabled={
+                      threadCount >= cpuCount ||
+                      threadCountLoading ||
+                      mockMode ||
+                      isCacheClearingActive ||
+                      authMode !== 'authenticated' ||
+                      cacheReadOnly
+                    }
                     title={cacheReadOnly ? 'Cache directory is read-only' : undefined}
                   >
                     +
@@ -402,7 +443,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <div className="space-y-4">
           <p className="text-themed-secondary">
             This will permanently delete <strong>all cached game files</strong> from{' '}
-            <code className="bg-themed-tertiary px-1 py-0.5 rounded">{config.cachePath}</code>. Games will need to redownload content after clearing.
+            <code className="bg-themed-tertiary px-1 py-0.5 rounded">{config.cachePath}</code>.
+            Games will need to redownload content after clearing.
           </p>
 
           <Alert color="yellow">

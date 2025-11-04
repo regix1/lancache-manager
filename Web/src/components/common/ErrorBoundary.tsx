@@ -32,7 +32,10 @@ class ErrorBoundary extends Component<Props, State> {
         <div className="min-h-screen bg-themed-primary flex items-center justify-center p-4">
           <Card className="max-w-md w-full">
             <div className="flex flex-col items-center text-center space-y-4">
-              <div className="p-3 rounded-full" style={{ backgroundColor: 'var(--theme-error-bg)' }}>
+              <div
+                className="p-3 rounded-full"
+                style={{ backgroundColor: 'var(--theme-error-bg)' }}
+              >
                 <AlertCircle className="w-8 h-8" style={{ color: 'var(--theme-error)' }} />
               </div>
 

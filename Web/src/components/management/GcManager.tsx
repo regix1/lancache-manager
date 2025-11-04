@@ -3,7 +3,7 @@ import { Cpu, Save, RefreshCw, Info, Play, Loader2 } from 'lucide-react';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { EnhancedDropdown, DropdownOption } from '../ui/EnhancedDropdown';
+import { EnhancedDropdown, type DropdownOption } from '../ui/EnhancedDropdown';
 import { API_BASE } from '../../utils/constants';
 import authService from '../../services/auth.service';
 
@@ -119,12 +119,12 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   };
 
   const handleAggressivenessChange = (value: string) => {
-    setSettings(prev => ({ ...prev, aggressiveness: value }));
+    setSettings((prev) => ({ ...prev, aggressiveness: value }));
     setHasChanges(true);
   };
 
   const handleMemoryThresholdChange = (value: string) => {
-    setSettings(prev => ({ ...prev, memoryThresholdMB: parseInt(value) }));
+    setSettings((prev) => ({ ...prev, memoryThresholdMB: parseInt(value) }));
     setHasChanges(true);
   };
 
@@ -294,11 +294,15 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
                 <div className="mt-1 flex gap-4 text-xs text-themed-muted">
                   <span>Before: {triggerResult.beforeMB} MB</span>
                   <span>After: {triggerResult.afterMB} MB</span>
-                  <span className="font-medium text-themed-primary">Freed: {triggerResult.freedMB} MB</span>
+                  <span className="font-medium text-themed-primary">
+                    Freed: {triggerResult.freedMB} MB
+                  </span>
                 </div>
               )}
               {triggerResult.skipped && triggerResult.remainingSeconds !== undefined && (
-                <p className="mt-1 text-xs">Cooldown: {Math.ceil(triggerResult.remainingSeconds)}s remaining</p>
+                <p className="mt-1 text-xs">
+                  Cooldown: {Math.ceil(triggerResult.remainingSeconds)}s remaining
+                </p>
               )}
             </div>
           </Alert>

@@ -74,7 +74,10 @@ export const useBackendOperation = <T = unknown>(
           type: (stateData.type as string) || type,
           data: (stateData.data as T) ?? ({} as T),
           createdAt: (stateData.createdAt as string) || new Date().toISOString(),
-          updatedAt: (stateData.updatedAt as string) || (stateData.createdAt as string) || new Date().toISOString()
+          updatedAt:
+            (stateData.updatedAt as string) ||
+            (stateData.createdAt as string) ||
+            new Date().toISOString()
         };
         setOperation(operationState);
         return operationState;

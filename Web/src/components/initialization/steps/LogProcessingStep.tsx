@@ -42,17 +42,18 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
         // Check if complete - must have finished processing
         // Handle both empty log files (0 lines = 0% progress) and populated logs (100% progress)
         const isFullyComplete =
-          !status.isProcessing && (
-            // Normal completion: progress reached 100%
-            (status.progress === 100 || status.percentComplete === 100) ||
+          !status.isProcessing &&
+          // Normal completion: progress reached 100%
+          (status.progress === 100 ||
+            status.percentComplete === 100 ||
             // Empty file completion: 0 total lines and 0 processed (progress will be 0%)
             (status.totalLines === 0 && status.linesProcessed === 0) ||
             // Alternative: position-based completion
-            (status.currentPosition !== undefined && status.totalSize !== undefined &&
-             status.currentPosition >= status.totalSize) ||
+            (status.currentPosition !== undefined &&
+              status.totalSize !== undefined &&
+              status.currentPosition >= status.totalSize) ||
             // Rust processor explicitly marked as complete (handles invalid/empty logs)
-            (status.status === 'complete')
-          );
+            status.status === 'complete');
 
         if (isFullyComplete) {
           setComplete(true);
@@ -86,20 +87,24 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
   return (
     <div className="space-y-6">
       {/* Modern Card Layout */}
-      <div className="rounded-xl overflow-hidden border"
-           style={{
-             backgroundColor: 'var(--theme-card-bg)',
-             borderColor: 'var(--theme-card-border)'
-           }}>
+      <div
+        className="rounded-xl overflow-hidden border"
+        style={{
+          backgroundColor: 'var(--theme-card-bg)',
+          borderColor: 'var(--theme-card-border)'
+        }}
+      >
         {/* Gradient Banner with Icon */}
-        <div className="relative h-32 flex items-center justify-center"
-             style={{
-               background: complete
-                 ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
-                 : processing
-                   ? 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
-                   : 'linear-gradient(135deg, var(--theme-info) 0%, var(--theme-info-dark, var(--theme-info)) 100%)'
-             }}>
+        <div
+          className="relative h-32 flex items-center justify-center"
+          style={{
+            background: complete
+              ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
+              : processing
+                ? 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
+                : 'linear-gradient(135deg, var(--theme-info) 0%, var(--theme-info-dark, var(--theme-info)) 100%)'
+          }}
+        >
           {complete ? (
             <CheckCircle size={64} className="text-white" />
           ) : processing ? (
@@ -122,11 +127,13 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
 
           {/* Info Box (when not processing and not complete) */}
           {!processing && !complete && (
-            <div className="p-4 rounded-lg mb-6"
-                 style={{
-                   backgroundColor: 'var(--theme-info-bg)',
-                   color: 'var(--theme-info-text)'
-                 }}>
+            <div
+              className="p-4 rounded-lg mb-6"
+              style={{
+                backgroundColor: 'var(--theme-info-bg)',
+                color: 'var(--theme-info-text)'
+              }}
+            >
               <p className="text-sm mb-2">
                 Processing cache logs will identify all downloads and games in your cache history.
                 This can take several minutes depending on the size of your logs.
@@ -143,8 +150,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
               {/* Progress Bar */}
               {progress.progress !== undefined && (
                 <div>
-                  <div className="w-full rounded-full h-3 overflow-hidden mb-2"
-                       style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+                  <div
+                    className="w-full rounded-full h-3 overflow-hidden mb-2"
+                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                  >
                     <div
                       className="h-full transition-all duration-500 ease-out"
                       style={{
@@ -160,8 +169,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
               )}
 
               {/* Status Info Grid */}
-              <div className="grid grid-cols-2 gap-4 p-4 rounded-lg"
-                   style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+              <div
+                className="grid grid-cols-2 gap-4 p-4 rounded-lg"
+                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              >
                 <div>
                   <p className="text-xs text-themed-muted mb-1">Status</p>
                   <p className="text-sm font-semibold text-themed-primary">
@@ -190,11 +201,13 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
 
           {/* Success Message */}
           {complete && (
-            <div className="p-4 rounded-lg mb-6"
-                 style={{
-                   backgroundColor: 'var(--theme-success-bg)',
-                   color: 'var(--theme-success-text)'
-                 }}>
+            <div
+              className="p-4 rounded-lg mb-6"
+              style={{
+                backgroundColor: 'var(--theme-success-bg)',
+                color: 'var(--theme-success-text)'
+              }}
+            >
               <p className="text-sm flex items-center justify-center gap-2">
                 <CheckCircle className="w-4 h-4" />
                 Log processing complete! Click Continue to proceed.
@@ -204,11 +217,13 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
 
           {/* Error Message */}
           {error && (
-            <div className="p-4 rounded-lg mb-6"
-                 style={{
-                   backgroundColor: 'var(--theme-error-bg)',
-                   color: 'var(--theme-error-text)'
-                 }}>
+            <div
+              className="p-4 rounded-lg mb-6"
+              style={{
+                backgroundColor: 'var(--theme-error-bg)',
+                color: 'var(--theme-error-text)'
+              }}
+            >
               <p className="text-sm">{error}</p>
             </div>
           )}

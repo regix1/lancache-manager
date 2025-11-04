@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { POLLING_RATES, STORAGE_KEYS, type PollingRate } from '@utils/constants';
 import { storage } from '@utils/storage';
 
@@ -51,9 +51,5 @@ export const PollingRateProvider: React.FC<PollingRateProviderProps> = ({ childr
     getPollingInterval
   };
 
-  return (
-    <PollingRateContext.Provider value={value}>
-      {children}
-    </PollingRateContext.Provider>
-  );
+  return <PollingRateContext.Provider value={value}>{children}</PollingRateContext.Provider>;
 };

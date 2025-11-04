@@ -43,18 +43,22 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
   return (
     <div className="space-y-6">
       {/* Modern Card Layout */}
-      <div className="rounded-xl overflow-hidden border"
-           style={{
-             backgroundColor: 'var(--theme-card-bg)',
-             borderColor: 'var(--theme-card-border)'
-           }}>
+      <div
+        className="rounded-xl overflow-hidden border"
+        style={{
+          backgroundColor: 'var(--theme-card-bg)',
+          borderColor: 'var(--theme-card-border)'
+        }}
+      >
         {/* Gradient Banner with Icon */}
-        <div className="relative h-32 flex items-center justify-center"
-             style={{
-               background: isComplete
-                 ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
-                 : 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
-             }}>
+        <div
+          className="relative h-32 flex items-center justify-center"
+          style={{
+            background: isComplete
+              ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
+              : 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
+          }}
+        >
           {isComplete ? (
             <CheckCircle size={64} className="text-white" />
           ) : (
@@ -91,16 +95,21 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
 
               {/* Show app count if available and not in initialization */}
               {!isInitializing() &&
-               progress?.processedApps !== undefined && progress?.totalApps !== undefined && progress.totalApps > 0 && (
-                <p className="text-sm text-themed-secondary text-center">
-                  {progress.processedApps.toLocaleString()} / {progress.totalApps.toLocaleString()} apps processed
-                </p>
-              )}
+                progress?.processedApps !== undefined &&
+                progress?.totalApps !== undefined &&
+                progress.totalApps > 0 && (
+                  <p className="text-sm text-themed-secondary text-center">
+                    {progress.processedApps.toLocaleString()} /{' '}
+                    {progress.totalApps.toLocaleString()} apps processed
+                  </p>
+                )}
 
               {/* Progress Bar */}
               <div className="mt-4">
-                <div className="w-full rounded-full h-3 overflow-hidden"
-                     style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}>
+                <div
+                  className="w-full rounded-full h-3 overflow-hidden"
+                  style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                >
                   <div
                     className="h-full transition-all duration-300 ease-out rounded-full"
                     style={{
@@ -119,13 +128,16 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
 
           {/* Info Box */}
           {!isComplete && (
-            <div className="mt-6 p-4 rounded-lg"
-                 style={{
-                   backgroundColor: 'var(--theme-info-bg)',
-                   color: 'var(--theme-info-text)'
-                 }}>
+            <div
+              className="mt-6 p-4 rounded-lg"
+              style={{
+                backgroundColor: 'var(--theme-info-bg)',
+                color: 'var(--theme-info-text)'
+              }}
+            >
               <p className="text-sm text-center">
-                Building depot mappings from Steam. This typically takes 1-5 minutes depending on your connection.
+                Building depot mappings from Steam. This typically takes 1-5 minutes depending on
+                your connection.
               </p>
             </div>
           )}

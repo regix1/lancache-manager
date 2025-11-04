@@ -17,7 +17,13 @@ interface DepotInitializationModalProps {
   onAuthChanged?: () => void;
 }
 
-type InitStep = 'api-key' | 'steam-auth' | 'depot-init' | 'pics-progress' | 'log-processing' | 'depot-mapping';
+type InitStep =
+  | 'api-key'
+  | 'steam-auth'
+  | 'depot-init'
+  | 'pics-progress'
+  | 'log-processing'
+  | 'depot-mapping';
 
 const STEP_INFO: Record<InitStep, { number: number; title: string; total: number }> = {
   'api-key': { number: 1, title: 'Authentication', total: 6 },
@@ -48,11 +54,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     const stored = storage.getItem('initializationInProgress');
     return stored === 'true';
   });
-  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(() => {
-    // Restore from localStorage
-    const stored = storage.getItem('initializationMethod');
-    return (stored as 'cloud' | 'generate' | 'continue') || null;
-  });
+  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(
+    () => {
+      // Restore from localStorage
+      const stored = storage.getItem('initializationMethod');
+      return (stored as 'cloud' | 'generate' | 'continue') || null;
+    }
+  );
   const [error, setError] = useState<string | null>(null);
   const [downloadStatus, setDownloadStatus] = useState<string | null>(() => {
     // Restore from localStorage
@@ -114,7 +122,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       const authCheck = await authService.checkAuth();
       const authRequired = authCheck.requiresAuth;
 
-      console.log('[DepotInit] Auth check:', { requiresAuth: authRequired, isAuthenticated: authCheck.isAuthenticated });
+      console.log('[DepotInit] Auth check:', {
+        requiresAuth: authRequired,
+        isAuthenticated: authCheck.isAuthenticated
+      });
 
       // If we have a stored step from a previous session, validate it's still relevant
       const storedStep = storage.getItem('initializationCurrentStep');
@@ -132,7 +143,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const hasAuth = isAuthenticated || isGuestMode;
 
         if (authRequired && !hasAuth && storedStep !== 'api-key') {
-          console.log('[DepotInit] Stale initialization state detected (no auth), resetting to step 1');
+          console.log(
+            '[DepotInit] Stale initialization state detected (no auth), resetting to step 1'
+          );
           storage.removeItem('initializationCurrentStep');
           storage.removeItem('initializationInProgress');
           storage.removeItem('initializationMethod');
@@ -169,7 +182,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         }
 
         // Check if we were in the middle of a download when page reloaded
-        if ((storedStep === 'depot-init' || storedStep === 'steam-auth') && storedMethod === 'cloud' && storedInProgress === 'true') {
+        if (
+          (storedStep === 'depot-init' || storedStep === 'steam-auth') &&
+          storedMethod === 'cloud' &&
+          storedInProgress === 'true'
+        ) {
           console.log('[DepotInit] Download was in progress, checking completion status...');
           // Check if download actually completed while page was reloading
           const picsStatus = await checkPicsDataStatus();
@@ -198,7 +215,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         }
 
         // Still need to check PICS data if we're past the steam-auth step
-        if (storedStep === 'depot-init' || storedStep === 'pics-progress' || storedStep === 'log-processing' || storedStep === 'depot-mapping') {
+        if (
+          storedStep === 'depot-init' ||
+          storedStep === 'pics-progress' ||
+          storedStep === 'log-processing' ||
+          storedStep === 'depot-mapping'
+        ) {
           checkPicsDataStatus();
         }
         return;
@@ -218,7 +240,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
         // If auth is disabled, start at api-key step but with simplified UI
         if (!authRequired) {
-          console.log('[DepotInit] Authentication is globally disabled, showing simplified auth step');
+          console.log(
+            '[DepotInit] Authentication is globally disabled, showing simplified auth step'
+          );
           setCurrentStep('api-key');
           return;
         }
@@ -250,7 +274,11 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const setupData = await setupResponse.json();
         // Enable guest mode if setup has been completed or if logs have been processed
         const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
-        console.log('[DepotInit] Data availability check:', { isSetupCompleted: setupData.isSetupCompleted, hasProcessedLogs: setupData.hasProcessedLogs, hasData });
+        console.log('[DepotInit] Data availability check:', {
+          isSetupCompleted: setupData.isSetupCompleted,
+          hasProcessedLogs: setupData.hasProcessedLogs,
+          hasData
+        });
         setDataAvailable(hasData);
         return hasData;
       }
@@ -353,7 +381,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       console.log('[DepotInit] Downloading precreated data from GitHub');
 
       // Add a small delay to show the first status
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       setDownloadStatus('Downloading depot mappings from GitHub (290,000+ mappings)...');
       await ApiService.downloadPrecreatedPicsData();
@@ -364,7 +392,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       // Step 3: Move to next step
       setDownloadStatus('Success! Moving to next step...');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       console.log('[DepotInit] Changing step to log-processing');
       setInitializing(false);
@@ -402,7 +430,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       // If backend requires full scan but we already requested full, something went wrong
       if (response.requiresFullScan) {
-        console.error('[DepotInit] Backend still requires full scan even though we requested full scan');
+        console.error(
+          '[DepotInit] Backend still requires full scan even though we requested full scan'
+        );
         setError('Unable to start full scan. Please try again or download from GitHub.');
         setInitializing(false);
         setSelectedMethod(null);
@@ -459,7 +489,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         });
 
         setDownloadStatus('Import complete! Starting incremental update...');
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
       } else {
         setDownloadStatus('Starting incremental update...');
       }
@@ -470,9 +500,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       // Check if backend says full scan is required
       if (response.requiresFullScan) {
-        console.log('[DepotInit] Backend requires full scan - automatically retrying with full scan');
-        setDownloadStatus(`Change gap too large (${response.changeGap || 'unknown'}). Starting full scan instead...`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log(
+          '[DepotInit] Backend requires full scan - automatically retrying with full scan'
+        );
+        setDownloadStatus(
+          `Change gap too large (${response.changeGap || 'unknown'}). Starting full scan instead...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
         // Retry with full scan
         const fullScanResponse = await ApiService.triggerSteamKitRebuild(false);
@@ -493,7 +527,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       }
 
       setDownloadStatus('Success! Moving to next step...');
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       console.log('[DepotInit] Changing step to pics-progress');
       setInitializing(false);
@@ -573,11 +607,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         );
 
       case 'pics-progress':
-        return (
-          <PicsProgressStep
-            onComplete={() => setCurrentStep('log-processing')}
-          />
-        );
+        return <PicsProgressStep onComplete={() => setCurrentStep('log-processing')} />;
 
       case 'log-processing':
         return (
@@ -615,53 +645,62 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       <div
         className="absolute inset-0 opacity-5"
         style={{
-          backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 35px, var(--theme-text-primary) 35px, var(--theme-text-primary) 70px)`,
+          backgroundImage: `repeating-linear-gradient(45deg, transparent, transparent 35px, var(--theme-text-primary) 35px, var(--theme-text-primary) 70px)`
         }}
       />
 
-      <div className="relative z-10 max-w-4xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
-           style={{
-             backgroundColor: 'var(--theme-bg-secondary)',
-             borderColor: 'var(--theme-primary)'
-           }}>
-
+      <div
+        className="relative z-10 max-w-4xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
+        style={{
+          backgroundColor: 'var(--theme-bg-secondary)',
+          borderColor: 'var(--theme-primary)'
+        }}
+      >
         {/* Step Indicator - Top Left */}
-        <div className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-xs font-semibold"
-             style={{
-               backgroundColor: 'var(--theme-primary)/10',
-               color: 'var(--theme-primary)',
-               border: '1px solid var(--theme-primary)/30'
-             }}>
+        <div
+          className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-xs font-semibold"
+          style={{
+            backgroundColor: 'var(--theme-primary)/10',
+            color: 'var(--theme-primary)',
+            border: '1px solid var(--theme-primary)/30'
+          }}
+        >
           Step {STEP_INFO[currentStep].number} of {STEP_INFO[currentStep].total}
         </div>
 
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-               style={{ backgroundColor: 'var(--theme-primary)/10' }}>
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
+            style={{ backgroundColor: 'var(--theme-primary)/10' }}
+          >
             <AlertTriangle size={32} style={{ color: 'var(--theme-primary)' }} />
           </div>
           <h1 className="text-3xl font-bold text-themed-primary mb-2">
             Welcome to Lancache Manager
           </h1>
           <p className="text-lg text-themed-secondary">
-            {currentStep === 'api-key' ? (authDisabled ? 'Choose access mode' : 'Authentication required') : 'Initial setup'}
+            {currentStep === 'api-key'
+              ? authDisabled
+                ? 'Choose access mode'
+                : 'Authentication required'
+              : 'Initial setup'}
           </p>
         </div>
 
         {/* Content - Render current step */}
-        <div className="mb-8">
-          {renderStep()}
-        </div>
+        <div className="mb-8">{renderStep()}</div>
 
         {/* Error Display */}
         {error && (
-          <div className="p-4 rounded-lg mb-4"
-               style={{
-                 backgroundColor: 'var(--theme-error-bg)',
-                 borderColor: 'var(--theme-error)',
-                 color: 'var(--theme-error-text)'
-               }}>
+          <div
+            className="p-4 rounded-lg mb-4"
+            style={{
+              backgroundColor: 'var(--theme-error-bg)',
+              borderColor: 'var(--theme-error)',
+              color: 'var(--theme-error-text)'
+            }}
+          >
             <p className="text-sm">{error}</p>
           </div>
         )}

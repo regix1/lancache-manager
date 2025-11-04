@@ -11,8 +11,8 @@ const GrafanaEndpoints: React.FC = () => {
   useEffect(() => {
     // Check metrics security status
     fetch('/api/metrics/status')
-      .then(res => res.json())
-      .then(data => setMetricsSecured(data.requiresAuthentication))
+      .then((res) => res.json())
+      .then((data) => setMetricsSecured(data.requiresAuthentication))
       .catch(() => setMetricsSecured(false));
   }, []);
 
@@ -51,14 +51,16 @@ const GrafanaEndpoints: React.FC = () => {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
           <Link className="w-5 h-5 icon-indigo" />
-          <h3 className="text-lg font-semibold text-themed-primary">Live API Endpoints for Grafana</h3>
+          <h3 className="text-lg font-semibold text-themed-primary">
+            Live API Endpoints for Grafana
+          </h3>
         </div>
         {metricsSecured !== null && (
-          <div className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${
-            metricsSecured
-              ? 'access-indicator-secured'
-              : 'access-indicator-public'
-          }`}>
+          <div
+            className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${
+              metricsSecured ? 'access-indicator-secured' : 'access-indicator-public'
+            }`}
+          >
             {metricsSecured ? (
               <>
                 <Lock className="w-3 h-3" />
@@ -88,23 +90,32 @@ const GrafanaEndpoints: React.FC = () => {
               size="xs"
               variant="default"
               onClick={() => copyToClipboard(`${apiBaseUrl}/metrics`, 'prometheus')}
-              leftSection={copiedEndpoint === 'prometheus' ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              leftSection={
+                copiedEndpoint === 'prometheus' ? (
+                  <CheckCircle className="w-3 h-3" />
+                ) : (
+                  <Copy className="w-3 h-3" />
+                )
+              }
             >
               {copiedEndpoint === 'prometheus' ? 'Copied!' : 'Copy'}
             </Button>
           </div>
           <code className="text-xs text-themed-muted block break-all">{apiBaseUrl}/metrics</code>
-          <p className="text-xs text-themed-muted mt-1">OpenMetrics/Prometheus format for scraping</p>
+          <p className="text-xs text-themed-muted mt-1">
+            OpenMetrics/Prometheus format for scraping
+          </p>
         </div>
       </div>
 
       <div className="mt-4">
-        <Alert color={metricsSecured ? "yellow" : "blue"} className="about-section">
+        <Alert color={metricsSecured ? 'yellow' : 'blue'} className="about-section">
           <div className="space-y-2">
             <p className="text-sm">
-              <strong>Security:</strong> {metricsSecured
-                ? "Metrics endpoint requires API key authentication."
-                : "Metrics endpoint is public (no authentication required)."}
+              <strong>Security:</strong>{' '}
+              {metricsSecured
+                ? 'Metrics endpoint requires API key authentication.'
+                : 'Metrics endpoint is public (no authentication required).'}
             </p>
             {metricsSecured && (
               <div className="text-sm">
@@ -117,13 +128,15 @@ const GrafanaEndpoints: React.FC = () => {
                   <div className="ml-6">X-Api-Key: your-api-key-here</div>
                 </div>
                 <p className="mt-2 text-xs opacity-75">
-                  To make metrics public, set <code>Security__RequireAuthForMetrics=false</code> in docker-compose.yml
+                  To make metrics public, set <code>Security__RequireAuthForMetrics=false</code> in
+                  docker-compose.yml
                 </p>
               </div>
             )}
             {!metricsSecured && (
               <p className="text-xs opacity-75">
-                To require API key, set <code>Security__RequireAuthForMetrics=true</code> in docker-compose.yml
+                To require API key, set <code>Security__RequireAuthForMetrics=true</code> in
+                docker-compose.yml
               </p>
             )}
           </div>
@@ -134,12 +147,12 @@ const GrafanaEndpoints: React.FC = () => {
         <Alert color="green" className="about-section">
           <div className="space-y-2">
             <p className="text-sm">
-              <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for real-time monitoring.
-              Works with both Prometheus and JSON datasource plugins.
+              <strong>Live Updates:</strong> Configure Grafana to poll every 10-30 seconds for
+              real-time monitoring. Works with both Prometheus and JSON datasource plugins.
             </p>
             <p className="text-xs opacity-75">
-              All dashboard stat card metrics are available: cache capacity, usage ratio, hit/miss bytes,
-              hit ratio, active downloads, active clients, and per-service counters.
+              All dashboard stat card metrics are available: cache capacity, usage ratio, hit/miss
+              bytes, hit ratio, active downloads, active clients, and per-service counters.
             </p>
           </div>
         </Alert>

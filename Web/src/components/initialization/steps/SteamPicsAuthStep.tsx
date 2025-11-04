@@ -53,9 +53,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           >
             <Shield size={32} style={{ color: 'var(--theme-primary)' }} />
           </div>
-          <h2 className="text-2xl font-bold text-themed-primary mb-2">
-            Steam PICS Authentication
-          </h2>
+          <h2 className="text-2xl font-bold text-themed-primary mb-2">Steam PICS Authentication</h2>
           <p className="text-themed-secondary">
             Choose how to authenticate with Steam for depot mapping data
           </p>
@@ -70,9 +68,11 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           }}
         >
           <p className="text-sm">
-            <strong>What is depot mapping?</strong><br/>
-            Depot mapping links cache files to games. Anonymous mode provides access to public games only.
-            Logging in with your Steam account enables access to playtest and restricted games.
+            <strong>What is depot mapping?</strong>
+            <br />
+            Depot mapping links cache files to games. Anonymous mode provides access to public games
+            only. Logging in with your Steam account enables access to playtest and restricted
+            games.
           </p>
         </div>
 
@@ -83,8 +83,12 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             onClick={() => setSelectedMode('anonymous')}
             className="w-full p-4 rounded-lg border-2 text-left transition-all"
             style={{
-              borderColor: selectedMode === 'anonymous' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
-              backgroundColor: selectedMode === 'anonymous' ? 'var(--theme-primary)/10' : 'transparent'
+              borderColor:
+                selectedMode === 'anonymous'
+                  ? 'var(--theme-primary)'
+                  : 'var(--theme-border-primary)',
+              backgroundColor:
+                selectedMode === 'anonymous' ? 'var(--theme-primary)/10' : 'transparent'
             }}
           >
             <div className="flex items-start gap-3">
@@ -113,8 +117,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             onClick={() => handleModeSelect('account')}
             className="w-full p-4 rounded-lg border-2 text-left transition-all"
             style={{
-              borderColor: selectedMode === 'account' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
-              backgroundColor: selectedMode === 'account' ? 'var(--theme-primary)/10' : 'transparent'
+              borderColor:
+                selectedMode === 'account' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+              backgroundColor:
+                selectedMode === 'account' ? 'var(--theme-primary)/10' : 'transparent'
             }}
           >
             <div className="flex items-start gap-3">
@@ -129,7 +135,8 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
                   Account Login (All Games)
                 </h3>
                 <p className="text-sm text-themed-secondary">
-                  Login with Steam account to access playtest and restricted games. Depot mapping will be configured in the next step.
+                  Login with Steam account to access playtest and restricted games. Depot mapping
+                  will be configured in the next step.
                 </p>
               </div>
               {selectedMode === 'account' && (

@@ -43,11 +43,14 @@ class ApiService {
       }
 
       // Log authentication failure for diagnostics
-      console.error('[API] 401 Unauthorized - API key may be invalid or backend was restarted with new key', {
-        url: response.url,
-        errorMessage: errorData?.message,
-        hasStoredApiKey: !!authService['apiKey']
-      });
+      console.error(
+        '[API] 401 Unauthorized - API key may be invalid or backend was restarted with new key',
+        {
+          url: response.url,
+          errorMessage: errorData?.message,
+          hasStoredApiKey: !!authService['apiKey']
+        }
+      );
 
       // For other 401 errors, use standard handling
       authService.handleUnauthorized();
@@ -69,7 +72,9 @@ class ApiService {
       if (errorData) {
         if (errorData.message && errorData.details && errorData.suggestion) {
           // Full structured error
-          throw new Error(`${errorData.message}\n\n${errorData.details}\n\n${errorData.suggestion}`);
+          throw new Error(
+            `${errorData.message}\n\n${errorData.details}\n\n${errorData.suggestion}`
+          );
         } else if (errorData.message) {
           // Just a message field
           throw new Error(errorData.message);
@@ -151,7 +156,11 @@ class ApiService {
     }
   }
 
-  static async getClientStats(signal?: AbortSignal, startTime?: number, endTime?: number): Promise<ClientStat[]> {
+  static async getClientStats(
+    signal?: AbortSignal,
+    startTime?: number,
+    endTime?: number
+  ): Promise<ClientStat[]> {
     try {
       let url = `${API_BASE}/stats/clients`;
       const params = new URLSearchParams();
@@ -254,7 +263,10 @@ class ApiService {
     }
   }
 
-  static async postProcessDepotMappings(): Promise<{ message?: string; mappingsProcessed?: number }> {
+  static async postProcessDepotMappings(): Promise<{
+    message?: string;
+    mappingsProcessed?: number;
+  }> {
     const res = await fetch(`${API_BASE}/management/post-process-depot-mappings`, {
       method: 'POST',
       headers: this.getHeaders({ 'Content-Type': 'application/json' })
@@ -336,7 +348,10 @@ class ApiService {
       return await this.handleResponse(res);
     } catch (error: any) {
       // Suppress logging for "operation not found" errors (expected when operation already completed)
-      if (!error?.message?.includes('Operation not found') && !error?.message?.includes('already completed')) {
+      if (
+        !error?.message?.includes('Operation not found') &&
+        !error?.message?.includes('already completed')
+      ) {
         console.error('cancelCacheClear error:', error);
       }
       throw error;
@@ -503,7 +518,7 @@ class ApiService {
   }
 
   // Get counts of log entries per service (from log files)
-  static async getServiceLogCounts(forceRefresh: boolean = false): Promise<Record<string, number>> {
+  static async getServiceLogCounts(forceRefresh = false): Promise<Record<string, number>> {
     try {
       const url = `${API_BASE}/management/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
       const res = await fetch(url, {
@@ -651,7 +666,9 @@ class ApiService {
   }
 
   // Set cache clearing thread count (requires auth)
-  static async setCacheThreadCount(threadCount: number): Promise<{ message: string; threadCount: number }> {
+  static async setCacheThreadCount(
+    threadCount: number
+  ): Promise<{ message: string; threadCount: number }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/thread-count`, {
         method: 'POST',
@@ -679,7 +696,9 @@ class ApiService {
   }
 
   // Set cache clearing delete mode (requires auth)
-  static async setCacheDeleteMode(deleteMode: string): Promise<{ message: string; deleteMode: string }> {
+  static async setCacheDeleteMode(
+    deleteMode: string
+  ): Promise<{ message: string; deleteMode: string }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/delete-mode`, {
         method: 'POST',
@@ -735,7 +754,7 @@ class ApiService {
   }
 
   // Get corruption summary (counts of corrupted chunks per service)
-  static async getCorruptionSummary(forceRefresh: boolean = false): Promise<Record<string, number>> {
+  static async getCorruptionSummary(forceRefresh = false): Promise<Record<string, number>> {
     try {
       const url = `${API_BASE}/management/corruption/summary${forceRefresh ? '?forceRefresh=true' : ''}`;
       const res = await fetch(url, {
@@ -750,7 +769,9 @@ class ApiService {
   }
 
   // Remove corrupted chunks for a specific service (requires auth)
-  static async removeCorruptedChunks(service: string): Promise<{ message: string; service: string }> {
+  static async removeCorruptedChunks(
+    service: string
+  ): Promise<{ message: string; service: string }> {
     try {
       const res = await fetch(`${API_BASE}/management/corruption/remove`, {
         method: 'POST',
@@ -766,7 +787,10 @@ class ApiService {
   }
 
   // Get detailed corruption information for a specific service
-  static async getCorruptionDetails(service: string, forceRefresh: boolean = false): Promise<CorruptedChunkDetail[]> {
+  static async getCorruptionDetails(
+    service: string,
+    forceRefresh = false
+  ): Promise<CorruptedChunkDetail[]> {
     try {
       const url = `${API_BASE}/management/corruption/details/${encodeURIComponent(service)}${forceRefresh ? '?forceRefresh=true' : ''}`;
       const res = await fetch(url, {
@@ -810,13 +834,19 @@ class ApiService {
   }
 
   // Get active game cache detection operation (if any)
-  static async getActiveGameDetection(): Promise<{ hasActiveOperation: boolean; operation?: GameDetectionStatus }> {
+  static async getActiveGameDetection(): Promise<{
+    hasActiveOperation: boolean;
+    operation?: GameDetectionStatus;
+  }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/detect-games-active`, {
         headers: this.getHeaders(),
         signal: AbortSignal.timeout(5000)
       });
-      return await this.handleResponse<{ hasActiveOperation: boolean; operation?: GameDetectionStatus }>(res);
+      return await this.handleResponse<{
+        hasActiveOperation: boolean;
+        operation?: GameDetectionStatus;
+      }>(res);
     } catch (error) {
       console.error('getActiveGameDetection error:', error);
       throw error;
@@ -824,13 +854,21 @@ class ApiService {
   }
 
   // Get cached game detection results from database (if available)
-  static async getCachedGameDetection(): Promise<{ hasCachedResults: boolean; games?: GameCacheInfo[]; totalGamesDetected?: number }> {
+  static async getCachedGameDetection(): Promise<{
+    hasCachedResults: boolean;
+    games?: GameCacheInfo[];
+    totalGamesDetected?: number;
+  }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/detect-games-cached`, {
         headers: this.getHeaders(),
         signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
       });
-      return await this.handleResponse<{ hasCachedResults: boolean; games?: GameCacheInfo[]; totalGamesDetected?: number }>(res);
+      return await this.handleResponse<{
+        hasCachedResults: boolean;
+        games?: GameCacheInfo[];
+        totalGamesDetected?: number;
+      }>(res);
     } catch (error) {
       console.error('getCachedGameDetection error:', error);
       throw error;
@@ -838,7 +876,9 @@ class ApiService {
   }
 
   // Remove all cache files for a specific game (fire-and-forget, requires auth)
-  static async removeGameFromCache(gameAppId: number): Promise<{ message: string; gameAppId: number; status: string }> {
+  static async removeGameFromCache(
+    gameAppId: number
+  ): Promise<{ message: string; gameAppId: number; status: string }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/game/${gameAppId}`, {
         method: 'DELETE',
@@ -866,14 +906,20 @@ class ApiService {
   }
 
   // Set guest session duration configuration
-  static async setGuestSessionDuration(durationHours: number): Promise<{ success: boolean; durationHours: number; message: string }> {
+  static async setGuestSessionDuration(
+    durationHours: number
+  ): Promise<{ success: boolean; durationHours: number; message: string }> {
     try {
       const res = await fetch(`${API_BASE}/auth/guest/config/duration`, {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ durationHours })
       });
-      return await this.handleResponse<{ success: boolean; durationHours: number; message: string }>(res);
+      return await this.handleResponse<{
+        success: boolean;
+        durationHours: number;
+        message: string;
+      }>(res);
     } catch (error) {
       console.error('setGuestSessionDuration error:', error);
       throw error;

@@ -40,15 +40,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   // @ts-ignore - processingStatus is set but notifications are handled by NotificationsContext
   const [processingStatus, setProcessingStatus] = useState<ProcessingUIStatus | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
-  const [confirmModal, setConfirmModal] = useState<
-    | {
-        title: string;
-        message: string;
-        confirmLabel?: string;
-        onConfirm: () => Promise<void> | void;
-      }
-    | null
-  >(null);
+  const [confirmModal, setConfirmModal] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    onConfirm: () => Promise<void> | void;
+  } | null>(null);
 
   const logProcessingOp = useBackendOperation('activeLogProcessing', 'logProcessing', 120);
   const signalR = useSignalR();
@@ -91,7 +88,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     }
     return `${safeProcessed.toLocaleString()} entries from ${safeTotalLines.toLocaleString()} total lines`;
   };
-
 
   useEffect(() => {
     if (mockMode) {
@@ -257,7 +253,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       // Show completion for 3 seconds, then stop completely
       setTimeout(async () => {
         setProcessingStatus(null);
-        setIsProcessingLogs(false);  // Now set to false to hide modal and re-enable buttons
+        setIsProcessingLogs(false); // Now set to false to hide modal and re-enable buttons
         onDataRefreshRef.current?.();
       }, 3000);
     };
@@ -322,7 +318,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     const checkStatus = async () => {
       try {
-
         const status: ApiProcessingStatus = await ApiService.getProcessingStatus();
         if (status?.isProcessing) {
           setIsProcessingLogs(true);
@@ -351,7 +346,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           }
 
           const finalProgress = status?.percentComplete || status?.progress || 0;
-          const reachedEnd = status?.currentPosition && status?.totalSize &&
+          const reachedEnd =
+            status?.currentPosition &&
+            status?.totalSize &&
             status.currentPosition >= status.totalSize;
           // Only consider complete when status is explicitly 'complete'
           const isComplete = status?.status === 'complete' || reachedEnd;
@@ -374,13 +371,13 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               status: 'complete'
             });
 
-            setIsProcessingLogs(false);  // Set to false when complete
+            setIsProcessingLogs(false); // Set to false when complete
             await logProcessingOp.clear();
 
             // Show completion for 3 seconds, then stop
             setTimeout(() => {
               setProcessingStatus(null);
-              setIsProcessingLogs(false);  // Ensure buttons are re-enabled
+              setIsProcessingLogs(false); // Ensure buttons are re-enabled
               onDataRefresh?.();
             }, 3000);
           } else {
@@ -483,7 +480,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
         if (result.logSizeMB > 0) {
           await logProcessingOp.save({ type: 'processAll', resume: result.resume });
-          const remainingMBRaw = typeof result.remainingMB === 'number' ? result.remainingMB : result.logSizeMB || 0;
+          const remainingMBRaw =
+            typeof result.remainingMB === 'number' ? result.remainingMB : result.logSizeMB || 0;
           const initialProgress = 0;
 
           setIsProcessingLogs(true);
@@ -531,7 +529,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       onConfirm: executeProcessAllLogs
     });
   };
-
 
   const handleConfirmAction = async () => {
     if (!confirmModal) {
@@ -590,12 +587,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           </div>
         </div>
 
-
         <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
           <p className="text-xs text-themed-muted leading-relaxed">
             <strong>Reset Log Position:</strong> Choose to start from beginning or end of log file
             <br />
-            <strong>Process All Logs:</strong> Process logs based on reset position (rust service always starts from top with duplicate detection)
+            <strong>Process All Logs:</strong> Process logs based on reset position (rust service
+            always starts from top with duplicate detection)
           </p>
         </div>
 
@@ -639,7 +636,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
               <div className="space-y-3">
                 <div className="p-3 bg-themed-tertiary rounded-lg">
                   <p className="text-xs text-themed-muted leading-relaxed">
-                    <strong>Start from Beginning:</strong> Process entire log history (rust processor has duplicate detection)
+                    <strong>Start from Beginning:</strong> Process entire log history (rust
+                    processor has duplicate detection)
                     <br />
                     <strong>Start from End:</strong> Monitor only new downloads going forward
                   </p>
@@ -678,7 +676,8 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             <>
               <Alert color="yellow">
                 <p className="text-sm">
-                  <strong>Important:</strong> Ensure no other maintenance tasks are running before continuing.
+                  <strong>Important:</strong> Ensure no other maintenance tasks are running before
+                  continuing.
                 </p>
               </Alert>
 

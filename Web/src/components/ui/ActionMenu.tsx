@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, ReactNode } from 'react';
+import React, { useEffect, useRef, type ReactNode } from 'react';
 
 interface ActionMenuProps {
   isOpen: boolean;
@@ -70,9 +70,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   return (
     <div className="relative">
       {/* Trigger button wrapper - adds data attribute */}
-      <div data-action-menu-trigger="true">
-        {trigger}
-      </div>
+      <div data-action-menu-trigger="true">{trigger}</div>
 
       {/* Dropdown Menu */}
       {isOpen && (
@@ -110,12 +108,7 @@ export const ActionMenuItem: React.FC<ActionMenuItemProps> = ({
 };
 
 export const ActionMenuDivider: React.FC = () => {
-  return (
-    <div
-      className="border-t my-1"
-      style={{ borderColor: 'var(--theme-border-primary)' }}
-    />
-  );
+  return <div className="border-t my-1" style={{ borderColor: 'var(--theme-border-primary)' }} />;
 };
 
 export const ActionMenuDangerItem: React.FC<ActionMenuDangerItemProps> = ({

@@ -1,20 +1,11 @@
 import React, { useState, useCallback } from 'react';
-import {
-  Info,
-  Layers,
-  Layout,
-  Search,
-  X,
-  ChevronDown,
-  ChevronRight,
-  Save
-} from 'lucide-react';
+import { Info, Layers, Layout, Search, X, ChevronDown, ChevronRight, Save } from 'lucide-react';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
-import { ColorGroup, Theme } from './types';
+import { type ColorGroup, type Theme } from './types';
 import { storage } from '@utils/storage';
 
 interface EditThemeModalProps {
@@ -173,53 +164,61 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
     if (!search.trim()) return groups;
 
     const searchLower = search.toLowerCase();
-    return groups.map(group => {
-      const filteredColors = group.colors.filter(color =>
-        color.label.toLowerCase().includes(searchLower) ||
-        color.description.toLowerCase().includes(searchLower) ||
-        color.affects.some(affect => affect.toLowerCase().includes(searchLower)) ||
-        color.key.toLowerCase().includes(searchLower)
-      );
+    return groups
+      .map((group) => {
+        const filteredColors = group.colors.filter(
+          (color) =>
+            color.label.toLowerCase().includes(searchLower) ||
+            color.description.toLowerCase().includes(searchLower) ||
+            color.affects.some((affect) => affect.toLowerCase().includes(searchLower)) ||
+            color.key.toLowerCase().includes(searchLower)
+        );
 
-      // If group name matches, show all colors in that group
-      if (group.name.toLowerCase().includes(searchLower) ||
-          group.description.toLowerCase().includes(searchLower)) {
-        return group;
-      }
+        // If group name matches, show all colors in that group
+        if (
+          group.name.toLowerCase().includes(searchLower) ||
+          group.description.toLowerCase().includes(searchLower)
+        ) {
+          return group;
+        }
 
-      // Otherwise only show groups with matching colors
-      return { ...group, colors: filteredColors };
-    }).filter(group => group.colors.length > 0);
+        // Otherwise only show groups with matching colors
+        return { ...group, colors: filteredColors };
+      })
+      .filter((group) => group.colors.length > 0);
   };
 
   // Filter colors by page
   const filterByPage = (groups: ColorGroup[], page: string): ColorGroup[] => {
     if (page === 'all') return groups;
 
-    return groups.map(group => {
-      const filteredColors = group.colors.filter(color =>
-        color.pages?.includes(page)
-      );
-      return { ...group, colors: filteredColors };
-    }).filter(group => group.colors.length > 0);
+    return groups
+      .map((group) => {
+        const filteredColors = group.colors.filter((color) => color.pages?.includes(page));
+        return { ...group, colors: filteredColors };
+      })
+      .filter((group) => group.colors.length > 0);
   };
 
   // Get filtered groups based on organization mode
-  const getFilteredGroups = useCallback((groups: ColorGroup[], search: string): ColorGroup[] => {
-    let filtered = groups;
+  const getFilteredGroups = useCallback(
+    (groups: ColorGroup[], search: string): ColorGroup[] => {
+      let filtered = groups;
 
-    // Apply page filter if in page mode
-    if (editOrganizationMode === 'page') {
-      filtered = filterByPage(filtered, editSelectedPage);
-    }
+      // Apply page filter if in page mode
+      if (editOrganizationMode === 'page') {
+        filtered = filterByPage(filtered, editSelectedPage);
+      }
 
-    // Apply search filter
-    if (search.trim()) {
-      filtered = filterColorGroups(filtered, search);
-    }
+      // Apply search filter
+      if (search.trim()) {
+        filtered = filterColorGroups(filtered, search);
+      }
 
-    return filtered;
-  }, [editOrganizationMode, editSelectedPage]);
+      return filtered;
+    },
+    [editOrganizationMode, editSelectedPage]
+  );
 
   const handleClose = () => {
     onClose();
@@ -243,9 +242,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                   Editing Community Theme
                 </p>
                 <p className="text-xs text-themed-muted">
-                  This is a community theme that receives automatic updates.
-                  Your edits will create a custom copy named "{editedTheme.name} (Custom)"
-                  that won't receive updates. The original theme will be kept for future updates.
+                  This is a community theme that receives automatic updates. Your edits will create
+                  a custom copy named "{editedTheme.name} (Custom)" that won't receive updates. The
+                  original theme will be kept for future updates.
                 </p>
               </div>
             </div>
@@ -272,9 +271,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">
-                Author
-              </label>
+              <label className="block text-sm font-medium mb-1 text-themed-secondary">Author</label>
               <input
                 type="text"
                 value={editedTheme.author || ''}
@@ -336,12 +333,12 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
         </div>
 
         {/* Page Selector (when in page mode) */}
-        <div className={`transition-all duration-300 overflow-hidden ${
-          editOrganizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
-        }`}>
-          <label className="block text-sm font-medium text-themed-primary mb-2">
-            Select Page
-          </label>
+        <div
+          className={`transition-all duration-300 overflow-hidden ${
+            editOrganizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
+          }`}
+        >
+          <label className="block text-sm font-medium text-themed-primary mb-2">Select Page</label>
           <div className="grid grid-cols-3 gap-2">
             {pageDefinitions.map((page) => {
               const Icon = page.icon;
@@ -355,9 +352,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                       : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
                   }`}
                   style={{
-                    color: editSelectedPage === page.name
-                      ? 'var(--theme-button-text)'
-                      : undefined
+                    color: editSelectedPage === page.name ? 'var(--theme-button-text)' : undefined
                   }}
                   title={page.description}
                 >
@@ -440,7 +435,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                         affects={color.affects}
                         value={editedTheme[color.key] || '#000000'}
                         onChange={(value) => handleEditColorChange(color.key, value)}
-                        onColorCommit={(previousColor) => handleEditColorCommit(color.key, previousColor)}
+                        onColorCommit={(previousColor) =>
+                          handleEditColorCommit(color.key, previousColor)
+                        }
                         supportsAlpha={color.supportsAlpha}
                         copiedColor={copiedColor}
                         onCopy={copyColor}
@@ -474,10 +471,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
           className="flex justify-end space-x-3 pt-4 border-t"
           style={{ borderColor: 'var(--theme-border-primary)' }}
         >
-          <Button
-            variant="default"
-            onClick={handleClose}
-          >
+          <Button variant="default" onClick={handleClose}>
             Cancel
           </Button>
           <Button

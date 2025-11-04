@@ -126,7 +126,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     setShowAuthModal(false);
     setApiKey('');
     setAuthError('');
-    onSuccess?.(`Guest mode activated! You have ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''} to view data before re-authentication is required.`);
+    onSuccess?.(
+      `Guest mode activated! You have ${guestDurationHours} hour${guestDurationHours !== 1 ? 's' : ''} to view data before re-authentication is required.`
+    );
   };
 
   const formatTimeRemaining = (minutes: number): string => {
@@ -207,36 +209,51 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
   const getAlertColor = () => {
     switch (authMode) {
-      case 'authenticated': return 'green';
-      case 'guest': return 'blue';
-      case 'expired': return 'orange';
-      default: return 'yellow';
+      case 'authenticated':
+        return 'green';
+      case 'guest':
+        return 'blue';
+      case 'expired':
+        return 'orange';
+      default:
+        return 'yellow';
     }
   };
 
   const getAlertIcon = () => {
     switch (authMode) {
-      case 'authenticated': return <Unlock className="w-5 h-5" />;
-      case 'guest': return <Eye className="w-5 h-5" />;
-      case 'expired': return undefined; // Let Alert component use default AlertTriangle for orange
-      default: return <Lock className="w-5 h-5" />;
+      case 'authenticated':
+        return <Unlock className="w-5 h-5" />;
+      case 'guest':
+        return <Eye className="w-5 h-5" />;
+      case 'expired':
+        return undefined; // Let Alert component use default AlertTriangle for orange
+      default:
+        return <Lock className="w-5 h-5" />;
     }
   };
 
   const getStatusText = () => {
     switch (authMode) {
-      case 'authenticated': return 'Authenticated';
-      case 'guest': return `Guest Mode (${formatTimeRemaining(guestTimeRemaining)} remaining)`;
-      case 'expired': return 'Guest Session Expired';
-      default: return 'Not Authenticated';
+      case 'authenticated':
+        return 'Authenticated';
+      case 'guest':
+        return `Guest Mode (${formatTimeRemaining(guestTimeRemaining)} remaining)`;
+      case 'expired':
+        return 'Guest Session Expired';
+      default:
+        return 'Not Authenticated';
     }
   };
 
   const getDescriptionText = () => {
     switch (authMode) {
-      case 'authenticated': return 'Management features enabled';
-      case 'guest': return 'View-only access active';
-      case 'expired': return 'Authentication required to continue';
+      case 'authenticated':
+        return 'Management features enabled';
+      case 'guest':
+        return 'View-only access active';
+      case 'expired':
+        return 'Authentication required to continue';
       default: {
         // Show hint about guest mode if eligible
         if (hasData && hasBeenInitialized) {
@@ -253,20 +270,13 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
   return (
     <>
-      <Alert
-        color={getAlertColor()}
-        icon={getAlertIcon()}
-      >
+      <Alert color={getAlertColor()} icon={getAlertIcon()}>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex-1 min-w-0 w-full sm:w-auto">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-sm sm:text-base">
-                {getStatusText()}
-              </span>
+              <span className="font-medium text-sm sm:text-base">{getStatusText()}</span>
             </div>
-            <p className="text-xs mt-1 opacity-75">
-              {getDescriptionText()}
-            </p>
+            <p className="text-xs mt-1 opacity-75">{getDescriptionText()}</p>
             {authMode === 'guest' && guestTimeRemaining > 0 && (
               <div className="flex items-center mt-2 text-xs opacity-75">
                 <Clock className="w-3 h-3 mr-1" />
@@ -365,9 +375,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
           <div className="flex items-center space-x-3">
             <Key className="w-6 h-6 text-themed-warning" />
             <span>
-              {authMode === 'expired' ? 'Session Expired' :
-               authMode === 'guest' ? 'Full Access Required' :
-               'Authentication Required'}
+              {authMode === 'expired'
+                ? 'Session Expired'
+                : authMode === 'guest'
+                  ? 'Full Access Required'
+                  : 'Authentication Required'}
             </span>
           </div>
         }
@@ -377,8 +389,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
             {authMode === 'expired'
               ? 'Your guest session has expired. Please authenticate with an API key or start a new guest session.'
               : authMode === 'guest'
-              ? 'For full management features, please authenticate with your API key.'
-              : 'Management operations require authentication. Please enter your API key or continue as guest.'}
+                ? 'For full management features, please authenticate with your API key.'
+                : 'Management operations require authentication. Please enter your API key or continue as guest.'}
           </p>
 
           <div>
@@ -401,8 +413,15 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               <p className="font-medium mb-2">To find your API key:</p>
               <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
                 <li>SSH into your LANCache Manager server</li>
-                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code></li>
-                <li>Or check container logs: <code className="bg-themed-tertiary px-1 rounded">docker logs lancache-manager-api</code></li>
+                <li>
+                  Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>
+                </li>
+                <li>
+                  Or check container logs:{' '}
+                  <code className="bg-themed-tertiary px-1 rounded">
+                    docker logs lancache-manager-api
+                  </code>
+                </li>
               </ol>
             </div>
           </Alert>
@@ -421,17 +440,18 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                 Cancel
               </Button>
               {/* Show guest mode option only when not already in guest mode and guest mode is available */}
-              {(authMode === 'unauthenticated' || authMode === 'expired') && isGuestModeAvailable && (
-                <Button
-                  variant="filled"
-                  color="blue"
-                  leftSection={<Eye className="w-4 h-4" />}
-                  onClick={handleStartGuestMode}
-                  disabled={authLoading}
-                >
-                  Continue as Guest
-                </Button>
-              )}
+              {(authMode === 'unauthenticated' || authMode === 'expired') &&
+                isGuestModeAvailable && (
+                  <Button
+                    variant="filled"
+                    color="blue"
+                    leftSection={<Eye className="w-4 h-4" />}
+                    onClick={handleStartGuestMode}
+                    disabled={authLoading}
+                  >
+                    Continue as Guest
+                  </Button>
+                )}
             </div>
 
             <Button
@@ -464,7 +484,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Regenerating the API key will immediately log out all connected devices and guests, requiring everyone to re-authenticate with the new key.
+            Regenerating the API key will immediately log out all connected devices and guests,
+            requiring everyone to re-authenticate with the new key.
           </p>
 
           <Alert color="yellow">
@@ -474,7 +495,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                 <li>The API key will be regenerated</li>
                 <li>All users and guests will be logged out immediately</li>
                 <li>Steam integration will be logged out</li>
-                <li>Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code> for the new API key</li>
+                <li>
+                  Check <code className="bg-themed-tertiary px-1 rounded">/data/api_key.txt</code>{' '}
+                  for the new API key
+                </li>
               </ul>
             </div>
           </Alert>

@@ -1,11 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useRef,
-  useCallback
-} from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import ApiService from '@services/api.service';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
@@ -37,7 +30,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
 
-  const [lastCustomDates, setLastCustomDates] = useState<{start: Date | null, end: Date | null}>({
+  const [lastCustomDates, setLastCustomDates] = useState<{ start: Date | null; end: Date | null }>({
     start: null,
     end: null
   });
@@ -59,13 +52,11 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
 
-  // Keep refs updated
-  useEffect(() => {
-    currentTimeRangeRef.current = timeRange;
-    getTimeRangeParamsRef.current = getTimeRangeParams;
-    getPollingIntervalRef.current = getPollingInterval;
-    mockModeRef.current = mockMode;
-  }, [timeRange, getTimeRangeParams, getPollingInterval, mockMode]);
+  // Update refs on each render (no useEffect needed)
+  currentTimeRangeRef.current = timeRange;
+  getTimeRangeParamsRef.current = getTimeRangeParams;
+  getPollingIntervalRef.current = getPollingInterval;
+  mockModeRef.current = mockMode;
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -104,7 +95,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const now = Date.now();
     const debounceTime = Math.min(1000, Math.max(250, getPollingIntervalRef.current() / 4));
 
-    if (!isInitialLoad.current && (now - lastFastFetchTime.current) < debounceTime) {
+    if (!isInitialLoad.current && now - lastFastFetchTime.current < debounceTime) {
       return;
     }
 
@@ -123,8 +114,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
       const periodMap: Record<string, string> = {
-        '1h': '1h', '6h': '6h', '12h': '12h', '24h': '24h',
-        '7d': '7d', '30d': '30d', 'live': 'all', 'custom': 'custom'
+        '1h': '1h',
+        '6h': '6h',
+        '12h': '12h',
+        '24h': '24h',
+        '7d': '7d',
+        '30d': '30d',
+        live: 'all',
+        custom: 'custom'
       };
       const period = periodMap[currentTimeRangeRef.current] || '24h';
 
@@ -157,16 +154,17 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const now = Date.now();
     const debounceTime = 500;
 
-    if (!isInitialLoad.current && (now - lastMediumFetchTime.current) < debounceTime) {
+    if (!isInitialLoad.current && now - lastMediumFetchTime.current < debounceTime) {
       return;
     }
 
     lastMediumFetchTime.current = now;
 
     try {
-      const signal = (abortControllerRef.current && !abortControllerRef.current.signal.aborted)
-        ? abortControllerRef.current.signal
-        : new AbortController().signal;
+      const signal =
+        abortControllerRef.current && !abortControllerRef.current.signal.aborted
+          ? abortControllerRef.current.signal
+          : new AbortController().signal;
 
       const clients = await ApiService.getClientStats(signal, startTime, endTime);
       if (clients && clients.length >= 0) {
@@ -187,16 +185,17 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const now = Date.now();
     const debounceTime = 1000;
 
-    if (!isInitialLoad.current && (now - lastSlowFetchTime.current) < debounceTime) {
+    if (!isInitialLoad.current && now - lastSlowFetchTime.current < debounceTime) {
       return;
     }
 
     lastSlowFetchTime.current = now;
 
     try {
-      const signal = (abortControllerRef.current && !abortControllerRef.current.signal.aborted)
-        ? abortControllerRef.current.signal
-        : new AbortController().signal;
+      const signal =
+        abortControllerRef.current && !abortControllerRef.current.signal.aborted
+          ? abortControllerRef.current.signal
+          : new AbortController().signal;
 
       const services = await ApiService.getServiceStats(signal, null, startTime, endTime);
       if (services) {
@@ -243,8 +242,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
       const periodMap: Record<string, string> = {
-        '1h': '1h', '6h': '6h', '12h': '12h', '24h': '24h',
-        '7d': '7d', '30d': '30d', 'live': 'all', 'custom': 'custom'
+        '1h': '1h',
+        '6h': '6h',
+        '12h': '12h',
+        '24h': '24h',
+        '7d': '7d',
+        '30d': '30d',
+        live: 'all',
+        custom: 'custom'
       };
       const period = periodMap[currentTimeRangeRef.current] || '24h';
 
@@ -352,8 +357,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         if (mediumIntervalRef.current) clearInterval(mediumIntervalRef.current);
         if (slowIntervalRef.current) clearInterval(slowIntervalRef.current);
 
-        // Set up intervals
-        const fastInterval = getPollingInterval();
+        // Set up intervals - use ref to get current polling interval
+        const fastInterval = getPollingIntervalRef.current();
         const mediumInterval = 15000; // 15 seconds
         const slowInterval = 30000; // 30 seconds
 
@@ -370,7 +375,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       if (slowIntervalRef.current) clearInterval(slowIntervalRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [mockMode, refreshStats, getPollingInterval]);
+  }, [mockMode, refreshStats]);
 
   // Handle time range changes
   useEffect(() => {
@@ -403,16 +408,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   }, [customStartDate, customEndDate, timeRange, mockMode, refreshStats]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (fastIntervalRef.current) clearInterval(fastIntervalRef.current);
-      if (mediumIntervalRef.current) clearInterval(mediumIntervalRef.current);
-      if (slowIntervalRef.current) clearInterval(slowIntervalRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, []);
-
   const value = {
     cacheInfo,
     clientStats,
@@ -424,9 +419,5 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     refreshStats
   };
 
-  return (
-    <StatsContext.Provider value={value}>
-      {children}
-    </StatsContext.Provider>
-  );
+  return <StatsContext.Provider value={value}>{children}</StatsContext.Provider>;
 };

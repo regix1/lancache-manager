@@ -24,8 +24,8 @@ export interface PicsProgress {
   // Scheduling (what the API actually returns)
   crawlIntervalHours: number;
   crawlIncrementalMode: boolean;
-  lastCrawlTime?: string;        // ISO 8601 datetime string
-  nextCrawlIn?: number;           // Seconds remaining until next crawl
+  lastCrawlTime?: string; // ISO 8601 datetime string
+  nextCrawlIn?: number; // Seconds remaining until next crawl
 
   // Additional metadata
   startTime?: string;
@@ -67,7 +67,10 @@ interface PicsProgressProviderProps {
   mockMode?: boolean;
 }
 
-export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({ children, mockMode = false }) => {
+export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
+  children,
+  mockMode = false
+}) => {
   const signalR = useSignalR();
   const [progress, setProgress] = useState<PicsProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -117,49 +120,61 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({ chil
 
     const handleDepotMappingStarted = (payload: any) => {
       console.log('[PicsProgress] Depot mapping started:', payload);
-      setProgress(prev => prev ? {
-        ...prev,
-        isRunning: true,
-        status: payload.status || 'Running',
-        totalApps: payload.totalApps || prev.totalApps,
-        processedApps: payload.processedApps || 0,
-        progressPercent: payload.progressPercent || 0,
-        startTime: payload.startTime || new Date().toISOString()
-      } : null);
+      setProgress((prev) =>
+        prev
+          ? {
+              ...prev,
+              isRunning: true,
+              status: payload.status || 'Running',
+              totalApps: payload.totalApps || prev.totalApps,
+              processedApps: payload.processedApps || 0,
+              progressPercent: payload.progressPercent || 0,
+              startTime: payload.startTime || new Date().toISOString()
+            }
+          : null
+      );
     };
 
     const handleDepotMappingProgress = (payload: any) => {
       console.log('[PicsProgress] Depot mapping progress:', payload);
-      setProgress(prev => prev ? {
-        ...prev,
-        isRunning: true,
-        status: payload.status || prev.status,
-        totalApps: payload.totalApps || prev.totalApps,
-        processedApps: payload.processedApps || prev.processedApps,
-        totalBatches: payload.totalBatches || prev.totalBatches,
-        processedBatches: payload.processedBatches || prev.processedBatches,
-        progressPercent: payload.progressPercent || prev.progressPercent,
-        depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
-        failedBatches: payload.failedBatches,
-        remainingApps: payload.remainingApps
-      } : null);
+      setProgress((prev) =>
+        prev
+          ? {
+              ...prev,
+              isRunning: true,
+              status: payload.status || prev.status,
+              totalApps: payload.totalApps || prev.totalApps,
+              processedApps: payload.processedApps || prev.processedApps,
+              totalBatches: payload.totalBatches || prev.totalBatches,
+              processedBatches: payload.processedBatches || prev.processedBatches,
+              progressPercent: payload.progressPercent || prev.progressPercent,
+              depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
+              failedBatches: payload.failedBatches,
+              remainingApps: payload.remainingApps
+            }
+          : null
+      );
     };
 
     const handleDepotMappingComplete = (payload: any) => {
       console.log('[PicsProgress] Depot mapping complete:', payload);
       const now = new Date().toISOString();
-      setProgress(prev => prev ? {
-        ...prev,
-        isRunning: false,
-        status: 'Completed',
-        progressPercent: 100,
-        processedApps: payload.totalApps || prev.totalApps,
-        processedBatches: payload.totalBatches || prev.totalBatches,
-        depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
-        lastCrawlTime: now,
-        // Calculate next crawl time (convert hours to seconds)
-        nextCrawlIn: prev.crawlIntervalHours ? prev.crawlIntervalHours * 3600 : undefined
-      } : null);
+      setProgress((prev) =>
+        prev
+          ? {
+              ...prev,
+              isRunning: false,
+              status: 'Completed',
+              progressPercent: 100,
+              processedApps: payload.totalApps || prev.totalApps,
+              processedBatches: payload.totalBatches || prev.totalBatches,
+              depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
+              lastCrawlTime: now,
+              // Calculate next crawl time (convert hours to seconds)
+              nextCrawlIn: prev.crawlIntervalHours ? prev.crawlIntervalHours * 3600 : undefined
+            }
+          : null
+      );
     };
 
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);

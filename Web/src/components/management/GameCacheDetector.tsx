@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { HardDrive, Loader2, Database, Trash2, AlertTriangle, ChevronDown, ChevronUp, FolderOpen, Search, Lock } from 'lucide-react';
+import {
+  HardDrive,
+  Loader2,
+  Database,
+  Trash2,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  FolderOpen,
+  Search,
+  Lock
+} from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -23,7 +34,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   onDataRefresh,
   refreshKey = 0
 }) => {
-  const { addNotification, updateNotification, removeNotification, notifications } = useNotifications();
+  const { addNotification, updateNotification, removeNotification, notifications } =
+    useNotifications();
   const gameDetectionOp = useBackendOperation('activeGameDetection', 'gameDetection', 120);
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
@@ -147,7 +159,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Listen for notification events from SignalR (consolidated)
   useEffect(() => {
     // Handle completed game removals
-    const gameRemovalNotifs = notifications.filter(n => n.type === 'game_removal' && n.status === 'completed');
+    const gameRemovalNotifs = notifications.filter(
+      (n) => n.type === 'game_removal' && n.status === 'completed'
+    );
     gameRemovalNotifs.forEach((notif) => {
       const gameAppId = notif.details?.gameAppId;
       if (!gameAppId) return;
@@ -158,16 +172,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     });
 
     // Handle database reset completion
-    const databaseResetNotifs = notifications.filter(n => n.type === 'database_reset' && n.status === 'completed');
+    const databaseResetNotifs = notifications.filter(
+      (n) => n.type === 'database_reset' && n.status === 'completed'
+    );
     if (databaseResetNotifs.length > 0) {
-      console.log('[GameCacheDetector] Database reset detected, clearing games and re-checking database LogEntries');
+      console.log(
+        '[GameCacheDetector] Database reset detected, clearing games and re-checking database LogEntries'
+      );
       setGames([]);
       setTotalGames(0);
       checkIfLogsProcessed();
     }
 
     // Handle log processing completion
-    const logProcessingNotifs = notifications.filter(n => n.type === 'log_processing' && n.status === 'completed');
+    const logProcessingNotifs = notifications.filter(
+      (n) => n.type === 'log_processing' && n.status === 'completed'
+    );
     if (logProcessingNotifs.length > 0) {
       console.log('[GameCacheDetector] Log processing completed, re-checking database LogEntries');
       checkIfLogsProcessed();
@@ -177,13 +197,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Memoized filtered, sorted, and paginated games list
   const filteredAndSortedGames = useMemo(() => {
     // Filter by search query (search in game name or app ID)
-    let filtered = games.filter(game =>
-      game.game_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      game.game_app_id.toString().includes(searchQuery)
+    const filtered = games.filter(
+      (game) =>
+        game.game_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        game.game_app_id.toString().includes(searchQuery)
     );
 
     // Sort alphabetically by game name (case-insensitive)
-    filtered.sort((a, b) => a.game_name.localeCompare(b.game_name, undefined, { sensitivity: 'base' }));
+    filtered.sort((a, b) =>
+      a.game_name.localeCompare(b.game_name, undefined, { sensitivity: 'base' })
+    );
 
     return filtered;
   }, [games, searchQuery]);
@@ -397,8 +420,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     // If already expanded, collapse immediately
     if (expandedGameId === gameId) {
       setExpandedGameId(null);
-      setShowAllPaths(prev => ({ ...prev, [gameId]: false })); // Reset show all when collapsing
-      setShowAllUrls(prev => ({ ...prev, [gameId]: false }));
+      setShowAllPaths((prev) => ({ ...prev, [gameId]: false })); // Reset show all when collapsing
+      setShowAllUrls((prev) => ({ ...prev, [gameId]: false }));
       return;
     }
 
@@ -413,11 +436,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const toggleShowAllPaths = (gameId: number) => {
-    setShowAllPaths(prev => ({ ...prev, [gameId]: !prev[gameId] }));
+    setShowAllPaths((prev) => ({ ...prev, [gameId]: !prev[gameId] }));
   };
 
   const toggleShowAllUrls = (gameId: number) => {
-    setShowAllUrls(prev => ({ ...prev, [gameId]: !prev[gameId] }));
+    setShowAllUrls((prev) => ({ ...prev, [gameId]: !prev[gameId] }));
   };
 
   const formatBytes = (bytes: number): string => {
@@ -466,7 +489,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 const detectButton = (
                   <Button
                     onClick={handleDetect}
-                    disabled={loading || mockMode || cacheReadOnly || checkingPermissions || !hasProcessedLogs || checkingLogs}
+                    disabled={
+                      loading ||
+                      mockMode ||
+                      cacheReadOnly ||
+                      checkingPermissions ||
+                      !hasProcessedLogs ||
+                      checkingLogs
+                    }
                     variant="filled"
                     color="blue"
                     leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
@@ -480,388 +510,457 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <Tooltip content="Process access logs to populate the database first. LogEntries in the database are required for game detection.">
                     {detectButton}
                   </Tooltip>
-                ) : detectButton;
+                ) : (
+                  detectButton
+                );
               })()}
             </div>
           )}
 
           {!cacheReadOnly && (
             <>
-
               {/* Loading State */}
               {loading && (
                 <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-                  <p className="text-sm text-themed-secondary">Scanning database and cache directory...</p>
-                  <p className="text-xs text-themed-muted">This may take several minutes for large databases and cache directories</p>
+                  <p className="text-sm text-themed-secondary">
+                    Scanning database and cache directory...
+                  </p>
+                  <p className="text-xs text-themed-muted">
+                    This may take several minutes for large databases and cache directories
+                  </p>
                 </div>
               )}
 
-          {/* Games List */}
-          {!loading && totalGames > 0 && (
-            <>
-              <div className="mb-3 p-3 rounded-lg border" style={{
-                backgroundColor: 'var(--theme-bg-elevated)',
-                borderColor: 'var(--theme-border-secondary)'
-              }}>
-                <div className="flex items-center gap-2 text-themed-primary font-medium">
-                  <Database className="w-5 h-5 text-themed-accent" />
-                  Found {totalGames} game{totalGames !== 1 ? 's' : ''} with cache files
-                  {searchQuery && filteredAndSortedGames.length !== totalGames && (
-                    <span className="text-sm text-themed-muted font-normal">
-                      ({filteredAndSortedGames.length} matching)
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Search Bar */}
-              <div className="mb-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
-                  <input
-                    type="text"
-                    placeholder="Search by game name or AppID..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-secondary)',
-                      borderColor: 'var(--theme-border-secondary)',
-                      color: 'var(--theme-text-primary)'
-                    }}
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-themed-muted hover:text-themed-primary text-xs"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* No Results Message */}
-              {filteredAndSortedGames.length === 0 && (
-                <div className="text-center py-8 text-themed-muted">
-                  <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <div className="mb-2">No games found matching "{searchQuery}"</div>
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    onClick={() => setSearchQuery('')}
-                  >
-                    Clear search
-                  </Button>
-                </div>
-              )}
-
-              {filteredAndSortedGames.length > 0 && (
+              {/* Games List */}
+              {!loading && totalGames > 0 && (
                 <>
-                  <div className="space-y-3">
-                    {paginatedGames.map((game) => (
-                      <div
-                        key={game.game_app_id}
-                        className="rounded-lg border"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          borderColor: 'var(--theme-border-secondary)'
-                        }}
-                      >
-                    <div className="flex items-center gap-2 p-3">
-                      <Button
-                        onClick={() => toggleGameDetails(game.game_app_id)}
-                        variant="subtle"
-                        size="sm"
-                        className="flex-shrink-0"
-                        disabled={expandingGameId === game.game_app_id}
-                      >
-                        {expandingGameId === game.game_app_id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : expandedGameId === game.game_app_id ? (
-                          <ChevronUp className="w-4 h-4" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4" />
-                        )}
-                      </Button>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="text-themed-primary font-semibold truncate">
-                            {game.game_name}
-                          </h4>
-                          <span className="text-xs text-themed-muted bg-themed-elevated px-2 py-0.5 rounded flex-shrink-0">
-                            AppID: {game.game_app_id}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <FolderOpen className="w-3 h-3" />
-                            <strong className="text-themed-primary">{game.cache_files_found.toLocaleString()}</strong> files
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <HardDrive className="w-3 h-3" />
-                            <strong className="text-themed-primary">{formatBytes(game.total_size_bytes)}</strong>
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Database className="w-3 h-3" />
-                            <strong className="text-themed-primary">{game.depot_ids.length}</strong> depot{game.depot_ids.length !== 1 ? 's' : ''}
-                          </span>
-                        </div>
-                      </div>
-                      <Tooltip content="Remove all cache files for this game">
-                        <Button
-                          onClick={() => handleRemoveClick(game)}
-                          disabled={
-                            mockMode ||
-                            notifications.some(n => n.type === 'game_removal' && n.details?.gameAppId === game.game_app_id && n.status === 'running') ||
-                            !isAuthenticated ||
-                            cacheReadOnly ||
-                            checkingPermissions
-                          }
-                          variant="filled"
-                          color="red"
-                          size="sm"
-                          loading={notifications.some(n => n.type === 'game_removal' && n.details?.gameAppId === game.game_app_id && n.status === 'running')}
-                          title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
-                        >
-                          {notifications.some(n => n.type === 'game_removal' && n.details?.gameAppId === game.game_app_id && n.status === 'running') ? 'Removing...' : 'Remove'}
-                        </Button>
-                      </Tooltip>
-                    </div>
-
-                    {/* Loading State for Expansion */}
-                    {expandingGameId === game.game_app_id && (
-                      <div className="border-t px-3 py-4 flex items-center justify-center" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                        <div className="flex items-center gap-2 text-themed-muted">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="text-sm">Loading details...</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Expandable Details Section */}
-                    {expandedGameId === game.game_app_id && expandingGameId !== game.game_app_id && (
-                      <div className="border-t px-3 py-3 space-y-3" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                        {/* Depot IDs */}
-                        {game.depot_ids.length > 0 && (
-                          <div>
-                            <p className="text-xs text-themed-muted mb-1.5 font-medium">Depot IDs:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {game.depot_ids.map((depotId) => (
-                                <span
-                                  key={depotId}
-                                  className="text-xs px-2 py-0.5 rounded border"
-                                  style={{
-                                    backgroundColor: 'var(--theme-bg-elevated)',
-                                    borderColor: 'var(--theme-border-primary)',
-                                    color: 'var(--theme-text-secondary)'
-                                  }}
-                                >
-                                  {depotId}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Sample URLs */}
-                        {game.sample_urls.length > 0 && (
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <p className="text-xs text-themed-muted font-medium">
-                                Sample URLs ({game.sample_urls.length}):
-                              </p>
-                              {game.sample_urls.length > MAX_INITIAL_URLS && (
-                                <Button
-                                  variant="subtle"
-                                  size="xs"
-                                  onClick={() => toggleShowAllUrls(game.game_app_id)}
-                                  className="text-xs"
-                                >
-                                  {showAllUrls[game.game_app_id]
-                                    ? `Show less`
-                                    : `Show all ${game.sample_urls.length}`
-                                  }
-                                </Button>
-                              )}
-                            </div>
-                            <div className="space-y-1 max-h-48 overflow-y-auto">
-                              {(showAllUrls[game.game_app_id]
-                                ? game.sample_urls
-                                : game.sample_urls.slice(0, MAX_INITIAL_URLS)
-                              ).map((url, idx) => (
-                                <div
-                                  key={idx}
-                                  className="p-2 rounded border"
-                                  style={{
-                                    backgroundColor: 'var(--theme-bg-secondary)',
-                                    borderColor: 'var(--theme-border-primary)'
-                                  }}
-                                >
-                                  <Tooltip content={url}>
-                                    <span className="text-xs font-mono text-themed-primary truncate block">
-                                      {url}
-                                    </span>
-                                  </Tooltip>
-                                </div>
-                              ))}
-                            </div>
-                            {!showAllUrls[game.game_app_id] && game.sample_urls.length > MAX_INITIAL_URLS && (
-                              <p className="text-xs text-themed-muted mt-2 italic">
-                                Showing {MAX_INITIAL_URLS} of {game.sample_urls.length} URLs
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Cache File Paths */}
-                        {game.cache_file_paths && game.cache_file_paths.length > 0 && (
-                          <div>
-                            <div className="flex items-center justify-between mb-1.5">
-                              <p className="text-xs text-themed-muted font-medium">
-                                Cache File Locations ({game.cache_file_paths.length.toLocaleString()}):
-                              </p>
-                              {game.cache_file_paths.length > MAX_INITIAL_PATHS && (
-                                <Button
-                                  variant="subtle"
-                                  size="xs"
-                                  onClick={() => toggleShowAllPaths(game.game_app_id)}
-                                  className="text-xs"
-                                >
-                                  {showAllPaths[game.game_app_id]
-                                    ? `Show less`
-                                    : `Show all ${game.cache_file_paths.length.toLocaleString()}`
-                                  }
-                                </Button>
-                              )}
-                            </div>
-                            <div className="space-y-1 max-h-48 overflow-y-auto">
-                              {(showAllPaths[game.game_app_id]
-                                ? game.cache_file_paths
-                                : game.cache_file_paths.slice(0, MAX_INITIAL_PATHS)
-                              ).map((path, idx) => (
-                                <div
-                                  key={idx}
-                                  className="p-2 rounded border"
-                                  style={{
-                                    backgroundColor: 'var(--theme-bg-secondary)',
-                                    borderColor: 'var(--theme-border-primary)'
-                                  }}
-                                >
-                                  <Tooltip content={path}>
-                                    <span className="text-xs font-mono text-themed-primary truncate block">
-                                      {path}
-                                    </span>
-                                  </Tooltip>
-                                </div>
-                              ))}
-                            </div>
-                            {!showAllPaths[game.game_app_id] && game.cache_file_paths.length > MAX_INITIAL_PATHS && (
-                              <p className="text-xs text-themed-muted mt-2 italic">
-                                Showing {MAX_INITIAL_PATHS} of {game.cache_file_paths.length.toLocaleString()} paths
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  ))}
-                </div>
-
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-4 p-3 rounded-lg border" style={{
+                  <div
+                    className="mb-3 p-3 rounded-lg border"
+                    style={{
                       backgroundColor: 'var(--theme-bg-elevated)',
                       borderColor: 'var(--theme-border-secondary)'
-                    }}>
-                      <div className="text-sm text-themed-muted">
-                        Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filteredAndSortedGames.length)} of {filteredAndSortedGames.length}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                          disabled={currentPage === 1}
-                        >
-                          Previous
-                        </Button>
-                        <div className="flex items-center gap-1">
-                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                            let pageNum: number;
-                            if (totalPages <= 5) {
-                              pageNum = i + 1;
-                            } else if (currentPage <= 3) {
-                              pageNum = i + 1;
-                            } else if (currentPage >= totalPages - 2) {
-                              pageNum = totalPages - 4 + i;
-                            } else {
-                              pageNum = currentPage - 2 + i;
-                            }
-                            return (
-                              <button
-                                key={pageNum}
-                                onClick={() => setCurrentPage(pageNum)}
-                                className={`px-3 py-1 rounded text-sm transition-colors ${
-                                  currentPage === pageNum
-                                    ? 'text-themed-bg font-semibold'
-                                    : 'text-themed-secondary hover:text-themed-primary'
-                                }`}
-                                style={currentPage === pageNum ? {
-                                  backgroundColor: 'var(--theme-accent)'
-                                } : {}}
-                              >
-                                {pageNum}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                          disabled={currentPage === totalPages}
-                        >
-                          Next
-                        </Button>
-                      </div>
+                    }}
+                  >
+                    <div className="flex items-center gap-2 text-themed-primary font-medium">
+                      <Database className="w-5 h-5 text-themed-accent" />
+                      Found {totalGames} game{totalGames !== 1 ? 's' : ''} with cache files
+                      {searchQuery && filteredAndSortedGames.length !== totalGames && (
+                        <span className="text-sm text-themed-muted font-normal">
+                          ({filteredAndSortedGames.length} matching)
+                        </span>
+                      )}
                     </div>
+                  </div>
+
+                  {/* Search Bar */}
+                  <div className="mb-3">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-themed-muted" />
+                      <input
+                        type="text"
+                        placeholder="Search by game name or AppID..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 rounded-lg border text-sm"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-secondary)',
+                          borderColor: 'var(--theme-border-secondary)',
+                          color: 'var(--theme-text-primary)'
+                        }}
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 text-themed-muted hover:text-themed-primary text-xs"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* No Results Message */}
+                  {filteredAndSortedGames.length === 0 && (
+                    <div className="text-center py-8 text-themed-muted">
+                      <Search className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <div className="mb-2">
+                        No games found matching &ldquo;{searchQuery}&rdquo;
+                      </div>
+                      <Button variant="subtle" size="sm" onClick={() => setSearchQuery('')}>
+                        Clear search
+                      </Button>
+                    </div>
+                  )}
+
+                  {filteredAndSortedGames.length > 0 && (
+                    <>
+                      <div className="space-y-3">
+                        {paginatedGames.map((game) => (
+                          <div
+                            key={game.game_app_id}
+                            className="rounded-lg border"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-tertiary)',
+                              borderColor: 'var(--theme-border-secondary)'
+                            }}
+                          >
+                            <div className="flex items-center gap-2 p-3">
+                              <Button
+                                onClick={() => toggleGameDetails(game.game_app_id)}
+                                variant="subtle"
+                                size="sm"
+                                className="flex-shrink-0"
+                                disabled={expandingGameId === game.game_app_id}
+                              >
+                                {expandingGameId === game.game_app_id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : expandedGameId === game.game_app_id ? (
+                                  <ChevronUp className="w-4 h-4" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4" />
+                                )}
+                              </Button>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4 className="text-themed-primary font-semibold truncate">
+                                    {game.game_name}
+                                  </h4>
+                                  <span className="text-xs text-themed-muted bg-themed-elevated px-2 py-0.5 rounded flex-shrink-0">
+                                    AppID: {game.game_app_id}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
+                                  <span className="flex items-center gap-1">
+                                    <FolderOpen className="w-3 h-3" />
+                                    <strong className="text-themed-primary">
+                                      {game.cache_files_found.toLocaleString()}
+                                    </strong>{' '}
+                                    files
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <HardDrive className="w-3 h-3" />
+                                    <strong className="text-themed-primary">
+                                      {formatBytes(game.total_size_bytes)}
+                                    </strong>
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <Database className="w-3 h-3" />
+                                    <strong className="text-themed-primary">
+                                      {game.depot_ids.length}
+                                    </strong>{' '}
+                                    depot{game.depot_ids.length !== 1 ? 's' : ''}
+                                  </span>
+                                </div>
+                              </div>
+                              <Tooltip content="Remove all cache files for this game">
+                                <Button
+                                  onClick={() => handleRemoveClick(game)}
+                                  disabled={
+                                    mockMode ||
+                                    notifications.some(
+                                      (n) =>
+                                        n.type === 'game_removal' &&
+                                        n.details?.gameAppId === game.game_app_id &&
+                                        n.status === 'running'
+                                    ) ||
+                                    !isAuthenticated ||
+                                    cacheReadOnly ||
+                                    checkingPermissions
+                                  }
+                                  variant="filled"
+                                  color="red"
+                                  size="sm"
+                                  loading={notifications.some(
+                                    (n) =>
+                                      n.type === 'game_removal' &&
+                                      n.details?.gameAppId === game.game_app_id &&
+                                      n.status === 'running'
+                                  )}
+                                  title={
+                                    cacheReadOnly
+                                      ? 'Cache directory is mounted read-only'
+                                      : undefined
+                                  }
+                                >
+                                  {notifications.some(
+                                    (n) =>
+                                      n.type === 'game_removal' &&
+                                      n.details?.gameAppId === game.game_app_id &&
+                                      n.status === 'running'
+                                  )
+                                    ? 'Removing...'
+                                    : 'Remove'}
+                                </Button>
+                              </Tooltip>
+                            </div>
+
+                            {/* Loading State for Expansion */}
+                            {expandingGameId === game.game_app_id && (
+                              <div
+                                className="border-t px-3 py-4 flex items-center justify-center"
+                                style={{ borderColor: 'var(--theme-border-secondary)' }}
+                              >
+                                <div className="flex items-center gap-2 text-themed-muted">
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                  <span className="text-sm">Loading details...</span>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Expandable Details Section */}
+                            {expandedGameId === game.game_app_id &&
+                              expandingGameId !== game.game_app_id && (
+                                <div
+                                  className="border-t px-3 py-3 space-y-3"
+                                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                                >
+                                  {/* Depot IDs */}
+                                  {game.depot_ids.length > 0 && (
+                                    <div>
+                                      <p className="text-xs text-themed-muted mb-1.5 font-medium">
+                                        Depot IDs:
+                                      </p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {game.depot_ids.map((depotId) => (
+                                          <span
+                                            key={depotId}
+                                            className="text-xs px-2 py-0.5 rounded border"
+                                            style={{
+                                              backgroundColor: 'var(--theme-bg-elevated)',
+                                              borderColor: 'var(--theme-border-primary)',
+                                              color: 'var(--theme-text-secondary)'
+                                            }}
+                                          >
+                                            {depotId}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Sample URLs */}
+                                  {game.sample_urls.length > 0 && (
+                                    <div>
+                                      <div className="flex items-center justify-between mb-1.5">
+                                        <p className="text-xs text-themed-muted font-medium">
+                                          Sample URLs ({game.sample_urls.length}):
+                                        </p>
+                                        {game.sample_urls.length > MAX_INITIAL_URLS && (
+                                          <Button
+                                            variant="subtle"
+                                            size="xs"
+                                            onClick={() => toggleShowAllUrls(game.game_app_id)}
+                                            className="text-xs"
+                                          >
+                                            {showAllUrls[game.game_app_id]
+                                              ? `Show less`
+                                              : `Show all ${game.sample_urls.length}`}
+                                          </Button>
+                                        )}
+                                      </div>
+                                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                                        {(showAllUrls[game.game_app_id]
+                                          ? game.sample_urls
+                                          : game.sample_urls.slice(0, MAX_INITIAL_URLS)
+                                        ).map((url, idx) => (
+                                          <div
+                                            key={idx}
+                                            className="p-2 rounded border"
+                                            style={{
+                                              backgroundColor: 'var(--theme-bg-secondary)',
+                                              borderColor: 'var(--theme-border-primary)'
+                                            }}
+                                          >
+                                            <Tooltip content={url}>
+                                              <span className="text-xs font-mono text-themed-primary truncate block">
+                                                {url}
+                                              </span>
+                                            </Tooltip>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      {!showAllUrls[game.game_app_id] &&
+                                        game.sample_urls.length > MAX_INITIAL_URLS && (
+                                          <p className="text-xs text-themed-muted mt-2 italic">
+                                            Showing {MAX_INITIAL_URLS} of {game.sample_urls.length}{' '}
+                                            URLs
+                                          </p>
+                                        )}
+                                    </div>
+                                  )}
+
+                                  {/* Cache File Paths */}
+                                  {game.cache_file_paths && game.cache_file_paths.length > 0 && (
+                                    <div>
+                                      <div className="flex items-center justify-between mb-1.5">
+                                        <p className="text-xs text-themed-muted font-medium">
+                                          Cache File Locations (
+                                          {game.cache_file_paths.length.toLocaleString()}):
+                                        </p>
+                                        {game.cache_file_paths.length > MAX_INITIAL_PATHS && (
+                                          <Button
+                                            variant="subtle"
+                                            size="xs"
+                                            onClick={() => toggleShowAllPaths(game.game_app_id)}
+                                            className="text-xs"
+                                          >
+                                            {showAllPaths[game.game_app_id]
+                                              ? `Show less`
+                                              : `Show all ${game.cache_file_paths.length.toLocaleString()}`}
+                                          </Button>
+                                        )}
+                                      </div>
+                                      <div className="space-y-1 max-h-48 overflow-y-auto">
+                                        {(showAllPaths[game.game_app_id]
+                                          ? game.cache_file_paths
+                                          : game.cache_file_paths.slice(0, MAX_INITIAL_PATHS)
+                                        ).map((path, idx) => (
+                                          <div
+                                            key={idx}
+                                            className="p-2 rounded border"
+                                            style={{
+                                              backgroundColor: 'var(--theme-bg-secondary)',
+                                              borderColor: 'var(--theme-border-primary)'
+                                            }}
+                                          >
+                                            <Tooltip content={path}>
+                                              <span className="text-xs font-mono text-themed-primary truncate block">
+                                                {path}
+                                              </span>
+                                            </Tooltip>
+                                          </div>
+                                        ))}
+                                      </div>
+                                      {!showAllPaths[game.game_app_id] &&
+                                        game.cache_file_paths.length > MAX_INITIAL_PATHS && (
+                                          <p className="text-xs text-themed-muted mt-2 italic">
+                                            Showing {MAX_INITIAL_PATHS} of{' '}
+                                            {game.cache_file_paths.length.toLocaleString()} paths
+                                          </p>
+                                        )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Pagination Controls */}
+                      {totalPages > 1 && (
+                        <div
+                          className="flex items-center justify-between mt-4 p-3 rounded-lg border"
+                          style={{
+                            backgroundColor: 'var(--theme-bg-elevated)',
+                            borderColor: 'var(--theme-border-secondary)'
+                          }}
+                        >
+                          <div className="text-sm text-themed-muted">
+                            Showing {(currentPage - 1) * itemsPerPage + 1}-
+                            {Math.min(currentPage * itemsPerPage, filteredAndSortedGames.length)} of{' '}
+                            {filteredAndSortedGames.length}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                              disabled={currentPage === 1}
+                            >
+                              Previous
+                            </Button>
+                            <div className="flex items-center gap-1">
+                              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                let pageNum: number;
+                                if (totalPages <= 5) {
+                                  pageNum = i + 1;
+                                } else if (currentPage <= 3) {
+                                  pageNum = i + 1;
+                                } else if (currentPage >= totalPages - 2) {
+                                  pageNum = totalPages - 4 + i;
+                                } else {
+                                  pageNum = currentPage - 2 + i;
+                                }
+                                return (
+                                  <button
+                                    key={pageNum}
+                                    onClick={() => setCurrentPage(pageNum)}
+                                    className={`px-3 py-1 rounded text-sm transition-colors ${
+                                      currentPage === pageNum
+                                        ? 'text-themed-bg font-semibold'
+                                        : 'text-themed-secondary hover:text-themed-primary'
+                                    }`}
+                                    style={
+                                      currentPage === pageNum
+                                        ? {
+                                            backgroundColor: 'var(--theme-accent)'
+                                          }
+                                        : {}
+                                    }
+                                  >
+                                    {pageNum}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() =>
+                                setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                              }
+                              disabled={currentPage === totalPages}
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
-            </>
-          )}
 
-          {/* Empty State */}
-          {!loading && totalGames === 0 && games.length === 0 && !error && (
-            <div className="text-center py-8 text-themed-muted">
-              <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <div className="mb-2">No games with cache files detected</div>
-              {!hasProcessedLogs && !checkingLogs ? (
-                <div className="text-xs space-y-1">
-                  <div className="text-themed-warning font-medium">Database has no LogEntries</div>
-                  <div>Process access logs to populate the database. Game detection requires LogEntries to match cache files.</div>
-                </div>
-              ) : (
-                <div className="text-xs">
-                  Click "Detect Games" to scan your cache directory
+              {/* Empty State */}
+              {!loading && totalGames === 0 && games.length === 0 && !error && (
+                <div className="text-center py-8 text-themed-muted">
+                  <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <div className="mb-2">No games with cache files detected</div>
+                  {!hasProcessedLogs && !checkingLogs ? (
+                    <div className="text-xs space-y-1">
+                      <div className="text-themed-warning font-medium">
+                        Database has no LogEntries
+                      </div>
+                      <div>
+                        Process access logs to populate the database. Game detection requires
+                        LogEntries to match cache files.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs">
+                      Click &ldquo;Detect Games&rdquo; to scan your cache directory
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
 
               {/* Information Alert */}
               <Alert color="blue" className="about-section">
                 <div>
                   <p className="text-xs font-medium mb-2">About Game Cache Detection:</p>
                   <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-                    <li><strong>Requires processed logs:</strong> Access logs must be processed first to populate the database</li>
+                    <li>
+                      <strong>Requires processed logs:</strong> Access logs must be processed first
+                      to populate the database
+                    </li>
                     <li>Scans database for game records and checks if cache files exist</li>
                     <li>Shows total cache size and file count per game</li>
                     <li>Removal deletes ALL cache files for the selected game</li>
-                    <li>Log entries are preserved for analytics (use Corruption Removal to delete logs)</li>
+                    <li>
+                      Log entries are preserved for analytics (use Corruption Removal to delete
+                      logs)
+                    </li>
                   </ul>
                 </div>
               </Alert>
@@ -884,16 +983,24 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         {gameToRemove && (
           <div className="space-y-4">
             <p className="text-themed-secondary">
-              Are you sure you want to remove <span className="font-semibold text-themed-primary">{gameToRemove.game_name}</span> from cache?
+              Are you sure you want to remove{' '}
+              <span className="font-semibold text-themed-primary">{gameToRemove.game_name}</span>{' '}
+              from cache?
             </p>
 
             <Alert color="yellow">
               <div>
                 <p className="text-xs font-medium mb-2">This will:</p>
                 <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-                  <li>Delete approximately {gameToRemove.cache_files_found.toLocaleString()} cache files</li>
+                  <li>
+                    Delete approximately {gameToRemove.cache_files_found.toLocaleString()} cache
+                    files
+                  </li>
                   <li>Free up approximately {formatBytes(gameToRemove.total_size_bytes)}</li>
-                  <li>Remove cache for {gameToRemove.depot_ids.length} depot{gameToRemove.depot_ids.length !== 1 ? 's' : ''}</li>
+                  <li>
+                    Remove cache for {gameToRemove.depot_ids.length} depot
+                    {gameToRemove.depot_ids.length !== 1 ? 's' : ''}
+                  </li>
                   <li>Progress will be shown in the notification bar at the top</li>
                   <li>This action cannot be undone</li>
                 </ul>
@@ -901,10 +1008,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             </Alert>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Button
-                variant="default"
-                onClick={() => setGameToRemove(null)}
-              >
+              <Button variant="default" onClick={() => setGameToRemove(null)}>
                 Cancel
               </Button>
               <Button

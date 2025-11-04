@@ -64,7 +64,9 @@ export class BrowserFingerprint {
   private static getWebGLFingerprint(): string {
     try {
       const canvas = document.createElement('canvas');
-      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl') as WebGLRenderingContext | null;
+      const gl =
+        canvas.getContext('webgl') ||
+        (canvas.getContext('experimental-webgl') as WebGLRenderingContext | null);
 
       if (!gl) {
         return 'no-webgl';
@@ -123,7 +125,7 @@ export class BrowserFingerprint {
     const STORAGE_KEY = 'lancache_device_id';
 
     // Try to get from localStorage first
-    let storedId = localStorage.getItem(STORAGE_KEY);
+    const storedId = localStorage.getItem(STORAGE_KEY);
     if (storedId && storedId.length >= 32) {
       return storedId;
     }

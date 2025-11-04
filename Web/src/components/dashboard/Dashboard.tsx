@@ -75,7 +75,7 @@ const Dashboard: React.FC = () => {
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
-    return latestDownloads.filter(download => {
+    return latestDownloads.filter((download) => {
       // Filter out 0-byte files
       if (download.totalBytes === 0) {
         return false;
@@ -88,17 +88,17 @@ const Dashboard: React.FC = () => {
     });
   }, [latestDownloads]);
 
-  const filteredActiveDownloads = useMemo(() => {
-    // For active downloads, don't filter by size - show them all
-    // They're currently downloading and will grow in size
-    return activeDownloads;
-  }, [activeDownloads]);
+  // For active downloads, don't filter by size - show them all
+  // They're currently downloading and will grow in size
+  const filteredActiveDownloads = activeDownloads;
 
   const filteredServiceStats = useMemo(() => {
-    return serviceStats.filter(service => {
+    return serviceStats.filter((service) => {
       // Filter out services that only have small files
-      const serviceDownloads = latestDownloads.filter(d => d.service.toLowerCase() === service.service.toLowerCase());
-      const hasLargeFiles = serviceDownloads.some(d => d.totalBytes > 1024 * 1024);
+      const serviceDownloads = latestDownloads.filter(
+        (d) => d.service.toLowerCase() === service.service.toLowerCase()
+      );
+      const hasLargeFiles = serviceDownloads.some((d) => d.totalBytes > 1024 * 1024);
       return hasLargeFiles;
     });
   }, [serviceStats, latestDownloads]);
@@ -118,7 +118,7 @@ const Dashboard: React.FC = () => {
     const { startTime, endTime } = getTimeRangeParams();
 
     // Filter clients based on lastActivityLocal date
-    return clientStats.filter(client => {
+    return clientStats.filter((client) => {
       if (!client.lastActivityLocal) {
         return false;
       }
@@ -170,15 +170,24 @@ const Dashboard: React.FC = () => {
 
   const getTimeRangeLabel = useCallback(() => {
     switch (timeRange) {
-      case '1h': return 'Last hour';
-      case '6h': return 'Last 6 hours';
-      case '12h': return 'Last 12 hours';
-      case '24h': return 'Last 24 hours';
-      case '7d': return 'Last 7 days';
-      case '30d': return 'Last 30 days';
-      case 'live': return 'Live data';
-      case 'custom': return 'Custom range';
-      default: return 'Last 24 hours';
+      case '1h':
+        return 'Last hour';
+      case '6h':
+        return 'Last 6 hours';
+      case '12h':
+        return 'Last 12 hours';
+      case '24h':
+        return 'Last 24 hours';
+      case '7d':
+        return 'Last 7 days';
+      case '30d':
+        return 'Last 30 days';
+      case 'live':
+        return 'Live data';
+      case 'custom':
+        return 'Custom range';
+      default:
+        return 'Last 24 hours';
     }
   }, [timeRange]);
 
@@ -379,9 +388,15 @@ const Dashboard: React.FC = () => {
     >
       {/* Time Range Filter */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">Dashboard</h2>
+        <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
+          Dashboard
+        </h2>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 w-full sm:w-auto">
-          <Tooltip content="Reset card layout to default order" strategy="overlay" className="order-2 sm:order-1 w-full sm:w-auto">
+          <Tooltip
+            content="Reset card layout to default order"
+            strategy="overlay"
+            className="order-2 sm:order-1 w-full sm:w-auto"
+          >
             <button
               onClick={resetCardOrder}
               className="flex items-center gap-2 px-3 py-2 text-sm transition-colors rounded-lg border w-full justify-center sm:justify-start"
@@ -404,7 +419,6 @@ const Dashboard: React.FC = () => {
               <span className="sm:hidden">Reset Card Layout</span>
             </button>
           </Tooltip>
-
         </div>
       </div>
 
@@ -515,7 +529,7 @@ const Dashboard: React.FC = () => {
                   })
                 ) : (
                   <div className="px-3 py-6 text-center text-themed-muted text-sm">
-                    No hidden cards match "{searchQuery}"
+                    No hidden cards match &ldquo;{searchQuery}&rdquo;
                   </div>
                 )}
               </div>
@@ -531,7 +545,10 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-between py-3 px-4 rounded-lg bg-themed-secondary text-themed-muted text-sm">
               <div className="flex items-center gap-2">
                 <span>💡</span>
-                <span>Hold any card for 0.5 seconds to select it, then tap another card to swap positions</span>
+                <span>
+                  Hold any card for 0.5 seconds to select it, then tap another card to swap
+                  positions
+                </span>
               </div>
               <button
                 onClick={hideDragHint}
@@ -563,9 +580,18 @@ const Dashboard: React.FC = () => {
                 height: '120px'
               }}
             >
-              <div className="h-4 rounded" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '60%' }}></div>
-              <div className="h-8 rounded mt-2" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '80%' }}></div>
-              <div className="h-3 rounded mt-2" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}></div>
+              <div
+                className="h-4 rounded"
+                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '60%' }}
+              ></div>
+              <div
+                className="h-8 rounded mt-2"
+                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '80%' }}
+              ></div>
+              <div
+                className="h-3 rounded mt-2"
+                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}
+              ></div>
             </div>
           ))}
         </div>
@@ -575,37 +601,114 @@ const Dashboard: React.FC = () => {
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn"
         >
           {visibleCards.map((card: StatCardData) => (
-          <div
-            key={card.key}
-            data-card-key={card.key}
-            className={`relative group transition-all duration-200 ${
-              isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg' : ''
-            } ${
-              isDragMode && dragOverCard === card.key ? 'transform translate-y-1' : ''
-            }`}
-            style={{
-              boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
-              cursor: draggedCard === card.key ? 'grabbing' : 'default',
-              opacity: isDragMode && draggedCard === card.key ? 0.8 : 1
-            }}
-            draggable={!isDragMode}
-            onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
-            onDragEnd={dragHandlers.onDragEnd}
-            onDragOver={dragHandlers.onDragOver}
-            onDragEnter={(e) => dragHandlers.onDragEnter(e, card.key)}
-            onDragLeave={dragHandlers.onDragLeave}
-            onDrop={(e) => dragHandlers.onDrop(e, card.key)}
-            onTouchStart={() => dragHandlers.onTouchStart(card.key)}
-            onTouchEnd={dragHandlers.onTouchEnd}
-            onClick={() => dragHandlers.onCardTap(card.key)}
-          >
-            {/* Desktop drag handle - smaller, hover-triggered */}
-            {(
-              <Tooltip content="Drag to reorder" strategy="overlay" className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]">
+            <div
+              key={card.key}
+              data-card-key={card.key}
+              className={`relative group transition-all duration-200 ${
+                isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg' : ''
+              } ${isDragMode && dragOverCard === card.key ? 'transform translate-y-1' : ''}`}
+              style={{
+                boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
+                cursor: draggedCard === card.key ? 'grabbing' : 'default',
+                opacity: isDragMode && draggedCard === card.key ? 0.8 : 1
+              }}
+              draggable={!isDragMode}
+              onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
+              onDragEnd={dragHandlers.onDragEnd}
+              onDragOver={dragHandlers.onDragOver}
+              onDragEnter={(e) => dragHandlers.onDragEnter(e, card.key)}
+              onDragLeave={dragHandlers.onDragLeave}
+              onDrop={(e) => dragHandlers.onDrop(e, card.key)}
+              onTouchStart={() => dragHandlers.onTouchStart(card.key)}
+              onTouchEnd={dragHandlers.onTouchEnd}
+              onClick={() => dragHandlers.onCardTap(card.key)}
+            >
+              {/* Desktop drag handle - smaller, hover-triggered */}
+              {
+                <Tooltip
+                  content="Drag to reorder"
+                  strategy="overlay"
+                  className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]"
+                >
+                  <div
+                    className="p-1 rounded"
+                    style={{
+                      cursor: 'grab'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                  >
+                    <GripVertical
+                      className="w-4 h-4 transition-colors"
+                      style={{ color: 'var(--theme-drag-handle)' }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.color = 'var(--theme-drag-handle)';
+                      }}
+                    />
+                  </div>
+                </Tooltip>
+              }
+
+              {/* Mobile drag handle - small, transparent, always visible in top-left */}
+              {
+                <Tooltip
+                  content="Hold to reorder"
+                  strategy="overlay"
+                  className="absolute top-2 left-2 transition-all md:hidden opacity-60 z-[5]"
+                >
+                  <div
+                    className="p-1 rounded"
+                    style={{
+                      cursor: 'grab',
+                      backgroundColor: 'transparent'
+                    }}
+                  >
+                    <GripVertical
+                      className="w-4 h-4 transition-colors"
+                      style={{ color: 'var(--theme-drag-handle)' }}
+                    />
+                  </div>
+                </Tooltip>
+              }
+
+              {/* Touch feedback overlay */}
+              {isDragMode && draggedCard === card.key && (
                 <div
-                  className="p-1 rounded"
+                  className="absolute inset-0 rounded-lg border-2 border-dashed md:hidden"
                   style={{
-                    cursor: 'grab'
+                    borderColor: 'var(--theme-primary)',
+                    backgroundColor: 'rgba(var(--theme-primary-rgb), 0.1)',
+                    zIndex: 5
+                  }}
+                />
+              )}
+
+              <StatCard
+                title={card.title}
+                value={card.value}
+                subtitle={card.subtitle}
+                icon={card.icon}
+                color={card.color}
+                tooltip={card.tooltip}
+              />
+
+              <Tooltip
+                content="Hide this card"
+                strategy="overlay"
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <button
+                  onClick={() => toggleCardVisibility(card.key)}
+                  className="p-1.5 rounded-lg transition-colors"
+                  style={{
+                    backgroundColor: 'transparent'
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
@@ -614,78 +717,11 @@ const Dashboard: React.FC = () => {
                     e.currentTarget.style.backgroundColor = 'transparent';
                   }}
                 >
-                  <GripVertical
-                    className="w-4 h-4 transition-colors"
-                    style={{ color: 'var(--theme-drag-handle)' }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.color = 'var(--theme-drag-handle-hover)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.color = 'var(--theme-drag-handle)';
-                    }}
-                  />
-                </div>
+                  <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
+                </button>
               </Tooltip>
-            )}
-
-            {/* Mobile drag handle - small, transparent, always visible in top-left */}
-            {(
-              <Tooltip content="Hold to reorder" strategy="overlay" className="absolute top-2 left-2 transition-all md:hidden opacity-60 z-[5]">
-                <div
-                  className="p-1 rounded"
-                  style={{
-                    cursor: 'grab',
-                    backgroundColor: 'transparent'
-                  }}
-                >
-                  <GripVertical
-                    className="w-4 h-4 transition-colors"
-                    style={{ color: 'var(--theme-drag-handle)' }}
-                  />
-                </div>
-              </Tooltip>
-            )}
-
-            {/* Touch feedback overlay */}
-            {isDragMode && draggedCard === card.key && (
-              <div
-                className="absolute inset-0 rounded-lg border-2 border-dashed md:hidden"
-                style={{
-                  borderColor: 'var(--theme-primary)',
-                  backgroundColor: 'rgba(var(--theme-primary-rgb), 0.1)',
-                  zIndex: 5
-                }}
-              />
-            )}
-
-            <StatCard
-              title={card.title}
-              value={card.value}
-              subtitle={card.subtitle}
-              icon={card.icon}
-              color={card.color}
-              tooltip={card.tooltip}
-            />
-
-            <Tooltip content="Hide this card" strategy="overlay" className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => toggleCardVisibility(card.key)}
-                className="p-1.5 rounded-lg transition-colors"
-                style={{
-                  backgroundColor: 'transparent'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
-              </button>
-            </Tooltip>
-          </div>
-        ))}
+            </div>
+          ))}
         </div>
       )}
 
@@ -702,8 +738,14 @@ const Dashboard: React.FC = () => {
                 height: '400px'
               }}
             >
-              <div className="h-6 rounded mb-4" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}></div>
-              <div className="h-full rounded" style={{ backgroundColor: 'var(--theme-bg-hover)' }}></div>
+              <div
+                className="h-6 rounded mb-4"
+                style={{ backgroundColor: 'var(--theme-bg-hover)', width: '40%' }}
+              ></div>
+              <div
+                className="h-full rounded"
+                style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+              ></div>
             </div>
           ))}
         </div>
@@ -713,10 +755,7 @@ const Dashboard: React.FC = () => {
           className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn"
         >
           <EnhancedServiceChart serviceStats={filteredServiceStats || []} timeRange={timeRange} />
-          <RecentDownloadsPanel
-            downloads={filteredLatestDownloads || []}
-            timeRange={timeRange}
-          />
+          <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} />
         </div>
       )}
 
@@ -730,10 +769,17 @@ const Dashboard: React.FC = () => {
             height: '400px'
           }}
         >
-          <div className="h-6 rounded mb-4" style={{ backgroundColor: 'var(--theme-bg-hover)', width: '30%' }}></div>
+          <div
+            className="h-6 rounded mb-4"
+            style={{ backgroundColor: 'var(--theme-bg-hover)', width: '30%' }}
+          ></div>
           <div className="space-y-3">
             {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-12 rounded" style={{ backgroundColor: 'var(--theme-bg-hover)' }}></div>
+              <div
+                key={i}
+                className="h-12 rounded"
+                style={{ backgroundColor: 'var(--theme-bg-hover)' }}
+              ></div>
             ))}
           </div>
         </div>

@@ -6,7 +6,11 @@ interface UnknownServiceIconProps {
   style?: React.CSSProperties;
 }
 
-export const UnknownServiceIcon: React.FC<UnknownServiceIconProps> = ({ size = 48, className = '', style = {} }) => (
+export const UnknownServiceIcon: React.FC<UnknownServiceIconProps> = ({
+  size = 48,
+  className = '',
+  style = {}
+}) => (
   <svg
     viewBox="0 0 512 512"
     width={size}

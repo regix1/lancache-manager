@@ -30,11 +30,7 @@ const LancacheIcon: React.FC<LancacheIconProps> = ({ className = '', size = 24, 
       />
 
       {/* Center button divider */}
-      <path
-        d="m26 25h-4a1 1 0 0 1 0-2h4a1 1 0 0 1 0 2z"
-        fill="#000000"
-        opacity="0.3"
-      />
+      <path d="m26 25h-4a1 1 0 0 1 0-2h4a1 1 0 0 1 0 2z" fill="#000000" opacity="0.3" />
 
       {/* Right button circle (dark background) */}
       <circle cx="36" cy="19" r="7.5" fill="#000000" opacity="0.3" />

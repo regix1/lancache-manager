@@ -11,11 +11,11 @@ export const SERVICES = ['steam', 'epic', 'origin', 'blizzard', 'wsus', 'riot'] 
 
 // Polling rate options (in milliseconds) - Best practices for dashboard refresh rates
 export const POLLING_RATES = {
-  ULTRA: 1000,         // 1s - Ultra-fast (very high load, unstable)
-  REALTIME: 5000,      // 5s - Real-time monitoring (high server load)
-  STANDARD: 10000,     // 10s - Balanced performance (recommended)
-  RELAXED: 30000,      // 30s - Low server load
-  SLOW: 60000          // 60s - Minimal server impact
+  ULTRA: 1000, // 1s - Ultra-fast (very high load, unstable)
+  REALTIME: 5000, // 5s - Real-time monitoring (high server load)
+  STANDARD: 10000, // 10s - Balanced performance (recommended)
+  RELAXED: 30000, // 30s - Low server load
+  SLOW: 60000 // 60s - Minimal server impact
 } as const;
 
 export type PollingRate = keyof typeof POLLING_RATES;

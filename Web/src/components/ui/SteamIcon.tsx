@@ -7,7 +7,14 @@ interface SteamIconProps {
 }
 
 export const SteamIcon: React.FC<SteamIconProps> = ({ size = 24, className = '', style = {} }) => (
-  <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width={size} height={size} className={className} style={style}>
+  <svg
+    viewBox="0 0 24 24"
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    className={className}
+    style={style}
+  >
     <g fill="currentColor">
       <circle cx="15.5" cy="9.5" r="2.5"></circle>
       <path d="m8.67 18.34a1.49 1.49 0 0 1 -1.67-.21.5.5 0 0 0 -.66.75 2.5 2.5 0 1 0 2-4.35.49.49 0 0 0 -.56.43.5.5 0 0 0 .43.56 1.5 1.5 0 0 1 .47 2.83z"></path>

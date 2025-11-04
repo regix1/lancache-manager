@@ -183,7 +183,9 @@ class MockDataService {
     }
 
     // Sort by start time (most recent first)
-    downloads.sort((a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime());
+    downloads.sort(
+      (a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime()
+    );
 
     // Generate client stats based on actual download activity
     const clientStats = clients
@@ -226,7 +228,8 @@ class MockDataService {
       const hitBytes = serviceDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
       const missBytes = serviceDownloads.reduce((sum, d) => sum + d.cacheMissBytes, 0);
 
-      const lastActivity = serviceDownloads[0]?.startTimeLocal ||
+      const lastActivity =
+        serviceDownloads[0]?.startTimeLocal ||
         new Date(now.getTime() - Math.random() * 7200000).toISOString();
 
       return {
@@ -245,8 +248,10 @@ class MockDataService {
     const totalCacheHit = downloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
     const totalCacheMiss = downloads.reduce((sum, d) => sum + d.cacheMissBytes, 0);
     const totalBytes = totalCacheHit + totalCacheMiss;
-    const topServiceStat = serviceStats.reduce((max, stat) =>
-      stat.totalBytes > max.totalBytes ? stat : max, serviceStats[0]);
+    const topServiceStat = serviceStats.reduce(
+      (max, stat) => (stat.totalBytes > max.totalBytes ? stat : max),
+      serviceStats[0]
+    );
 
     const dashboardStats = {
       totalBandwidthSaved: totalCacheHit,
@@ -265,11 +270,13 @@ class MockDataService {
         hitRatio: totalBytes > 0 ? (totalCacheHit / totalBytes) * 100 : 0,
         downloads: downloads.length
       },
-      serviceBreakdown: serviceStats.map(stat => ({
-        service: stat.service,
-        bytes: stat.totalBytes,
-        percentage: totalBytes > 0 ? (stat.totalBytes / totalBytes) * 100 : 0
-      })).sort((a, b) => b.bytes - a.bytes),
+      serviceBreakdown: serviceStats
+        .map((stat) => ({
+          service: stat.service,
+          bytes: stat.totalBytes,
+          percentage: totalBytes > 0 ? (stat.totalBytes / totalBytes) * 100 : 0
+        }))
+        .sort((a, b) => b.bytes - a.bytes),
       lastUpdated: now
     };
 

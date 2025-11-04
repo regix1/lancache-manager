@@ -34,12 +34,14 @@ interface CommunityTheme {
 interface CommunityThemeImporterProps {
   isAuthenticated: boolean;
   onThemeImported?: () => void;
-  installedThemes?: Array<{ meta: { id: string; version?: string } }>;
+  installedThemes?: { meta: { id: string; version?: string } }[];
   autoCheckUpdates?: boolean;
 }
 
-const GITHUB_API_BASE = 'https://api.github.com/repos/regix1/lancache-manager/contents/community-themes';
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/regix1/lancache-manager/refs/heads/main/community-themes';
+const GITHUB_API_BASE =
+  'https://api.github.com/repos/regix1/lancache-manager/contents/community-themes';
+const GITHUB_RAW_BASE =
+  'https://raw.githubusercontent.com/regix1/lancache-manager/refs/heads/main/community-themes';
 
 export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   isAuthenticated,
@@ -62,14 +64,19 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
   // Watch for changes in both community themes and installed themes, and auto-update when both are ready
   useEffect(() => {
-    if (communityThemes.length > 0 && installedThemes.length > 0 && autoCheckUpdates && isAuthenticated) {
+    if (
+      communityThemes.length > 0 &&
+      installedThemes.length > 0 &&
+      autoCheckUpdates &&
+      isAuthenticated
+    ) {
       checkAndUpdateThemes(communityThemes);
     }
   }, [communityThemes, installedThemes, autoCheckUpdates, isAuthenticated]);
 
   // Check which community themes are already installed
   const isThemeInstalled = (themeId: string): boolean => {
-    return installedThemes.some(t => t.meta.id === themeId);
+    return installedThemes.some((t) => t.meta.id === themeId);
   };
 
   const loadCommunityThemes = async () => {
@@ -86,8 +93,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const files = await response.json();
 
       // Filter for .toml files
-      const tomlFiles = files.filter((file: any) =>
-        file.name.endsWith('.toml') && file.type === 'file'
+      const tomlFiles = files.filter(
+        (file: any) => file.name.endsWith('.toml') && file.type === 'file'
       );
 
       // Fetch content for each theme file
@@ -179,7 +186,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       }
 
       // Mark theme as imported
-      setImportedThemes(prev => new Set([...prev, theme.fileName]));
+      setImportedThemes((prev) => new Set([...prev, theme.fileName]));
       setSuccessMessage(`Successfully imported "${theme.meta?.name || theme.name}"!`);
 
       // Call the callback to refresh the theme list
@@ -217,9 +224,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     const themesToUpdate: CommunityTheme[] = [];
 
     for (const communityTheme of themes) {
-      const installedTheme = installedThemes.find(
-        t => t.meta.id === communityTheme.meta?.id
-      );
+      const installedTheme = installedThemes.find((t) => t.meta.id === communityTheme.meta?.id);
 
       if (installedTheme && communityTheme.meta?.version && installedTheme.meta.version) {
         const comparison = compareVersions(
@@ -241,7 +246,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       }
 
       if (successCount > 0) {
-        setSuccessMessage(`Successfully auto-updated ${successCount} theme${successCount !== 1 ? 's' : ''} to latest version!`);
+        setSuccessMessage(
+          `Successfully auto-updated ${successCount} theme${successCount !== 1 ? 's' : ''} to latest version!`
+        );
         setTimeout(() => setSuccessMessage(null), 5000);
       }
     }
@@ -250,7 +257,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const updateThemeSilently = async (theme: CommunityTheme): Promise<boolean> => {
     if (!isAuthenticated) return false;
 
-    setUpdatingThemes(prev => new Set([...prev, theme.fileName]));
+    setUpdatingThemes((prev) => new Set([...prev, theme.fileName]));
 
     try {
       // Add isCommunityTheme flag to the TOML content
@@ -290,7 +297,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         throw new Error(error.error || 'Failed to update theme');
       }
 
-      console.log(`Auto-updated theme: ${theme.meta?.name || theme.name} to v${theme.meta?.version}`);
+      console.log(
+        `Auto-updated theme: ${theme.meta?.name || theme.name} to v${theme.meta?.version}`
+      );
 
       if (onThemeImported) {
         onThemeImported();
@@ -301,7 +310,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       console.error(`Failed to auto-update theme ${theme.meta?.name || theme.name}:`, err);
       return false;
     } finally {
-      setUpdatingThemes(prev => {
+      setUpdatingThemes((prev) => {
         const next = new Set(prev);
         next.delete(theme.fileName);
         return next;
@@ -338,7 +347,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
               color="default"
               size="sm"
               onClick={() => setShowImported(!showImported)}
-              leftSection={showImported ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              leftSection={
+                showImported ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />
+              }
               className="transition-all duration-200"
             >
               {showImported ? 'Hide Imported' : 'Show Imported'}
@@ -357,18 +368,10 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       </div>
 
       {/* Error Alert */}
-      {error && (
-        <Alert color="red">
-          {error}
-        </Alert>
-      )}
+      {error && <Alert color="red">{error}</Alert>}
 
       {/* Success Alert */}
-      {successMessage && (
-        <Alert color="green">
-          {successMessage}
-        </Alert>
-      )}
+      {successMessage && <Alert color="green">{successMessage}</Alert>}
 
       {/* Auto-Update Progress Alert */}
       {updatingThemes.size > 0 && (
@@ -376,7 +379,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           <div className="flex items-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span className="text-sm">
-              Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''} to latest version...
+              Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''} to
+              latest version...
             </span>
           </div>
         </Alert>
@@ -384,9 +388,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       {/* Authentication Warning */}
       {!isAuthenticated && (
-        <Alert color="yellow">
-          Authentication required to import community themes
-        </Alert>
+        <Alert color="yellow">Authentication required to import community themes</Alert>
       )}
 
       {/* Loading State */}
@@ -409,113 +411,126 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {communityThemes.map((theme) => {
-                const isInstalled = isThemeInstalled(theme.meta?.id || '');
-                const isImported = importedThemes.has(theme.fileName);
-                const isImporting = importing === theme.fileName;
-                const isUpdating = updatingThemes.has(theme.fileName);
-                const colorPreview = getColorPreview(theme.colors);
-                const shouldHide = !showImported && (isInstalled || isImported);
+              const isInstalled = isThemeInstalled(theme.meta?.id || '');
+              const isImported = importedThemes.has(theme.fileName);
+              const isImporting = importing === theme.fileName;
+              const isUpdating = updatingThemes.has(theme.fileName);
+              const colorPreview = getColorPreview(theme.colors);
+              const shouldHide = !showImported && (isInstalled || isImported);
 
-            return (
-              <div
-                key={theme.fileName}
-                className={`rounded-lg themed-card border transition-all duration-300 ${
-                  shouldHide
-                    ? 'opacity-0 scale-95 h-0 p-0 m-0 border-0 overflow-hidden pointer-events-none'
-                    : 'opacity-100 scale-100 p-4 border-themed-secondary hover:border-themed-primary'
-                }`}
-                style={{
-                  transition: 'opacity 0.3s ease-out, transform 0.3s ease-out, height 0.3s ease-out, padding 0.3s ease-out, margin 0.3s ease-out, border-width 0.3s ease-out'
-                }}
-              >
-                {/* Theme Header */}
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-themed-primary">
-                        {theme.meta?.name || theme.name}
-                      </span>
-                      {theme.meta?.isDark ? (
-                        <Moon className="w-3 h-3 text-themed-muted" />
-                      ) : (
-                        <Sun className="w-3 h-3 text-themed-warning" />
-                      )}
-                      {isUpdating && (
-                        <span className="px-2 py-0.5 text-xs rounded flex items-center gap-1" style={{ backgroundColor: 'var(--theme-info)', color: 'var(--theme-info-text)' }}>
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          Updating...
+              return (
+                <div
+                  key={theme.fileName}
+                  className={`rounded-lg themed-card border transition-all duration-300 ${
+                    shouldHide
+                      ? 'opacity-0 scale-95 h-0 p-0 m-0 border-0 overflow-hidden pointer-events-none'
+                      : 'opacity-100 scale-100 p-4 border-themed-secondary hover:border-themed-primary'
+                  }`}
+                  style={{
+                    transition:
+                      'opacity 0.3s ease-out, transform 0.3s ease-out, height 0.3s ease-out, padding 0.3s ease-out, margin 0.3s ease-out, border-width 0.3s ease-out'
+                  }}
+                >
+                  {/* Theme Header */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-themed-primary">
+                          {theme.meta?.name || theme.name}
                         </span>
-                      )}
-                      {(isImported || isInstalled) && !isUpdating && (
-                        <span className="px-2 py-0.5 text-xs rounded bg-themed-success text-white">
-                          Imported
-                        </span>
-                      )}
+                        {theme.meta?.isDark ? (
+                          <Moon className="w-3 h-3 text-themed-muted" />
+                        ) : (
+                          <Sun className="w-3 h-3 text-themed-warning" />
+                        )}
+                        {isUpdating && (
+                          <span
+                            className="px-2 py-0.5 text-xs rounded flex items-center gap-1"
+                            style={{
+                              backgroundColor: 'var(--theme-info)',
+                              color: 'var(--theme-info-text)'
+                            }}
+                          >
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Updating...
+                          </span>
+                        )}
+                        {(isImported || isInstalled) && !isUpdating && (
+                          <span className="px-2 py-0.5 text-xs rounded bg-themed-success text-white">
+                            Imported
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {theme.meta?.description && (
+                      <p className="text-xs text-themed-muted mb-2">{theme.meta.description}</p>
+                    )}
+
+                    <div className="flex items-center gap-3 text-xs text-themed-muted">
+                      {theme.meta?.author && <span>by {theme.meta.author}</span>}
+                      {theme.meta?.version && <span>v{theme.meta.version}</span>}
                     </div>
                   </div>
 
-                  {theme.meta?.description && (
-                    <p className="text-xs text-themed-muted mb-2">
-                      {theme.meta.description}
-                    </p>
-                  )}
-
-                  <div className="flex items-center gap-3 text-xs text-themed-muted">
-                    {theme.meta?.author && <span>by {theme.meta.author}</span>}
-                    {theme.meta?.version && <span>v{theme.meta.version}</span>}
+                  {/* Color Preview */}
+                  <div className="mb-3">
+                    <p className="text-xs text-themed-muted mb-1">Color Preview:</p>
+                    <div className="flex gap-1">
+                      {colorPreview.map((color, idx) => (
+                        <div
+                          key={idx}
+                          className="flex-1 h-6 rounded"
+                          style={{
+                            backgroundColor: color,
+                            border:
+                              color === '#ffffff' || color.toLowerCase().includes('fff')
+                                ? '1px solid var(--theme-border-secondary)'
+                                : 'none'
+                          }}
+                          title={color}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                {/* Color Preview */}
-                <div className="mb-3">
-                  <p className="text-xs text-themed-muted mb-1">Color Preview:</p>
-                  <div className="flex gap-1">
-                    {colorPreview.map((color, idx) => (
-                      <div
-                        key={idx}
-                        className="flex-1 h-6 rounded"
-                        style={{
-                          backgroundColor: color,
-                          border: color === '#ffffff' || color.toLowerCase().includes('fff')
-                            ? '1px solid var(--theme-border-secondary)'
-                            : 'none'
-                        }}
-                        title={color}
-                      />
-                    ))}
-                  </div>
+                  {/* Import Button */}
+                  <Button
+                    variant="filled"
+                    color="purple"
+                    size="sm"
+                    fullWidth
+                    leftSection={
+                      isImported || isInstalled ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )
+                    }
+                    onClick={() => handleImportTheme(theme)}
+                    disabled={!isAuthenticated || isImporting || isImported || isInstalled}
+                    loading={isImporting}
+                  >
+                    {isImported || isInstalled ? 'Imported' : 'Import Theme'}
+                  </Button>
                 </div>
-
-                {/* Import Button */}
-                <Button
-                  variant="filled"
-                  color="purple"
-                  size="sm"
-                  fullWidth
-                  leftSection={(isImported || isInstalled) ? <Check className="w-4 h-4" /> : <Download className="w-4 h-4" />}
-                  onClick={() => handleImportTheme(theme)}
-                  disabled={!isAuthenticated || isImporting || isImported || isInstalled}
-                  loading={isImporting}
-                >
-                  {(isImported || isInstalled) ? 'Imported' : 'Import Theme'}
-                </Button>
-              </div>
-            );
-          })}
+              );
+            })}
           </div>
 
           {/* Empty State when all themes are hidden */}
-          {!showImported && communityThemes.every(theme => {
-            const isInstalled = isThemeInstalled(theme.meta?.id || '');
-            const isImported = importedThemes.has(theme.fileName);
-            return isInstalled || isImported;
-          }) && (
-            <div className="text-center py-8 text-themed-muted animate-fadeIn">
-              <Check className="w-12 h-12 mx-auto mb-2 opacity-50" />
-              <p className="font-medium mb-1">All themes imported!</p>
-              <p className="text-sm">Click "Show Imported" to view installed themes</p>
-            </div>
-          )}
+          {!showImported &&
+            communityThemes.every((theme) => {
+              const isInstalled = isThemeInstalled(theme.meta?.id || '');
+              const isImported = importedThemes.has(theme.fileName);
+              return isInstalled || isImported;
+            }) && (
+              <div className="text-center py-8 text-themed-muted animate-fadeIn">
+                <Check className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                <p className="font-medium mb-1">All themes imported!</p>
+                <p className="text-sm">Click "Show Imported" to view installed themes</p>
+              </div>
+            )}
         </>
       )}
     </div>

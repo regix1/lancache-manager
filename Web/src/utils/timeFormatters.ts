@@ -8,9 +8,9 @@
  */
 export function formatNextCrawlTime(
   nextCrawlIn: any,
-  isRunning: boolean = false,
-  fullScanRequired: boolean = false,
-  crawlIncrementalMode: boolean = true
+  isRunning = false,
+  fullScanRequired = false,
+  crawlIncrementalMode = true
 ): string {
   if (isRunning) {
     return 'Running now';
@@ -31,7 +31,7 @@ export function formatNextCrawlTime(
     totalSeconds = nextCrawlIn.totalHours * 3600;
   } else if (typeof nextCrawlIn === 'object' && nextCrawlIn.hours !== undefined) {
     // Object with {hours, minutes, seconds} properties
-    totalSeconds = (nextCrawlIn.hours * 3600) + (nextCrawlIn.minutes * 60) + nextCrawlIn.seconds;
+    totalSeconds = nextCrawlIn.hours * 3600 + nextCrawlIn.minutes * 60 + nextCrawlIn.seconds;
   } else if (typeof nextCrawlIn === 'string') {
     // TimeSpan string format: "HH:MM:SS" or "D.HH:MM:SS"
     const parts = nextCrawlIn.split(':');
@@ -49,7 +49,7 @@ export function formatNextCrawlTime(
 
       const minutes = parseInt(parts[1]) || 0;
       const seconds = parseInt(parts[2]) || 0;
-      totalSeconds = (days * 86400) + (hours * 3600) + (minutes * 60) + seconds;
+      totalSeconds = days * 86400 + hours * 3600 + minutes * 60 + seconds;
     } else {
       return 'Loading...';
     }
@@ -100,7 +100,7 @@ export function toTotalHours(timeValue: any): number {
     if (parts.length >= 2) {
       const hours = parseInt(parts[0]) || 0;
       const minutes = parseInt(parts[1]) || 0;
-      return hours + (minutes / 60);
+      return hours + minutes / 60;
     }
   } else if (typeof timeValue === 'number') {
     // Assume seconds
@@ -121,7 +121,7 @@ export function toTotalSeconds(timeValue: any): number {
     return timeValue.totalHours * 3600;
   } else if (typeof timeValue === 'object' && timeValue?.hours !== undefined) {
     // Object with {hours, minutes, seconds} properties
-    return (timeValue.hours * 3600) + (timeValue.minutes * 60) + timeValue.seconds;
+    return timeValue.hours * 3600 + timeValue.minutes * 60 + timeValue.seconds;
   } else if (typeof timeValue === 'string') {
     const parts = timeValue.split(':');
     if (parts.length >= 3) {
@@ -138,7 +138,7 @@ export function toTotalSeconds(timeValue: any): number {
 
       const minutes = parseInt(parts[1]) || 0;
       const seconds = parseInt(parts[2]) || 0;
-      return (days * 86400) + (hours * 3600) + (minutes * 60) + seconds;
+      return days * 86400 + hours * 3600 + minutes * 60 + seconds;
     }
   } else if (typeof timeValue === 'number') {
     return timeValue;

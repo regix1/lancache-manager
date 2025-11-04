@@ -45,7 +45,9 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
       if (response.ok) {
         const authState: SteamAuthenticationState = await response.json();
         setSteamAuthMode(authState.mode);
-        setUsername(authState.mode === 'authenticated' && authState.username ? authState.username : '');
+        setUsername(
+          authState.mode === 'authenticated' && authState.username ? authState.username : ''
+        );
       }
     } catch (error) {
       console.error('[SteamAuth] Failed to fetch Steam auth status:', error);

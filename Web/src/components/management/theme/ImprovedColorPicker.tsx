@@ -48,7 +48,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
       const g = parseInt(rgbaMatch[2]);
       const b = parseInt(rgbaMatch[3]);
       const a = rgbaMatch[4] ? parseFloat(rgbaMatch[4]) : 1;
-      const hex = '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+      const hex = '#' + [r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('');
       setHexValue(hex);
       setAlpha(a);
     } else if (value.startsWith('#')) {
@@ -165,14 +165,8 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
     <div className="grid grid-cols-[1fr_auto] gap-4 items-start">
       {/* Label and description */}
       <div>
-        {label && (
-          <label className="block text-sm font-medium text-themed-primary">
-            {label}
-          </label>
-        )}
-        {description && (
-          <p className="text-xs text-themed-muted">{description}</p>
-        )}
+        {label && <label className="block text-sm font-medium text-themed-primary">{label}</label>}
+        {description && <p className="text-xs text-themed-muted">{description}</p>}
         {affects.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {affects.map((item, idx) => (
@@ -208,58 +202,59 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
           />
 
           {/* Color picker popover - rendered via portal */}
-          {showPicker && createPortal(
-            <div
-              ref={popupRef}
-              className="fixed p-3 rounded-lg shadow-2xl"
-              style={{
-                backgroundColor: 'var(--theme-bg-primary)',
-                border: '1px solid var(--theme-border-primary)',
-                left: `${pickerPosition.left}px`,
-                top: `${pickerPosition.top}px`,
-                zIndex: 100001,
-                isolation: 'isolate'
-              }}
-            >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-themed-secondary">Pick Color</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowPicker(false)}
-                      className="p-1 rounded hover:bg-themed-hover"
-                    >
-                      <X className="w-3 h-3 text-themed-muted" />
-                    </button>
-                  </div>
-                  <HexColorPicker color={hexValue} onChange={handleHexChange} />
-                  <div className="mt-3 space-y-2">
-                    <HexColorInput
-                      color={hexValue}
-                      onChange={handleHexChange}
-                      className="w-full px-2 py-1 text-xs rounded font-mono themed-input"
-                      prefixed
-                    />
-                    {supportsAlpha && (
-                      <div className="flex items-center gap-2">
-                        <Percent className="w-3 h-3 text-themed-muted" />
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={Math.round(alpha * 100)}
-                          onChange={(e) => handleAlphaChange(parseInt(e.target.value) / 100)}
-                          className="flex-1"
-                          title={`Opacity: ${Math.round(alpha * 100)}%`}
-                        />
-                        <span className="text-xs text-themed-muted w-10 text-right">
-                          {Math.round(alpha * 100)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-            </div>,
-            document.body
-          )}
+          {showPicker &&
+            createPortal(
+              <div
+                ref={popupRef}
+                className="fixed p-3 rounded-lg shadow-2xl"
+                style={{
+                  backgroundColor: 'var(--theme-bg-primary)',
+                  border: '1px solid var(--theme-border-primary)',
+                  left: `${pickerPosition.left}px`,
+                  top: `${pickerPosition.top}px`,
+                  zIndex: 100001,
+                  isolation: 'isolate'
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-themed-secondary">Pick Color</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowPicker(false)}
+                    className="p-1 rounded hover:bg-themed-hover"
+                  >
+                    <X className="w-3 h-3 text-themed-muted" />
+                  </button>
+                </div>
+                <HexColorPicker color={hexValue} onChange={handleHexChange} />
+                <div className="mt-3 space-y-2">
+                  <HexColorInput
+                    color={hexValue}
+                    onChange={handleHexChange}
+                    className="w-full px-2 py-1 text-xs rounded font-mono themed-input"
+                    prefixed
+                  />
+                  {supportsAlpha && (
+                    <div className="flex items-center gap-2">
+                      <Percent className="w-3 h-3 text-themed-muted" />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={Math.round(alpha * 100)}
+                        onChange={(e) => handleAlphaChange(parseInt(e.target.value) / 100)}
+                        className="flex-1"
+                        title={`Opacity: ${Math.round(alpha * 100)}%`}
+                      />
+                      <span className="text-xs text-themed-muted w-10 text-right">
+                        {Math.round(alpha * 100)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>,
+              document.body
+            )}
         </div>
 
         {/* Text input */}
@@ -295,7 +290,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             onClick={onRestore}
             disabled={!hasHistory}
             className="p-1 rounded-lg hover:bg-opacity-50 bg-themed-hover disabled:opacity-30 disabled:cursor-not-allowed transition-none"
-            title={hasHistory ? "Restore previous color" : "No history available"}
+            title={hasHistory ? 'Restore previous color' : 'No history available'}
           >
             <RotateCcw className="w-3 h-3 text-themed-muted" />
           </button>

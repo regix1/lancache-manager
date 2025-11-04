@@ -32,10 +32,15 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const triggerRef = useRef<HTMLDivElement>(null);
 
   // Check if tooltips are disabled globally
-  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+  const tooltipsDisabled =
+    document.documentElement.getAttribute('data-disable-tooltips') === 'true';
 
   // Default children with conditional cursor style
-  const defaultChildren = <Info className={`w-5 h-5 text-themed-muted p-1.5 -m-1.5 ${tooltipsDisabled ? '' : 'cursor-help'}`} />;
+  const defaultChildren = (
+    <Info
+      className={`w-5 h-5 text-themed-muted p-1.5 -m-1.5 ${tooltipsDisabled ? '' : 'cursor-help'}`}
+    />
+  );
   const childContent = children ?? defaultChildren;
 
   return (
@@ -61,32 +66,39 @@ export const Tooltip: React.FC<TooltipProps> = ({
         {childContent}
       </div>
 
-      {show && !tooltipsDisabled && strategy === 'overlay' && createPortal(
-        <div
-          className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
-          style={{
-            left: x + 10,
-            top: y + 10,
-            backdropFilter: 'blur(8px)',
-            border: '1px solid var(--theme-card-border)',
-            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
-          }}
-        >
-          {content}
-        </div>,
-        document.body
-      )}
+      {show &&
+        !tooltipsDisabled &&
+        strategy === 'overlay' &&
+        createPortal(
+          <div
+            className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
+            style={{
+              left: x + 10,
+              top: y + 10,
+              backdropFilter: 'blur(8px)',
+              border: '1px solid var(--theme-card-border)',
+              boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
+            }}
+          >
+            {content}
+          </div>,
+          document.body
+        )}
 
-      {show && !tooltipsDisabled && strategy === 'edge' && triggerRef.current && createPortal(
-        <EdgeTooltip
-          trigger={triggerRef.current}
-          content={content}
-          position={position}
-          offset={offset}
-          contentClassName={contentClassName}
-        />,
-        document.body
-      )}
+      {show &&
+        !tooltipsDisabled &&
+        strategy === 'edge' &&
+        triggerRef.current &&
+        createPortal(
+          <EdgeTooltip
+            trigger={triggerRef.current}
+            content={content}
+            position={position}
+            offset={offset}
+            contentClassName={contentClassName}
+          />,
+          document.body
+        )}
     </>
   );
 };
@@ -148,8 +160,14 @@ const EdgeTooltip: React.FC<{
     }
 
     // Clamp to viewport bounds
-    x = Math.max(viewportPadding, Math.min(x, window.innerWidth - tooltipRect.width - viewportPadding));
-    y = Math.max(viewportPadding, Math.min(y, window.innerHeight - tooltipRect.height - viewportPadding));
+    x = Math.max(
+      viewportPadding,
+      Math.min(x, window.innerWidth - tooltipRect.width - viewportPadding)
+    );
+    y = Math.max(
+      viewportPadding,
+      Math.min(y, window.innerHeight - tooltipRect.height - viewportPadding)
+    );
 
     setPos({ x, y });
   }, [trigger, position, offset]);
@@ -172,7 +190,8 @@ const EdgeTooltip: React.FC<{
 };
 
 export const CacheInfoTooltip: React.FC = () => {
-  const tooltipsDisabled = document.documentElement.getAttribute('data-disable-tooltips') === 'true';
+  const tooltipsDisabled =
+    document.documentElement.getAttribute('data-disable-tooltips') === 'true';
 
   return (
     <Tooltip

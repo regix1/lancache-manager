@@ -37,7 +37,10 @@ interface DownloadsProviderProps {
   mockMode?: boolean;
 }
 
-export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, mockMode = false }) => {
+export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
+  children,
+  mockMode = false
+}) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate } = useTimeFilter();
   const { getPollingInterval } = usePollingRate();
   const signalR = useSignalR();
@@ -47,7 +50,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [lastCustomDates, setLastCustomDates] = useState<{start: Date | null, end: Date | null}>({
+  const [lastCustomDates, setLastCustomDates] = useState<{ start: Date | null; end: Date | null }>({
     start: null,
     end: null
   });
@@ -65,13 +68,11 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
   const getPollingIntervalRef = useRef(getPollingInterval);
   const mockModeRef = useRef(mockMode);
 
-  // Keep refs updated
-  useEffect(() => {
-    currentTimeRangeRef.current = timeRange;
-    getTimeRangeParamsRef.current = getTimeRangeParams;
-    getPollingIntervalRef.current = getPollingInterval;
-    mockModeRef.current = mockMode;
-  }, [timeRange, getTimeRangeParams, getPollingInterval, mockMode]);
+  // Update refs on each render (no useEffect needed)
+  currentTimeRangeRef.current = timeRange;
+  getTimeRangeParamsRef.current = getTimeRangeParams;
+  getPollingIntervalRef.current = getPollingInterval;
+  mockModeRef.current = mockMode;
 
   // Fetch downloads data
   const fetchDownloads = async () => {
@@ -81,7 +82,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
     const now = Date.now();
     const debounceTime = Math.min(1000, Math.max(250, getPollingIntervalRef.current() / 4));
 
-    if (!isInitialLoad.current && (now - lastFetchTime.current) < debounceTime) {
+    if (!isInitialLoad.current && now - lastFetchTime.current < debounceTime) {
       return;
     }
 
@@ -98,7 +99,12 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
 
       const [active, latest] = await Promise.allSettled([
         ApiService.getActiveDownloads(abortControllerRef.current.signal),
-        ApiService.getLatestDownloads(abortControllerRef.current.signal, 'unlimited', startTime, endTime)
+        ApiService.getLatestDownloads(
+          abortControllerRef.current.signal,
+          'unlimited',
+          startTime,
+          endTime
+        )
       ]);
 
       if (active.status === 'fulfilled' && active.value !== undefined) {
@@ -145,7 +151,12 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
 
       const [active, latest] = await Promise.allSettled([
         ApiService.getActiveDownloads(abortControllerRef.current.signal),
-        ApiService.getLatestDownloads(abortControllerRef.current.signal, 'unlimited', startTime, endTime)
+        ApiService.getLatestDownloads(
+          abortControllerRef.current.signal,
+          'unlimited',
+          startTime,
+          endTime
+        )
       ]);
 
       if (active.status === 'fulfilled' && active.value !== undefined) {
@@ -230,8 +241,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
         // Clear existing interval (race condition handling)
         if (intervalRef.current) clearInterval(intervalRef.current);
 
-        // Set up interval
-        const pollingInterval = getPollingInterval();
+        // Set up interval - use ref to get current polling interval
+        const pollingInterval = getPollingIntervalRef.current();
         intervalRef.current = setInterval(fetchDownloads, pollingInterval);
       });
     }
@@ -241,7 +252,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [mockMode, refreshDownloads, getPollingInterval]);
+  }, [mockMode, refreshDownloads]);
 
   // Handle time range changes
   useEffect(() => {
@@ -274,14 +285,6 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
     }
   }, [customStartDate, customEndDate, timeRange, mockMode, refreshDownloads]);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-    };
-  }, []);
-
   const value = {
     activeDownloads,
     latestDownloads,
@@ -290,9 +293,5 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({ children, 
     refreshDownloads
   };
 
-  return (
-    <DownloadsContext.Provider value={value}>
-      {children}
-    </DownloadsContext.Provider>
-  );
+  return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;
 };

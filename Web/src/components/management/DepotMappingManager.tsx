@@ -37,7 +37,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 }) => {
   const { notifications } = useNotifications();
   const { progress: picsProgress, isLoading: picsLoading, refreshProgress } = usePicsProgress();
-  const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{ hours: number; minutes: number; seconds: number } | null>(null);
+  const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{
+    hours: number;
+    minutes: number;
+    seconds: number;
+  } | null>(null);
   const [depotSource, setDepotSource] = useState<DepotSource>('incremental');
   const [changeGapWarning, setChangeGapWarning] = useState<{
     show: boolean;
@@ -57,14 +61,18 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     return {
       isRunning: picsProgress.isRunning || false,
       crawlIntervalHours: picsProgress.crawlIntervalHours || 0,
-      crawlIncrementalMode: picsProgress.crawlIncrementalMode !== undefined ? picsProgress.crawlIncrementalMode : true,
-      nextCrawlIn: picsProgress.nextCrawlIn !== undefined ? (() => {
-        const totalSeconds = Math.max(0, Math.floor(picsProgress.nextCrawlIn!));
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
-        return { hours, minutes, seconds };
-      })() : null,
+      crawlIncrementalMode:
+        picsProgress.crawlIncrementalMode !== undefined ? picsProgress.crawlIncrementalMode : true,
+      nextCrawlIn:
+        picsProgress.nextCrawlIn !== undefined
+          ? (() => {
+              const totalSeconds = Math.max(0, Math.floor(picsProgress.nextCrawlIn!));
+              const hours = Math.floor(totalSeconds / 3600);
+              const minutes = Math.floor((totalSeconds % 3600) / 60);
+              const seconds = totalSeconds % 60;
+              return { hours, minutes, seconds };
+            })()
+          : null,
       lastCrawlTime: picsProgress.lastCrawlTime,
       progressPercent: picsProgress.progressPercent || 0
     };
@@ -86,7 +94,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
 
     const timer = setInterval(() => {
-      setLocalNextCrawlIn(prev => {
+      setLocalNextCrawlIn((prev) => {
         if (!prev) return null;
 
         let { hours, minutes, seconds } = prev;
@@ -199,9 +207,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Listen for PICS scan completion via SignalR and refresh state
   useEffect(() => {
-    const picsNotifications = notifications.filter(n =>
-      n.type === 'depot_mapping' &&
-      (n.status === 'completed' || n.status === 'failed')
+    const picsNotifications = notifications.filter(
+      (n) => n.type === 'depot_mapping' && (n.status === 'completed' || n.status === 'failed')
     );
 
     if (picsNotifications.length > 0) {
@@ -259,7 +266,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   };
 
-  const executeApplyDepotMappings = async (forceFull: boolean = false) => {
+  const executeApplyDepotMappings = async (forceFull = false) => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
@@ -288,13 +295,22 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           method: 'POST',
           headers: ApiService.getHeaders()
         });
-        onSuccess?.('Imported depot mappings to database - depot count will update after scan completes');
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        onSuccess?.(
+          'Imported depot mappings to database - depot count will update after scan completes'
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
       // Use the selected scan mode (or force full if modal confirmed)
       const useIncrementalScan = forceFull ? false : depotSource === 'incremental';
-      console.log('[DepotMapping] Calling triggerSteamKitRebuild with incremental:', useIncrementalScan, 'depotSource:', depotSource, 'forceFull:', forceFull);
+      console.log(
+        '[DepotMapping] Calling triggerSteamKitRebuild with incremental:',
+        useIncrementalScan,
+        'depotSource:',
+        depotSource,
+        'forceFull:',
+        forceFull
+      );
       const response = await ApiService.triggerSteamKitRebuild(useIncrementalScan);
       console.log('[DepotMapping] Backend response:', response);
 
@@ -333,7 +349,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   };
 
-
   const formatNextRun = () => {
     if (picsLoading || !depotConfig) return 'Loading...';
     if (depotConfig.crawlIntervalHours === 0) return 'Disabled';
@@ -360,12 +375,18 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
         {/* GitHub Download In Progress */}
         {githubDownloading && (
-          <div className="mb-4 p-3 rounded-lg border" style={{
-            backgroundColor: 'var(--theme-info-bg)',
-            borderColor: 'var(--theme-info)'
-          }}>
+          <div
+            className="mb-4 p-3 rounded-lg border"
+            style={{
+              backgroundColor: 'var(--theme-info-bg)',
+              borderColor: 'var(--theme-info)'
+            }}
+          >
             <div className="flex items-start gap-3">
-              <Loader2 className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin" style={{ color: 'var(--theme-info)' }} />
+              <Loader2
+                className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin"
+                style={{ color: 'var(--theme-info)' }}
+              />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
                   Downloading Depot Mappings from GitHub...
@@ -380,19 +401,25 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
         {/* GitHub Download Complete - Incremental Scan Required */}
         {githubDownloadComplete && !depotConfig?.isRunning && !githubDownloading && (
-          <div className="mb-4 p-3 rounded-lg border" style={{
-            backgroundColor: 'var(--theme-info-bg)',
-            borderColor: 'var(--theme-info)'
-          }}>
+          <div
+            className="mb-4 p-3 rounded-lg border"
+            style={{
+              backgroundColor: 'var(--theme-info-bg)',
+              borderColor: 'var(--theme-info)'
+            }}
+          >
             <div className="flex items-start gap-3">
-              <Database className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
+              <Database
+                className="w-5 h-5 flex-shrink-0 mt-0.5"
+                style={{ color: 'var(--theme-info)' }}
+              />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-info-text)' }}>
                   GitHub Data Downloaded - Applying Mappings
                 </p>
                 <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
-                  Pre-created depot mappings have been imported from GitHub.
-                  The system is now applying these mappings to your download history.
+                  Pre-created depot mappings have been imported from GitHub. The system is now
+                  applying these mappings to your download history.
                 </p>
               </div>
             </div>
@@ -402,19 +429,29 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         {/* Automatic Scan Skipped Warning - Don't show if GitHub download is complete or in progress */}
         {/* Note: automaticScanSkipped is now handled via SignalR in App.tsx */}
         {false && (
-          <div className="mb-4 p-3 rounded-lg border" style={{
-            backgroundColor: 'var(--theme-error-bg)',
-            borderColor: 'var(--theme-error)'
-          }}>
+          <div
+            className="mb-4 p-3 rounded-lg border"
+            style={{
+              backgroundColor: 'var(--theme-error-bg)',
+              borderColor: 'var(--theme-error)'
+            }}
+          >
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-error)' }} />
+              <AlertCircle
+                className="w-5 h-5 flex-shrink-0 mt-0.5"
+                style={{ color: 'var(--theme-error)' }}
+              />
               <div className="flex-1">
-                <p className="font-medium text-sm mb-1" style={{ color: 'var(--theme-error-text)' }}>
+                <p
+                  className="font-medium text-sm mb-1"
+                  style={{ color: 'var(--theme-error-text)' }}
+                >
                   Automatic Scan Skipped - Full Scan Required
                 </p>
                 <p className="text-xs" style={{ color: 'var(--theme-error-text)', opacity: 0.9 }}>
-                  The scheduled incremental scan was skipped because Steam requires a full scan.
-                  The change gap is too large for an incremental update. Please manually run a full scan or download pre-created data from GitHub.
+                  The scheduled incremental scan was skipped because Steam requires a full scan. The
+                  change gap is too large for an incremental update. Please manually run a full scan
+                  or download pre-created data from GitHub.
                 </p>
               </div>
             </div>
@@ -427,7 +464,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="w-4 h-4 text-themed-primary" />
-                <span className="text-sm font-medium text-themed-secondary">Automatic Schedule</span>
+                <span className="text-sm font-medium text-themed-secondary">
+                  Automatic Schedule
+                </span>
               </div>
               <div className="text-xs text-themed-muted space-y-1">
                 <div className="flex items-center gap-2">
@@ -447,13 +486,17 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       ? 'Loading...'
                       : depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'
-                        : depotConfig.crawlIncrementalMode ? 'Incremental' : 'Full'}
+                        : depotConfig.crawlIncrementalMode
+                          ? 'Incremental'
+                          : 'Full'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span style={{ opacity: 0.6 }}>Next run:</span>
                   <span className="font-medium text-themed-primary">
-                    {!depotConfig || depotConfig.crawlIntervalHours === 0 ? 'Disabled' : formatNextRun()}
+                    {!depotConfig || depotConfig.crawlIntervalHours === 0
+                      ? 'Disabled'
+                      : formatNextRun()}
                   </span>
                 </div>
                 {depotConfig?.lastCrawlTime && (
@@ -525,7 +568,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     console.error('Failed to update scan mode:', error);
                   }
                 }}
-                disabled={!isAuthenticated || mockMode || !depotConfig || depotConfig.crawlIntervalHours === 0}
+                disabled={
+                  !isAuthenticated ||
+                  mockMode ||
+                  !depotConfig ||
+                  depotConfig.crawlIntervalHours === 0
+                }
                 className="w-full"
               />
             </div>
@@ -543,11 +591,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               { value: 'full', label: 'Steam (Full Scan)' },
               {
                 value: 'github',
-                label: steamAuthMode === 'authenticated'
-                  ? 'GitHub (Not available with account login)'
-                  : githubDownloadComplete
-                    ? 'GitHub (Already downloaded)'
-                    : 'GitHub (Download)',
+                label:
+                  steamAuthMode === 'authenticated'
+                    ? 'GitHub (Not available with account login)'
+                    : githubDownloadComplete
+                      ? 'GitHub (Already downloaded)'
+                      : 'GitHub (Download)',
                 disabled: steamAuthMode === 'authenticated' || githubDownloadComplete
               }
             ]}
@@ -558,7 +607,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           />
           {steamAuthMode === 'authenticated' && (
             <p className="text-xs text-themed-muted mt-2">
-              GitHub downloads are disabled when using Steam account login. Switch to anonymous mode to use pre-created depot data.
+              GitHub downloads are disabled when using Steam account login. Switch to anonymous mode
+              to use pre-created depot data.
             </p>
           )}
         </div>
@@ -583,24 +633,38 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           >
             {actionLoading && operationType === 'downloading' && 'Downloading from GitHub...'}
             {actionLoading && operationType === 'scanning' && 'Starting Scan...'}
-            {!actionLoading && depotConfig?.isRunning && `Scanning (${Math.round(depotConfig.progressPercent)}%)`}
-            {!actionLoading && !depotConfig?.isRunning && githubDownloadComplete && 'Applying Mappings...'}
+            {!actionLoading &&
+              depotConfig?.isRunning &&
+              `Scanning (${Math.round(depotConfig.progressPercent)}%)`}
+            {!actionLoading &&
+              !depotConfig?.isRunning &&
+              githubDownloadComplete &&
+              'Applying Mappings...'}
             {!actionLoading && !depotConfig?.isRunning && !githubDownloadComplete && 'Apply Now'}
           </Button>
         </div>
 
-
         <div className="mt-4 p-3 bg-themed-tertiary rounded-lg">
           <p className="text-xs text-themed-muted leading-relaxed">
-            <strong>Automatic Schedule:</strong> Controls scan mode and interval for scheduled background runs
+            <strong>Automatic Schedule:</strong> Controls scan mode and interval for scheduled
+            background runs
             <br />
             <strong>Apply Now Source:</strong> Choose data source when clicking "Apply Now" button
             <br />
-            <strong>Steam (Incremental):</strong> Scans apps that changed since last run. {steamAuthMode === 'authenticated' ? 'Uses your authenticated Steam session.' : 'Uses anonymous Steam access (public games only).'}
+            <strong>Steam (Incremental):</strong> Scans apps that changed since last run.{' '}
+            {steamAuthMode === 'authenticated'
+              ? 'Uses your authenticated Steam session.'
+              : 'Uses anonymous Steam access (public games only).'}
             <br />
-            <strong>Steam (Full Scan):</strong> Re-scans all Steam apps from scratch. {steamAuthMode === 'authenticated' ? 'Uses your authenticated Steam session to access all games including playtest and restricted titles.' : 'Uses anonymous Steam access (slower, public games only).'}
+            <strong>Steam (Full Scan):</strong> Re-scans all Steam apps from scratch.{' '}
+            {steamAuthMode === 'authenticated'
+              ? 'Uses your authenticated Steam session to access all games including playtest and restricted titles.'
+              : 'Uses anonymous Steam access (slower, public games only).'}
             <br />
-            <strong>GitHub (Download):</strong> {steamAuthMode === 'authenticated' ? 'Not available when using Steam account login - authenticated scans provide more complete data for your library.' : 'Downloads pre-generated mappings from GitHub (fast, 290k+ depots, anonymous data only).'}
+            <strong>GitHub (Download):</strong>{' '}
+            {steamAuthMode === 'authenticated'
+              ? 'Not available when using Steam account login - authenticated scans provide more complete data for your library.'
+              : 'Downloads pre-generated mappings from GitHub (fast, 290k+ depots, anonymous data only).'}
           </p>
         </div>
       </Card>

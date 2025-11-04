@@ -16,10 +16,7 @@ export interface UsePicsProgressOptions {
 }
 
 export function usePicsProgress(options: UsePicsProgressOptions = {}) {
-  const {
-    autoStart = true,
-    mockMode = false
-  } = options;
+  const { autoStart = true, mockMode = false } = options;
 
   const [progress, setProgress] = useState<PicsProgress | null>(null);
   const [error, setError] = useState<Error | null>(null);

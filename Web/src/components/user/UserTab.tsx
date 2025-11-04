@@ -1,5 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Users, User, Trash2, RefreshCw, Loader2, AlertTriangle, Clock, Network, Monitor, Globe } from 'lucide-react';
+import {
+  Users,
+  User,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  AlertTriangle,
+  Clock,
+  Network,
+  Monitor,
+  Globe
+} from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
@@ -125,9 +136,10 @@ const UserTab: React.FC = () => {
 
     try {
       setRevokingSession(pendingRevokeSession.id);
-      const endpoint = pendingRevokeSession.type === 'authenticated'
-        ? `/api/auth/devices/${encodeURIComponent(pendingRevokeSession.id)}`
-        : `/api/auth/guest/${encodeURIComponent(pendingRevokeSession.id)}/revoke`;
+      const endpoint =
+        pendingRevokeSession.type === 'authenticated'
+          ? `/api/auth/devices/${encodeURIComponent(pendingRevokeSession.id)}`
+          : `/api/auth/guest/${encodeURIComponent(pendingRevokeSession.id)}/revoke`;
 
       const response = await fetch(endpoint, {
         method: pendingRevokeSession.type === 'authenticated' ? 'DELETE' : 'POST',
@@ -159,9 +171,10 @@ const UserTab: React.FC = () => {
 
     try {
       setDeletingSession(pendingDeleteSession.id);
-      const endpoint = pendingDeleteSession.type === 'authenticated'
-        ? `/api/auth/devices/${encodeURIComponent(pendingDeleteSession.id)}`
-        : `/api/auth/guest/${encodeURIComponent(pendingDeleteSession.id)}`;
+      const endpoint =
+        pendingDeleteSession.type === 'authenticated'
+          ? `/api/auth/devices/${encodeURIComponent(pendingDeleteSession.id)}`
+          : `/api/auth/guest/${encodeURIComponent(pendingDeleteSession.id)}`;
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
@@ -210,11 +223,19 @@ const UserTab: React.FC = () => {
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="p-2 rounded-lg flex-shrink-0" style={{ backgroundColor: 'var(--theme-primary-subtle)' }}>
+          <div
+            className="p-2 rounded-lg flex-shrink-0"
+            style={{ backgroundColor: 'var(--theme-primary-subtle)' }}
+          >
             <Users className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
           </div>
           <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>User Management</h1>
+            <h1
+              className="text-xl sm:text-2xl font-bold"
+              style={{ color: 'var(--theme-text-primary)' }}
+            >
+              User Management
+            </h1>
             <p className="text-xs sm:text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
               Manage all users and sessions • Live refresh
             </p>
@@ -248,8 +269,12 @@ const UserTab: React.FC = () => {
           <div className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>Total Users</p>
-                <p className="text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>{sessions.length}</p>
+                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                  Total Users
+                </p>
+                <p className="text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>
+                  {sessions.length}
+                </p>
               </div>
               <Users className="w-8 h-8" style={{ color: 'var(--theme-primary)' }} />
             </div>
@@ -259,9 +284,11 @@ const UserTab: React.FC = () => {
           <div className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>Authenticated</p>
+                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                  Authenticated
+                </p>
                 <p className="text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>
-                  {sessions.filter(s => s.type === 'authenticated').length}
+                  {sessions.filter((s) => s.type === 'authenticated').length}
                 </p>
               </div>
               <User className="w-8 h-8" style={{ color: 'var(--theme-user-session)' }} />
@@ -272,9 +299,11 @@ const UserTab: React.FC = () => {
           <div className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>Guests</p>
+                <p className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                  Guests
+                </p>
                 <p className="text-2xl font-bold" style={{ color: 'var(--theme-text-primary)' }}>
-                  {sessions.filter(s => s.type === 'guest').length}
+                  {sessions.filter((s) => s.type === 'guest').length}
                 </p>
               </div>
               <User className="w-8 h-8" style={{ color: 'var(--theme-guest-session)' }} />
@@ -310,7 +339,9 @@ const UserTab: React.FC = () => {
                 border: '1px solid var(--theme-error)'
               }}
             >
-              <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</p>
+              <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>
+                {error}
+              </p>
             </div>
           )}
 
@@ -331,7 +362,10 @@ const UserTab: React.FC = () => {
                   key={session.id}
                   className="p-3 sm:p-4 rounded-lg"
                   style={{
-                    backgroundColor: (session.isExpired || session.isRevoked) ? 'var(--theme-bg-tertiary)' : 'var(--theme-bg-secondary)',
+                    backgroundColor:
+                      session.isExpired || session.isRevoked
+                        ? 'var(--theme-bg-tertiary)'
+                        : 'var(--theme-bg-secondary)',
                     border: '1px solid var(--theme-border)'
                   }}
                 >
@@ -339,30 +373,35 @@ const UserTab: React.FC = () => {
                     <div
                       className="flex items-center gap-3 flex-1 min-w-0 w-full sm:w-auto"
                       style={{
-                        opacity: (session.isExpired || session.isRevoked) ? 0.6 : 1
+                        opacity: session.isExpired || session.isRevoked ? 0.6 : 1
                       }}
                     >
                       <div
                         className="p-2 rounded-lg flex-shrink-0"
                         style={{
-                          backgroundColor: session.type === 'authenticated'
-                            ? 'var(--theme-user-session-bg)'
-                            : 'var(--theme-guest-session-bg)'
+                          backgroundColor:
+                            session.type === 'authenticated'
+                              ? 'var(--theme-user-session-bg)'
+                              : 'var(--theme-guest-session-bg)'
                         }}
                       >
                         <User
                           className="w-5 h-5"
                           style={{
-                            color: session.type === 'authenticated'
-                              ? 'var(--theme-user-session)'
-                              : 'var(--theme-guest-session)'
+                            color:
+                              session.type === 'authenticated'
+                                ? 'var(--theme-user-session)'
+                                : 'var(--theme-guest-session)'
                           }}
                         />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="grid gap-2">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-semibold truncate" style={{ color: 'var(--theme-text-primary)' }}>
+                            <h3
+                              className="font-semibold truncate"
+                              style={{ color: 'var(--theme-text-primary)' }}
+                            >
                               {session.deviceName || 'Unknown Device'}
                             </h3>
                             {session.type === 'authenticated' && (
@@ -387,17 +426,19 @@ const UserTab: React.FC = () => {
                                 GUEST
                               </span>
                             )}
-                            {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
-                              <span
-                                className="px-2 py-0.5 text-xs rounded font-medium"
-                                style={{
-                                  backgroundColor: 'var(--theme-warning-bg)',
-                                  color: 'var(--theme-warning-text)'
-                                }}
-                              >
-                                {formatTimeRemaining(session.expiresAt)}
-                              </span>
-                            )}
+                            {session.type === 'guest' &&
+                              !session.isRevoked &&
+                              !session.isExpired && (
+                                <span
+                                  className="px-2 py-0.5 text-xs rounded font-medium"
+                                  style={{
+                                    backgroundColor: 'var(--theme-warning-bg)',
+                                    color: 'var(--theme-warning-text)'
+                                  }}
+                                >
+                                  {formatTimeRemaining(session.expiresAt)}
+                                </span>
+                              )}
                             {session.isRevoked && (
                               <span
                                 className="px-2 py-0.5 text-xs rounded font-medium"
@@ -426,9 +467,17 @@ const UserTab: React.FC = () => {
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs sm:text-sm w-full">
                             {/* IP Address */}
                             {session.ipAddress && (
-                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <div
+                                className="flex items-center gap-2"
+                                style={{ color: 'var(--theme-text-secondary)' }}
+                              >
                                 <Network className="w-4 h-4 flex-shrink-0" />
-                                <span className="truncate" title={session.localIp ? `Local IP: ${session.localIp}` : undefined}>
+                                <span
+                                  className="truncate"
+                                  title={
+                                    session.localIp ? `Local IP: ${session.localIp}` : undefined
+                                  }
+                                >
                                   {(() => {
                                     const cleanIp = session.ipAddress.replace('::ffff:', '');
                                     if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
@@ -442,54 +491,95 @@ const UserTab: React.FC = () => {
 
                             {/* Operating System */}
                             {session.operatingSystem && (
-                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <div
+                                className="flex items-center gap-2"
+                                style={{ color: 'var(--theme-text-secondary)' }}
+                              >
                                 <Monitor className="w-4 h-4 flex-shrink-0" />
-                                <span className="truncate" title={session.operatingSystem}>{session.operatingSystem}</span>
+                                <span className="truncate" title={session.operatingSystem}>
+                                  {session.operatingSystem}
+                                </span>
                               </div>
                             )}
 
                             {/* Browser */}
                             {session.browser && (
-                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <div
+                                className="flex items-center gap-2"
+                                style={{ color: 'var(--theme-text-secondary)' }}
+                              >
                                 <Globe className="w-4 h-4 flex-shrink-0" />
-                                <span className="truncate" title={session.browser}>{session.browser}</span>
+                                <span className="truncate" title={session.browser}>
+                                  {session.browser}
+                                </span>
                               </div>
                             )}
 
                             {/* Created */}
-                            <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                            <div
+                              className="flex items-center gap-2"
+                              style={{ color: 'var(--theme-text-secondary)' }}
+                            >
                               <Clock className="w-4 h-4 flex-shrink-0" />
-                              <span className="truncate" title={`Created: ${formatDate(session.createdAt)}`}>Created: {formatDate(session.createdAt)}</span>
+                              <span
+                                className="truncate"
+                                title={`Created: ${formatDate(session.createdAt)}`}
+                              >
+                                Created: {formatDate(session.createdAt)}
+                              </span>
                             </div>
 
                             {/* Last seen */}
                             {session.lastSeenAt && (
-                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <div
+                                className="flex items-center gap-2"
+                                style={{ color: 'var(--theme-text-secondary)' }}
+                              >
                                 <Clock className="w-4 h-4 flex-shrink-0" />
-                                <span className="truncate" title={`Last seen: ${formatDate(session.lastSeenAt)}`}>Last seen: {formatDate(session.lastSeenAt)}</span>
+                                <span
+                                  className="truncate"
+                                  title={`Last seen: ${formatDate(session.lastSeenAt)}`}
+                                >
+                                  Last seen: {formatDate(session.lastSeenAt)}
+                                </span>
                               </div>
                             )}
 
                             {/* Revoked (guests only) */}
                             {session.revokedAt && session.type === 'guest' && (
-                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-error-text)' }}>
+                              <div
+                                className="flex items-center gap-2"
+                                style={{ color: 'var(--theme-error-text)' }}
+                              >
                                 <Clock className="w-4 h-4 flex-shrink-0" />
-                                <span className="truncate" title={`Revoked: ${formatDate(session.revokedAt)}`}>Revoked: {formatDate(session.revokedAt)}</span>
+                                <span
+                                  className="truncate"
+                                  title={`Revoked: ${formatDate(session.revokedAt)}`}
+                                >
+                                  Revoked: {formatDate(session.revokedAt)}
+                                </span>
                               </div>
                             )}
 
                             {/* Revoked by (guests only) */}
                             {session.revokedBy && session.type === 'guest' && (
-                              <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                              <div
+                                className="flex items-center gap-2"
+                                style={{ color: 'var(--theme-text-secondary)' }}
+                              >
                                 <User className="w-4 h-4 flex-shrink-0" />
-                                <span className="truncate" title={`Revoked by: ${(() => {
-                                  const cleanIp = session.revokedBy.replace('::ffff:', '');
-                                  if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
-                                    return 'localhost';
-                                  }
-                                  return cleanIp;
-                                })()}`}>
-                                  Revoked by: {(() => {
+                                <span
+                                  className="truncate"
+                                  title={`Revoked by: ${(() => {
+                                    const cleanIp = session.revokedBy.replace('::ffff:', '');
+                                    if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
+                                      return 'localhost';
+                                    }
+                                    return cleanIp;
+                                  })()}`}
+                                >
+                                  Revoked by:{' '}
+                                  {(() => {
                                     const cleanIp = session.revokedBy.replace('::ffff:', '');
                                     if (cleanIp === '::1' || cleanIp === '127.0.0.1') {
                                       return 'localhost';
@@ -555,10 +645,14 @@ const UserTab: React.FC = () => {
                         leftSection={<Trash2 className="w-4 h-4" />}
                         onClick={() => handleDeleteSession(session)}
                         disabled={deletingSession === session.id}
-                        style={(session.isExpired || session.isRevoked) ? {
-                          backgroundColor: 'var(--theme-bg-secondary)',
-                          borderColor: 'var(--theme-error)'
-                        } : undefined}
+                        style={
+                          session.isExpired || session.isRevoked
+                            ? {
+                                backgroundColor: 'var(--theme-bg-secondary)',
+                                borderColor: 'var(--theme-error)'
+                              }
+                            : undefined
+                        }
                       >
                         {deletingSession === session.id ? 'Deleting...' : 'Delete'}
                       </Button>
@@ -609,17 +703,38 @@ const UserTab: React.FC = () => {
           }}
         >
           <div className="flex gap-2 sm:gap-3">
-            <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
+            <AlertTriangle
+              className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 mt-0.5"
+              style={{ color: 'var(--theme-info)' }}
+            />
             <div className="text-xs sm:text-sm min-w-0" style={{ color: 'var(--theme-info-text)' }}>
               <p className="font-semibold mb-2">About Session Management</p>
               <ul className="list-disc list-outside ml-4 space-y-1.5">
-                <li className="pl-1">Only authenticated users (with API key) can access this user management panel</li>
-                <li className="pl-1"><strong>Authenticated Users</strong> - Multiple users can share the same API key (up to configured device limit)</li>
-                <li className="pl-1"><strong>Authenticated</strong> sessions have registered with the API key and don't expire</li>
-                <li className="pl-1"><strong>Guest</strong> sessions have temporary {guestDurationHours}-hour access with read-only permissions</li>
-                <li className="pl-1"><strong>Revoke</strong> - Immediately kicks out guest users (marks them as revoked)</li>
-                <li className="pl-1"><strong>Delete</strong> - Permanently removes the session record from history</li>
-                <li className="pl-1">Revoked guests will see an "expired" message on their next request</li>
+                <li className="pl-1">
+                  Only authenticated users (with API key) can access this user management panel
+                </li>
+                <li className="pl-1">
+                  <strong>Authenticated Users</strong> - Multiple users can share the same API key
+                  (up to configured device limit)
+                </li>
+                <li className="pl-1">
+                  <strong>Authenticated</strong> sessions have registered with the API key and don't
+                  expire
+                </li>
+                <li className="pl-1">
+                  <strong>Guest</strong> sessions have temporary {guestDurationHours}-hour access
+                  with read-only permissions
+                </li>
+                <li className="pl-1">
+                  <strong>Revoke</strong> - Immediately kicks out guest users (marks them as
+                  revoked)
+                </li>
+                <li className="pl-1">
+                  <strong>Delete</strong> - Permanently removes the session record from history
+                </li>
+                <li className="pl-1">
+                  Revoked guests will see an "expired" message on their next request
+                </li>
               </ul>
             </div>
           </div>
@@ -645,7 +760,8 @@ const UserTab: React.FC = () => {
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to revoke this {pendingRevokeSession?.type === 'authenticated' ? 'authenticated user' : 'guest'}?
+            Are you sure you want to revoke this{' '}
+            {pendingRevokeSession?.type === 'authenticated' ? 'authenticated user' : 'guest'}?
           </p>
 
           {pendingRevokeSession && (
@@ -727,7 +843,11 @@ const UserTab: React.FC = () => {
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Are you sure you want to permanently delete this {pendingDeleteSession?.type === 'authenticated' ? 'authenticated device' : 'guest session'}?
+            Are you sure you want to permanently delete this{' '}
+            {pendingDeleteSession?.type === 'authenticated'
+              ? 'authenticated device'
+              : 'guest session'}
+            ?
           </p>
 
           {pendingDeleteSession && (

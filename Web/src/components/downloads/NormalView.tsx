@@ -1,5 +1,12 @@
 import React from 'react';
-import { ChevronRight, Clock, ExternalLink, CheckCircle, AlertCircle, ChevronLeft } from 'lucide-react';
+import {
+  ChevronRight,
+  Clock,
+  ExternalLink,
+  CheckCircle,
+  AlertCircle,
+  ChevronLeft
+} from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
@@ -125,34 +132,40 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isRiot = serviceLower === 'riot' || serviceLower === 'riotgames';
   const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
   const isEA = serviceLower === 'origin' || serviceLower === 'ea';
-  const isBlizzard = serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
+  const isBlizzard =
+    serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
   const isOtherService = !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isGenericSteamTitle =
     primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
   const showGameImage =
-    group.type === 'game' && isSteam && Boolean(steamAppId) && !!primaryName && !isGenericSteamTitle;
+    group.type === 'game' &&
+    isSteam &&
+    Boolean(steamAppId) &&
+    !!primaryName &&
+    !isGenericSteamTitle;
   const storeLink = primaryDownload?.gameAppId
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
     : null;
-  const shouldRenderBanner = !aestheticMode && (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isOtherService);
-  const hasSteamArtwork =
-    showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
+  const shouldRenderBanner =
+    !aestheticMode &&
+    (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isOtherService);
+  const hasSteamArtwork = showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
   const placeholderBaseClasses = 'min-h-[130px] sm:min-h-[130px]';
   const placeholderIconColor = isSteam
     ? 'var(--theme-steam)'
     : isWsus
-    ? 'var(--theme-wsus)'
-    : isRiot
-    ? 'var(--theme-riot)'
-    : isEpic
-    ? 'var(--theme-epic)'
-    : isEA
-    ? 'var(--theme-origin)'
-    : isBlizzard
-    ? 'var(--theme-blizzard)'
-    : 'var(--theme-text-secondary)';
+      ? 'var(--theme-wsus)'
+      : isRiot
+        ? 'var(--theme-riot)'
+        : isEpic
+          ? 'var(--theme-epic)'
+          : isEA
+            ? 'var(--theme-origin)'
+            : isBlizzard
+              ? 'var(--theme-blizzard)'
+              : 'var(--theme-text-secondary)';
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
     ? 'w-full h-[130px] sm:w-[280px] sm:h-[130px]'
@@ -191,19 +204,37 @@ const GroupCard: React.FC<GroupCardProps> = ({
           className={`flex h-full w-full flex-col items-center justify-center px-4 text-center ${placeholderBaseClasses}`}
         >
           {isSteam ? (
-            <SteamIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            <SteamIcon
+              size={placeholderIconSize}
+              style={{ color: placeholderIconColor, opacity: 0.75 }}
+            />
           ) : isWsus ? (
-            <WsusIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            <WsusIcon
+              size={placeholderIconSize}
+              style={{ color: placeholderIconColor, opacity: 0.75 }}
+            />
           ) : isRiot ? (
-            <RiotIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            <RiotIcon
+              size={placeholderIconSize}
+              style={{ color: placeholderIconColor, opacity: 0.75 }}
+            />
           ) : isEpic ? (
             <EpicIcon size={placeholderIconSize} style={{ opacity: 0.75 }} />
           ) : isEA ? (
-            <EAIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            <EAIcon
+              size={placeholderIconSize}
+              style={{ color: placeholderIconColor, opacity: 0.75 }}
+            />
           ) : isBlizzard ? (
-            <BlizzardIcon size={placeholderIconSize} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            <BlizzardIcon
+              size={placeholderIconSize}
+              style={{ color: placeholderIconColor, opacity: 0.75 }}
+            />
           ) : (
-            <UnknownServiceIcon size={placeholderIconSize + 12} style={{ color: placeholderIconColor, opacity: 0.75 }} />
+            <UnknownServiceIcon
+              size={placeholderIconSize + 12}
+              style={{ color: placeholderIconColor, opacity: 0.75 }}
+            />
           )}
         </div>
       );
@@ -211,11 +242,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
   }
 
   const cardContent = (
-    <div className={`flex flex-col ${fullHeightBanners ? 'sm:flex-row sm:items-stretch' : 'sm:flex-row'}`}>
+    <div
+      className={`flex flex-col ${fullHeightBanners ? 'sm:flex-row sm:items-stretch' : 'sm:flex-row'}`}
+    >
       {bannerContent && (
-        <div
-          className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}
-        >
+        <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}>
           {bannerContent}
         </div>
       )}
@@ -234,7 +265,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
           />
           <div className="flex-1 min-w-0">
             {/* Title Row */}
-            <div className={`flex flex-col sm:flex-row sm:items-center gap-2 ${fullHeightBanners ? 'sm:gap-2 mb-1.5 sm:mb-2' : 'sm:gap-3 mb-2 sm:mb-3'}`}>
+            <div
+              className={`flex flex-col sm:flex-row sm:items-center gap-2 ${fullHeightBanners ? 'sm:gap-2 mb-1.5 sm:mb-2' : 'sm:gap-3 mb-2 sm:mb-3'}`}
+            >
               <div className="flex items-center gap-2">
                 <span
                   className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-extrabold rounded-md shadow-sm`}
@@ -243,46 +276,80 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   {group.service.toUpperCase()}
                 </span>
                 {group.count > 1 && (
-                  <span className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]`}>
+                  <span
+                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2 sm:px-2.5 py-0.5 sm:py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]`}
+                  >
                     {group.count}× downloads
                   </span>
                 )}
               </div>
-              <h3 className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate flex-1`}>
+              <h3
+                className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate flex-1`}
+              >
                 {group.name}
               </h3>
             </div>
 
             {/* Stats Grid - Better aligned */}
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-8 gap-y-1.5 sm:gap-y-2'}`}>
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 ${fullHeightBanners ? 'gap-x-4 gap-y-1' : 'gap-x-8 gap-y-1.5 sm:gap-y-2'}`}
+            >
               <div className="flex items-baseline gap-2">
-                <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Total Downloaded</span>
-                <span className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
+                >
+                  Total Downloaded
+                </span>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}
+                >
                   {formatBytes(group.totalBytes)}
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Clients</span>
-                <span className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
+                >
+                  Clients
+                </span>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-text-primary)]`}
+                >
                   {group.clientsSet.size}
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Cache Saved</span>
-                <span className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-success-text)]`}>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
+                >
+                  Cache Saved
+                </span>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs sm:text-sm' : 'text-sm sm:text-base'} font-bold text-[var(--theme-success-text)]`}
+                >
                   {formatBytes(group.cacheHitBytes)}
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Last Active</span>
-                <span className={`text-xs ${fullHeightBanners ? '' : 'sm:text-sm'} font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5`}>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
+                >
+                  Last Active
+                </span>
+                <span
+                  className={`text-xs ${fullHeightBanners ? '' : 'sm:text-sm'} font-medium text-[var(--theme-text-secondary)] inline-flex items-center gap-1.5`}
+                >
                   <Clock size={12} className={fullHeightBanners ? '' : 'sm:hidden'} />
                   {!fullHeightBanners && <Clock size={14} className="hidden sm:block" />}
                   {formatRelativeTime(group.lastSeen)}
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
-                <span className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}>Efficiency</span>
+                <span
+                  className={`${fullHeightBanners ? 'text-xs' : 'text-xs sm:text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[70px] sm:min-w-[80px]'}`}
+                >
+                  Efficiency
+                </span>
                 <span
                   className={`text-xs ${fullHeightBanners ? '' : 'sm:text-sm'} font-bold inline-flex items-center gap-1.5 ${
                     hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
@@ -355,11 +422,16 @@ const GroupCard: React.FC<GroupCardProps> = ({
             )}
 
             {/* Summary Stats Banner */}
-            <div className="rounded-xl border p-4 bg-[var(--theme-bg-tertiary)]/50" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+            <div
+              className="rounded-xl border p-4 bg-[var(--theme-bg-tertiary)]/50"
+              style={{ borderColor: 'var(--theme-border-secondary)' }}
+            >
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="text-center">
                   <div className="text-xs text-themed-muted mb-1 font-medium">Total Downloaded</div>
-                  <div className="text-lg font-bold text-[var(--theme-text-primary)]">{formatBytes(group.totalBytes)}</div>
+                  <div className="text-lg font-bold text-[var(--theme-text-primary)]">
+                    {formatBytes(group.totalBytes)}
+                  </div>
                 </div>
                 <div className="text-center">
                   <div className="text-xs text-themed-muted mb-1 font-medium">Cache Saved</div>
@@ -375,7 +447,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 </div>
                 <div className="text-center">
                   <div className="text-xs text-themed-muted mb-1 font-medium">Downloads</div>
-                  <div className="text-lg font-bold text-[var(--theme-text-primary)]">{group.count}</div>
+                  <div className="text-lg font-bold text-[var(--theme-text-primary)]">
+                    {group.count}
+                  </div>
                 </div>
               </div>
             </div>
@@ -383,8 +457,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
             {/* Detailed Statistics */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               {/* Cache Performance Card */}
-              <div className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]" style={{ borderColor: 'var(--theme-border-primary)' }}>
-                <h4 className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+              <div
+                className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]"
+                style={{ borderColor: 'var(--theme-border-primary)' }}
+              >
+                <h4
+                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b"
+                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                >
                   Cache Performance
                 </h4>
                 <div className="space-y-3">
@@ -400,7 +480,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       {formatBytes(group.cacheMissBytes || 0)}
                     </span>
                   </div>
-                  <div className="flex justify-between items-center pt-2 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                  <div
+                    className="flex justify-between items-center pt-2 border-t"
+                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  >
                     <span className="text-sm text-themed-muted font-medium">Efficiency Rate</span>
                     <span className="text-base font-bold cache-hit">
                       {hitPercent > 0 ? formatPercent(hitPercent) : 'N/A'}
@@ -410,237 +493,287 @@ const GroupCard: React.FC<GroupCardProps> = ({
               </div>
 
               {/* Activity Card */}
-              <div className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]" style={{ borderColor: 'var(--theme-border-primary)' }}>
-                <h4 className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+              <div
+                className="rounded-xl border p-5 bg-[var(--theme-bg-secondary)]"
+                style={{ borderColor: 'var(--theme-border-primary)' }}
+              >
+                <h4
+                  className="text-base font-bold text-[var(--theme-text-primary)] mb-4 pb-2 border-b"
+                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                >
                   Activity Timeline
                 </h4>
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-themed-muted font-medium">Download Sessions</span>
-                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">{group.count}</span>
+                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">
+                      {group.count}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-themed-muted font-medium">Unique Clients</span>
-                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">{group.clientsSet.size}</span>
+                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">
+                      {group.clientsSet.size}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-themed-muted font-medium">First Seen</span>
-                    <span className="text-sm font-semibold text-[var(--theme-text-secondary)]">{formatRelativeTime(group.firstSeen)}</span>
+                    <span className="text-sm font-semibold text-[var(--theme-text-secondary)]">
+                      {formatRelativeTime(group.firstSeen)}
+                    </span>
                   </div>
-                  <div className="flex justify-between items-center pt-2 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                  <div
+                    className="flex justify-between items-center pt-2 border-t"
+                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  >
                     <span className="text-sm text-themed-muted font-medium">Last Activity</span>
-                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">{formatRelativeTime(group.lastSeen)}</span>
+                    <span className="text-sm font-bold text-[var(--theme-text-primary)]">
+                      {formatRelativeTime(group.lastSeen)}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Download Sessions List */}
-            {group.downloads.length > 0 && (() => {
-              const currentPage = groupPages[group.id] || 1;
-              const totalPages = Math.ceil(group.downloads.length / SESSIONS_PER_PAGE);
-              const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
-              const endIndex = startIndex + SESSIONS_PER_PAGE;
-              const paginatedDownloads = group.downloads.slice(startIndex, endIndex);
+            {group.downloads.length > 0 &&
+              (() => {
+                const currentPage = groupPages[group.id] || 1;
+                const totalPages = Math.ceil(group.downloads.length / SESSIONS_PER_PAGE);
+                const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
+                const endIndex = startIndex + SESSIONS_PER_PAGE;
+                const paginatedDownloads = group.downloads.slice(startIndex, endIndex);
 
-              const handlePageChange = (newPage: number) => {
-                setGroupPages(prev => ({ ...prev, [group.id]: newPage }));
-              };
+                const handlePageChange = (newPage: number) => {
+                  setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
+                };
 
-              const handlePointerHoldStart = (
-                event: React.PointerEvent<HTMLButtonElement>,
-                direction: 'prev' | 'next'
-              ) => {
-                const isPrevious = direction === 'prev';
-                if ((isPrevious && currentPage === 1) || (!isPrevious && currentPage === totalPages)) {
-                  return;
-                }
+                const handlePointerHoldStart = (
+                  event: React.PointerEvent<HTMLButtonElement>,
+                  direction: 'prev' | 'next'
+                ) => {
+                  const isPrevious = direction === 'prev';
+                  if (
+                    (isPrevious && currentPage === 1) ||
+                    (!isPrevious && currentPage === totalPages)
+                  ) {
+                    return;
+                  }
 
-                event.currentTarget.setPointerCapture?.(event.pointerId);
-                startHoldTimer(() => {
-                  setGroupPages(prev => {
-                    const current = prev[group.id] || 1;
-                    const nextPage = isPrevious
-                      ? Math.max(1, current - 1)
-                      : Math.min(totalPages, current + 1);
-                    if (nextPage === current) {
-                      return prev;
-                    }
-                    return { ...prev, [group.id]: nextPage };
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                  startHoldTimer(() => {
+                    setGroupPages((prev) => {
+                      const current = prev[group.id] || 1;
+                      const nextPage = isPrevious
+                        ? Math.max(1, current - 1)
+                        : Math.min(totalPages, current + 1);
+                      if (nextPage === current) {
+                        return prev;
+                      }
+                      return { ...prev, [group.id]: nextPage };
+                    });
                   });
-                });
-              };
+                };
 
-              const handlePointerHoldEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
-                event.currentTarget.releasePointerCapture?.(event.pointerId);
-                stopHoldTimer();
-              };
+                const handlePointerHoldEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+                  event.currentTarget.releasePointerCapture?.(event.pointerId);
+                  stopHoldTimer();
+                };
 
-              return (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-base font-bold text-[var(--theme-text-primary)]">
-                    Download Sessions
-                  </h4>
-                  <span className="text-xs font-semibold bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] px-3 py-1.5 rounded-full">
-                    {group.downloads.length} session{group.downloads.length !== 1 ? 's' : ''}
-                    {totalPages > 1 && ` • Page ${currentPage}/${totalPages}`}
-                  </span>
-                </div>
-                {/* Group sessions by client IP - with min height to prevent layout shift */}
-                <div style={{ minHeight: '600px' }}>
-                {Object.entries(
-                  paginatedDownloads.reduce((acc, d) => {
-                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
-                    acc[d.clientIp].push(d);
-                    return acc;
-                  }, {} as Record<string, typeof group.downloads>)
-                ).map(([clientIp, clientDownloads]) => {
-                  const clientTotal = clientDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
-                  const clientCacheHit = clientDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-base font-bold text-[var(--theme-text-primary)]">
+                        Download Sessions
+                      </h4>
+                      <span className="text-xs font-semibold bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] px-3 py-1.5 rounded-full">
+                        {group.downloads.length} session{group.downloads.length !== 1 ? 's' : ''}
+                        {totalPages > 1 && ` • Page ${currentPage}/${totalPages}`}
+                      </span>
+                    </div>
+                    {/* Group sessions by client IP - with min height to prevent layout shift */}
+                    <div style={{ minHeight: '600px' }}>
+                      {Object.entries(
+                        paginatedDownloads.reduce(
+                          (acc, d) => {
+                            if (!acc[d.clientIp]) acc[d.clientIp] = [];
+                            acc[d.clientIp].push(d);
+                            return acc;
+                          },
+                          {} as Record<string, typeof group.downloads>
+                        )
+                      ).map(([clientIp, clientDownloads]) => {
+                        const clientTotal = clientDownloads.reduce(
+                          (sum, d) => sum + (d.totalBytes || 0),
+                          0
+                        );
+                        const clientCacheHit = clientDownloads.reduce(
+                          (sum, d) => sum + (d.cacheHitBytes || 0),
+                          0
+                        );
 
-                  return (
-                    <div key={clientIp} className="space-y-2">
-                      {/* Client IP Header with totals */}
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--theme-bg-tertiary)]/50">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-sm font-bold text-[var(--theme-text-primary)]">
-                            {clientIp}
-                          </span>
-                          <span className="text-xs text-themed-muted">
-                            ({clientDownloads.length} session{clientDownloads.length !== 1 ? 's' : ''})
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-bold text-[var(--theme-text-primary)]">
-                            {formatBytes(clientTotal)}
-                          </span>
-                          {clientCacheHit > 0 && (
-                            <span className="text-xs px-2 py-1 rounded-full bg-[var(--theme-success-bg)] text-[var(--theme-success-text)] font-semibold">
-                              {formatPercent(clientTotal > 0 ? (clientCacheHit / clientTotal) * 100 : 0)}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {/* Individual sessions for this client */}
-                      {clientDownloads.map((download) => {
-                    const totalBytes = download.totalBytes || 0;
-                    const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+                        return (
+                          <div key={clientIp} className="space-y-2">
+                            {/* Client IP Header with totals */}
+                            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--theme-bg-tertiary)]/50">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm font-bold text-[var(--theme-text-primary)]">
+                                  {clientIp}
+                                </span>
+                                <span className="text-xs text-themed-muted">
+                                  ({clientDownloads.length} session
+                                  {clientDownloads.length !== 1 ? 's' : ''})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-sm font-bold text-[var(--theme-text-primary)]">
+                                  {formatBytes(clientTotal)}
+                                </span>
+                                {clientCacheHit > 0 && (
+                                  <span className="text-xs px-2 py-1 rounded-full bg-[var(--theme-success-bg)] text-[var(--theme-success-text)] font-semibold">
+                                    {formatPercent(
+                                      clientTotal > 0 ? (clientCacheHit / clientTotal) * 100 : 0
+                                    )}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {/* Individual sessions for this client */}
+                            {clientDownloads.map((download) => {
+                              const totalBytes = download.totalBytes || 0;
+                              const cachePercent =
+                                totalBytes > 0
+                                  ? ((download.cacheHitBytes || 0) / totalBytes) * 100
+                                  : 0;
 
-                    return (
+                              return (
+                                <div
+                                  key={download.id}
+                                  className="rounded-lg border p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200 ml-4"
+                                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                                >
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-center">
+                                    {/* Time Info */}
+                                    <div>
+                                      <div className="text-xs text-themed-muted mb-1 font-medium">
+                                        Timeline
+                                      </div>
+                                      <div className="flex flex-col gap-1 text-xs">
+                                        <span className="flex items-center gap-1.5 text-[var(--theme-text-secondary)]">
+                                          <Clock size={12} />
+                                          Started {formatRelativeTime(download.startTimeLocal)}
+                                        </span>
+                                        {download.endTimeLocal ? (
+                                          <span className="flex items-center gap-1.5 text-[var(--theme-success-text)]">
+                                            <CheckCircle size={12} />
+                                            Completed {formatRelativeTime(download.endTimeLocal)}
+                                          </span>
+                                        ) : (
+                                          <span className="flex items-center gap-1.5 text-[var(--theme-info-text)]">
+                                            <AlertCircle size={12} />
+                                            In progress
+                                          </span>
+                                        )}
+                                        {download.depotId && (
+                                          <span className="flex items-center gap-1.5 text-[var(--theme-text-muted)] font-mono">
+                                            Depot: {download.depotId}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Size & Cache */}
+                                    <div className="flex items-center justify-between lg:justify-end gap-4">
+                                      <div>
+                                        <div className="text-xs text-themed-muted mb-1 font-medium">
+                                          Size
+                                        </div>
+                                        <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                                          {formatBytes(totalBytes)}
+                                        </span>
+                                      </div>
+                                      {download.cacheHitBytes > 0 ? (
+                                        <div className="text-center">
+                                          <div className="text-xs text-themed-muted mb-1 font-medium">
+                                            Cache
+                                          </div>
+                                          <span className="cache-hit font-bold text-sm px-3 py-1.5 rounded-full bg-[var(--theme-success-bg)] inline-block">
+                                            {formatPercent(cachePercent)}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="text-center">
+                                          <div className="text-xs text-themed-muted mb-1 font-medium">
+                                            Cache
+                                          </div>
+                                          <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--theme-bg-tertiary)] text-themed-muted inline-block font-medium">
+                                            No hits
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
                       <div
-                        key={download.id}
-                        className="rounded-lg border p-4 hover:bg-[var(--theme-bg-tertiary)]/30 transition-all duration-200 ml-4"
+                        className="flex items-center justify-center gap-2 pt-3 border-t"
                         style={{ borderColor: 'var(--theme-border-secondary)' }}
                       >
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-center">
-                          {/* Time Info */}
-                          <div>
-                            <div className="text-xs text-themed-muted mb-1 font-medium">Timeline</div>
-                            <div className="flex flex-col gap-1 text-xs">
-                              <span className="flex items-center gap-1.5 text-[var(--theme-text-secondary)]">
-                                <Clock size={12} />
-                                Started {formatRelativeTime(download.startTimeLocal)}
-                              </span>
-                              {download.endTimeLocal ? (
-                                <span className="flex items-center gap-1.5 text-[var(--theme-success-text)]">
-                                  <CheckCircle size={12} />
-                                  Completed {formatRelativeTime(download.endTimeLocal)}
-                                </span>
-                              ) : (
-                                <span className="flex items-center gap-1.5 text-[var(--theme-info-text)]">
-                                  <AlertCircle size={12} />
-                                  In progress
-                                </span>
-                              )}
-                              {download.depotId && (
-                                <span className="flex items-center gap-1.5 text-[var(--theme-text-muted)] font-mono">
-                                  Depot: {download.depotId}
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                        <Tooltip content="Previous page (hold to skip multiple)">
+                          <button
+                            onClick={() => handlePageChange(currentPage - 1)}
+                            onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
+                            onPointerUp={handlePointerHoldEnd}
+                            onPointerCancel={handlePointerHoldEnd}
+                            onLostPointerCapture={stopHoldTimer}
+                            disabled={currentPage === 1}
+                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-tertiary)',
+                              color: 'var(--theme-text-primary)'
+                            }}
+                          >
+                            <ChevronLeft size={14} />
+                          </button>
+                        </Tooltip>
 
-                          {/* Size & Cache */}
-                          <div className="flex items-center justify-between lg:justify-end gap-4">
-                            <div>
-                              <div className="text-xs text-themed-muted mb-1 font-medium">Size</div>
-                              <span className="text-base font-bold text-[var(--theme-text-primary)]">
-                                {formatBytes(totalBytes)}
-                              </span>
-                            </div>
-                            {download.cacheHitBytes > 0 ? (
-                              <div className="text-center">
-                                <div className="text-xs text-themed-muted mb-1 font-medium">Cache</div>
-                                <span className="cache-hit font-bold text-sm px-3 py-1.5 rounded-full bg-[var(--theme-success-bg)] inline-block">
-                                  {formatPercent(cachePercent)}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="text-center">
-                                <div className="text-xs text-themed-muted mb-1 font-medium">Cache</div>
-                                <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--theme-bg-tertiary)] text-themed-muted inline-block font-medium">
-                                  No hits
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <span
+                          className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2"
+                          style={{ minWidth: '50px', textAlign: 'center' }}
+                        >
+                          {currentPage} / {totalPages}
+                        </span>
+
+                        <Tooltip content="Next page (hold to skip multiple)">
+                          <button
+                            onClick={() => handlePageChange(currentPage + 1)}
+                            onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
+                            onPointerUp={handlePointerHoldEnd}
+                            onPointerCancel={handlePointerHoldEnd}
+                            onLostPointerCapture={stopHoldTimer}
+                            disabled={currentPage === totalPages}
+                            className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
+                            style={{
+                              backgroundColor: 'var(--theme-bg-tertiary)',
+                              color: 'var(--theme-text-primary)'
+                            }}
+                          >
+                            <ChevronRight size={14} />
+                          </button>
+                        </Tooltip>
                       </div>
-                    );
-                  })}
-                    </div>
-                  );
-                })}
-                </div>
-
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 pt-3 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
-                    <Tooltip content="Previous page (hold to skip multiple)">
-                      <button
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
-                        onPointerUp={handlePointerHoldEnd}
-                        onPointerCancel={handlePointerHoldEnd}
-                        onLostPointerCapture={stopHoldTimer}
-                        disabled={currentPage === 1}
-                        className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          color: 'var(--theme-text-primary)'
-                        }}
-                      >
-                        <ChevronLeft size={14} />
-                      </button>
-                    </Tooltip>
-
-                    <span className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2" style={{ minWidth: '50px', textAlign: 'center' }}>
-                      {currentPage} / {totalPages}
-                    </span>
-
-                    <Tooltip content="Next page (hold to skip multiple)">
-                      <button
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
-                        onPointerUp={handlePointerHoldEnd}
-                        onPointerCancel={handlePointerHoldEnd}
-                        onLostPointerCapture={stopHoldTimer}
-                        disabled={currentPage === totalPages}
-                        className="p-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)]/80"
-                        style={{
-                          backgroundColor: 'var(--theme-bg-tertiary)',
-                          color: 'var(--theme-text-primary)'
-                        }}
-                      >
-                        <ChevronRight size={14} />
-                      </button>
-                    </Tooltip>
+                    )}
                   </div>
-                )}
-              </div>
-              );
-            })()}
+                );
+              })()}
           </div>
         </div>
       )}
@@ -648,7 +781,16 @@ const GroupCard: React.FC<GroupCardProps> = ({
   );
 };
 
-const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClick, sectionLabels, aestheticMode = false, fullHeightBanners = false, groupByFrequency = true, enableScrollIntoView = true }) => {
+const NormalView: React.FC<NormalViewProps> = ({
+  items,
+  expandedItem,
+  onItemClick,
+  sectionLabels,
+  aestheticMode = false,
+  fullHeightBanners = false,
+  groupByFrequency = true,
+  enableScrollIntoView = true
+}) => {
   const labels = { ...DEFAULT_SECTION_LABELS, ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
@@ -658,7 +800,7 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
   const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
-    setImageErrors(prev => new Set(prev).add(gameAppId));
+    setImageErrors((prev) => new Set(prev).add(gameAppId));
   };
 
   const stopHoldTimer = React.useCallback(() => {
@@ -743,20 +885,30 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
               multipleDownloadsHeaderRendered = true;
               header = (
                 <div className="mb-4 mt-6 first:mt-0">
-                  <h2 className="text-lg font-bold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                  <h2
+                    className="text-lg font-bold text-themed-primary border-b pb-2"
+                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  >
                     {labels.multipleDownloads}
                   </h2>
-                  <p className="text-xs text-themed-muted mt-1">Games that have been downloaded multiple times</p>
+                  <p className="text-xs text-themed-muted mt-1">
+                    Games that have been downloaded multiple times
+                  </p>
                 </div>
               );
             } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
               singleDownloadsHeaderRendered = true;
               header = (
                 <div className="mb-4 mt-6 first:mt-0">
-                  <h2 className="text-lg font-bold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                  <h2
+                    className="text-lg font-bold text-themed-primary border-b pb-2"
+                    style={{ borderColor: 'var(--theme-border-secondary)' }}
+                  >
                     {labels.singleDownloads}
                   </h2>
-                  <p className="text-xs text-themed-muted mt-1">Games downloaded once in a single session</p>
+                  <p className="text-xs text-themed-muted mt-1">
+                    Games downloaded once in a single session
+                  </p>
                 </div>
               );
             }
@@ -764,10 +916,15 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
             individualHeaderRendered = true;
             header = (
               <div className="mb-4 mt-6 first:mt-0">
-                <h2 className="text-lg font-bold text-themed-primary border-b pb-2" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                <h2
+                  className="text-lg font-bold text-themed-primary border-b pb-2"
+                  style={{ borderColor: 'var(--theme-border-secondary)' }}
+                >
                   {labels.individual}
                 </h2>
-                <p className="text-xs text-themed-muted mt-1">Downloads that couldn't be grouped by game name</p>
+                <p className="text-xs text-themed-muted mt-1">
+                  Downloads that couldn't be grouped by game name
+                </p>
               </div>
             );
           }
@@ -776,7 +933,9 @@ const NormalView: React.FC<NormalViewProps> = ({ items, expandedItem, onItemClic
         return (
           <React.Fragment key={key}>
             {header}
-            {isGroup ? renderGroupCard(item as DownloadGroup) : renderDownloadCard(item as Download)}
+            {isGroup
+              ? renderGroupCard(item as DownloadGroup)
+              : renderDownloadCard(item as Download)}
           </React.Fragment>
         );
       })}

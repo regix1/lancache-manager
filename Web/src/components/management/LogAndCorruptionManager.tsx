@@ -9,7 +9,7 @@ import {
   Lock
 } from 'lucide-react';
 import ApiService from '@services/api.service';
-import { AuthMode } from '@services/auth.service';
+import { type AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { Card } from '@components/ui/Card';
 
@@ -24,8 +24,18 @@ import type { CorruptedChunkDetail } from '@/types';
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
-  'steam', 'epic', 'riot', 'blizzard', 'origin', 'uplay',
-  'gog', 'wsus', 'microsoft', 'sony', 'nintendo', 'apple'
+  'steam',
+  'epic',
+  'riot',
+  'blizzard',
+  'origin',
+  'uplay',
+  'gog',
+  'wsus',
+  'microsoft',
+  'sony',
+  'nintendo',
+  'apple'
 ];
 
 const ServiceButton: React.FC<{
@@ -47,9 +57,7 @@ const ServiceButton: React.FC<{
       {!isRemoving ? (
         <>
           <span className="capitalize font-medium text-sm sm:text-base">Clear {service}</span>
-          <span className="text-xs text-themed-muted mt-1">
-            ({count.toLocaleString()} entries)
-          </span>
+          <span className="text-xs text-themed-muted mt-1">({count.toLocaleString()} entries)</span>
         </>
       ) : (
         <span className="capitalize font-medium text-sm sm:text-base">Removing...</span>
@@ -93,7 +101,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [removingCorruption, setRemovingCorruption] = useState<string | null>(null);
   const [pendingCorruptionRemoval, setPendingCorruptionRemoval] = useState<string | null>(null);
   const [expandedCorruptionService, setExpandedCorruptionService] = useState<string | null>(null);
-  const [corruptionDetails, setCorruptionDetails] = useState<Record<string, CorruptedChunkDetail[]>>({});
+  const [corruptionDetails, setCorruptionDetails] = useState<
+    Record<string, CorruptedChunkDetail[]>
+  >({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
 
   // Shared State
@@ -104,7 +114,11 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
 
-  const serviceRemovalOp = useBackendOperation<ServiceRemovalOperationData>('activeServiceRemoval', 'serviceRemoval', 30);
+  const serviceRemovalOp = useBackendOperation<ServiceRemovalOperationData>(
+    'activeServiceRemoval',
+    'serviceRemoval',
+    30
+  );
 
   const clearOperationState = async () => {
     await serviceRemovalOp.clear();
@@ -141,7 +155,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   // Note: Service removal progress is now reported via SignalR in ManagementTab
   // activeServiceRemoval is only used for local UI state (button disabling, etc.)
 
-  const loadAllData = async (forceRefresh: boolean = false) => {
+  const loadAllData = async (forceRefresh = false) => {
     setIsLoading(true);
     setLoadError(null);
     try {
@@ -171,7 +185,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
         const response = await ApiService.getLogRemovalStatus();
         if (response && response.isProcessing) {
           setActiveServiceRemoval(serviceOp.data.service);
-          onSuccess?.(`Removing ${serviceOp.data.service} entries from logs (operation resumed)...`);
+          onSuccess?.(
+            `Removing ${serviceOp.data.service} entries from logs (operation resumed)...`
+          );
         } else {
           // Operation completed while we were away, clear persisted state
           await serviceRemovalOp.clear();
@@ -233,13 +249,16 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     }
   };
 
-  const handleRemoveServiceLogs = useCallback((serviceName: string) => {
-    if (authMode !== 'authenticated') {
-      onError?.('Full authentication required for management operations');
-      return;
-    }
-    setPendingServiceRemoval(serviceName);
-  }, [authMode, onError]);
+  const handleRemoveServiceLogs = useCallback(
+    (serviceName: string) => {
+      if (authMode !== 'authenticated') {
+        onError?.('Full authentication required for management operations');
+        return;
+      }
+      setPendingServiceRemoval(serviceName);
+    },
+    [authMode, onError]
+  );
 
   const handleRemoveCorruption = (service: string) => {
     if (authMode !== 'authenticated') {
@@ -284,7 +303,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       setLoadingDetails(service);
       try {
         const details = await ApiService.getCorruptionDetails(service);
-        setCorruptionDetails(prev => ({ ...prev, [service]: details }));
+        setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
       } catch (err: any) {
         onError?.(err.message || `Failed to load corruption details for ${service}`);
         setExpandedCorruptionService(null);
@@ -295,14 +314,14 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   };
 
   const { mainServices, otherServices, servicesWithData } = useMemo(() => {
-    const allServices = Object.keys(serviceCounts).filter(service => serviceCounts[service] > 0);
+    const allServices = Object.keys(serviceCounts).filter((service) => serviceCounts[service] > 0);
 
     const main = allServices
-      .filter(service => MAIN_SERVICES.includes(service.toLowerCase()))
+      .filter((service) => MAIN_SERVICES.includes(service.toLowerCase()))
       .sort();
 
     const other = allServices
-      .filter(service => !MAIN_SERVICES.includes(service.toLowerCase()))
+      .filter((service) => !MAIN_SERVICES.includes(service.toLowerCase()))
       .sort();
 
     const displayed = showMoreServices ? [...main, ...other] : main;
@@ -332,7 +351,10 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               backgroundColor: 'transparent'
             }}
             onMouseEnter={(e) =>
-              !isLoading && !activeServiceRemoval && !removingCorruption && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
+              !isLoading &&
+              !activeServiceRemoval &&
+              !removingCorruption &&
+              (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
             }
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
             title="Refresh all data"
@@ -353,16 +375,17 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 {logsReadOnly && cacheReadOnly
                   ? 'Logs and cache directories are read-only'
                   : logsReadOnly
-                  ? 'Logs directory is read-only'
-                  : 'Cache directory is read-only'}
+                    ? 'Logs directory is read-only'
+                    : 'Cache directory is read-only'}
               </p>
               <p className="text-sm mt-1">
                 {logsReadOnly && cacheReadOnly
                   ? 'Both directories are mounted in read-only mode. All log and corruption management features are disabled.'
                   : logsReadOnly
-                  ? 'The logs directory is mounted in read-only mode. Log removal features are disabled.'
-                  : 'The cache directory is mounted in read-only mode. Corruption removal features are disabled.'}
-                {' '}Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your docker-compose volume mounts to enable these features.
+                    ? 'The logs directory is mounted in read-only mode. Log removal features are disabled.'
+                    : 'The cache directory is mounted in read-only mode. Corruption removal features are disabled.'}{' '}
+                Remove <code className="bg-themed-tertiary px-1 rounded">:ro</code> from your
+                docker-compose volume mounts to enable these features.
               </p>
             </div>
           </Alert>
@@ -389,7 +412,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             <>
               <p className="text-themed-muted text-sm mb-4 break-words">
                 Remove service log entries from{' '}
-                <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">{config.logPath}</code>
+                <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">
+                  {config.logPath}
+                </code>
               </p>
             </>
           )}
@@ -417,8 +442,12 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               {isLoading ? (
                 <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-                  <p className="text-sm text-themed-secondary">Scanning log files for services...</p>
-                  <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
+                  <p className="text-sm text-themed-secondary">
+                    Scanning log files for services...
+                  </p>
+                  <p className="text-xs text-themed-muted">
+                    This may take several minutes for large log files
+                  </p>
                 </div>
               ) : !loadError && (mainServices.length > 0 || otherServices.length > 0) ? (
                 <>
@@ -432,7 +461,13 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                           count={serviceCounts[service] || 0}
                           isRemoving={activeServiceRemoval === service}
                           isDisabled={
-                            mockMode || !!activeServiceRemoval || !!removingCorruption || serviceRemovalOp.loading || authMode !== 'authenticated' || logsReadOnly || checkingPermissions
+                            mockMode ||
+                            !!activeServiceRemoval ||
+                            !!removingCorruption ||
+                            serviceRemovalOp.loading ||
+                            authMode !== 'authenticated' ||
+                            logsReadOnly ||
+                            checkingPermissions
                           }
                           onClick={handleClick}
                         />
@@ -475,7 +510,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
         <div className="mb-6">
           {logsReadOnly || cacheReadOnly ? (
             <div className="flex items-center gap-2 mb-4">
-              <h4 className="text-md font-semibold text-themed-primary">Corrupted Cache Detection & Removal</h4>
+              <h4 className="text-md font-semibold text-themed-primary">
+                Corrupted Cache Detection & Removal
+              </h4>
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -496,8 +533,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                   Corrupted Cache Detection & Removal
                 </p>
                 <p className="text-themed-muted text-sm">
-                  Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+ occurrences) in access logs.
-                  Removal will <strong>delete cache files</strong> from disk AND <strong>remove log entries</strong> for these chunks.
+                  Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+
+                  occurrences) in access logs. Removal will <strong>delete cache files</strong> from
+                  disk AND <strong>remove log entries</strong> for these chunks.
                 </p>
               </div>
             </div>
@@ -526,17 +564,25 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               {isLoading ? (
                 <div className="flex flex-col items-center justify-center py-8 gap-3">
                   <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-                  <p className="text-sm text-themed-secondary">Scanning logs for corrupted chunks...</p>
-                  <p className="text-xs text-themed-muted">This may take several minutes for large log files</p>
+                  <p className="text-sm text-themed-secondary">
+                    Scanning logs for corrupted chunks...
+                  </p>
+                  <p className="text-xs text-themed-muted">
+                    This may take several minutes for large log files
+                  </p>
                 </div>
               ) : !loadError && corruptionList.length > 0 ? (
                 <>
                   <div className="space-y-3">
                     {corruptionList.map(([service, count]) => (
-                      <div key={`corruption-${service}`} className="rounded-lg border" style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        borderColor: 'var(--theme-border-secondary)'
-                      }}>
+                      <div
+                        key={`corruption-${service}`}
+                        className="rounded-lg border"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          borderColor: 'var(--theme-border-secondary)'
+                        }}
+                      >
                         <div className="flex items-center gap-2 p-3">
                           <Button
                             onClick={() => toggleCorruptionDetails(service)}
@@ -553,7 +599,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                           </Button>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="capitalize font-medium text-themed-primary">{service}</span>
+                              <span className="capitalize font-medium text-themed-primary">
+                                {service}
+                              </span>
                               <span className="text-xs text-themed-muted">
                                 ({count.toLocaleString()} corrupted chunk{count !== 1 ? 's' : ''})
                               </span>
@@ -562,12 +610,24 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                           <Tooltip content="Delete cache files and remove log entries for corrupted chunks">
                             <Button
                               onClick={() => handleRemoveCorruption(service)}
-                              disabled={mockMode || !!removingCorruption || !!activeServiceRemoval || authMode !== 'authenticated' || logsReadOnly || cacheReadOnly || checkingPermissions}
+                              disabled={
+                                mockMode ||
+                                !!removingCorruption ||
+                                !!activeServiceRemoval ||
+                                authMode !== 'authenticated' ||
+                                logsReadOnly ||
+                                cacheReadOnly ||
+                                checkingPermissions
+                              }
                               variant="filled"
                               color="red"
                               size="sm"
                               loading={removingCorruption === service}
-                              title={(logsReadOnly || cacheReadOnly) ? 'Directories are read-only' : undefined}
+                              title={
+                                logsReadOnly || cacheReadOnly
+                                  ? 'Directories are read-only'
+                                  : undefined
+                              }
                             >
                               {removingCorruption !== service ? 'Remove All' : 'Removing...'}
                             </Button>
@@ -576,19 +636,29 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
                         {/* Expandable Details Section */}
                         {expandedCorruptionService === service && (
-                          <div className="border-t px-3 py-3" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                          <div
+                            className="border-t px-3 py-3"
+                            style={{ borderColor: 'var(--theme-border-secondary)' }}
+                          >
                             {loadingDetails === service ? (
                               <div className="flex items-center justify-center py-4 gap-2">
                                 <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                                <span className="text-sm text-themed-secondary">Loading corruption details...</span>
+                                <span className="text-sm text-themed-secondary">
+                                  Loading corruption details...
+                                </span>
                               </div>
-                            ) : corruptionDetails[service] && corruptionDetails[service].length > 0 ? (
+                            ) : corruptionDetails[service] &&
+                              corruptionDetails[service].length > 0 ? (
                               <div className="space-y-2 max-h-96 overflow-y-auto">
                                 {corruptionDetails[service].map((chunk, idx) => (
-                                  <div key={idx} className="p-2 rounded border" style={{
-                                    backgroundColor: 'var(--theme-bg-secondary)',
-                                    borderColor: 'var(--theme-border-primary)'
-                                  }}>
+                                  <div
+                                    key={idx}
+                                    className="p-2 rounded border"
+                                    style={{
+                                      backgroundColor: 'var(--theme-bg-secondary)',
+                                      borderColor: 'var(--theme-border-primary)'
+                                    }}
+                                  >
                                     <div className="flex items-start gap-2">
                                       <AlertTriangle className="w-4 h-4 text-themed-warning flex-shrink-0 mt-0.5" />
                                       <div className="flex-1 min-w-0">
@@ -600,10 +670,21 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                                           </Tooltip>
                                         </div>
                                         <div className="flex items-center gap-3 text-xs text-themed-muted">
-                                          <span>Miss count: <strong className="text-themed-error">{chunk.miss_count || 0}</strong></span>
+                                          <span>
+                                            Miss count:{' '}
+                                            <strong className="text-themed-error">
+                                              {chunk.miss_count || 0}
+                                            </strong>
+                                          </span>
                                           {chunk.cache_file_path && (
                                             <Tooltip content={chunk.cache_file_path}>
-                                              <span className="truncate">Cache: <code className="text-xs">{chunk.cache_file_path.split('/').pop() || chunk.cache_file_path.split('\\').pop()}</code></span>
+                                              <span className="truncate">
+                                                Cache:{' '}
+                                                <code className="text-xs">
+                                                  {chunk.cache_file_path.split('/').pop() ||
+                                                    chunk.cache_file_path.split('\\').pop()}
+                                                </code>
+                                              </span>
                                             </Tooltip>
                                           )}
                                         </div>
@@ -641,8 +722,14 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             <div>
               <p className="text-xs font-medium mb-2">Important:</p>
               <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-                <li><strong>Log removal:</strong> Removes entries from access.log (cache files remain intact)</li>
-                <li><strong>Corruption removal:</strong> Deletes BOTH cache files AND log entries for corrupted chunks</li>
+                <li>
+                  <strong>Log removal:</strong> Removes entries from access.log (cache files remain
+                  intact)
+                </li>
+                <li>
+                  <strong>Corruption removal:</strong> Deletes BOTH cache files AND log entries for
+                  corrupted chunks
+                </li>
                 <li>Both require write permissions to logs/cache directories</li>
                 <li>These actions cannot be undone</li>
               </ul>
@@ -668,7 +755,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            Remove all <strong>{pendingServiceRemoval}</strong> entries from the log file? This will reduce log size and improve performance.
+            Remove all <strong>{pendingServiceRemoval}</strong> entries from the log file? This will
+            reduce log size and improve performance.
           </p>
 
           <Alert color="yellow">
@@ -693,7 +781,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             <Button
               variant="filled"
               color="red"
-              onClick={() => pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval)}
+              onClick={() =>
+                pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval)
+              }
               loading={serviceRemovalOp.loading}
             >
               Remove Logs
@@ -722,9 +812,15 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             <div>
               <p className="text-sm font-medium mb-2">This will DELETE:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li><strong>Cache files</strong> from disk for corrupted chunks (3+ MISS/UNKNOWN)</li>
-                <li><strong>Log entries</strong> from access.log for these chunks</li>
-                <li><strong>Empty directories</strong> left after file removal</li>
+                <li>
+                  <strong>Cache files</strong> from disk for corrupted chunks (3+ MISS/UNKNOWN)
+                </li>
+                <li>
+                  <strong>Log entries</strong> from access.log for these chunks
+                </li>
+                <li>
+                  <strong>Empty directories</strong> left after file removal
+                </li>
               </ul>
             </div>
           </Alert>
@@ -736,7 +832,10 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 <li>This action cannot be undone</li>
                 <li>May take several minutes for large cache directories</li>
                 <li>Valid {pendingCorruptionRemoval} cache files will remain intact</li>
-                <li>Removes approximately {corruptionSummary[pendingCorruptionRemoval || ''] || 0} corrupted chunks</li>
+                <li>
+                  Removes approximately {corruptionSummary[pendingCorruptionRemoval || ''] || 0}{' '}
+                  corrupted chunks
+                </li>
               </ul>
             </div>
           </Alert>

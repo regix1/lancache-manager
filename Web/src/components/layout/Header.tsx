@@ -79,7 +79,16 @@ const Header: React.FC<HeaderProps> = ({
                   position: 'relative'
                 }}
               >
-                <div style={{ position: 'relative', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '36px',
+                    height: '36px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
                   <LancacheIcon
                     className="flex-shrink-0"
                     size={36}
@@ -97,7 +106,8 @@ const Header: React.FC<HeaderProps> = ({
                       left: '4px',
                       width: '28px',
                       height: '6px',
-                      background: 'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
+                      background:
+                        'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
                       borderRadius: '50%',
                       animation: 'shadow-pulse 2.5s ease-in-out infinite',
                       pointerEvents: 'none',
@@ -106,67 +116,81 @@ const Header: React.FC<HeaderProps> = ({
                   />
                 </div>
               </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">{title}</h1>
-              <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted hidden sm:flex">
-                <span className="truncate">{subtitle}</span>
-                {isGuestMode && (
-                  <div
-                    className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
-                    style={{
-                      backgroundColor: isRevoked ? 'var(--theme-error-bg)' : 'var(--theme-warning-bg)',
-                      color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
-                      border: isRevoked ? '1px solid var(--theme-error)' : '1px solid var(--theme-warning)',
-                    }}
-                  >
-                    <span>{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
-                    <span style={{ opacity: 0.7 }}>|</span>
-                    <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>{deviceId}</span>
-                  </div>
-                )}
-                {connectionStatus === 'connected' && (
-                  <Tooltip content="API Status: Connected - All backend services are responding normally">
-                    <div className="flex items-center">
-                      <div
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: 'var(--theme-success)' }}
-                      ></div>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">
+                  {title}
+                </h1>
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted hidden sm:flex">
+                  <span className="truncate">{subtitle}</span>
+                  {isGuestMode && (
+                    <div
+                      className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
+                      style={{
+                        backgroundColor: isRevoked
+                          ? 'var(--theme-error-bg)'
+                          : 'var(--theme-warning-bg)',
+                        color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
+                        border: isRevoked
+                          ? '1px solid var(--theme-error)'
+                          : '1px solid var(--theme-warning)'
+                      }}
+                    >
+                      <span>{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
+                      <span style={{ opacity: 0.7 }}>|</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                        {deviceId}
+                      </span>
                     </div>
-                  </Tooltip>
-                )}
-                {connectionStatus === 'disconnected' && (
-                  <Tooltip content="API Status: Disconnected - Unable to connect to backend services">
-                    <div className="flex items-center gap-1" style={{ color: 'var(--theme-error-text)' }}>
+                  )}
+                  {connectionStatus === 'connected' && (
+                    <Tooltip content="API Status: Connected - All backend services are responding normally">
+                      <div className="flex items-center">
+                        <div
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: 'var(--theme-success)' }}
+                        ></div>
+                      </div>
+                    </Tooltip>
+                  )}
+                  {connectionStatus === 'disconnected' && (
+                    <Tooltip content="API Status: Disconnected - Unable to connect to backend services">
                       <div
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: 'var(--theme-error)' }}
-                      ></div>
-                      <span className="text-xs">Disconnected</span>
-                    </div>
-                  </Tooltip>
-                )}
-                {connectionStatus === 'reconnecting' && (
-                  <Tooltip content="API Status: Reconnecting - Attempting to restore connection to backend services">
-                    <div className="flex items-center gap-1" style={{ color: 'var(--theme-warning-text)' }}>
+                        className="flex items-center gap-1"
+                        style={{ color: 'var(--theme-error-text)' }}
+                      >
+                        <div
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: 'var(--theme-error)' }}
+                        ></div>
+                        <span className="text-xs">Disconnected</span>
+                      </div>
+                    </Tooltip>
+                  )}
+                  {connectionStatus === 'reconnecting' && (
+                    <Tooltip content="API Status: Reconnecting - Attempting to restore connection to backend services">
                       <div
-                        className="w-1.5 h-1.5 rounded-full animate-pulse"
-                        style={{ backgroundColor: 'var(--theme-warning)' }}
-                      ></div>
-                      <span className="text-xs">Reconnecting</span>
-                    </div>
-                  </Tooltip>
-                )}
+                        className="flex items-center gap-1"
+                        style={{ color: 'var(--theme-warning-text)' }}
+                      >
+                        <div
+                          className="w-1.5 h-1.5 rounded-full animate-pulse"
+                          style={{ backgroundColor: 'var(--theme-warning)' }}
+                        ></div>
+                        <span className="text-xs">Reconnecting</span>
+                      </div>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <PollingRateSelector disabled={mockMode} />
-            <TimeFilter disabled={mockMode} />
+            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              <PollingRateSelector disabled={mockMode} />
+              <TimeFilter disabled={mockMode} />
+            </div>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
     </>
   );
 };

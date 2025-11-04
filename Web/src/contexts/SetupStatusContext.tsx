@@ -54,11 +54,15 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   };
 
   const markSetupCompleted = () => {
-    setSetupStatus(prev => prev ? {
-      ...prev,
-      isCompleted: true,
-      isSetupCompleted: true
-    } : null);
+    setSetupStatus((prev) =>
+      prev
+        ? {
+            ...prev,
+            isCompleted: true,
+            isSetupCompleted: true
+          }
+        : null
+    );
   };
 
   // Initial fetch
@@ -67,7 +71,9 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   }, []);
 
   return (
-    <SetupStatusContext.Provider value={{ setupStatus, isLoading, refreshSetupStatus, markSetupCompleted }}>
+    <SetupStatusContext.Provider
+      value={{ setupStatus, isLoading, refreshSetupStatus, markSetupCompleted }}
+    >
       {children}
     </SetupStatusContext.Provider>
   );

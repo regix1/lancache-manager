@@ -9,7 +9,7 @@ import {
   Download as DownloadIcon,
   Loader2,
   List,
-  Grid3x3,
+  Grid3x3
 } from 'lucide-react';
 import { useDownloads } from '../../contexts/DownloadsContext';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
@@ -51,20 +51,32 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
   if (!downloads || downloads.length === 0) return '';
 
   const headers = [
-    'id', 'service', 'clientIp', 'startTime', 'endTime', 'cacheHitBytes',
-    'cacheMissBytes', 'totalBytes', 'cacheHitPercent', 'isActive', 'gameName', 'gameAppId'
+    'id',
+    'service',
+    'clientIp',
+    'startTime',
+    'endTime',
+    'cacheHitBytes',
+    'cacheMissBytes',
+    'totalBytes',
+    'cacheHitPercent',
+    'isActive',
+    'gameName',
+    'gameAppId'
   ];
   const csvHeaders = headers.join(',');
 
-  const csvRows = downloads.map(download => {
-    return headers.map(header => {
-      const value = download[header as keyof Download];
-      if (value === null || value === undefined) return '';
-      if (typeof value === 'string' && value.includes(',')) {
-        return `"${value.replace(/"/g, '""')}"`;
-      }
-      return value;
-    }).join(',');
+  const csvRows = downloads.map((download) => {
+    return headers
+      .map((header) => {
+        const value = download[header as keyof Download];
+        if (value === null || value === undefined) return '';
+        if (typeof value === 'string' && value.includes(',')) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      })
+      .join(',');
   });
 
   return [csvHeaders, ...csvRows].join('\n');
@@ -94,10 +106,15 @@ const DownloadsTab: React.FC = () => {
     selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
     itemsPerPage:
       storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) === 'unlimited'
-        ? 'unlimited' as const
+        ? ('unlimited' as const)
         : parseInt(storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE) || '50'),
     viewMode: (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode,
-    sortOrder: (storage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as 'latest' | 'oldest' | 'largest' | 'smallest' | 'service',
+    sortOrder: (storage.getItem(STORAGE_KEYS.SORT_ORDER) || 'latest') as
+      | 'latest'
+      | 'oldest'
+      | 'largest'
+      | 'smallest'
+      | 'service',
     aestheticMode: storage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
     fullHeightBanners: storage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
     groupByFrequency: storage.getItem('lancache_downloads_group_by_frequency') !== 'false',
@@ -136,7 +153,16 @@ const DownloadsTab: React.FC = () => {
 
       return () => clearTimeout(timer);
     }
-  }, [settings.selectedService, settings.selectedClient, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode]);
+  }, [
+    settings.selectedService,
+    settings.selectedClient,
+    settings.sortOrder,
+    settings.showZeroBytes,
+    settings.showSmallFiles,
+    settings.hideLocalhost,
+    settings.hideUnknownGames,
+    settings.viewMode
+  ]);
 
   const availableServices = useMemo(() => {
     const services = new Set(latestDownloads.map((d) => d.service.toLowerCase()));
@@ -150,10 +176,10 @@ const DownloadsTab: React.FC = () => {
 
   // Filter out services that only have small files (< 1MB) from the dropdown
   const filteredAvailableServices = useMemo(() => {
-    return availableServices.filter(service => {
+    return availableServices.filter((service) => {
       // Check if this service has any downloads > 1MB
-      const serviceDownloads = latestDownloads.filter(d => d.service.toLowerCase() === service);
-      const hasLargeFiles = serviceDownloads.some(d => d.totalBytes > 1024 * 1024); // 1MB
+      const serviceDownloads = latestDownloads.filter((d) => d.service.toLowerCase() === service);
+      const hasLargeFiles = serviceDownloads.some((d) => d.totalBytes > 1024 * 1024); // 1MB
 
       return hasLargeFiles;
     });
@@ -169,7 +195,9 @@ const DownloadsTab: React.FC = () => {
     ];
 
     // Add hidden services option if there are any filtered out
-    const hiddenServices = availableServices.filter(service => !filteredAvailableServices.includes(service));
+    const hiddenServices = availableServices.filter(
+      (service) => !filteredAvailableServices.includes(service)
+    );
     if (hiddenServices.length > 0) {
       baseOptions.push(
         { value: 'divider', label: 'Small Files Only' },
@@ -183,13 +211,16 @@ const DownloadsTab: React.FC = () => {
     return baseOptions;
   }, [filteredAvailableServices, availableServices, latestDownloads]);
 
-  const clientOptions = useMemo(() => [
-    { value: 'all', label: 'All Clients' },
-    ...availableClients.map((client) => ({
-      value: client,
-      label: client
-    }))
-  ], [availableClients]);
+  const clientOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All Clients' },
+      ...availableClients.map((client) => ({
+        value: client,
+        label: client
+      }))
+    ],
+    [availableClients]
+  );
 
   const itemsPerPageOptions = useMemo(
     () => [
@@ -220,9 +251,7 @@ const DownloadsTab: React.FC = () => {
     }
 
     if (settings.hideLocalhost) {
-      filtered = filtered.filter(
-        (d) => d.clientIp !== '127.0.0.1' && d.clientIp !== '::1'
-      );
+      filtered = filtered.filter((d) => d.clientIp !== '127.0.0.1' && d.clientIp !== '::1');
     }
 
     if (settings.hideUnknownGames) {
@@ -270,32 +299,45 @@ const DownloadsTab: React.FC = () => {
     }
 
     return filtered;
-  }, [latestDownloads, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.selectedService, settings.selectedClient]);
+  }, [
+    latestDownloads,
+    settings.showZeroBytes,
+    settings.showSmallFiles,
+    settings.hideLocalhost,
+    settings.hideUnknownGames,
+    settings.selectedService,
+    settings.selectedClient
+  ]);
 
   // Removed serviceFilteredDownloads - now using latestDownloads.length directly for total count
 
   // Grouping logic for different view modes
-  const createGroups = (downloads: Download[], groupUnknown: boolean = false): { groups: DownloadGroup[], individuals: Download[] } => {
+  const createGroups = (
+    downloads: Download[],
+    groupUnknown = false
+  ): { groups: DownloadGroup[]; individuals: Download[] } => {
     const groups: Record<string, DownloadGroup> = {};
     const individuals: Download[] = [];
 
-    downloads.forEach(download => {
+    downloads.forEach((download) => {
       let groupKey: string;
       let groupName: string;
       let groupType: 'game' | 'metadata' | 'content';
 
       // Check if this is an unknown game
-      const isUnknownGame = download.service.toLowerCase() === 'steam' && (
-        !download.gameName ||
-        download.gameName.trim() === '' ||
-        download.gameName === 'Unknown Steam Game' ||
-        download.gameName.toLowerCase().includes('unknown') ||
-        download.gameName.match(/^Steam App \d+$/)
-      );
+      const isUnknownGame =
+        download.service.toLowerCase() === 'steam' &&
+        (!download.gameName ||
+          download.gameName.trim() === '' ||
+          download.gameName === 'Unknown Steam Game' ||
+          download.gameName.toLowerCase().includes('unknown') ||
+          download.gameName.match(/^Steam App \d+$/));
 
-      if (download.gameName &&
-          download.gameName !== 'Unknown Steam Game' &&
-          !download.gameName.match(/^Steam App \d+$/)) {
+      if (
+        download.gameName &&
+        download.gameName !== 'Unknown Steam Game' &&
+        !download.gameName.match(/^Steam App \d+$/)
+      ) {
         groupKey = `game-${download.gameName}`;
         groupName = download.gameName;
         groupType = 'game';
@@ -355,7 +397,6 @@ const DownloadsTab: React.FC = () => {
     return { groups: Object.values(groups), individuals };
   };
 
-
   const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
     if (settings.viewMode !== 'normal') return [];
 
@@ -364,7 +405,7 @@ const DownloadsTab: React.FC = () => {
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
     let filteredGroups = groups;
     if (settings.hideUnknownGames) {
-      filteredGroups = groups.filter(g => {
+      filteredGroups = groups.filter((g) => {
         const groupNameLower = g.name.toLowerCase().trim();
         const hasUnknown = groupNameLower.includes('unknown');
         const isUnmappedApps = g.name === 'Unmapped Steam Apps';
@@ -380,29 +421,37 @@ const DownloadsTab: React.FC = () => {
       // If groupByFrequency is disabled, skip the frequency-based sorting
       if (settings.groupByFrequency) {
         // First sort by whether it's a group with multiple downloads vs single/individual
-        const aIsMultiple = ('downloads' in a && a.downloads.length > 1);
-        const bIsMultiple = ('downloads' in b && b.downloads.length > 1);
+        const aIsMultiple = 'downloads' in a && a.downloads.length > 1;
+        const bIsMultiple = 'downloads' in b && b.downloads.length > 1;
 
         if (aIsMultiple && !bIsMultiple) return -1; // Multiple downloads first
-        if (!aIsMultiple && bIsMultiple) return 1;  // Single downloads/individuals after
+        if (!aIsMultiple && bIsMultiple) return 1; // Single downloads/individuals after
 
-        const aIsSingle = ('downloads' in a && a.downloads.length === 1);
-        const bIsSingle = ('downloads' in b && b.downloads.length === 1);
+        const aIsSingle = 'downloads' in a && a.downloads.length === 1;
+        const bIsSingle = 'downloads' in b && b.downloads.length === 1;
 
         if (aIsSingle && !bIsSingle && !bIsMultiple) return -1; // Single downloads before individuals
-        if (!aIsSingle && bIsSingle && !aIsMultiple) return 1;  // Individuals after single downloads
+        if (!aIsSingle && bIsSingle && !aIsMultiple) return 1; // Individuals after single downloads
       }
 
       // Then sort by time within each category (or just by time if groupByFrequency is off)
-      const aTime = 'downloads' in a
-        ? Math.max(...a.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-        : new Date(a.startTimeLocal).getTime();
-      const bTime = 'downloads' in b
-        ? Math.max(...b.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-        : new Date(b.startTimeLocal).getTime();
+      const aTime =
+        'downloads' in a
+          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+          : new Date(a.startTimeLocal).getTime();
+      const bTime =
+        'downloads' in b
+          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+          : new Date(b.startTimeLocal).getTime();
       return bTime - aTime;
     });
-  }, [filteredDownloads, settings.viewMode, settings.groupByFrequency, settings.hideUnknownGames, settings.groupUnknownGames]);
+  }, [
+    filteredDownloads,
+    settings.viewMode,
+    settings.groupByFrequency,
+    settings.hideUnknownGames,
+    settings.groupUnknownGames
+  ]);
 
   const compactViewItems = useMemo((): (Download | DownloadGroup)[] => {
     if (settings.viewMode !== 'compact') return [];
@@ -412,7 +461,7 @@ const DownloadsTab: React.FC = () => {
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
     let filteredGroups = groups;
     if (settings.hideUnknownGames) {
-      filteredGroups = groups.filter(g => {
+      filteredGroups = groups.filter((g) => {
         const groupNameLower = g.name.toLowerCase().trim();
         const hasUnknown = groupNameLower.includes('unknown');
         const isUnmappedApps = g.name === 'Unmapped Steam Apps';
@@ -428,81 +477,102 @@ const DownloadsTab: React.FC = () => {
       // If groupByFrequency is disabled, skip the frequency-based sorting
       if (settings.groupByFrequency) {
         // First sort by whether it's a group with multiple downloads vs single/individual
-        const aIsMultiple = ('downloads' in a && a.downloads.length > 1);
-        const bIsMultiple = ('downloads' in b && b.downloads.length > 1);
+        const aIsMultiple = 'downloads' in a && a.downloads.length > 1;
+        const bIsMultiple = 'downloads' in b && b.downloads.length > 1;
 
         if (aIsMultiple && !bIsMultiple) return -1; // Multiple downloads first
-        if (!aIsMultiple && bIsMultiple) return 1;  // Single downloads/individuals after
+        if (!aIsMultiple && bIsMultiple) return 1; // Single downloads/individuals after
 
-        const aIsSingle = ('downloads' in a && a.downloads.length === 1);
-        const bIsSingle = ('downloads' in b && b.downloads.length === 1);
+        const aIsSingle = 'downloads' in a && a.downloads.length === 1;
+        const bIsSingle = 'downloads' in b && b.downloads.length === 1;
 
         if (aIsSingle && !bIsSingle && !bIsMultiple) return -1; // Single downloads before individuals
-        if (!aIsSingle && bIsSingle && !aIsMultiple) return 1;  // Individuals after single downloads
+        if (!aIsSingle && bIsSingle && !aIsMultiple) return 1; // Individuals after single downloads
       }
 
       // Then sort by time within each category (or just by time if groupByFrequency is off)
-      const aTime = 'downloads' in a
-        ? Math.max(...a.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-        : new Date(a.startTimeLocal).getTime();
-      const bTime = 'downloads' in b
-        ? Math.max(...b.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-        : new Date(b.startTimeLocal).getTime();
+      const aTime =
+        'downloads' in a
+          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+          : new Date(a.startTimeLocal).getTime();
+      const bTime =
+        'downloads' in b
+          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+          : new Date(b.startTimeLocal).getTime();
       return bTime - aTime;
     });
-  }, [filteredDownloads, settings.viewMode, settings.groupByFrequency, settings.hideUnknownGames, settings.groupUnknownGames]);
+  }, [
+    filteredDownloads,
+    settings.viewMode,
+    settings.groupByFrequency,
+    settings.hideUnknownGames,
+    settings.groupUnknownGames
+  ]);
 
   const allItemsSorted = useMemo(() => {
-    let items = settings.viewMode === 'normal' ? normalViewItems :
-                settings.viewMode === 'compact' ? compactViewItems :
-                filteredDownloads;
+    let items =
+      settings.viewMode === 'normal'
+        ? normalViewItems
+        : settings.viewMode === 'compact'
+          ? compactViewItems
+          : filteredDownloads;
 
     // Apply sorting while preserving Multiple vs Single categorization
     if (settings.viewMode === 'normal' || settings.viewMode === 'compact') {
       const mixedItems = [...items] as (Download | DownloadGroup)[];
 
       // Separate items into categories first
-      const multipleDownloads = mixedItems.filter(item => 'downloads' in item && item.downloads.length > 1);
-      const singleDownloads = mixedItems.filter(item => 'downloads' in item && item.downloads.length === 1);
-      const individuals = mixedItems.filter(item => !('downloads' in item));
+      const multipleDownloads = mixedItems.filter(
+        (item) => 'downloads' in item && item.downloads.length > 1
+      );
+      const singleDownloads = mixedItems.filter(
+        (item) => 'downloads' in item && item.downloads.length === 1
+      );
+      const individuals = mixedItems.filter((item) => !('downloads' in item));
 
       // Sort each category separately
       const sortFn = (a: Download | DownloadGroup, b: Download | DownloadGroup) => {
         switch (settings.sortOrder) {
           case 'oldest':
-            const aTime = 'downloads' in a
-              ? Math.min(...a.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-              : new Date(a.startTimeLocal).getTime();
-            const bTime = 'downloads' in b
-              ? Math.min(...b.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-              : new Date(b.startTimeLocal).getTime();
+            const aTime =
+              'downloads' in a
+                ? Math.min(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+                : new Date(a.startTimeLocal).getTime();
+            const bTime =
+              'downloads' in b
+                ? Math.min(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+                : new Date(b.startTimeLocal).getTime();
             return aTime - bTime;
           case 'largest':
-            const aBytes = 'downloads' in a ? a.totalBytes : (a.totalBytes || 0);
-            const bBytes = 'downloads' in b ? b.totalBytes : (b.totalBytes || 0);
+            const aBytes = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
+            const bBytes = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
             return bBytes - aBytes;
           case 'smallest':
-            const aBytesSmall = 'downloads' in a ? a.totalBytes : (a.totalBytes || 0);
-            const bBytesSmall = 'downloads' in b ? b.totalBytes : (b.totalBytes || 0);
+            const aBytesSmall = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
+            const bBytesSmall = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
             return aBytesSmall - bBytesSmall;
           case 'service':
             const serviceCompare = a.service.localeCompare(b.service);
             if (serviceCompare !== 0) return serviceCompare;
-            const aLatest = 'downloads' in a
-              ? Math.max(...a.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-              : new Date(a.startTimeLocal).getTime();
-            const bLatest = 'downloads' in b
-              ? Math.max(...b.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-              : new Date(b.startTimeLocal).getTime();
+            const aLatest =
+              'downloads' in a
+                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+                : new Date(a.startTimeLocal).getTime();
+            const bLatest =
+              'downloads' in b
+                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+                : new Date(b.startTimeLocal).getTime();
             return bLatest - aLatest;
           case 'latest':
           default:
-            const aLatestDefault = 'downloads' in a
-              ? Math.max(...a.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-              : new Date(a.startTimeLocal).getTime();
-            const bLatestDefault = 'downloads' in b
-              ? Math.max(...b.downloads.map(d => new Date(d.startTimeLocal).getTime()))
-              : new Date(b.startTimeLocal).getTime();
+            const aLatestDefault =
+              'downloads' in a
+                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+                : new Date(a.startTimeLocal).getTime();
+            const bLatestDefault =
+              'downloads' in b
+                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
+                : new Date(b.startTimeLocal).getTime();
             return bLatestDefault - aLatestDefault;
         }
       };
@@ -517,13 +587,7 @@ const DownloadsTab: React.FC = () => {
     }
 
     return items;
-  }, [
-    filteredDownloads,
-    normalViewItems,
-    compactViewItems,
-    settings.viewMode,
-    settings.sortOrder
-  ]);
+  }, [filteredDownloads, normalViewItems, compactViewItems, settings.viewMode, settings.sortOrder]);
 
   const itemsToDisplay = useMemo(() => {
     if (settings.itemsPerPage === 'unlimited') {
@@ -551,7 +615,17 @@ const DownloadsTab: React.FC = () => {
         contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
-  }, [settings.selectedService, settings.selectedClient, settings.sortOrder, settings.showZeroBytes, settings.showSmallFiles, settings.hideLocalhost, settings.hideUnknownGames, settings.viewMode, settings.itemsPerPage]);
+  }, [
+    settings.selectedService,
+    settings.selectedClient,
+    settings.sortOrder,
+    settings.showZeroBytes,
+    settings.showSmallFiles,
+    settings.hideLocalhost,
+    settings.hideUnknownGames,
+    settings.viewMode,
+    settings.itemsPerPage
+  ]);
 
   // Click outside handler to close settings dropdown
   useEffect(() => {
@@ -601,11 +675,11 @@ const DownloadsTab: React.FC = () => {
 
       if (format === 'csv') {
         const downloadsForExport =
-          (settings.viewMode === 'normal' || settings.viewMode === 'compact'
+          settings.viewMode === 'normal' || settings.viewMode === 'compact'
             ? (itemsForExport as (Download | DownloadGroup)[]).flatMap((item) =>
                 'downloads' in item ? item.downloads : [item]
               )
-            : (itemsForExport as Download[]));
+            : (itemsForExport as Download[]);
 
         content = convertDownloadsToCSV(downloadsForExport);
         filename = `${baseFilename}.csv`;
@@ -662,8 +736,11 @@ const DownloadsTab: React.FC = () => {
         {/* Skeleton Content */}
         <div className="space-y-2">
           {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-16 bg-[var(--theme-bg-secondary)] rounded animate-pulse"
-                 style={{ animationDelay: `${i * 100}ms` }}>
+            <div
+              key={i}
+              className="h-16 bg-[var(--theme-bg-secondary)] rounded animate-pulse"
+              style={{ animationDelay: `${i * 100}ms` }}
+            >
               <div className="p-3 flex items-center gap-3">
                 <div className="h-6 w-16 bg-[var(--theme-bg-tertiary)] rounded"></div>
                 <div className="h-4 bg-[var(--theme-bg-tertiary)] rounded flex-1 max-w-[200px]"></div>
@@ -713,17 +790,13 @@ const DownloadsTab: React.FC = () => {
               <EnhancedDropdown
                 options={serviceOptions}
                 value={settings.selectedService}
-                onChange={(value) =>
-                  setSettings({ ...settings, selectedService: value })
-                }
+                onChange={(value) => setSettings({ ...settings, selectedService: value })}
                 className="flex-1 min-w-0"
               />
               <EnhancedDropdown
                 options={clientOptions}
                 value={settings.selectedClient}
-                onChange={(value) =>
-                  setSettings({ ...settings, selectedClient: value })
-                }
+                onChange={(value) => setSettings({ ...settings, selectedClient: value })}
                 className="flex-1 min-w-0"
               />
             </div>
@@ -754,9 +827,7 @@ const DownloadsTab: React.FC = () => {
                   { value: 'service', label: 'Service' }
                 ]}
                 value={settings.sortOrder}
-                onChange={(value) =>
-                  setSettings({ ...settings, sortOrder: value as any })
-                }
+                onChange={(value) => setSettings({ ...settings, sortOrder: value as any })}
                 className="flex-1 min-w-0"
               />
               {/* View mode toggle inline with dropdowns */}
@@ -764,9 +835,7 @@ const DownloadsTab: React.FC = () => {
                 <button
                   onClick={() => setSettings({ ...settings, viewMode: 'compact' })}
                   className={`px-2 py-1 rounded-md transition-colors ${
-                    settings.viewMode === 'compact'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary'
+                    settings.viewMode === 'compact' ? 'bg-primary' : 'text-themed-secondary'
                   }`}
                   style={{
                     color: settings.viewMode === 'compact' ? 'var(--theme-button-text)' : undefined
@@ -778,9 +847,7 @@ const DownloadsTab: React.FC = () => {
                 <button
                   onClick={() => setSettings({ ...settings, viewMode: 'normal' })}
                   className={`px-2 py-1 rounded-md transition-colors ${
-                    settings.viewMode === 'normal'
-                      ? 'bg-primary'
-                      : 'text-themed-secondary'
+                    settings.viewMode === 'normal' ? 'bg-primary' : 'text-themed-secondary'
                   }`}
                   style={{
                     color: settings.viewMode === 'normal' ? 'var(--theme-button-text)' : undefined
@@ -797,18 +864,14 @@ const DownloadsTab: React.FC = () => {
               <EnhancedDropdown
                 options={serviceOptions}
                 value={settings.selectedService}
-                onChange={(value) =>
-                  setSettings({ ...settings, selectedService: value })
-                }
+                onChange={(value) => setSettings({ ...settings, selectedService: value })}
                 className="w-40"
               />
 
               <EnhancedDropdown
                 options={clientOptions}
                 value={settings.selectedClient}
-                onChange={(value) =>
-                  setSettings({ ...settings, selectedClient: value })
-                }
+                onChange={(value) => setSettings({ ...settings, selectedClient: value })}
                 className="w-48"
               />
 
@@ -837,9 +900,7 @@ const DownloadsTab: React.FC = () => {
                   { value: 'service', label: 'By Service' }
                 ]}
                 value={settings.sortOrder}
-                onChange={(value) =>
-                  setSettings({ ...settings, sortOrder: value as any })
-                }
+                onChange={(value) => setSettings({ ...settings, sortOrder: value as any })}
                 className="w-40"
               />
             </div>
@@ -933,37 +994,32 @@ const DownloadsTab: React.FC = () => {
         <div ref={settingsRef}>
           {settingsOpened && (
             <>
-              <div className="border-t my-3 animate-fade-in" style={{ borderColor: 'var(--theme-border-secondary)' }} />
+              <div
+                className="border-t my-3 animate-fade-in"
+                style={{ borderColor: 'var(--theme-border-secondary)' }}
+              />
               <div className="space-y-2 animate-slide-in-top">
                 <Checkbox
                   checked={settings.showZeroBytes}
-                  onChange={(e) =>
-                    setSettings({ ...settings, showZeroBytes: e.target.checked })
-                  }
+                  onChange={(e) => setSettings({ ...settings, showZeroBytes: e.target.checked })}
                   label="Show metadata (0 bytes)"
                 />
 
                 <Checkbox
                   checked={settings.showSmallFiles}
-                  onChange={(e) =>
-                    setSettings({ ...settings, showSmallFiles: e.target.checked })
-                  }
+                  onChange={(e) => setSettings({ ...settings, showSmallFiles: e.target.checked })}
                   label="Show small files (< 1MB)"
                 />
 
                 <Checkbox
                   checked={settings.hideLocalhost}
-                  onChange={(e) =>
-                    setSettings({ ...settings, hideLocalhost: e.target.checked })
-                  }
+                  onChange={(e) => setSettings({ ...settings, hideLocalhost: e.target.checked })}
                   label="Hide localhost (127.0.0.1)"
                 />
 
                 <Checkbox
                   checked={settings.hideUnknownGames}
-                  onChange={(e) =>
-                    setSettings({ ...settings, hideUnknownGames: e.target.checked })
-                  }
+                  onChange={(e) => setSettings({ ...settings, hideUnknownGames: e.target.checked })}
                   label="Hide unknown games"
                 />
 
@@ -977,9 +1033,7 @@ const DownloadsTab: React.FC = () => {
 
                 <Checkbox
                   checked={settings.aestheticMode}
-                  onChange={(e) =>
-                    setSettings({ ...settings, aestheticMode: e.target.checked })
-                  }
+                  onChange={(e) => setSettings({ ...settings, aestheticMode: e.target.checked })}
                   label="Aesthetic mode"
                 />
 
@@ -993,9 +1047,7 @@ const DownloadsTab: React.FC = () => {
 
                 <Checkbox
                   checked={settings.groupByFrequency}
-                  onChange={(e) =>
-                    setSettings({ ...settings, groupByFrequency: e.target.checked })
-                  }
+                  onChange={(e) => setSettings({ ...settings, groupByFrequency: e.target.checked })}
                   label="Group downloads by frequency"
                 />
 
@@ -1018,16 +1070,22 @@ const DownloadsTab: React.FC = () => {
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
             <span className="whitespace-nowrap">
               {settings.itemsPerPage !== 'unlimited' && (
-                <span className="font-medium">Page {currentPage} of {totalPages}</span>
+                <span className="font-medium">
+                  Page {currentPage} of {totalPages}
+                </span>
               )}
             </span>
             <span className="flex flex-wrap items-center gap-1">
               {settings.itemsPerPage !== 'unlimited' && <span className="hidden sm:inline">-</span>}
-              <span>Showing {itemsToDisplay.length} of {allItemsSorted.length} groups</span>
+              <span>
+                Showing {itemsToDisplay.length} of {allItemsSorted.length} groups
+              </span>
               <span className="whitespace-nowrap">
-                ({filteredDownloads.length} {filteredDownloads.length === 1 ? 'download' : 'downloads'}
+                ({filteredDownloads.length}{' '}
+                {filteredDownloads.length === 1 ? 'download' : 'downloads'}
                 {filteredDownloads.length !== latestDownloads.length &&
-                  ` of ${latestDownloads.length} total`})
+                  ` of ${latestDownloads.length} total`}
+                )
               </span>
             </span>
             {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
@@ -1043,7 +1101,9 @@ const DownloadsTab: React.FC = () => {
           </div>
           {(settings.selectedService !== 'all' || settings.selectedClient !== 'all') && (
             <button
-              onClick={() => setSettings({ ...settings, selectedService: 'all', selectedClient: 'all' })}
+              onClick={() =>
+                setSettings({ ...settings, selectedService: 'all', selectedClient: 'all' })
+              }
               className="text-xs px-3 py-1.5 rounded bg-themed-accent text-white hover:opacity-80 transition-opacity whitespace-nowrap self-start sm:self-auto"
             >
               Clear Filters
@@ -1058,8 +1118,9 @@ const DownloadsTab: React.FC = () => {
           <div className="flex flex-col gap-2">
             <div className="font-medium">No downloads found in selected time range</div>
             <div className="text-sm opacity-90">
-              The dashboard shows <strong>active downloads</strong> (currently in progress), while this list shows downloads that <strong>started</strong> within the selected time period.
-              Try switching to "Live" to see all downloads, or adjust your time range.
+              The dashboard shows <strong>active downloads</strong> (currently in progress), while
+              this list shows downloads that <strong>started</strong> within the selected time
+              period. Try switching to "Live" to see all downloads, or adjust your time range.
             </div>
           </div>
         </Alert>
@@ -1070,19 +1131,30 @@ const DownloadsTab: React.FC = () => {
         {/* Loading overlay for filter changes */}
         {filterLoading && (
           <div className="absolute inset-0 bg-[var(--theme-bg-primary)]/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-lg transition-opacity duration-300">
-            <div className="flex flex-col items-center gap-3 px-6 py-4 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-xl"
-                 style={{ borderColor: 'var(--theme-border-primary)', animation: 'slideUp 0.3s ease-out' }}>
+            <div
+              className="flex flex-col items-center gap-3 px-6 py-4 rounded-lg bg-[var(--theme-bg-secondary)] border shadow-xl"
+              style={{
+                borderColor: 'var(--theme-border-primary)',
+                animation: 'slideUp 0.3s ease-out'
+              }}
+            >
               <Loader2 className="w-6 h-6 animate-spin text-[var(--theme-primary)]" />
-              <span className="text-sm font-medium text-[var(--theme-text-primary)]">Updating...</span>
+              <span className="text-sm font-medium text-[var(--theme-text-primary)]">
+                Updating...
+              </span>
             </div>
           </div>
         )}
 
         {/* Content based on view mode with fade transition */}
         <div className="relative">
-          <div className={`transition-opacity duration-300 ${
-            settings.viewMode === 'compact' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'
-          }`}>
+          <div
+            className={`transition-opacity duration-300 ${
+              settings.viewMode === 'compact'
+                ? 'opacity-100'
+                : 'opacity-0 absolute inset-0 pointer-events-none'
+            }`}
+          >
             {settings.viewMode === 'compact' && (
               <CompactView
                 items={itemsToDisplay as (Download | DownloadGroup)[]}
@@ -1095,9 +1167,13 @@ const DownloadsTab: React.FC = () => {
             )}
           </div>
 
-          <div className={`transition-opacity duration-300 ${
-            settings.viewMode === 'normal' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'
-          }`}>
+          <div
+            className={`transition-opacity duration-300 ${
+              settings.viewMode === 'normal'
+                ? 'opacity-100'
+                : 'opacity-0 absolute inset-0 pointer-events-none'
+            }`}
+          >
             {settings.viewMode === 'normal' && (
               <NormalView
                 items={itemsToDisplay as (Download | DownloadGroup)[]}
@@ -1115,21 +1191,36 @@ const DownloadsTab: React.FC = () => {
 
       {/* Pagination Controls - Fixed Position */}
       {totalPages > 1 && settings.itemsPerPage !== 'unlimited' && (
-        <div className="sticky bottom-0 mt-4 z-20" style={{
-          backgroundColor: 'var(--theme-bg-primary)',
-          paddingTop: '8px',
-          paddingBottom: '8px',
-          boxShadow: '0 -4px 12px rgba(0,0,0,0.1)'
-        }}>
+        <div
+          className="sticky bottom-0 mt-4 z-20"
+          style={{
+            backgroundColor: 'var(--theme-bg-primary)',
+            paddingTop: '8px',
+            paddingBottom: '8px',
+            boxShadow: '0 -4px 12px rgba(0,0,0,0.1)'
+          }}
+        >
           <Card padding="sm" className="max-w-4xl mx-auto">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
               {/* Page Info */}
               <div className="flex items-center gap-4">
-                <span className="text-sm font-medium" style={{ color: 'var(--theme-text-primary)' }}>
+                <span
+                  className="text-sm font-medium"
+                  style={{ color: 'var(--theme-text-primary)' }}
+                >
                   Page {currentPage} of {totalPages}
                 </span>
                 <span className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
-                  {((currentPage - 1) * (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20) + 1)} - {Math.min(currentPage * (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20), allItemsSorted.length)} of {allItemsSorted.length} items
+                  {(currentPage - 1) *
+                    (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20) +
+                    1}{' '}
+                  -{' '}
+                  {Math.min(
+                    currentPage *
+                      (typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20),
+                    allItemsSorted.length
+                  )}{' '}
+                  of {allItemsSorted.length} items
                 </span>
               </div>
 
@@ -1171,7 +1262,7 @@ const DownloadsTab: React.FC = () => {
                 <div className="flex items-center gap-1 px-2">
                   {/* For small number of pages, show all */}
                   {totalPages <= 7 ? (
-                    Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+                    Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
                       <button
                         key={pageNum}
                         onClick={() => handlePageChange(pageNum)}
@@ -1179,9 +1270,18 @@ const DownloadsTab: React.FC = () => {
                           currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
                         }`}
                         style={{
-                          backgroundColor: currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-                          color: currentPage === pageNum ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
-                          border: currentPage === pageNum ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                          backgroundColor:
+                            currentPage === pageNum
+                              ? 'var(--theme-primary)'
+                              : 'var(--theme-bg-tertiary)',
+                          color:
+                            currentPage === pageNum
+                              ? 'var(--theme-button-text)'
+                              : 'var(--theme-text-primary)',
+                          border:
+                            currentPage === pageNum
+                              ? '1px solid var(--theme-primary)'
+                              : '1px solid var(--theme-border-secondary)'
                         }}
                         aria-label={`Go to page ${pageNum}`}
                         aria-current={currentPage === pageNum ? 'page' : undefined}
@@ -1198,9 +1298,16 @@ const DownloadsTab: React.FC = () => {
                           currentPage === 1 ? 'shadow-md' : 'hover:bg-opacity-80'
                         }`}
                         style={{
-                          backgroundColor: currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-                          color: currentPage === 1 ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
-                          border: currentPage === 1 ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                          backgroundColor:
+                            currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
+                          color:
+                            currentPage === 1
+                              ? 'var(--theme-button-text)'
+                              : 'var(--theme-text-primary)',
+                          border:
+                            currentPage === 1
+                              ? '1px solid var(--theme-primary)'
+                              : '1px solid var(--theme-border-secondary)'
                         }}
                         aria-label="Go to page 1"
                         aria-current={currentPage === 1 ? 'page' : undefined}
@@ -1209,7 +1316,9 @@ const DownloadsTab: React.FC = () => {
                       </button>
 
                       {currentPage > 3 && (
-                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>•••</span>
+                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>
+                          •••
+                        </span>
                       )}
 
                       {Array.from({ length: 5 }, (_, i) => {
@@ -1223,9 +1332,18 @@ const DownloadsTab: React.FC = () => {
                               currentPage === pageNum ? 'shadow-md' : 'hover:bg-opacity-80'
                             }`}
                             style={{
-                              backgroundColor: currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-                              color: currentPage === pageNum ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
-                              border: currentPage === pageNum ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                              backgroundColor:
+                                currentPage === pageNum
+                                  ? 'var(--theme-primary)'
+                                  : 'var(--theme-bg-tertiary)',
+                              color:
+                                currentPage === pageNum
+                                  ? 'var(--theme-button-text)'
+                                  : 'var(--theme-text-primary)',
+                              border:
+                                currentPage === pageNum
+                                  ? '1px solid var(--theme-primary)'
+                                  : '1px solid var(--theme-border-secondary)'
                             }}
                             aria-label={`Go to page ${pageNum}`}
                             aria-current={currentPage === pageNum ? 'page' : undefined}
@@ -1236,7 +1354,9 @@ const DownloadsTab: React.FC = () => {
                       }).filter(Boolean)}
 
                       {currentPage < totalPages - 2 && (
-                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>•••</span>
+                        <span className="px-2" style={{ color: 'var(--theme-text-muted)' }}>
+                          •••
+                        </span>
                       )}
 
                       <button
@@ -1245,9 +1365,18 @@ const DownloadsTab: React.FC = () => {
                           currentPage === totalPages ? 'shadow-md' : 'hover:bg-opacity-80'
                         }`}
                         style={{
-                          backgroundColor: currentPage === totalPages ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-                          color: currentPage === totalPages ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
-                          border: currentPage === totalPages ? '1px solid var(--theme-primary)' : '1px solid var(--theme-border-secondary)'
+                          backgroundColor:
+                            currentPage === totalPages
+                              ? 'var(--theme-primary)'
+                              : 'var(--theme-bg-tertiary)',
+                          color:
+                            currentPage === totalPages
+                              ? 'var(--theme-button-text)'
+                              : 'var(--theme-text-primary)',
+                          border:
+                            currentPage === totalPages
+                              ? '1px solid var(--theme-primary)'
+                              : '1px solid var(--theme-border-secondary)'
                         }}
                         aria-label={`Go to page ${totalPages}`}
                         aria-current={currentPage === totalPages ? 'page' : undefined}
@@ -1293,7 +1422,10 @@ const DownloadsTab: React.FC = () => {
                 {/* Quick Page Jump (for many pages) */}
                 {totalPages > 10 && (
                   <>
-                    <div className="border-l mx-2 h-6" style={{ borderColor: 'var(--theme-border-secondary)' }} />
+                    <div
+                      className="border-l mx-2 h-6"
+                      style={{ borderColor: 'var(--theme-border-secondary)' }}
+                    />
                     <EnhancedDropdown
                       options={Array.from({ length: totalPages }, (_, i) => ({
                         value: (i + 1).toString(),
@@ -1323,5 +1455,3 @@ const DownloadsTab: React.FC = () => {
 };
 
 export default DownloadsTab;
-
-

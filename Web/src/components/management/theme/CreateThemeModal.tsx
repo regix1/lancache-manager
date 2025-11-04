@@ -16,7 +16,7 @@ import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
 import { ImprovedColorPicker } from './ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from './constants';
-import { ColorGroup } from './types';
+import { type ColorGroup } from './types';
 import { storage } from '@utils/storage';
 
 interface CreateThemeModalProps {
@@ -280,65 +280,68 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
     if (!search.trim()) return groups;
 
     const searchLower = search.toLowerCase();
-    return groups.map(group => {
-      const filteredColors = group.colors.filter(color =>
-        color.label.toLowerCase().includes(searchLower) ||
-        color.description.toLowerCase().includes(searchLower) ||
-        color.affects.some(affect => affect.toLowerCase().includes(searchLower)) ||
-        color.key.toLowerCase().includes(searchLower)
-      );
+    return groups
+      .map((group) => {
+        const filteredColors = group.colors.filter(
+          (color) =>
+            color.label.toLowerCase().includes(searchLower) ||
+            color.description.toLowerCase().includes(searchLower) ||
+            color.affects.some((affect) => affect.toLowerCase().includes(searchLower)) ||
+            color.key.toLowerCase().includes(searchLower)
+        );
 
-      // If group name matches, show all colors in that group
-      if (group.name.toLowerCase().includes(searchLower) ||
-          group.description.toLowerCase().includes(searchLower)) {
-        return group;
-      }
+        // If group name matches, show all colors in that group
+        if (
+          group.name.toLowerCase().includes(searchLower) ||
+          group.description.toLowerCase().includes(searchLower)
+        ) {
+          return group;
+        }
 
-      // Otherwise only show groups with matching colors
-      return { ...group, colors: filteredColors };
-    }).filter(group => group.colors.length > 0);
+        // Otherwise only show groups with matching colors
+        return { ...group, colors: filteredColors };
+      })
+      .filter((group) => group.colors.length > 0);
   };
 
   // Filter colors by page
   const filterByPage = (groups: ColorGroup[], page: string): ColorGroup[] => {
     if (page === 'all') return groups;
 
-    return groups.map(group => {
-      const filteredColors = group.colors.filter(color =>
-        color.pages?.includes(page)
-      );
-      return { ...group, colors: filteredColors };
-    }).filter(group => group.colors.length > 0);
+    return groups
+      .map((group) => {
+        const filteredColors = group.colors.filter((color) => color.pages?.includes(page));
+        return { ...group, colors: filteredColors };
+      })
+      .filter((group) => group.colors.length > 0);
   };
 
   // Get filtered groups based on organization mode
-  const getFilteredGroups = useCallback((groups: ColorGroup[], search: string): ColorGroup[] => {
-    let filtered = groups;
+  const getFilteredGroups = useCallback(
+    (groups: ColorGroup[], search: string): ColorGroup[] => {
+      let filtered = groups;
 
-    // Apply page filter if in page mode
-    if (organizationMode === 'page') {
-      filtered = filterByPage(filtered, selectedPage);
-    }
+      // Apply page filter if in page mode
+      if (organizationMode === 'page') {
+        filtered = filterByPage(filtered, selectedPage);
+      }
 
-    // Apply search filter
-    if (search.trim()) {
-      filtered = filterColorGroups(filtered, search);
-    }
+      // Apply search filter
+      if (search.trim()) {
+        filtered = filterColorGroups(filtered, search);
+      }
 
-    return filtered;
-  }, [organizationMode, selectedPage]);
+      return filtered;
+    },
+    [organizationMode, selectedPage]
+  );
 
   const handleClose = () => {
     onClose();
   };
 
   return (
-    <Modal
-      opened={opened}
-      onClose={handleClose}
-      title="Create Custom Theme"
-      size="xl"
-    >
+    <Modal opened={opened} onClose={handleClose} title="Create Custom Theme" size="xl">
       <div className="space-y-6">
         {/* Theme Metadata */}
         <div className="space-y-4">
@@ -360,9 +363,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">
-                Author
-              </label>
+              <label className="block text-sm font-medium mb-1 text-themed-secondary">Author</label>
               <input
                 type="text"
                 value={newTheme.author}
@@ -437,12 +438,12 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
         </div>
 
         {/* Page Selector (when in page mode) */}
-        <div className={`transition-all duration-300 overflow-hidden ${
-          organizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
-        }`}>
-          <label className="block text-sm font-medium text-themed-primary mb-2">
-            Select Page
-          </label>
+        <div
+          className={`transition-all duration-300 overflow-hidden ${
+            organizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
+          }`}
+        >
+          <label className="block text-sm font-medium text-themed-primary mb-2">Select Page</label>
           <div className="grid grid-cols-3 gap-2">
             {pageDefinitions.map((page) => {
               const Icon = page.icon;
@@ -456,9 +457,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                       : 'bg-themed-tertiary text-themed-secondary hover:bg-themed-hover'
                   }`}
                   style={{
-                    color: selectedPage === page.name
-                      ? 'var(--theme-button-text)'
-                      : undefined
+                    color: selectedPage === page.name ? 'var(--theme-button-text)' : undefined
                   }}
                   title={page.description}
                 >
@@ -494,7 +493,8 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
         <div className="space-y-4 max-h-96 overflow-y-auto">
           {getFilteredGroups(colorGroups, createSearchQuery).map((group) => {
             const Icon = group.icon;
-            const isExpanded = expandedGroups.includes(group.name) || createSearchQuery.trim() !== '';
+            const isExpanded =
+              expandedGroups.includes(group.name) || createSearchQuery.trim() !== '';
 
             return (
               <div
@@ -541,7 +541,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
                         affects={color.affects}
                         value={newTheme[color.key] || '#ffffff'}
                         onChange={(value) => handleColorChange(color.key, value)}
-                        onColorCommit={(previousColor) => handleColorCommit(color.key, previousColor)}
+                        onColorCommit={(previousColor) =>
+                          handleColorCommit(color.key, previousColor)
+                        }
                         supportsAlpha={color.supportsAlpha}
                         copiedColor={copiedColor}
                         onCopy={copyColor}

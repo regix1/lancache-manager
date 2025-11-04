@@ -138,9 +138,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
     primaryDownload?.gameName &&
     primaryDownload.gameName !== 'Unknown Steam Game' &&
     !primaryDownload.gameName.match(/^Steam App \d+$/);
-  const storeLink = showGameImage && primaryDownload?.gameAppId
-    ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
-    : null;
+  const storeLink =
+    showGameImage && primaryDownload?.gameAppId
+      ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
+      : null;
 
   return (
     <div
@@ -152,7 +153,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
       }`}
       style={{
         animation: 'gentleFadeIn 0.3s ease-out',
-        transition: 'background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+        transition:
+          'background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1)'
       }}
     >
       <button
@@ -194,7 +196,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
               {formatPercent(hitPercent)}
             </span>
           ) : (
-            <span className="font-medium text-xs sm:text-sm font-mono text-right min-w-[40px] sm:min-w-[50px]" style={{ color: 'var(--theme-error-text)' }}>
+            <span
+              className="font-medium text-xs sm:text-sm font-mono text-right min-w-[40px] sm:min-w-[50px]"
+              style={{ color: 'var(--theme-error-text)' }}
+            >
               0%
             </span>
           )}
@@ -214,11 +219,16 @@ const GroupRow: React.FC<GroupRowProps> = ({
           }}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex flex-col gap-3" style={{ animation: 'slideUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.08s both' }}>
+          <div
+            className="flex flex-col gap-3"
+            style={{ animation: 'slideUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) 0.08s both' }}
+          >
             {showGameImage && primaryDownload?.gameAppId && (
               <div className="flex flex-col gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-themed-muted">
-                  {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? 'Game Icon' : labels.banner}
+                  {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId))
+                    ? 'Game Icon'
+                    : labels.banner}
                 </span>
                 {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
                   <div
@@ -228,10 +238,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       borderColor: 'var(--theme-border-primary)'
                     }}
                   >
-                    <SteamIcon
-                      size={64}
-                      style={{ color: 'var(--theme-steam)', opacity: 0.6 }}
-                    />
+                    <SteamIcon size={64} style={{ color: 'var(--theme-steam)', opacity: 0.6 }} />
                   </div>
                 ) : (
                   <img
@@ -246,7 +253,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
             )}
 
             <div className="flex flex-wrap items-center gap-3 text-xs text-themed-muted">
-              <span>Cache Hit: {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : 'None'}</span>
+              <span>
+                Cache Hit: {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : 'None'}
+              </span>
               <span>Miss: {formatBytes(group.cacheMissBytes || 0)}</span>
               {hitPercent > 0 && <span>Efficiency: {formatPercent(hitPercent)}</span>}
               <span>First: {formatRelativeTime(group.firstSeen)}</span>
@@ -268,15 +277,17 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
             {(() => {
               const currentPage = groupPages[group.id] || 1;
-              const sortedDownloads = group.downloads
-                .sort((a, b) => new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime());
+              const sortedDownloads = group.downloads.sort(
+                (a, b) =>
+                  new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime()
+              );
               const totalPages = Math.ceil(sortedDownloads.length / SESSIONS_PER_PAGE);
               const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
               const endIndex = startIndex + SESSIONS_PER_PAGE;
               const paginatedDownloads = sortedDownloads.slice(startIndex, endIndex);
 
               const handlePageChange = (newPage: number) => {
-                setGroupPages(prev => ({ ...prev, [group.id]: newPage }));
+                setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
               };
 
               const handlePointerHoldStart = (
@@ -284,13 +295,16 @@ const GroupRow: React.FC<GroupRowProps> = ({
                 direction: 'prev' | 'next'
               ) => {
                 const isPrevious = direction === 'prev';
-                if ((isPrevious && currentPage === 1) || (!isPrevious && currentPage === totalPages)) {
+                if (
+                  (isPrevious && currentPage === 1) ||
+                  (!isPrevious && currentPage === totalPages)
+                ) {
                   return;
                 }
 
                 event.currentTarget.setPointerCapture?.(event.pointerId);
                 startHoldTimer(() => {
-                  setGroupPages(prev => {
+                  setGroupPages((prev) => {
                     const current = prev[group.id] || 1;
                     const nextPage = isPrevious
                       ? Math.max(1, current - 1)
@@ -311,47 +325,57 @@ const GroupRow: React.FC<GroupRowProps> = ({
               return (
                 <div className="space-y-1">
                   <div className="text-xs text-themed-muted">
-                    {labels.downloadList} ({group.downloads.length} total{totalPages > 1 && ` • Page ${currentPage}/${totalPages}`})
+                    {labels.downloadList} ({group.downloads.length} total
+                    {totalPages > 1 && ` • Page ${currentPage}/${totalPages}`})
                   </div>
                   {/* Sessions list with min height to prevent layout shift */}
                   <div style={{ minHeight: '300px' }}>
-                  {paginatedDownloads.map((download) => {
-                    const totalBytes = download.totalBytes || 0;
-                    const cachePercent = totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+                    {paginatedDownloads.map((download) => {
+                      const totalBytes = download.totalBytes || 0;
+                      const cachePercent =
+                        totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
 
-                    return (
-                      <div
-                        key={download.id}
-                        className="flex items-center justify-between text-xs py-0.5 hover:bg-[var(--theme-bg-tertiary)]/10 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className="font-mono text-[var(--theme-text-primary)]">
-                            {download.clientIp}
-                          </span>
-                          <span className="text-themed-muted">
-                            {formatRelativeTime(download.startTimeLocal)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
-                            {formatBytes(totalBytes)}
-                          </span>
-                          {download.cacheHitBytes > 0 ? (
-                            <span className="cache-hit font-medium font-mono text-right min-w-[45px]">
-                              {formatPercent(cachePercent)}
+                      return (
+                        <div
+                          key={download.id}
+                          className="flex items-center justify-between text-xs py-0.5 hover:bg-[var(--theme-bg-tertiary)]/10 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="font-mono text-[var(--theme-text-primary)]">
+                              {download.clientIp}
                             </span>
-                          ) : (
-                            <span className="font-medium font-mono text-right min-w-[45px]" style={{ color: 'var(--theme-error-text)' }}>0%</span>
-                          )}
+                            <span className="text-themed-muted">
+                              {formatRelativeTime(download.startTimeLocal)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="font-medium text-[var(--theme-text-primary)] font-mono text-right min-w-[70px]">
+                              {formatBytes(totalBytes)}
+                            </span>
+                            {download.cacheHitBytes > 0 ? (
+                              <span className="cache-hit font-medium font-mono text-right min-w-[45px]">
+                                {formatPercent(cachePercent)}
+                              </span>
+                            ) : (
+                              <span
+                                className="font-medium font-mono text-right min-w-[45px]"
+                                style={{ color: 'var(--theme-error-text)' }}
+                              >
+                                0%
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                   </div>
 
                   {/* Pagination Controls */}
                   {totalPages > 1 && (
-                    <div className="flex items-center justify-center gap-2 pt-2 mt-2 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+                    <div
+                      className="flex items-center justify-center gap-2 pt-2 mt-2 border-t"
+                      style={{ borderColor: 'var(--theme-border-secondary)' }}
+                    >
                       <Tooltip content="Previous page (hold to skip multiple)">
                         <button
                           onClick={() => handlePageChange(currentPage - 1)}
@@ -370,7 +394,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         </button>
                       </Tooltip>
 
-                      <span className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2" style={{ minWidth: '45px', textAlign: 'center' }}>
+                      <span
+                        className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2"
+                        style={{ minWidth: '45px', textAlign: 'center' }}
+                      >
                         {currentPage} / {totalPages}
                       </span>
 
@@ -421,7 +448,7 @@ const CompactView: React.FC<CompactViewProps> = ({
   const SESSIONS_PER_PAGE = 10;
 
   const handleImageError = (gameAppId: string) => {
-    setImageErrors(prev => new Set(prev).add(gameAppId));
+    setImageErrors((prev) => new Set(prev).add(gameAppId));
   };
 
   const stopHoldTimer = React.useCallback(() => {
@@ -494,8 +521,10 @@ const CompactView: React.FC<CompactViewProps> = ({
 
   return (
     <div className="space-y-2" style={{ animation: 'gentleFadeIn 0.4s ease-out' }}>
-      <div className="px-3 py-2 text-sm font-semibold text-themed-primary"
-           style={{ animation: 'slideUp 0.3s ease-out' }}>
+      <div
+        className="px-3 py-2 text-sm font-semibold text-themed-primary"
+        style={{ animation: 'slideUp 0.3s ease-out' }}
+      >
         Downloads Overview
       </div>
       <div className="transition-all duration-300">
@@ -515,7 +544,9 @@ const CompactView: React.FC<CompactViewProps> = ({
                     <div className="text-sm font-bold text-themed-primary uppercase tracking-wide">
                       {labels.multipleDownloads}
                     </div>
-                    <div className="text-xs text-themed-muted mt-0.5">Games downloaded multiple times</div>
+                    <div className="text-xs text-themed-muted mt-0.5">
+                      Games downloaded multiple times
+                    </div>
                   </div>
                 );
               } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
@@ -545,7 +576,9 @@ const CompactView: React.FC<CompactViewProps> = ({
           return (
             <React.Fragment key={key}>
               {header}
-              {isGroup ? renderGroupRow(item as DownloadGroup) : renderDownloadRow(item as Download)}
+              {isGroup
+                ? renderGroupRow(item as DownloadGroup)
+                : renderDownloadRow(item as Download)}
             </React.Fragment>
           );
         })}

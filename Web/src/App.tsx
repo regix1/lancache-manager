@@ -1,4 +1,4 @@
-import React, { useState, Suspense, lazy, useEffect } from 'react';
+import React, { useState, Suspense, lazy, useEffect, useCallback } from 'react';
 import { NotificationsProvider } from '@contexts/NotificationsContext';
 import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
@@ -44,7 +44,9 @@ const DownloadsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = (
   return <DownloadsProvider mockMode={mockMode}>{children}</DownloadsProvider>;
 };
 
-const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
+  children
+}) => {
   const { mockMode } = useMockMode();
   return <PicsProgressProvider mockMode={mockMode}>{children}</PicsProgressProvider>;
 };
@@ -70,36 +72,30 @@ const AppContent: React.FC = () => {
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
 
   // Check if modal was dismissed this session
-  const wasModalDismissed = () => {
+  const wasModalDismissed = useCallback(() => {
     return sessionStorage.getItem('fullScanModalDismissed') === 'true';
-  };
+  }, []);
 
-  const markModalDismissed = () => {
+  const markModalDismissed = useCallback(() => {
     sessionStorage.setItem('fullScanModalDismissed', 'true');
-    console.log('[App] Full scan modal dismissed - will not show again until app restart');
-  };
+  }, []);
 
   // Check state periodically after startup to catch backend initialization
   useEffect(() => {
     // Only run for authenticated users
     if (authMode !== 'authenticated' || checkingAuth) {
-      console.log('[App] Skipping startup viability check - not authenticated or still checking auth');
       return;
     }
 
     // Don't check if already dismissed
     if (wasModalDismissed()) {
-      console.log('[App] Full scan modal was dismissed this session - skipping startup check');
       return;
     }
 
     // Don't check if modal is already showing
     if (showFullScanRequiredModal) {
-      console.log('[App] Full scan modal already showing - skipping startup check');
       return;
     }
-
-    console.log('[App] Starting periodic state checks for requiresFullScan...');
 
     let checkCount = 0;
     const maxChecks = 6; // Check for 60 seconds (every 10 seconds)
@@ -151,28 +147,22 @@ const AppContent: React.FC = () => {
     }, 10000);
 
     return () => {
-      console.log('[App] Cleaning up state check timers');
       clearTimeout(initialTimer);
       if (intervalTimer) {
         clearInterval(intervalTimer);
       }
     };
-  }, [authMode, checkingAuth, showFullScanRequiredModal]);
+  }, [authMode, checkingAuth, showFullScanRequiredModal, wasModalDismissed]);
 
   // Listen for automatic scan skipped event via SignalR (for authenticated users)
   useEffect(() => {
     if (!signalR || authMode !== 'authenticated') return;
 
     const handleAutomaticScanSkipped = (data: any) => {
-      console.log('[App] AutomaticScanSkipped event received:', data);
-
       // Only show if not already showing and not dismissed
       if (!showFullScanRequiredModal && !wasModalDismissed()) {
-        console.log('[App] Showing full scan required modal from SignalR event');
         setFullScanModalChangeGap(160000); // Default large gap
         setShowFullScanRequiredModal(true);
-      } else {
-        console.log('[App] Modal already showing or dismissed - not showing again');
       }
     };
 
@@ -181,7 +171,7 @@ const AppContent: React.FC = () => {
     return () => {
       signalR.off('AutomaticScanSkipped', handleAutomaticScanSkipped);
     };
-  }, [signalR, showFullScanRequiredModal, authMode]);
+  }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
 
   // Fetch server timezone on mount
   useEffect(() => {
@@ -246,8 +236,9 @@ const AppContent: React.FC = () => {
         });
         if (response.ok) {
           const data = await response.json();
-          const hasData = (data.database?.totalMappings > 0) ||
-                         (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
+          const hasData =
+            data.database?.totalMappings > 0 ||
+            (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
           setDepotInitialized(hasData);
         } else {
           setDepotInitialized(false);
@@ -278,8 +269,9 @@ const AppContent: React.FC = () => {
       });
       if (response.ok) {
         const data = await response.json();
-        const hasData = (data.database?.totalMappings > 0) ||
-                       (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
+        const hasData =
+          data.database?.totalMappings > 0 ||
+          (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
         if (hasData) {
           setDepotInitialized(true);
         } else {
@@ -311,27 +303,23 @@ const AppContent: React.FC = () => {
   };
 
   const handleFullScanModalDismiss = () => {
-    console.log('[App] User dismissed full scan modal');
     setShowFullScanRequiredModal(false);
     markModalDismissed(); // Don't show again this session
   };
 
   const handleRunFullScan = async () => {
-    console.log('[App] User clicked Run Full Scan');
     // Close modal WITHOUT marking as dismissed (allow retry if it fails)
     setShowFullScanRequiredModal(false);
 
     // Trigger full scan via API
     try {
       await ApiService.triggerSteamKitRebuild(false); // false = full scan
-      console.log('[App] Full scan triggered successfully');
     } catch (error) {
       console.error('Failed to trigger full scan:', error);
     }
   };
 
   const handleDownloadFromGitHub = async () => {
-    console.log('[App] User clicked Download from GitHub');
     // Close modal WITHOUT marking as dismissed (allow retry if it fails)
     setShowFullScanRequiredModal(false);
 
@@ -342,7 +330,6 @@ const AppContent: React.FC = () => {
     // Trigger download from GitHub
     try {
       await ApiService.downloadPrecreatedDepotData();
-      console.log('[App] GitHub download triggered successfully');
 
       // Update localStorage flags on success
       storage.removeItem('githubDownloading');
@@ -393,7 +380,16 @@ const AppContent: React.FC = () => {
   if (checkingAuth || checkingSetupStatus || (checkingDepotStatus && authMode !== 'guest')) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-themed-primary">
-        <LoadingSpinner fullScreen={false} message={checkingAuth ? "Checking authentication..." : checkingSetupStatus ? "Checking setup status..." : "Checking depot status..."} />
+        <LoadingSpinner
+          fullScreen={false}
+          message={
+            checkingAuth
+              ? 'Checking authentication...'
+              : checkingSetupStatus
+                ? 'Checking setup status...'
+                : 'Checking depot status...'
+          }
+        />
       </div>
     );
   }
@@ -442,7 +438,8 @@ const AppContent: React.FC = () => {
   // Show authentication/initialization modal if not authenticated
   if (!hasAccess) {
     // Check if this is first-time setup or just auth needed
-    const isFirstTimeSetup = setupCompleted === false && !depotInitialized && hasProcessedLogs === false;
+    const isFirstTimeSetup =
+      setupCompleted === false && !depotInitialized && hasProcessedLogs === false;
 
     if (isFirstTimeSetup) {
       // Mark initialization flow as active when showing the modal
@@ -473,7 +470,12 @@ const AppContent: React.FC = () => {
   }
 
   // Show initialization modal if user is authenticated but hasn't completed first-time setup
-  if (authMode === 'authenticated' && setupCompleted === false && !depotInitialized && hasProcessedLogs === false) {
+  if (
+    authMode === 'authenticated' &&
+    setupCompleted === false &&
+    !depotInitialized &&
+    hasProcessedLogs === false
+  ) {
     // Mark initialization flow as active
     if (!isInitializationFlowActive) {
       setIsInitializationFlowActive(true);
@@ -491,7 +493,9 @@ const AppContent: React.FC = () => {
   // Handle special routes like /memory
   if (isMemoryRoute) {
     return (
-      <Suspense fallback={<LoadingSpinner fullScreen={false} message="Loading memory diagnostics..." />}>
+      <Suspense
+        fallback={<LoadingSpinner fullScreen={false} message="Loading memory diagnostics..." />}
+      >
         <MemoryDiagnostics />
       </Suspense>
     );
@@ -519,7 +523,9 @@ const AppContent: React.FC = () => {
           color: 'var(--theme-text-primary)'
         }}
       >
-        <Header connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'} />
+        <Header
+          connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'}
+        />
         <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} />
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
