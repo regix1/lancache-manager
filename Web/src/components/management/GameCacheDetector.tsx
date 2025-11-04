@@ -38,6 +38,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const itemsPerPage = 20;
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [hasProcessedLogs, setHasProcessedLogs] = useState(false);
+  const [checkingLogs, setCheckingLogs] = useState(true);
 
   const MAX_INITIAL_PATHS = 50; // Only show 50 paths initially to prevent lag
   const MAX_INITIAL_URLS = 20; // Only show 20 URLs initially
@@ -74,8 +76,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     loadCachedGames();
     if (refreshKey === 0) {
-      // Only check permissions on initial mount
+      // Only check permissions and logs on initial mount
       loadDirectoryPermissions();
+      checkIfLogsProcessed();
     }
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
 
@@ -89,6 +92,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setCacheReadOnly(false); // Assume writable on error
     } finally {
       setCheckingPermissions(false);
+    }
+  };
+
+  const checkIfLogsProcessed = async () => {
+    try {
+      setCheckingLogs(true);
+      const logCounts = await ApiService.getServiceLogCounts(false);
+      // Check if any service has log entries
+      const totalEntries = Object.values(logCounts).reduce((sum, count) => sum + count, 0);
+      setHasProcessedLogs(totalEntries > 0);
+    } catch (err) {
+      console.error('Failed to check if logs are processed:', err);
+      setHasProcessedLogs(false); // Assume no logs on error
+    } finally {
+      setCheckingLogs(false);
     }
   };
 
@@ -368,16 +386,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   Scan cache directory to find which games have stored files
                 </p>
               </div>
-              <Button
-                onClick={handleDetect}
-                disabled={loading || mockMode || cacheReadOnly || checkingPermissions}
-                variant="filled"
-                color="blue"
-                leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
-              >
-                {loading ? 'Detecting...' : 'Detect Games'}
-              </Button>
+              {!hasProcessedLogs && !checkingLogs ? (
+                <Tooltip content="Process access logs first to populate the database with game URLs">
+                  <Button
+                    onClick={handleDetect}
+                    disabled={loading || mockMode || cacheReadOnly || checkingPermissions || !hasProcessedLogs || checkingLogs}
+                    variant="filled"
+                    color="blue"
+                    leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                    title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+                  >
+                    {loading ? 'Detecting...' : 'Detect Games'}
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Button
+                  onClick={handleDetect}
+                  disabled={loading || mockMode || cacheReadOnly || checkingPermissions || !hasProcessedLogs || checkingLogs}
+                  variant="filled"
+                  color="blue"
+                  leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                  title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+                >
+                  {loading ? 'Detecting...' : 'Detect Games'}
+                </Button>
+              )}
             </div>
           )}
 
@@ -735,9 +768,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             <div className="text-center py-8 text-themed-muted">
               <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <div className="mb-2">No games with cache files detected</div>
-              <div className="text-xs">
-                Click "Detect Games" to scan your cache directory
-              </div>
+              {!hasProcessedLogs && !checkingLogs ? (
+                <div className="text-xs space-y-1">
+                  <div className="text-themed-warning font-medium">Process access logs first to enable game detection</div>
+                  <div>Game detection requires URLs from the database to match cache files</div>
+                </div>
+              ) : (
+                <div className="text-xs">
+                  Click "Detect Games" to scan your cache directory
+                </div>
+              )}
             </div>
           )}
 
@@ -746,6 +786,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 <div>
                   <p className="text-xs font-medium mb-2">About Game Cache Detection:</p>
                   <ul className="list-disc list-inside text-xs space-y-1 ml-2">
+                    <li><strong>Requires processed logs:</strong> Access logs must be processed first to populate the database</li>
                     <li>Scans database for game records and checks if cache files exist</li>
                     <li>Shows total cache size and file count per game</li>
                     <li>Removal deletes ALL cache files for the selected game</li>
