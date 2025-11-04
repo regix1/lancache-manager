@@ -618,6 +618,21 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpGet("database/log-entries-count")]
+    public async Task<IActionResult> GetDatabaseLogEntriesCount()
+    {
+        try
+        {
+            var count = await _dbService.GetLogEntriesCount();
+            return Ok(new { count });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting database log entries count");
+            return StatusCode(500, new { error = "Failed to get log entries count", details = ex.Message });
+        }
+    }
+
     [HttpGet("corruption/summary")]
     public async Task<IActionResult> GetCorruptionSummary([FromQuery] bool forceRefresh = false)
     {

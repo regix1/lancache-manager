@@ -502,7 +502,7 @@ class ApiService {
     }
   }
 
-  // Get counts of log entries per service
+  // Get counts of log entries per service (from log files)
   static async getServiceLogCounts(forceRefresh: boolean = false): Promise<Record<string, number>> {
     try {
       const url = `${API_BASE}/management/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
@@ -513,6 +513,20 @@ class ApiService {
       return await this.handleResponse<Record<string, number>>(res);
     } catch (error) {
       console.error('getServiceLogCounts error:', error);
+      throw error;
+    }
+  }
+
+  // Get count of LogEntries in database (not log files)
+  static async getDatabaseLogEntriesCount(): Promise<number> {
+    try {
+      const res = await fetch(`${API_BASE}/management/database/log-entries-count`, {
+        headers: this.getHeaders()
+      });
+      const data = await this.handleResponse<{ count: number }>(res);
+      return data.count;
+    } catch (error) {
+      console.error('getDatabaseLogEntriesCount error:', error);
       throw error;
     }
   }

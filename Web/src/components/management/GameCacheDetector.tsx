@@ -78,7 +78,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     if (refreshKey === 0) {
       // Only check permissions and logs on initial mount
       loadDirectoryPermissions();
-      checkIfLogsProcessed();
+      checkIfLogsProcessed(); // Check database for LogEntries
     }
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
 
@@ -98,10 +98,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const checkIfLogsProcessed = async () => {
     try {
       setCheckingLogs(true);
-      const logCounts = await ApiService.getServiceLogCounts(false);
-      // Check if any service has log entries
-      const totalEntries = Object.values(logCounts).reduce((sum, count) => sum + count, 0);
-      setHasProcessedLogs(totalEntries > 0);
+      // Check database LogEntries count (not log file counts)
+      // Game detection requires LogEntries in the database, not just log files
+      const dbLogCount = await ApiService.getDatabaseLogEntriesCount();
+      setHasProcessedLogs(dbLogCount > 0);
+      console.log('[GameCacheDetector] Database LogEntries check complete - hasProcessedLogs:', dbLogCount > 0, 'dbLogCount:', dbLogCount);
     } catch (err) {
       console.error('Failed to check if logs are processed:', err);
       setHasProcessedLogs(false); // Assume no logs on error
@@ -137,8 +138,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     const databaseResetNotifs = notifications.filter(n => n.type === 'database_reset' && n.status === 'completed');
 
     if (databaseResetNotifs.length > 0) {
-      // Database was reset, re-check if logs still exist
-      console.log('[GameCacheDetector] Database reset detected, re-checking log status');
+      // Database was reset, re-check if LogEntries exist in database
+      console.log('[GameCacheDetector] Database reset detected, re-checking database LogEntries');
       checkIfLogsProcessed();
     }
   }, [notifications]);
@@ -398,7 +399,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 </p>
               </div>
               {!hasProcessedLogs && !checkingLogs ? (
-                <Tooltip content="Process access logs first to populate the database with game URLs">
+                <Tooltip content="Process access logs to populate the database first. LogEntries in the database are required for game detection.">
                   <Button
                     onClick={handleDetect}
                     disabled={loading || mockMode || cacheReadOnly || checkingPermissions || !hasProcessedLogs || checkingLogs}
@@ -781,8 +782,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               <div className="mb-2">No games with cache files detected</div>
               {!hasProcessedLogs && !checkingLogs ? (
                 <div className="text-xs space-y-1">
-                  <div className="text-themed-warning font-medium">Process access logs first to enable game detection</div>
-                  <div>Game detection requires URLs from the database to match cache files</div>
+                  <div className="text-themed-warning font-medium">Database has no LogEntries</div>
+                  <div>Process access logs to populate the database. Game detection requires LogEntries to match cache files.</div>
                 </div>
               ) : (
                 <div className="text-xs">

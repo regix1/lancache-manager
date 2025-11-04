@@ -38,6 +38,11 @@ public class DatabaseRepository : IDatabaseRepository
 
     public bool IsResetOperationRunning => _activeResetOperations.Any();
 
+    public async Task<int> GetLogEntriesCount()
+    {
+        return await _context.LogEntries.CountAsync();
+    }
+
     public async Task ResetDatabase()
     {
         try
@@ -167,6 +172,9 @@ public class DatabaseRepository : IDatabaseRepository
 
             _logger.LogInformation($"Database reset completed successfully. Data directory: {dataDirectory}");
             _logger.LogInformation($"Preserved data: {cachedGameDetectionsCount:N0} game detections, {depotMappingsCount:N0} depot mappings");
+
+            // Invalidate all caches after full reset
+            _statsCache.InvalidateDownloads();
 
             // Send completion update
             await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
@@ -439,7 +447,7 @@ public class DatabaseRepository : IDatabaseRepository
             });
 
             // Invalidate relevant caches
-            if (tablesToClear.Contains("Downloads") || tablesToClear.Contains("ClientStats") || tablesToClear.Contains("ServiceStats") || tablesToClear.Contains("CachedGameDetections"))
+            if (tablesToClear.Contains("Downloads") || tablesToClear.Contains("ClientStats") || tablesToClear.Contains("ServiceStats") || tablesToClear.Contains("CachedGameDetections") || tablesToClear.Contains("LogEntries"))
             {
                 _statsCache.InvalidateDownloads();
             }
