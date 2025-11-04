@@ -230,10 +230,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           pollingIntervalRef.current = null;
         }
 
-        // Clear operation state - detection is complete
-        await gameDetectionOp.clear();
-
-        // Remove the "Detecting games in cache..." notification
+        // Remove the "Detecting games in cache..." notification FIRST
+        // Do this before any await to ensure notification always clears
         // Handle both manually started (stored in ref) and recovered (hardcoded id) cases
         if (detectionNotificationIdRef.current) {
           removeNotification(detectionNotificationIdRef.current);
@@ -242,6 +240,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         removeNotification('game_detection'); // Also remove recovery notification if it exists
 
         setLoading(false);
+
+        // Clear operation state - detection is complete (non-blocking)
+        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
 
         if (status.games && status.totalGamesDetected !== undefined) {
           setGames(status.games);
@@ -265,10 +266,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           pollingIntervalRef.current = null;
         }
 
-        // Clear operation state - detection failed
-        await gameDetectionOp.clear();
-
-        // Remove the "Detecting games in cache..." notification
+        // Remove the "Detecting games in cache..." notification FIRST
+        // Do this before any await to ensure notification always clears
         // Handle both manually started (stored in ref) and recovered (hardcoded id) cases
         if (detectionNotificationIdRef.current) {
           removeNotification(detectionNotificationIdRef.current);
@@ -277,6 +276,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         removeNotification('game_detection'); // Also remove recovery notification if it exists
 
         setLoading(false);
+
+        // Clear operation state - detection failed (non-blocking)
+        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+
         const errorMsg = status.error || 'Detection failed';
         setError(errorMsg);
         addNotification({
