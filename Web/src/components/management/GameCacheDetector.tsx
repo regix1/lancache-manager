@@ -35,6 +35,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [showAllPaths, setShowAllPaths] = useState<Record<number, boolean>>({});
   const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const detectionNotificationIdRef = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
@@ -226,7 +227,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         await gameDetectionOp.clear();
 
         // Remove the "Detecting games in cache..." notification
-        removeNotification('game_detection');
+        // Handle both manually started (stored in ref) and recovered (hardcoded id) cases
+        if (detectionNotificationIdRef.current) {
+          removeNotification(detectionNotificationIdRef.current);
+          detectionNotificationIdRef.current = null;
+        }
+        removeNotification('game_detection'); // Also remove recovery notification if it exists
 
         setLoading(false);
 
@@ -256,7 +262,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         await gameDetectionOp.clear();
 
         // Remove the "Detecting games in cache..." notification
-        removeNotification('game_detection');
+        // Handle both manually started (stored in ref) and recovered (hardcoded id) cases
+        if (detectionNotificationIdRef.current) {
+          removeNotification(detectionNotificationIdRef.current);
+          detectionNotificationIdRef.current = null;
+        }
+        removeNotification('game_detection'); // Also remove recovery notification if it exists
 
         setLoading(false);
         const errorMsg = status.error || 'Detection failed';
@@ -304,6 +315,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       // Save operation state for restoration on page refresh
       await gameDetectionOp.save({ operationId: result.operationId });
+
+      // Add notification to show detection is in progress
+      const notificationId = addNotification({
+        type: 'generic',
+        status: 'running',
+        message: 'Detecting games in cache...',
+        details: { notificationType: 'info' }
+      });
+      detectionNotificationIdRef.current = notificationId;
 
       // Start polling for status
       if (pollingIntervalRef.current) {
