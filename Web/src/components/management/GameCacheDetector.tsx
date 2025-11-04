@@ -92,7 +92,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (operation?.data) {
         const data = operation.data as any;
         if (data.operationId) {
-          console.log('[GameCacheDetector] Restoring interrupted game detection operation:', data.operationId);
           setLoading(true);
 
           // Start polling for the status of the restored operation
@@ -132,7 +131,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Game detection requires LogEntries in the database, not just log files
       const dbLogCount = await ApiService.getDatabaseLogEntriesCount();
       setHasProcessedLogs(dbLogCount > 0);
-      console.log('[GameCacheDetector] Database LogEntries check complete - hasProcessedLogs:', dbLogCount > 0, 'dbLogCount:', dbLogCount);
     } catch (err) {
       console.error('Failed to check if logs are processed:', err);
       setHasProcessedLogs(false); // Assume no logs on error

@@ -284,7 +284,6 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       signalR.off('ProcessingProgress', handleProcessingProgress);
       signalR.off('BulkProcessingComplete', handleBulkProcessingComplete);
       signalR.off('DownloadsRefresh', handleDownloadsRefresh);
-      console.log('[LogProcessingManager] Unsubscribed from SignalR events');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency

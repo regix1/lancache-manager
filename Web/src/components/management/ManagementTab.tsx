@@ -452,12 +452,9 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     // Subscribe to management-specific events
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
 
-    console.log('[ManagementTab] Subscribed to management-specific SignalR events');
-
     // Cleanup: unsubscribe from all events
     return () => {
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
-      console.log('[ManagementTab] Unsubscribed from management-specific SignalR events');
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency

@@ -112,15 +112,9 @@ const AppContent: React.FC = () => {
         });
         if (response.ok) {
           const state = await response.json();
-          console.log('[App] Checked state:', {
-            requiresFullScan: state.requiresFullScan,
-            checkCount,
-            changeGap: state.viabilityChangeGap
-          });
 
           // Show modal if cached state says full scan is required
           if (state.requiresFullScan && !wasModalDismissed()) {
-            console.log('[App] Full scan required - showing modal (change gap:', state.viabilityChangeGap, ')');
             setFullScanModalChangeGap(state.viabilityChangeGap || 160000);
             setShowFullScanRequiredModal(true);
 
@@ -145,10 +139,8 @@ const AppContent: React.FC = () => {
     // Then check every 10 seconds for up to 60 seconds
     intervalTimer = setInterval(() => {
       checkCount++;
-      console.log('[App] Periodic state check #' + checkCount);
 
       if (checkCount >= maxChecks || wasModalDismissed()) {
-        console.log('[App] Stopping periodic state checks (count:', checkCount, 'dismissed:', wasModalDismissed(), ')');
         if (intervalTimer) {
           clearInterval(intervalTimer);
         }
