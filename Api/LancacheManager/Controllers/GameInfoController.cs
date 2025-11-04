@@ -34,7 +34,14 @@ public class GameInfoController : ControllerBase
 
     /// <summary>
     /// Trigger a background Steam PICS crawl to rebuild depot mappings.
-    /// Checks viability first if incremental is requested - returns requiresFullScan flag if gap is too large.
+    ///
+    /// PRE-FLIGHT VIABILITY CHECK:
+    /// - If incremental=true: Checks with Steam if incremental scan is viable BEFORE starting
+    /// - If Steam requires full scan: Returns requiresFullScan flag to show modal to user
+    /// - If incremental=false: Skips viability check and proceeds directly to full scan
+    ///
+    /// This pre-flight check prevents wasted work and gives user control over scan type.
+    /// The scan execution has a secondary safety check for automatic/scheduled scans.
     /// </summary>
     /// <param name="incremental">If true, performs incremental update (only changed apps), otherwise full rebuild</param>
     [HttpPost("steamkit/rebuild")]
@@ -43,7 +50,8 @@ public class GameInfoController : ControllerBase
     {
         try
         {
-            // If incremental scan requested, check viability first
+            // PRE-FLIGHT CHECK: Only check viability if user requested incremental scan
+            // If they're requesting a full scan, skip the check and just do it
             if (incremental)
             {
                 _logger.LogInformation("Incremental scan requested - checking viability first");
@@ -370,12 +378,14 @@ public class GameInfoController : ControllerBase
 
             // Get current change number from Steam and update JSON metadata
             // This allows incremental scans to work from the current position going forward
+            bool changeNumberUpdated = false;
             try
             {
                 _logger.LogInformation("Getting current Steam change number to update GitHub data metadata");
                 var currentChangeNumber = await _steamKit2Service.GetCurrentChangeNumberAsync(cancellationToken);
                 await _picsDataService.UpdateLastChangeNumberAsync(currentChangeNumber);
                 _logger.LogInformation("Updated JSON metadata with current change number {ChangeNumber} - incremental scans will now work", currentChangeNumber);
+                changeNumberUpdated = true;
             }
             catch (Exception ex)
             {
@@ -387,6 +397,17 @@ public class GameInfoController : ControllerBase
 
             // Enable periodic crawls now that we have initial data
             _steamKit2Service.EnablePeriodicCrawls();
+
+            // Wait for Steam to fully disconnect before starting the next scan to avoid connection conflicts
+            if (!changeNumberUpdated)
+            {
+                _logger.LogInformation("Waiting for Steam to fully disconnect before starting incremental scan to avoid connection conflicts");
+                var disconnected = await _steamKit2Service.WaitForDisconnectionAsync(5000, cancellationToken);
+                if (!disconnected)
+                {
+                    _logger.LogWarning("Steam did not disconnect cleanly within timeout - proceeding anyway");
+                }
+            }
 
             // Trigger a simple incremental scan to catch recent updates (no viability check, just do it)
             // This runs synchronously to avoid connection conflicts

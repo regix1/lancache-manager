@@ -44,20 +44,4 @@ public static class SteamKit2Helpers
     {
         return DateTime.UtcNow;
     }
-
-    /// <summary>
-    /// Calculates time since last activity
-    /// </summary>
-    public static TimeSpan GetIdleTime(DateTime lastActivity)
-    {
-        return DateTime.UtcNow - lastActivity;
-    }
-
-    /// <summary>
-    /// Checks if connection should be closed due to inactivity
-    /// </summary>
-    public static bool ShouldDisconnectIdle(DateTime lastActivity, int keepAliveSeconds)
-    {
-        return GetIdleTime(lastActivity).TotalSeconds >= keepAliveSeconds;
-    }
 }

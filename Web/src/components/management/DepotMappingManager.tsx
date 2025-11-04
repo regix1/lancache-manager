@@ -622,7 +622,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             handleDownloadFromGitHub();
           }}
           showDownloadOption={true}
-          isAuthenticated={steamAuthMode === 'authenticated'}
         />
       )}
     </>

@@ -8,6 +8,13 @@ import React, {
 import { useSignalR } from './SignalRContext';
 import themeService from '@services/theme.service';
 
+// Notification timing constants
+const AUTO_DISMISS_DELAY_MS = 5000; // Standard auto-dismiss delay for completed/failed notifications
+const CANCELLED_NOTIFICATION_DELAY_MS = 3000; // Shorter delay for cancelled operations
+const NOTIFICATION_ANIMATION_DURATION_MS = 300; // Animation duration for notification removal
+const INCREMENTAL_SCAN_ANIMATION_DURATION_MS = 1500; // Progress animation for incremental scans
+const INCREMENTAL_SCAN_ANIMATION_STEPS = 30; // Number of steps in incremental scan animation
+
 // Unified notification type for all background operations
 export type NotificationType =
   | 'log_processing'
@@ -40,6 +47,8 @@ export interface UnifiedNotification {
 
     // For cache_clearing
     filesDeleted?: number;
+    directoriesProcessed?: number;
+    bytesDeleted?: number;
 
     // For service_removal
     service?: string;
@@ -59,6 +68,7 @@ export interface UnifiedNotification {
     percentComplete?: number;
     isProcessing?: boolean;
     isLoggedOn?: boolean;
+    downloadsUpdated?: number;
 
     // For generic notifications
     notificationType?: 'success' | 'error' | 'info' | 'warning';
@@ -111,8 +121,20 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // Wait for animation to complete, then remove
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
-    }, 300); // Match animation duration
+    }, NOTIFICATION_ANIMATION_DURATION_MS);
   }, []);
+
+  // Helper function to schedule auto-dismiss for notifications
+  const scheduleAutoDismiss = useCallback((
+    notificationId: string,
+    delayMs: number = AUTO_DISMISS_DELAY_MS
+  ) => {
+    if (shouldAutoDismiss()) {
+      setTimeout(() => {
+        removeNotificationAnimated(notificationId);
+      }, delayMs);
+    }
+  }, [removeNotificationAnimated]);
 
   const addNotification = useCallback((notification: Omit<UnifiedNotification, 'id' | 'startedAt'>): string => {
     // For game_removal, use gameAppId in ID so SignalR handler can find it
@@ -127,28 +149,24 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
     setNotifications(prev => [...prev, newNotification]);
 
-    // Auto-dismiss completed and failed notifications (unless always visible is enabled)
-    if ((notification.status === 'completed' || notification.status === 'failed') && shouldAutoDismiss()) {
-      setTimeout(() => {
-        removeNotificationAnimated(id);
-      }, 5000); // Remove after 5 seconds
+    // Auto-dismiss completed and failed notifications
+    if (notification.status === 'completed' || notification.status === 'failed') {
+      scheduleAutoDismiss(id);
     }
 
     return id;
-  }, [removeNotificationAnimated]);
+  }, [scheduleAutoDismiss]);
 
   const updateNotification = useCallback((id: string, updates: Partial<UnifiedNotification>) => {
     setNotifications(prev =>
       prev.map(n => (n.id === id ? { ...n, ...updates } : n))
     );
 
-    // Auto-dismiss if updating to completed or failed status (unless always visible is enabled)
-    if ((updates.status === 'completed' || updates.status === 'failed') && shouldAutoDismiss()) {
-      setTimeout(() => {
-        removeNotificationAnimated(id);
-      }, 5000); // Remove after 5 seconds
+    // Auto-dismiss if updating to completed or failed status
+    if (updates.status === 'completed' || updates.status === 'failed') {
+      scheduleAutoDismiss(id);
     }
-  }, [removeNotificationAnimated]);
+  }, [scheduleAutoDismiss]);
 
   const removeNotification = useCallback((id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
@@ -167,114 +185,61 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       if (status === 'complete') {
         // Find existing notification and update it
-        setNotifications(prev => {
-          const existing = prev.find(n => n.type === 'log_processing' && n.status === 'running');
-          if (existing) {
-            return prev.map(n =>
-              n.id === existing.id
-                ? {
-                    ...n,
-                    status: 'completed' as NotificationStatus,
-                    message: 'Processing Complete!',
-                    detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
-                    progress: 100
-                  }
-                : n
-            );
-          }
-          return prev;
-        });
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            // Get current notifications at time of timeout
-            setNotifications(prev => {
-              const completed = prev.find(n => n.type === 'log_processing' && n.status === 'completed');
-              if (completed) {
-                removeNotificationAnimated(completed.id);
-              }
-              return prev;
-            });
-          }, 5000);
+        const existing = notifications.find(n => n.type === 'log_processing' && n.status === 'running');
+        if (existing) {
+          updateNotification(existing.id, {
+            status: 'completed',
+            message: 'Processing Complete!',
+            detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
+            progress: 100
+          });
         }
       } else {
         const message = `Processing: ${payload.mbProcessed?.toFixed(1) || 0} MB of ${payload.mbTotal?.toFixed(1) || 0} MB`;
         const detailMessage = `${payload.entriesProcessed?.toLocaleString() || 0} of ${payload.totalLines?.toLocaleString() || 0} entries`;
 
-        setNotifications(prev => {
-          const existing = prev.find(n => n.type === 'log_processing' && n.status === 'running');
-          if (existing) {
-            return prev.map(n =>
-              n.id === existing.id
-                ? {
-                    ...n,
-                    message,
-                    detailMessage,
-                    progress: Math.min(99.9, currentProgress),
-                    details: {
-                      ...n.details,
-                      mbProcessed: payload.mbProcessed,
-                      mbTotal: payload.mbTotal,
-                      entriesProcessed: payload.entriesProcessed,
-                      totalLines: payload.totalLines
-                    }
-                  }
-                : n
-            );
-          } else {
-            // Create new notification
-            const id = `log_processing-${Date.now()}`;
-            return [...prev, {
-              id,
-              type: 'log_processing' as NotificationType,
-              status: 'running' as NotificationStatus,
-              message,
-              detailMessage,
-              progress: Math.min(99.9, currentProgress),
-              startedAt: new Date(),
-              details: {
-                mbProcessed: payload.mbProcessed,
-                mbTotal: payload.mbTotal,
-                entriesProcessed: payload.entriesProcessed,
-                totalLines: payload.totalLines
-              }
-            }];
-          }
-        });
+        const existing = notifications.find(n => n.type === 'log_processing' && n.status === 'running');
+        if (existing) {
+          updateNotification(existing.id, {
+            message,
+            detailMessage,
+            progress: Math.min(99.9, currentProgress),
+            details: {
+              ...existing.details,
+              mbProcessed: payload.mbProcessed,
+              mbTotal: payload.mbTotal,
+              entriesProcessed: payload.entriesProcessed,
+              totalLines: payload.totalLines
+            }
+          });
+        } else {
+          // Create new notification
+          addNotification({
+            type: 'log_processing',
+            status: 'running',
+            message,
+            detailMessage,
+            progress: Math.min(99.9, currentProgress),
+            details: {
+              mbProcessed: payload.mbProcessed,
+              mbTotal: payload.mbTotal,
+              entriesProcessed: payload.entriesProcessed,
+              totalLines: payload.totalLines
+            }
+          });
+        }
       }
     };
 
     const handleBulkProcessingComplete = (result: any) => {
-      setNotifications(prev => {
-        const existing = prev.find(n => n.type === 'log_processing');
-        if (existing) {
-          return prev.map(n =>
-            n.id === existing.id
-              ? {
-                  ...n,
-                  status: 'completed' as NotificationStatus,
-                  message: 'Processing Complete!',
-                  detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
-                  progress: 100
-                }
-              : n
-          );
-        }
-        return prev;
-      });
-
-      // Auto-remove after 5 seconds (unless always visible is enabled)
-      if (shouldAutoDismiss()) {
-        setTimeout(() => {
-          setNotifications(prev => {
-            const completed = prev.find(n => n.type === 'log_processing' && n.status === 'completed');
-            if (completed) {
-              removeNotificationAnimated(completed.id);
-            }
-            return prev;
-          });
-        }, 5000);
+      const existing = notifications.find(n => n.type === 'log_processing');
+      if (existing) {
+        updateNotification(existing.id, {
+          status: 'completed',
+          message: 'Processing Complete!',
+          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
+          progress: 100
+        });
       }
     };
 
@@ -283,40 +248,34 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = `service_removal-${payload.service}`;
 
       if (payload.status === 'starting' || payload.status === 'removing') {
-        setNotifications(prev => {
-          const existing = prev.find(n => n.id === notificationId);
-          if (existing) {
-            return prev.map(n =>
-              n.id === notificationId
-                ? {
-                    ...n,
-                    message: payload.message || `Removing ${payload.service} entries...`,
-                    progress: payload.percentComplete || 0,
-                    details: {
-                      ...n.details,
-                      service: payload.service,
-                      linesProcessed: payload.linesProcessed || 0,
-                      linesRemoved: payload.linesRemoved || 0
-                    }
-                  }
-                : n
-            );
-          } else {
-            return [...prev, {
-              id: notificationId,
-              type: 'service_removal' as NotificationType,
-              status: 'running' as NotificationStatus,
-              message: payload.message || `Removing ${payload.service} entries...`,
-              progress: payload.percentComplete || 0,
-              startedAt: new Date(),
-              details: {
-                service: payload.service,
-                linesProcessed: payload.linesProcessed || 0,
-                linesRemoved: payload.linesRemoved || 0
-              }
-            }];
-          }
-        });
+        const existing = notifications.find(n => n.id === notificationId);
+        if (existing) {
+          updateNotification(notificationId, {
+            message: payload.message || `Removing ${payload.service} entries...`,
+            progress: payload.percentComplete || 0,
+            details: {
+              ...existing.details,
+              service: payload.service,
+              linesProcessed: payload.linesProcessed || 0,
+              linesRemoved: payload.linesRemoved || 0
+            }
+          });
+        } else {
+          // Create notification with fixed ID based on service (not using addNotification which generates random IDs)
+          setNotifications(prev => [...prev, {
+            id: notificationId,
+            type: 'service_removal',
+            status: 'running',
+            message: payload.message || `Removing ${payload.service} entries...`,
+            progress: payload.percentComplete || 0,
+            startedAt: new Date(),
+            details: {
+              service: payload.service,
+              linesProcessed: payload.linesProcessed || 0,
+              linesRemoved: payload.linesRemoved || 0
+            }
+          }]);
+        }
       }
     };
 
@@ -324,44 +283,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = `service_removal-${payload.service}`;
 
       if (payload.success) {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'completed' as NotificationStatus,
-                  message: payload.message || `Removed ${payload.linesRemoved || 0} ${payload.service} entries`,
-                  progress: 100
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
+        updateNotification(notificationId, {
+          status: 'completed',
+          message: payload.message || `Removed ${payload.linesRemoved || 0} ${payload.service} entries`,
+          progress: 100
+        });
       } else {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'failed' as NotificationStatus,
-                  error: payload.message || 'Removal failed'
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
+        updateNotification(notificationId, {
+          status: 'failed',
+          error: payload.message || 'Removal failed'
+        });
       }
     };
 
@@ -371,49 +302,24 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = `game_removal-${payload.gameAppId}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
 
+      const existing = notifications.find(n => n.id === notificationId);
+      if (!existing) return;
+
       if (payload.success) {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'completed' as NotificationStatus,
-                  details: {
-                    ...n.details,
-                    filesDeleted: payload.filesDeleted,
-                    bytesFreed: payload.bytesFreed,
-                    logEntriesRemoved: payload.logEntriesRemoved
-                  }
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
+        updateNotification(notificationId, {
+          status: 'completed',
+          details: {
+            ...existing.details,
+            filesDeleted: payload.filesDeleted,
+            bytesFreed: payload.bytesFreed,
+            logEntriesRemoved: payload.logEntriesRemoved
+          }
+        });
       } else {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'failed' as NotificationStatus,
-                  error: payload.message || 'Removal failed'
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
+        updateNotification(notificationId, {
+          status: 'failed',
+          error: payload.message || 'Removal failed'
+        });
       }
     };
 
@@ -422,68 +328,34 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = 'database-reset';
 
       if (payload.status === 'complete') {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'completed' as NotificationStatus,
-                  message: payload.message || 'Database reset completed',
-                  progress: 100
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
-      } else if (payload.status === 'error') {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'failed' as NotificationStatus,
-                  error: payload.message
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
-      } else {
-        setNotifications(prev => {
-          const existing = prev.find(n => n.id === notificationId);
-          if (existing) {
-            return prev.map(n =>
-              n.id === notificationId
-                ? {
-                    ...n,
-                    message: payload.message || 'Resetting database...',
-                    progress: payload.percentComplete || 0
-                  }
-                : n
-            );
-          } else {
-            return [...prev, {
-              id: notificationId,
-              type: 'database_reset' as NotificationType,
-              status: 'running' as NotificationStatus,
-              message: payload.message || 'Resetting database...',
-              progress: payload.percentComplete || 0,
-              startedAt: new Date()
-            }];
-          }
+        updateNotification(notificationId, {
+          status: 'completed',
+          message: payload.message || 'Database reset completed',
+          progress: 100
         });
+      } else if (payload.status === 'error') {
+        updateNotification(notificationId, {
+          status: 'failed',
+          error: payload.message
+        });
+      } else {
+        const existing = notifications.find(n => n.id === notificationId);
+        if (existing) {
+          updateNotification(notificationId, {
+            message: payload.message || 'Resetting database...',
+            progress: payload.percentComplete || 0
+          });
+        } else {
+          // Create notification with fixed ID (not using addNotification which generates random IDs)
+          setNotifications(prev => [...prev, {
+            id: notificationId,
+            type: 'database_reset',
+            status: 'running',
+            message: payload.message || 'Resetting database...',
+            progress: payload.percentComplete || 0,
+            startedAt: new Date()
+          }]);
+        }
       }
     };
 
@@ -491,40 +363,34 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleCacheClearProgress = (payload: any) => {
       const notificationId = 'cache_clearing';
 
-      setNotifications(prev => {
-        const existing = prev.find(n => n.id === notificationId);
-        if (existing) {
-          return prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  message: payload.statusMessage || 'Clearing cache...',
-                  progress: payload.percentComplete || 0,
-                  details: {
-                    ...n.details,
-                    filesDeleted: payload.filesDeleted || 0,
-                    directoriesProcessed: payload.directoriesProcessed || 0,
-                    bytesDeleted: payload.bytesDeleted || 0
-                  }
-                }
-              : n
-          );
-        } else {
-          return [...prev, {
-            id: notificationId,
-            type: 'cache_clearing' as NotificationType,
-            status: 'running' as NotificationStatus,
-            message: payload.statusMessage || 'Clearing cache...',
-            progress: payload.percentComplete || 0,
-            startedAt: new Date(),
-            details: {
-              filesDeleted: payload.filesDeleted || 0,
-              directoriesProcessed: payload.directoriesProcessed || 0,
-              bytesDeleted: payload.bytesDeleted || 0
-            }
-          }];
-        }
-      });
+      const existing = notifications.find(n => n.id === notificationId);
+      if (existing) {
+        updateNotification(notificationId, {
+          message: payload.statusMessage || 'Clearing cache...',
+          progress: payload.percentComplete || 0,
+          details: {
+            ...existing.details,
+            filesDeleted: payload.filesDeleted || 0,
+            directoriesProcessed: payload.directoriesProcessed || 0,
+            bytesDeleted: payload.bytesDeleted || 0
+          }
+        });
+      } else {
+        // Create notification with fixed ID (not using addNotification which generates random IDs)
+        setNotifications(prev => [...prev, {
+          id: notificationId,
+          type: 'cache_clearing',
+          status: 'running',
+          message: payload.statusMessage || 'Clearing cache...',
+          progress: payload.percentComplete || 0,
+          startedAt: new Date(),
+          details: {
+            filesDeleted: payload.filesDeleted || 0,
+            directoriesProcessed: payload.directoriesProcessed || 0,
+            bytesDeleted: payload.bytesDeleted || 0
+          }
+        }]);
+      }
     };
 
     // Cache Clear Complete
@@ -532,49 +398,24 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       console.log('[NotificationsContext] CacheClearComplete received:', payload);
       const notificationId = 'cache_clearing';
 
+      const existing = notifications.find(n => n.id === notificationId);
+      if (!existing) return;
+
       if (payload.success) {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'completed' as NotificationStatus,
-                  message: payload.message || 'Cache cleared successfully',
-                  details: {
-                    ...n.details,
-                    filesDeleted: payload.filesDeleted,
-                    directoriesProcessed: payload.directoriesProcessed
-                  }
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
+        updateNotification(notificationId, {
+          status: 'completed',
+          message: payload.message || 'Cache cleared successfully',
+          details: {
+            ...existing.details,
+            filesDeleted: payload.filesDeleted,
+            directoriesProcessed: payload.directoriesProcessed
+          }
+        });
       } else {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'failed' as NotificationStatus,
-                  error: payload.error || payload.message || 'Cache clear failed'
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
+        updateNotification(notificationId, {
+          status: 'failed',
+          error: payload.error || payload.message || 'Cache clear failed'
+        });
       }
     };
 
@@ -588,8 +429,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const filtered = prev.filter(n => n.id !== notificationId);
         return [...filtered, {
           id: notificationId,
-          type: 'depot_mapping' as NotificationType,
-          status: 'running' as NotificationStatus,
+          type: 'depot_mapping',
+          status: 'running',
           message: payload.message || 'Starting depot mapping scan...',
           startedAt: new Date(),
           progress: 0,
@@ -604,36 +445,33 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleDepotMappingProgress = (payload: any) => {
       console.log('[NotificationsContext] DepotMappingProgress received:', payload);
       const notificationId = 'depot_mapping';
-      setNotifications(prev =>
-        prev.map(n =>
-          n.id === notificationId
-            ? {
-                ...n,
-                progress: payload.percentComplete || 0,
-                message: payload.message || payload.status || 'Processing depot mappings...',
-                details: {
-                  ...n.details,
-                  isLoggedOn: payload.isLoggedOn !== undefined ? payload.isLoggedOn : n.details?.isLoggedOn
-                },
-                detailMessage: (() => {
-                  // PICS scan progress (processedBatches exists)
-                  if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
-                    return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
-                      payload.depotMappingsFound !== undefined ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found` : ''
-                    }`;
-                  }
-                  // Download mapping progress (processedMappings exists)
-                  if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
-                    return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
-                      payload.mappingsApplied !== undefined ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied` : ''
-                    }`;
-                  }
-                  return undefined;
-                })()
-              }
-            : n
-        )
-      );
+
+      const existing = notifications.find(n => n.id === notificationId);
+      if (!existing) return;
+
+      updateNotification(notificationId, {
+        progress: payload.percentComplete || 0,
+        message: payload.message || payload.status || 'Processing depot mappings...',
+        details: {
+          ...existing.details,
+          isLoggedOn: payload.isLoggedOn !== undefined ? payload.isLoggedOn : existing.details?.isLoggedOn
+        },
+        detailMessage: (() => {
+          // PICS scan progress (processedBatches exists)
+          if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
+            return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
+              payload.depotMappingsFound !== undefined ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found` : ''
+            }`;
+          }
+          // Download mapping progress (processedMappings exists)
+          if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
+            return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
+              payload.mappingsApplied !== undefined ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied` : ''
+            }`;
+          }
+          return undefined;
+        })()
+      });
     };
 
     // Depot Mapping Complete (added as new handler)
@@ -643,28 +481,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       // Handle cancellation
       if (payload.cancelled) {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'completed' as NotificationStatus,
-                  message: 'Depot mapping scan cancelled',
-                  progress: 100,
-                  details: {
-                    ...n.details,
-                    cancelled: true
-                  }
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 3 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 3000);
+        const existing = notifications.find(n => n.id === notificationId);
+        if (existing) {
+          updateNotification(notificationId, {
+            status: 'completed',
+            message: 'Depot mapping scan cancelled',
+            progress: 100,
+            details: {
+              ...existing.details,
+              cancelled: true
+            }
+          });
+          // Use shorter delay for cancelled operations
+          scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
         }
         return;
       }
@@ -674,9 +503,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const isIncremental = payload.scanMode === 'incremental';
 
         if (isIncremental) {
-          // Animate progress to 100% over 1.5 seconds
-          const animationDuration = 1500; // ms
-          const steps = 30;
+          // Animate progress to 100%
+          const animationDuration = INCREMENTAL_SCAN_ANIMATION_DURATION_MS;
+          const steps = INCREMENTAL_SCAN_ANIMATION_STEPS;
           const interval = animationDuration / steps;
 
           setNotifications(prev => {
@@ -710,30 +539,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
                 // After animation, show completion status
                 setTimeout(() => {
-                  setNotifications(prevNotes =>
-                    prevNotes.map(n =>
-                      n.id === notificationId
-                        ? {
-                            ...n,
-                            status: 'completed' as NotificationStatus,
-                            message: payload.message || 'Depot mapping completed successfully',
-                            details: {
-                              ...n.details,
-                              totalMappings: payload.totalMappings,
-                              downloadsUpdated: payload.downloadsUpdated
-                            }
-                          }
-                        : n
-                    )
-                  );
-
-                  // Auto-remove after 5 seconds (unless always visible is enabled)
-                  if (shouldAutoDismiss()) {
-                    setTimeout(() => {
-                      setNotifications(prevNotes => prevNotes.filter(n => n.id !== notificationId));
-                    }, 5000);
+                  const existing = notifications.find(n => n.id === notificationId);
+                  if (existing) {
+                    updateNotification(notificationId, {
+                      status: 'completed',
+                      message: payload.message || 'Depot mapping completed successfully',
+                      details: {
+                        ...existing.details,
+                        totalMappings: payload.totalMappings,
+                        downloadsUpdated: payload.downloadsUpdated
+                      }
+                    });
                   }
-                }, 300); // Small delay after reaching 100%
+                }, NOTIFICATION_ANIMATION_DURATION_MS);
               }
             }, interval);
 
@@ -741,49 +559,24 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           });
         } else {
           // Full scan - show completion immediately
-          setNotifications(prev =>
-            prev.map(n =>
-              n.id === notificationId
-                ? {
-                    ...n,
-                    status: 'completed' as NotificationStatus,
-                    message: payload.message || `Depot mapping completed successfully`,
-                    details: {
-                      ...n.details,
-                      totalMappings: payload.totalMappings,
-                      downloadsUpdated: payload.downloadsUpdated
-                    }
-                  }
-                : n
-            )
-          );
-
-          // Auto-remove after 5 seconds (unless always visible is enabled)
-          if (shouldAutoDismiss()) {
-            setTimeout(() => {
-              removeNotificationAnimated(notificationId);
-            }, 5000);
+          const existing = notifications.find(n => n.id === notificationId);
+          if (existing) {
+            updateNotification(notificationId, {
+              status: 'completed',
+              message: payload.message || `Depot mapping completed successfully`,
+              details: {
+                ...existing.details,
+                totalMappings: payload.totalMappings,
+                downloadsUpdated: payload.downloadsUpdated
+              }
+            });
           }
         }
       } else {
-        setNotifications(prev =>
-          prev.map(n =>
-            n.id === notificationId
-              ? {
-                  ...n,
-                  status: 'failed' as NotificationStatus,
-                  error: payload.error || payload.message || 'Depot mapping failed'
-                }
-              : n
-          )
-        );
-
-        // Auto-remove after 5 seconds (unless always visible is enabled)
-        if (shouldAutoDismiss()) {
-          setTimeout(() => {
-            removeNotificationAnimated(notificationId);
-          }, 5000);
-        }
+        updateNotification(notificationId, {
+          status: 'failed',
+          error: payload.error || payload.message || 'Depot mapping failed'
+        });
       }
     };
 
@@ -814,29 +607,27 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
     };
-  }, [signalR, removeNotificationAnimated]);
+  }, [signalR, notifications, updateNotification, addNotification, scheduleAutoDismiss, removeNotificationAnimated]);
 
   // Listen for changes to the "Always Visible" setting
   React.useEffect(() => {
     const handlePicsVisibilityChange = () => {
       // When setting is disabled (auto-dismiss is now enabled), start timers for existing completed/failed notifications
-      if (shouldAutoDismiss()) {
-        notifications.forEach(notification => {
-          if (notification.status === 'completed' || notification.status === 'failed') {
-            // Determine timeout based on notification type
-            const timeout = notification.type === 'depot_mapping' && notification.details?.cancelled ? 3000 : 5000;
+      notifications.forEach(notification => {
+        if (notification.status === 'completed' || notification.status === 'failed') {
+          // Use shorter delay for cancelled depot mapping operations
+          const timeout = notification.type === 'depot_mapping' && notification.details?.cancelled
+            ? CANCELLED_NOTIFICATION_DELAY_MS
+            : AUTO_DISMISS_DELAY_MS;
 
-            setTimeout(() => {
-              removeNotificationAnimated(notification.id);
-            }, timeout);
-          }
-        });
-      }
+          scheduleAutoDismiss(notification.id, timeout);
+        }
+      });
     };
 
     window.addEventListener('picsvisibilitychange', handlePicsVisibilityChange);
     return () => window.removeEventListener('picsvisibilitychange', handlePicsVisibilityChange);
-  }, [notifications, removeNotificationAnimated]);
+  }, [notifications, scheduleAutoDismiss]);
 
   // Universal Recovery: Check all backend operations on mount
   React.useEffect(() => {

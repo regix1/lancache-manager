@@ -61,23 +61,126 @@ const AppContent: React.FC = () => {
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
   const [isInitializationFlowActive, setIsInitializationFlowActive] = useState(false);
-  const [showAutomaticScanSkippedModal, setShowAutomaticScanSkippedModal] = useState(false);
-  const [hasShownScanSkippedModal, setHasShownScanSkippedModal] = useState(false);
+  const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
+  const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
   const signalR = useSignalR();
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
 
+  // Check if modal was dismissed this session
+  const wasModalDismissed = () => {
+    return sessionStorage.getItem('fullScanModalDismissed') === 'true';
+  };
+
+  const markModalDismissed = () => {
+    sessionStorage.setItem('fullScanModalDismissed', 'true');
+    console.log('[App] Full scan modal dismissed - will not show again until app restart');
+  };
+
+  // Check state periodically after startup to catch backend initialization
+  useEffect(() => {
+    // Only run for authenticated users
+    if (authMode !== 'authenticated' || checkingAuth) {
+      console.log('[App] Skipping startup viability check - not authenticated or still checking auth');
+      return;
+    }
+
+    // Don't check if already dismissed
+    if (wasModalDismissed()) {
+      console.log('[App] Full scan modal was dismissed this session - skipping startup check');
+      return;
+    }
+
+    // Don't check if modal is already showing
+    if (showFullScanRequiredModal) {
+      console.log('[App] Full scan modal already showing - skipping startup check');
+      return;
+    }
+
+    console.log('[App] Starting periodic state checks for requiresFullScan...');
+
+    let checkCount = 0;
+    const maxChecks = 6; // Check for 60 seconds (every 10 seconds)
+    let intervalTimer: NodeJS.Timeout | null = null;
+
+    const checkCachedViabilityState = async () => {
+      try {
+        const response = await fetch('/api/management/state', {
+          headers: ApiService.getHeaders()
+        });
+        if (response.ok) {
+          const state = await response.json();
+          console.log('[App] Checked state:', {
+            requiresFullScan: state.requiresFullScan,
+            checkCount,
+            changeGap: state.viabilityChangeGap
+          });
+
+          // Show modal if cached state says full scan is required
+          if (state.requiresFullScan && !wasModalDismissed()) {
+            console.log('[App] Full scan required - showing modal (change gap:', state.viabilityChangeGap, ')');
+            setFullScanModalChangeGap(state.viabilityChangeGap || 160000);
+            setShowFullScanRequiredModal(true);
+
+            // Clear interval once modal is shown
+            if (intervalTimer) {
+              clearInterval(intervalTimer);
+            }
+          }
+        } else {
+          console.error('[App] Failed to fetch state:', response.status, response.statusText);
+        }
+      } catch (error) {
+        console.error('[App] Error checking cached viability state:', error);
+      }
+    };
+
+    // Initial check after 2 seconds (backend is already running)
+    const initialTimer = setTimeout(() => {
+      checkCachedViabilityState();
+    }, 2000);
+
+    // Then check every 10 seconds for up to 60 seconds
+    intervalTimer = setInterval(() => {
+      checkCount++;
+      console.log('[App] Periodic state check #' + checkCount);
+
+      if (checkCount >= maxChecks || wasModalDismissed()) {
+        console.log('[App] Stopping periodic state checks (count:', checkCount, 'dismissed:', wasModalDismissed(), ')');
+        if (intervalTimer) {
+          clearInterval(intervalTimer);
+        }
+        return;
+      }
+
+      checkCachedViabilityState();
+    }, 10000);
+
+    return () => {
+      console.log('[App] Cleaning up state check timers');
+      clearTimeout(initialTimer);
+      if (intervalTimer) {
+        clearInterval(intervalTimer);
+      }
+    };
+  }, [authMode, checkingAuth, showFullScanRequiredModal]);
+
   // Listen for automatic scan skipped event via SignalR (for authenticated users)
   useEffect(() => {
     if (!signalR || authMode !== 'authenticated') return;
 
-    const handleAutomaticScanSkipped = () => {
-      if (!hasShownScanSkippedModal && !showAutomaticScanSkippedModal) {
-        console.log('[App] Automatic scan skipped event received, showing modal');
-        setShowAutomaticScanSkippedModal(true);
-        setHasShownScanSkippedModal(true);
+    const handleAutomaticScanSkipped = (data: any) => {
+      console.log('[App] AutomaticScanSkipped event received:', data);
+
+      // Only show if not already showing and not dismissed
+      if (!showFullScanRequiredModal && !wasModalDismissed()) {
+        console.log('[App] Showing full scan required modal from SignalR event');
+        setFullScanModalChangeGap(160000); // Default large gap
+        setShowFullScanRequiredModal(true);
+      } else {
+        console.log('[App] Modal already showing or dismissed - not showing again');
       }
     };
 
@@ -86,7 +189,7 @@ const AppContent: React.FC = () => {
     return () => {
       signalR.off('AutomaticScanSkipped', handleAutomaticScanSkipped);
     };
-  }, [signalR, hasShownScanSkippedModal, showAutomaticScanSkippedModal, authMode]);
+  }, [signalR, showFullScanRequiredModal, authMode]);
 
   // Fetch server timezone on mount
   useEffect(() => {
@@ -215,13 +318,17 @@ const AppContent: React.FC = () => {
     await refreshAuth();
   };
 
-  const handleAutomaticScanSkippedClose = () => {
-    setShowAutomaticScanSkippedModal(false);
+  const handleFullScanModalDismiss = () => {
+    console.log('[App] User dismissed full scan modal');
+    setShowFullScanRequiredModal(false);
+    markModalDismissed(); // Don't show again this session
   };
 
   const handleRunFullScan = async () => {
-    // Close modal but keep user on current page
-    setShowAutomaticScanSkippedModal(false);
+    console.log('[App] User clicked Run Full Scan');
+    // Close modal WITHOUT marking as dismissed (allow retry if it fails)
+    setShowFullScanRequiredModal(false);
+
     // Trigger full scan via API
     try {
       await ApiService.triggerSteamKitRebuild(false); // false = full scan
@@ -232,8 +339,9 @@ const AppContent: React.FC = () => {
   };
 
   const handleDownloadFromGitHub = async () => {
-    // Close modal but keep user on current page
-    setShowAutomaticScanSkippedModal(false);
+    console.log('[App] User clicked Download from GitHub');
+    // Close modal WITHOUT marking as dismissed (allow retry if it fails)
+    setShowFullScanRequiredModal(false);
 
     // Set downloading flag in localStorage for UniversalNotificationBar
     storage.setItem('githubDownloading', 'true');
@@ -399,15 +507,16 @@ const AppContent: React.FC = () => {
 
   return (
     <>
-      {/* Automatic Scan Skipped Modal - Only show for authenticated users */}
-      {showAutomaticScanSkippedModal && authMode === 'authenticated' && (
+      {/* Full Scan Required Modal - Shows globally on all pages */}
+      {showFullScanRequiredModal && authMode === 'authenticated' && (
         <FullScanRequiredModal
-          onCancel={handleAutomaticScanSkippedClose}
+          onCancel={handleFullScanModalDismiss}
           onConfirm={handleRunFullScan}
           onDownloadFromGitHub={handleDownloadFromGitHub}
-          showDownloadOption={authMode === 'authenticated'}
-          title="Automatic Scan Skipped"
-          isAutomaticScanSkipped={true}
+          showDownloadOption={true}
+          title="Full Scan Required"
+          changeGap={fullScanModalChangeGap}
+          estimatedApps={270000}
         />
       )}
 

@@ -1293,6 +1293,34 @@ public class ManagementController : ControllerBase
             return StatusCode(500, new { error = $"Failed to start game removal for {gameAppId}", details = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Get the current application state including viability check cache
+    /// </summary>
+    [HttpGet("state")]
+    public IActionResult GetAppState()
+    {
+        try
+        {
+            var state = _stateService.GetState();
+
+            return Ok(new
+            {
+                requiresFullScan = state.RequiresFullScan,
+                lastViabilityCheck = state.LastViabilityCheck,
+                lastViabilityCheckChangeNumber = state.LastViabilityCheckChangeNumber,
+                viabilityChangeGap = state.ViabilityChangeGap,
+                setupCompleted = state.SetupCompleted,
+                hasDataLoaded = state.HasDataLoaded,
+                hasProcessedLogs = state.HasProcessedLogs
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting application state");
+            return StatusCode(500, new { error = "Failed to get application state" });
+        }
+    }
 }
 
 // Request model for removing service

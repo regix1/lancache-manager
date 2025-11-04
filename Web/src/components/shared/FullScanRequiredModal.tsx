@@ -12,8 +12,6 @@ interface FullScanRequiredModalProps {
   showDownloadOption?: boolean;
   title?: string;
   subtitle?: string;
-  isAutomaticScanSkipped?: boolean;
-  isAuthenticated?: boolean;
 }
 
 export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
@@ -24,14 +22,10 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   onDownloadFromGitHub,
   showDownloadOption = true,
   title = "Full Scan Required",
-  subtitle,
-  isAutomaticScanSkipped = false,
-  isAuthenticated = false
+  subtitle
 }) => {
 
-  const defaultSubtitle = isAutomaticScanSkipped
-    ? "Scheduled incremental scan was skipped - Full scan required"
-    : "Steam requires a full scan - incremental update not possible";
+  const defaultSubtitle = "Steam requires a full scan - incremental update not possible";
 
   return (
     <Modal
@@ -57,9 +51,6 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
             {subtitle || defaultSubtitle}
           </p>
           <div className="space-y-1 text-sm text-themed-secondary">
-            {isAutomaticScanSkipped && (
-              <p>• Your scheduled incremental depot mapping scan did not run</p>
-            )}
             {changeGap && (
               <p>• Change gap: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>{changeGap.toLocaleString()}</span> updates behind</p>
             )}
@@ -67,7 +58,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               ? <>Estimated apps to scan: <span className="font-mono" style={{ color: 'var(--theme-error-text)' }}>~{estimatedApps.toLocaleString()}</span> apps</>
               : <>Will need to scan <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>ALL</span> Steam apps (currently 300,000+)</>
             }</p>
-            <p>• Steam's PICS API {isAutomaticScanSkipped ? "requires" : "will force"} a <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>FULL SCAN</span> {!isAutomaticScanSkipped && "via Web API"}</p>
+            <p>• Steam's PICS API will force a <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>FULL SCAN</span> via Web API</p>
           </div>
         </div>
 
@@ -100,8 +91,6 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               variant="filled"
               color="blue"
               className="flex-1"
-              disabled={isAuthenticated}
-              title={isAuthenticated ? 'GitHub downloads are not available when using Steam account login' : undefined}
             >
               <Download className="w-4 h-4 mr-2" />
               Download from GitHub (Recommended)
@@ -121,7 +110,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
             onClick={onCancel}
             variant="default"
           >
-            {isAutomaticScanSkipped ? 'Dismiss' : 'Cancel'}
+            Cancel
           </Button>
         </div>
       </div>

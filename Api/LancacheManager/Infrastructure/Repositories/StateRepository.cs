@@ -50,6 +50,12 @@ public class StateRepository : IStateRepository
         public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
         public int GuestSessionDurationHours { get; set; } = 6; // Default to 6 hours
 
+        // PICS viability check caching (prevents repeated Steam API calls)
+        public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
+        public DateTime? LastViabilityCheck { get; set; } // When we last checked with Steam
+        public uint LastViabilityCheckChangeNumber { get; set; } = 0; // Change number at time of last check
+        public uint ViabilityChangeGap { get; set; } = 0; // Change gap at time of last check
+
         // LEGACY: SteamAuth has been migrated to separate file (data/steam_auth/credentials.json)
         // This property is kept temporarily for backward compatibility during migration
         public SteamAuthState? SteamAuth { get; set; }
@@ -81,6 +87,12 @@ public class StateRepository : IStateRepository
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false;
         public int GuestSessionDurationHours { get; set; } = 6;
+
+        // PICS viability check caching
+        public bool RequiresFullScan { get; set; } = false;
+        public DateTime? LastViabilityCheck { get; set; }
+        public uint LastViabilityCheckChangeNumber { get; set; } = 0;
+        public uint ViabilityChangeGap { get; set; } = 0;
 
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
@@ -479,6 +491,11 @@ public class StateRepository : IStateRepository
             HasDataLoaded = persisted.HasDataLoaded,
             HasProcessedLogs = persisted.HasProcessedLogs,
             GuestSessionDurationHours = persisted.GuestSessionDurationHours,
+            // PICS viability check caching
+            RequiresFullScan = persisted.RequiresFullScan,
+            LastViabilityCheck = persisted.LastViabilityCheck,
+            LastViabilityCheckChangeNumber = persisted.LastViabilityCheckChangeNumber,
+            ViabilityChangeGap = persisted.ViabilityChangeGap,
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -512,6 +529,11 @@ public class StateRepository : IStateRepository
             HasDataLoaded = state.HasDataLoaded,
             HasProcessedLogs = state.HasProcessedLogs,
             GuestSessionDurationHours = state.GuestSessionDurationHours,
+            // PICS viability check caching
+            RequiresFullScan = state.RequiresFullScan,
+            LastViabilityCheck = state.LastViabilityCheck,
+            LastViabilityCheckChangeNumber = state.LastViabilityCheckChangeNumber,
+            ViabilityChangeGap = state.ViabilityChangeGap,
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
