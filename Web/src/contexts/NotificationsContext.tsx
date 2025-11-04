@@ -248,10 +248,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = `service_removal-${payload.service}`;
 
       if (payload.status === 'starting' || payload.status === 'removing') {
+        // Create message that shows removal count during processing
+        const linesRemoved = payload.linesRemoved || 0;
+        const message = linesRemoved > 0
+          ? `Removing ${payload.service} entries (${linesRemoved.toLocaleString()} removed)...`
+          : payload.message || `Removing ${payload.service} entries...`;
+
         const existing = notifications.find(n => n.id === notificationId && n.status === 'running');
         if (existing) {
           updateNotification(notificationId, {
-            message: payload.message || `Removing ${payload.service} entries...`,
+            message,
             progress: payload.percentComplete || 0,
             details: {
               ...existing.details,
@@ -268,7 +274,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               id: notificationId,
               type: 'service_removal',
               status: 'running',
-              message: payload.message || `Removing ${payload.service} entries...`,
+              message,
               progress: payload.percentComplete || 0,
               startedAt: new Date(),
               details: {

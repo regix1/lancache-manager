@@ -69,43 +69,53 @@ public class DatabaseRepository : IDatabaseRepository
             var depotMappingsCount = await _context.SteamDepotMappings.CountAsync();
             _logger.LogInformation($"Preserving {cachedGameDetectionsCount:N0} cached game detections and {depotMappingsCount:N0} depot mappings");
 
-            int deletedRows = 0;
+            // Delete LogEntries first (foreign key constraint - must be deleted before Downloads)
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 5.0,
+                status = "deleting",
+                message = "Clearing log entries...",
+                timestamp = DateTime.UtcNow
+            });
+            var deletedLogEntries = await _context.LogEntries.ExecuteDeleteAsync();
+            _logger.LogInformation($"Cleared {deletedLogEntries:N0} log entries");
 
-            // Delete LogEntries in batches (foreign key constraint requires this first)
-            deletedRows = await DeleteInBatches(
-                () => _context.LogEntries.Take(5000),
-                totalRows,
-                deletedRows,
-                "log entries",
-                5.0,
-                25.0);
+            // Delete Downloads
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 25.0,
+                status = "deleting",
+                message = "Clearing downloads...",
+                timestamp = DateTime.UtcNow
+            });
+            var deletedDownloads = await _context.Downloads.ExecuteDeleteAsync();
+            _logger.LogInformation($"Cleared {deletedDownloads:N0} downloads");
 
-            // Delete Downloads in batches
-            deletedRows = await DeleteInBatches(
-                () => _context.Downloads.Take(5000),
-                totalRows,
-                deletedRows,
-                "downloads",
-                25.0,
-                60.0);
+            // Delete ClientStats
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 60.0,
+                status = "deleting",
+                message = "Clearing client stats...",
+                timestamp = DateTime.UtcNow
+            });
+            var deletedClientStats = await _context.ClientStats.ExecuteDeleteAsync();
+            _logger.LogInformation($"Cleared {deletedClientStats:N0} client stats");
 
-            // Delete ClientStats in batches
-            deletedRows = await DeleteInBatches(
-                () => _context.ClientStats.Take(5000),
-                totalRows,
-                deletedRows,
-                "client stats",
-                60.0,
-                75.0);
-
-            // Delete ServiceStats in batches
-            deletedRows = await DeleteInBatches(
-                () => _context.ServiceStats.Take(5000),
-                totalRows,
-                deletedRows,
-                "service stats",
-                75.0,
-                85.0);
+            // Delete ServiceStats
+            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+            {
+                isProcessing = true,
+                percentComplete = 75.0,
+                status = "deleting",
+                message = "Clearing service stats...",
+                timestamp = DateTime.UtcNow
+            });
+            var deletedServiceStats = await _context.ServiceStats.ExecuteDeleteAsync();
+            _logger.LogInformation($"Cleared {deletedServiceStats:N0} service stats");
 
 
             // Get data directory for file cleanup
@@ -247,43 +257,67 @@ public class DatabaseRepository : IDatabaseRepository
                 switch (tableName)
                 {
                     case "LogEntries":
-                        deletedRows = await DeleteInBatches(
-                            () => _context.LogEntries.Take(5000),
-                            totalRows,
-                            deletedRows,
-                            "log entries",
-                            currentProgress,
-                            currentProgress + progressPerTable);
+                        // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
+                        var logEntriesCount = await _context.LogEntries.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {logEntriesCount:N0} log entries");
+                        deletedRows += logEntriesCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared log entries ({logEntriesCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
                         break;
 
                     case "Downloads":
-                        deletedRows = await DeleteInBatches(
-                            () => _context.Downloads.Take(5000),
-                            totalRows,
-                            deletedRows,
-                            "downloads",
-                            currentProgress,
-                            currentProgress + progressPerTable);
+                        // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
+                        var downloadsCount = await _context.Downloads.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {downloadsCount:N0} downloads");
+                        deletedRows += downloadsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared downloads ({downloadsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
                         break;
 
                     case "ClientStats":
-                        deletedRows = await DeleteInBatches(
-                            () => _context.ClientStats.Take(5000),
-                            totalRows,
-                            deletedRows,
-                            "client stats",
-                            currentProgress,
-                            currentProgress + progressPerTable);
+                        // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
+                        var clientStatsCount = await _context.ClientStats.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {clientStatsCount:N0} client stats");
+                        deletedRows += clientStatsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared client stats ({clientStatsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
                         break;
 
                     case "ServiceStats":
-                        deletedRows = await DeleteInBatches(
-                            () => _context.ServiceStats.Take(5000),
-                            totalRows,
-                            deletedRows,
-                            "service stats",
-                            currentProgress,
-                            currentProgress + progressPerTable);
+                        // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
+                        var serviceStatsCount = await _context.ServiceStats.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {serviceStatsCount:N0} service stats");
+                        deletedRows += serviceStatsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared service stats ({serviceStatsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
                         break;
 
                     case "SteamDepotMappings":
@@ -391,54 +425,6 @@ public class DatabaseRepository : IDatabaseRepository
 
             throw;
         }
-    }
-
-    private async Task<int> DeleteInBatches<T>(
-        Func<IQueryable<T>> queryFactory,
-        int totalRows,
-        int currentDeletedRows,
-        string tableName,
-        double startPercent,
-        double endPercent) where T : class
-    {
-        int deletedRows = currentDeletedRows;
-        int batchCount = 0;
-
-        while (true)
-        {
-            // Get a batch of rows to delete
-            var batch = await queryFactory().ToListAsync();
-
-            if (!batch.Any())
-            {
-                break; // No more rows to delete
-            }
-
-            // Delete the batch
-            _context.RemoveRange(batch);
-            await _context.SaveChangesAsync();
-
-            deletedRows += batch.Count;
-            batchCount++;
-
-            // Calculate progress within this table's range
-            var tableProgress = totalRows > 0 ? (double)deletedRows / totalRows : 0;
-            var percentComplete = startPercent + (tableProgress * (endPercent - startPercent));
-
-            // Send progress update
-            await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
-            {
-                isProcessing = true,
-                percentComplete = Math.Min(percentComplete, endPercent),
-                status = "deleting",
-                message = $"Clearing {tableName}... ({deletedRows:N0} / {totalRows:N0} rows)",
-                timestamp = DateTime.UtcNow
-            });
-
-            _logger.LogInformation($"Deleted batch {batchCount} of {tableName}: {batch.Count} rows (total: {deletedRows:N0} / {totalRows:N0})");
-        }
-
-        return deletedRows;
     }
 
     public async Task<List<Download>> GetDownloadsWithApp0()
