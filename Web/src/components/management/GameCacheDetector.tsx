@@ -7,6 +7,7 @@ import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useNotifications } from '@contexts/NotificationsContext';
+import { useBackendOperation } from '@hooks/useBackendOperation';
 import type { GameCacheInfo } from '../../types';
 
 interface GameCacheDetectorProps {
@@ -23,6 +24,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   refreshKey = 0
 }) => {
   const { addNotification, updateNotification, notifications } = useNotifications();
+  const gameDetectionOp = useBackendOperation('activeGameDetection', 'gameDetection', 120);
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -79,8 +81,35 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Only check permissions and logs on initial mount
       loadDirectoryPermissions();
       checkIfLogsProcessed(); // Check database for LogEntries
+      restoreGameDetection(); // Restore interrupted operation if any
     }
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
+
+  const restoreGameDetection = async () => {
+    try {
+      const operation = await gameDetectionOp.load();
+      if (operation?.data) {
+        const data = operation.data as any;
+        if (data.operationId) {
+          console.log('[GameCacheDetector] Restoring interrupted game detection operation:', data.operationId);
+          setLoading(true);
+
+          // Start polling for the status of the restored operation
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+          pollingIntervalRef.current = setInterval(() => {
+            pollDetectionStatus(data.operationId);
+          }, 5000); // Poll every 5 seconds
+
+          // Poll immediately to get current status
+          pollDetectionStatus(data.operationId);
+        }
+      }
+    } catch (err) {
+      console.error('[GameCacheDetector] Failed to restore game detection operation:', err);
+    }
+  };
 
   const loadDirectoryPermissions = async () => {
     try {
@@ -188,6 +217,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           pollingIntervalRef.current = null;
         }
 
+        // Clear operation state - detection is complete
+        await gameDetectionOp.clear();
+
         setLoading(false);
 
         if (status.games && status.totalGamesDetected !== undefined) {
@@ -211,6 +243,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
         }
+
+        // Clear operation state - detection failed
+        await gameDetectionOp.clear();
 
         setLoading(false);
         const errorMsg = status.error || 'Detection failed';
@@ -255,6 +290,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     try {
       // Start background detection
       const result = await ApiService.startGameCacheDetection();
+
+      // Save operation state for restoration on page refresh
+      await gameDetectionOp.save({ operationId: result.operationId });
 
       // Start polling for status
       if (pollingIntervalRef.current) {
