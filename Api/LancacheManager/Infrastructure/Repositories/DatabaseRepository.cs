@@ -6,6 +6,7 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 
 namespace LancacheManager.Infrastructure.Repositories;
 
@@ -16,20 +17,26 @@ public class DatabaseRepository : IDatabaseRepository
     private readonly ILogger<DatabaseRepository> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly StatsCache _statsCache;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
 
     public DatabaseRepository(
         AppDbContext context,
         IHubContext<DownloadHub> hubContext,
         ILogger<DatabaseRepository> logger,
         IPathResolver pathResolver,
-        StatsCache statsCache)
+        StatsCache statsCache,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _context = context;
         _hubContext = hubContext;
         _logger = logger;
         _pathResolver = pathResolver;
         _statsCache = statsCache;
+        _dbContextFactory = dbContextFactory;
     }
+
+    public bool IsResetOperationRunning => _activeResetOperations.Any();
 
     public async Task ResetDatabase()
     {
@@ -189,8 +196,36 @@ public class DatabaseRepository : IDatabaseRepository
         }
     }
 
-    public async Task ResetSelectedTables(List<string> tableNames)
+    /// <summary>
+    /// Starts a background task to reset selected tables and returns immediately
+    /// </summary>
+    public string StartResetSelectedTablesAsync(List<string> tableNames)
     {
+        var operationId = Guid.NewGuid().ToString();
+
+        if (_activeResetOperations.TryAdd(operationId, true))
+        {
+            _logger.LogInformation($"Starting background reset operation {operationId} for tables: {string.Join(", ", tableNames)}");
+
+            // Start background task
+            _ = Task.Run(async () => await ResetSelectedTablesInternal(operationId, tableNames));
+        }
+        else
+        {
+            _logger.LogWarning("Failed to start reset operation - already running?");
+        }
+
+        return operationId;
+    }
+
+    /// <summary>
+    /// Internal method that performs the actual reset operation
+    /// </summary>
+    private async Task ResetSelectedTablesInternal(string operationId, List<string> tableNames)
+    {
+        // Use a new DbContext from factory for background operation (don't use injected context)
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+
         try
         {
             _logger.LogInformation($"Starting selective database reset for tables: {string.Join(", ", tableNames)}");
@@ -229,12 +264,12 @@ public class DatabaseRepository : IDatabaseRepository
             {
                 var count = tableName switch
                 {
-                    "LogEntries" => await _context.LogEntries.CountAsync(),
-                    "Downloads" => await _context.Downloads.CountAsync(),
-                    "ClientStats" => await _context.ClientStats.CountAsync(),
-                    "ServiceStats" => await _context.ServiceStats.CountAsync(),
-                    "SteamDepotMappings" => await _context.SteamDepotMappings.CountAsync(),
-                    "CachedGameDetections" => await _context.CachedGameDetections.CountAsync(),
+                    "LogEntries" => await context.LogEntries.CountAsync(),
+                    "Downloads" => await context.Downloads.CountAsync(),
+                    "ClientStats" => await context.ClientStats.CountAsync(),
+                    "ServiceStats" => await context.ServiceStats.CountAsync(),
+                    "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(),
+                    "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
                     _ => 0
                 };
                 totalRows += count;
@@ -258,7 +293,7 @@ public class DatabaseRepository : IDatabaseRepository
                 {
                     case "LogEntries":
                         // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                        var logEntriesCount = await _context.LogEntries.ExecuteDeleteAsync();
+                        var logEntriesCount = await context.LogEntries.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {logEntriesCount:N0} log entries");
                         deletedRows += logEntriesCount;
 
@@ -274,7 +309,7 @@ public class DatabaseRepository : IDatabaseRepository
 
                     case "Downloads":
                         // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                        var downloadsCount = await _context.Downloads.ExecuteDeleteAsync();
+                        var downloadsCount = await context.Downloads.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {downloadsCount:N0} downloads");
                         deletedRows += downloadsCount;
 
@@ -290,7 +325,7 @@ public class DatabaseRepository : IDatabaseRepository
 
                     case "ClientStats":
                         // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                        var clientStatsCount = await _context.ClientStats.ExecuteDeleteAsync();
+                        var clientStatsCount = await context.ClientStats.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {clientStatsCount:N0} client stats");
                         deletedRows += clientStatsCount;
 
@@ -306,7 +341,7 @@ public class DatabaseRepository : IDatabaseRepository
 
                     case "ServiceStats":
                         // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                        var serviceStatsCount = await _context.ServiceStats.ExecuteDeleteAsync();
+                        var serviceStatsCount = await context.ServiceStats.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {serviceStatsCount:N0} service stats");
                         deletedRows += serviceStatsCount;
 
@@ -322,7 +357,7 @@ public class DatabaseRepository : IDatabaseRepository
 
                     case "SteamDepotMappings":
                         // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
-                        var mappingCount = await _context.SteamDepotMappings.ExecuteDeleteAsync();
+                        var mappingCount = await context.SteamDepotMappings.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {mappingCount:N0} depot mappings");
                         deletedRows += mappingCount;
 
@@ -338,7 +373,7 @@ public class DatabaseRepository : IDatabaseRepository
 
                     case "CachedGameDetections":
                         // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
-                        var gameDetectionCount = await _context.CachedGameDetections.ExecuteDeleteAsync();
+                        var gameDetectionCount = await context.CachedGameDetections.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections");
                         deletedRows += gameDetectionCount;
 
@@ -424,6 +459,12 @@ public class DatabaseRepository : IDatabaseRepository
             });
 
             throw;
+        }
+        finally
+        {
+            // Clean up operation tracking
+            _activeResetOperations.TryRemove(operationId, out _);
+            _logger.LogInformation($"Reset operation {operationId} completed");
         }
     }
 

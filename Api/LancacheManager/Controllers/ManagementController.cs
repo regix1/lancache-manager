@@ -288,7 +288,7 @@ public class ManagementController : ControllerBase
 
     [HttpPost("database/reset-selected")]
     [RequireAuth]
-    public async Task<IActionResult> ResetSelectedTables([FromBody] List<string> tableNames)
+    public IActionResult ResetSelectedTables([FromBody] List<string> tableNames)
     {
         try
         {
@@ -297,17 +297,18 @@ public class ManagementController : ControllerBase
                 return BadRequest(new { error = "No tables selected" });
             }
 
-            _logger.LogInformation($"Starting selective database reset for tables: {string.Join(", ", tableNames)}");
+            _logger.LogInformation($"Starting background selective database reset for tables: {string.Join(", ", tableNames)}");
 
-            // Use C# implementation with SignalR updates
-            await _dbService.ResetSelectedTables(tableNames);
-            _logger.LogInformation("Selective database reset completed");
+            // Start background reset operation and return immediately
+            var operationId = _dbService.StartResetSelectedTablesAsync(tableNames);
 
-            return Ok(new
+            // Return 202 Accepted - operation is running in background, progress sent via SignalR
+            return Accepted(new
             {
-                message = $"Successfully reset {tableNames.Count} table(s)",
+                message = $"Database reset started for {tableNames.Count} table(s)",
                 tables = tableNames,
-                status = "completed",
+                operationId,
+                status = "started",
                 timestamp = DateTime.UtcNow
             });
         }

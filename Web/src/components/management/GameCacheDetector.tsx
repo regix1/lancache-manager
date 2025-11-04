@@ -132,6 +132,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     });
   }, [notifications]);
 
+  // Listen for database reset completion and re-check if logs are processed
+  useEffect(() => {
+    const databaseResetNotifs = notifications.filter(n => n.type === 'database_reset' && n.status === 'completed');
+
+    if (databaseResetNotifs.length > 0) {
+      // Database was reset, re-check if logs still exist
+      console.log('[GameCacheDetector] Database reset detected, re-checking log status');
+      checkIfLogsProcessed();
+    }
+  }, [notifications]);
+
   // Memoized filtered, sorted, and paginated games list
   const filteredAndSortedGames = useMemo(() => {
     // Filter by search query (search in game name or app ID)
