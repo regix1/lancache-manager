@@ -73,10 +73,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   // Update local countdown when depotConfig changes
   useEffect(() => {
     if (depotConfig?.nextCrawlIn) {
-      console.log('[DepotMapping] Updating local countdown to:', depotConfig.nextCrawlIn);
       setLocalNextCrawlIn(depotConfig.nextCrawlIn);
     } else {
-      console.log('[DepotMapping] nextCrawlIn is null/undefined, setting countdown to null');
       setLocalNextCrawlIn(null);
     }
   }, [depotConfig?.nextCrawlIn]);

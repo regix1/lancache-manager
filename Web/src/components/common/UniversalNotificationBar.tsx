@@ -356,8 +356,14 @@ const UniversalNotificationBar: React.FC = () => {
     try {
       await ApiService.cancelCacheClear(notificationId);
       removeNotification(notificationId);
-    } catch (err) {
-      console.error('Failed to cancel cache clearing:', err);
+    } catch (err: any) {
+      // If operation is already completed/not found, just dismiss the notification silently
+      if (err?.message?.includes('Operation not found') || err?.message?.includes('already completed')) {
+        console.log('[UniversalNotificationBar] Operation already completed, dismissing notification');
+        removeNotification(notificationId);
+      } else {
+        console.error('Failed to cancel cache clearing:', err);
+      }
     }
   };
 

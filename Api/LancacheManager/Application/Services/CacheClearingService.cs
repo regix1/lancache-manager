@@ -173,6 +173,16 @@ public class CacheClearingService : IHostedService
                 operation.EndTime = DateTime.UtcNow;
                 _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operation.Id, operation.Error);
                 await NotifyProgress(operation);
+
+                // Send completion notification
+                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                {
+                    success = false,
+                    message = operation.Error,
+                    error = operation.Error,
+                    timestamp = DateTime.UtcNow
+                });
+
                 SaveOperationToState(operation);
                 return;
             }
@@ -184,6 +194,16 @@ public class CacheClearingService : IHostedService
                 operation.EndTime = DateTime.UtcNow;
                 _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operation.Id, operation.Error);
                 await NotifyProgress(operation);
+
+                // Send completion notification
+                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                {
+                    success = false,
+                    message = operation.Error,
+                    error = operation.Error,
+                    timestamp = DateTime.UtcNow
+                });
+
                 SaveOperationToState(operation);
                 return;
             }
@@ -203,6 +223,16 @@ public class CacheClearingService : IHostedService
                 operation.EndTime = DateTime.UtcNow;
                 _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operation.Id, operation.Error);
                 await NotifyProgress(operation);
+
+                // Send completion notification
+                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                {
+                    success = false,
+                    message = operation.Error,
+                    error = operation.Error,
+                    timestamp = DateTime.UtcNow
+                });
+
                 SaveOperationToState(operation);
                 return;
             }
@@ -223,6 +253,16 @@ public class CacheClearingService : IHostedService
                 operation.Error = $"Rust cache_cleaner binary not found at {rustBinaryPath}";
                 operation.EndTime = DateTime.UtcNow;
                 await NotifyProgress(operation);
+
+                // Send completion notification
+                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                {
+                    success = false,
+                    message = operation.Error,
+                    error = operation.Error,
+                    timestamp = DateTime.UtcNow
+                });
+
                 SaveOperationToState(operation);
                 return;
             }

@@ -334,8 +334,11 @@ class ApiService {
         signal: AbortSignal.timeout(5000)
       });
       return await this.handleResponse(res);
-    } catch (error) {
-      console.error('cancelCacheClear error:', error);
+    } catch (error: any) {
+      // Suppress logging for "operation not found" errors (expected when operation already completed)
+      if (!error?.message?.includes('Operation not found') && !error?.message?.includes('already completed')) {
+        console.error('cancelCacheClear error:', error);
+      }
       throw error;
     }
   }

@@ -248,7 +248,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = `service_removal-${payload.service}`;
 
       if (payload.status === 'starting' || payload.status === 'removing') {
-        const existing = notifications.find(n => n.id === notificationId);
+        const existing = notifications.find(n => n.id === notificationId && n.status === 'running');
         if (existing) {
           updateNotification(notificationId, {
             message: payload.message || `Removing ${payload.service} entries...`,
@@ -261,20 +261,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             }
           });
         } else {
-          // Create notification with fixed ID based on service (not using addNotification which generates random IDs)
-          setNotifications(prev => [...prev, {
-            id: notificationId,
-            type: 'service_removal',
-            status: 'running',
-            message: payload.message || `Removing ${payload.service} entries...`,
-            progress: payload.percentComplete || 0,
-            startedAt: new Date(),
-            details: {
-              service: payload.service,
-              linesProcessed: payload.linesProcessed || 0,
-              linesRemoved: payload.linesRemoved || 0
-            }
-          }]);
+          // Create notification with fixed ID based on service, removing any old completed/failed ones first
+          setNotifications(prev => {
+            const filtered = prev.filter(n => n.id !== notificationId);
+            return [...filtered, {
+              id: notificationId,
+              type: 'service_removal',
+              status: 'running',
+              message: payload.message || `Removing ${payload.service} entries...`,
+              progress: payload.percentComplete || 0,
+              startedAt: new Date(),
+              details: {
+                service: payload.service,
+                linesProcessed: payload.linesProcessed || 0,
+                linesRemoved: payload.linesRemoved || 0
+              }
+            }];
+          });
         }
       }
     };
@@ -339,22 +342,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           error: payload.message
         });
       } else {
-        const existing = notifications.find(n => n.id === notificationId);
+        const existing = notifications.find(n => n.id === notificationId && n.status === 'running');
         if (existing) {
           updateNotification(notificationId, {
             message: payload.message || 'Resetting database...',
             progress: payload.percentComplete || 0
           });
         } else {
-          // Create notification with fixed ID (not using addNotification which generates random IDs)
-          setNotifications(prev => [...prev, {
-            id: notificationId,
-            type: 'database_reset',
-            status: 'running',
-            message: payload.message || 'Resetting database...',
-            progress: payload.percentComplete || 0,
-            startedAt: new Date()
-          }]);
+          // Create notification with fixed ID, removing any old completed/failed ones first
+          setNotifications(prev => {
+            const filtered = prev.filter(n => n.id !== notificationId);
+            return [...filtered, {
+              id: notificationId,
+              type: 'database_reset',
+              status: 'running',
+              message: payload.message || 'Resetting database...',
+              progress: payload.percentComplete || 0,
+              startedAt: new Date()
+            }];
+          });
         }
       }
     };
@@ -363,7 +369,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleCacheClearProgress = (payload: any) => {
       const notificationId = 'cache_clearing';
 
-      const existing = notifications.find(n => n.id === notificationId);
+      const existing = notifications.find(n => n.id === notificationId && n.status === 'running');
       if (existing) {
         updateNotification(notificationId, {
           message: payload.statusMessage || 'Clearing cache...',
@@ -376,20 +382,23 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           }
         });
       } else {
-        // Create notification with fixed ID (not using addNotification which generates random IDs)
-        setNotifications(prev => [...prev, {
-          id: notificationId,
-          type: 'cache_clearing',
-          status: 'running',
-          message: payload.statusMessage || 'Clearing cache...',
-          progress: payload.percentComplete || 0,
-          startedAt: new Date(),
-          details: {
-            filesDeleted: payload.filesDeleted || 0,
-            directoriesProcessed: payload.directoriesProcessed || 0,
-            bytesDeleted: payload.bytesDeleted || 0
-          }
-        }]);
+        // Create notification with fixed ID, removing any old completed/failed ones first
+        setNotifications(prev => {
+          const filtered = prev.filter(n => n.id !== notificationId);
+          return [...filtered, {
+            id: notificationId,
+            type: 'cache_clearing',
+            status: 'running',
+            message: payload.statusMessage || 'Clearing cache...',
+            progress: payload.percentComplete || 0,
+            startedAt: new Date(),
+            details: {
+              filesDeleted: payload.filesDeleted || 0,
+              directoriesProcessed: payload.directoriesProcessed || 0,
+              bytesDeleted: payload.bytesDeleted || 0
+            }
+          }];
+        });
       }
     };
 
@@ -424,7 +433,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       console.log('[NotificationsContext] DepotMappingStarted received:', payload);
       const notificationId = 'depot_mapping';
 
-      // Remove any existing depot mapping notifications and add new one with fixed ID
+      // Remove any existing depot mapping notifications (including completed/failed ones) and add new one
       setNotifications(prev => {
         const filtered = prev.filter(n => n.id !== notificationId);
         return [...filtered, {
