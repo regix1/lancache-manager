@@ -168,7 +168,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     if (databaseResetNotifs.length > 0) {
       // Database was reset, re-check if LogEntries exist in database
-      console.log('[GameCacheDetector] Database reset detected, re-checking database LogEntries');
+      console.log('[GameCacheDetector] Database reset detected, clearing games and re-checking database LogEntries');
+
+      // Clear the games list since database was reset
+      setGames([]);
+      setTotalGames(0);
+
       checkIfLogsProcessed();
     }
   }, [notifications]);
