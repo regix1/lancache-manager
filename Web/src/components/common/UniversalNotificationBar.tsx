@@ -149,9 +149,9 @@ const UnifiedNotificationItem = ({
               <div className="mt-1">
                 <div className="flex items-center justify-between text-xs text-themed-muted mb-0.5">
                   <span>{notification.progress.toFixed(1)}%</span>
-                  {notification.details?.linesProcessed !== undefined && notification.details?.linesRemoved !== undefined && (
+                  {notification.details?.linesProcessed !== undefined && (
                     <span>
-                      {notification.details.linesRemoved.toLocaleString()} removed / {notification.details.linesProcessed.toLocaleString()} processed
+                      {notification.details.linesProcessed.toLocaleString()} lines processed
                     </span>
                   )}
                 </div>

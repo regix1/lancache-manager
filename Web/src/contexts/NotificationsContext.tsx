@@ -294,7 +294,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       if (payload.success) {
         updateNotification(notificationId, {
           status: 'completed',
-          message: payload.message || `Removed ${payload.linesRemoved || 0} ${payload.service} entries`,
+          message: payload.message || `Successfully removed ${payload.service} log entries (${payload.linesProcessed || 0} lines processed)`,
           progress: 100
         });
       } else {
