@@ -19,6 +19,7 @@ import {
 import { useStats } from '../../contexts/StatsContext';
 import { useDownloads } from '../../contexts/DownloadsContext';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
+import { useDraggableCards } from '../../hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '../../utils/formatters';
 import { STORAGE_KEYS } from '../../utils/constants';
 import { type StatCardData } from '../../types';
@@ -151,43 +152,21 @@ const Dashboard: React.FC = () => {
     }
   }, [loading]);
 
-  const [draggedCard, setDraggedCard] = useState<string | null>(null);
-  const [dragOverCard, setDragOverCard] = useState<string | null>(null);
-  const [isDragMode, setIsDragMode] = useState(false);
-  const [holdTimeout, setHoldTimeout] = useState<NodeJS.Timeout | null>(null);
-  const [showDragHint, setShowDragHint] = useState(() => {
-    return storage.getItem('dashboard-hide-drag-hint') !== 'true';
+  // Use drag-and-drop hook for card reordering
+  const {
+    cardOrder,
+    draggedCard,
+    dragOverCard,
+    isDragMode,
+    showDragHint,
+    dragHandlers,
+    resetCardOrder,
+    hideDragHint
+  } = useDraggableCards({
+    defaultOrder: DEFAULT_CARD_ORDER,
+    storageKey: STORAGE_KEYS.DASHBOARD_CARD_ORDER,
+    dragHintStorageKey: 'dashboard-hide-drag-hint'
   });
-  const dragCounter = useRef(0);
-
-  const [cardOrder, setCardOrder] = useState<string[]>(() => {
-    const saved = storage.getItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER);
-    if (saved) {
-      try {
-        const order = JSON.parse(saved);
-        const hasAllCards = DEFAULT_CARD_ORDER.every((card) => order.includes(card));
-        if (hasAllCards) {
-          return order;
-        }
-      } catch (e) {
-        console.error('Failed to parse card order:', e);
-      }
-    }
-    return DEFAULT_CARD_ORDER;
-  });
-
-  useEffect(() => {
-    storage.setItem(STORAGE_KEYS.DASHBOARD_CARD_ORDER, JSON.stringify(cardOrder));
-  }, [cardOrder]);
-
-  // Clean up holdTimeout on unmount to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      if (holdTimeout) {
-        clearTimeout(holdTimeout);
-      }
-    };
-  }, [holdTimeout]);
 
   const getTimeRangeLabel = useCallback(() => {
     switch (timeRange) {
@@ -239,141 +218,6 @@ const Dashboard: React.FC = () => {
       ...prev,
       [cardKey]: !prev[cardKey]
     }));
-  }, []);
-
-  const handleDragStart = useCallback((e: React.DragEvent, cardKey: string) => {
-    setDraggedCard(cardKey);
-    e.dataTransfer.effectAllowed = 'move';
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    setDraggedCard(null);
-    setDragOverCard(null);
-    setIsDragMode(false);
-    dragCounter.current = 0;
-  }, []);
-
-  // Touch-friendly select and swap handlers
-  const handleTouchStart = useCallback((cardKey: string) => {
-    const timeout = setTimeout(() => {
-      // If we already have a selected card, swap them
-      if (draggedCard && draggedCard !== cardKey) {
-        // Perform the swap
-        setCardOrder((prevOrder: string[]) => {
-          const newOrder = [...prevOrder];
-          const draggedIndex = newOrder.indexOf(draggedCard);
-          const targetIndex = newOrder.indexOf(cardKey);
-          newOrder.splice(draggedIndex, 1);
-          newOrder.splice(targetIndex, 0, draggedCard);
-          return newOrder;
-        });
-
-        // Add haptic feedback for successful swap
-        if (navigator.vibrate) {
-          navigator.vibrate([50, 50, 50]);
-        }
-
-        // Clear selection
-        setDraggedCard(null);
-        setIsDragMode(false);
-      } else {
-        // Select this card
-        setIsDragMode(true);
-        setDraggedCard(cardKey);
-        // Add haptic feedback if available
-        if (navigator.vibrate) {
-          navigator.vibrate(50);
-        }
-      }
-    }, 500); // 500ms hold to activate selection mode
-    setHoldTimeout(timeout);
-  }, [draggedCard]);
-
-  const handleTouchEnd = useCallback(() => {
-    if (holdTimeout) {
-      clearTimeout(holdTimeout);
-      setHoldTimeout(null);
-    }
-  }, [holdTimeout]);
-
-  const handleCardTap = useCallback((cardKey: string) => {
-    if (isDragMode && draggedCard) {
-      if (cardKey !== draggedCard) {
-        // Swap the cards
-        setCardOrder((prevOrder: string[]) => {
-          const newOrder = [...prevOrder];
-          const draggedIndex = newOrder.indexOf(draggedCard);
-          const targetIndex = newOrder.indexOf(cardKey);
-          newOrder.splice(draggedIndex, 1);
-          newOrder.splice(targetIndex, 0, draggedCard);
-          return newOrder;
-        });
-
-        // Add haptic feedback for successful swap
-        if (navigator.vibrate) {
-          navigator.vibrate([50, 50, 50]);
-        }
-      }
-
-      // Clear selection
-      setDraggedCard(null);
-      setIsDragMode(false);
-      setDragOverCard(null);
-    }
-  }, [isDragMode, draggedCard]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, []);
-
-  const handleDragEnter = useCallback(
-    (e: React.DragEvent, cardKey: string) => {
-      e.preventDefault();
-      dragCounter.current++;
-      if (cardKey && cardKey !== draggedCard) {
-        setDragOverCard(cardKey);
-      }
-    },
-    [draggedCard]
-  );
-
-  const handleDragLeave = useCallback(() => {
-    dragCounter.current--;
-    if (dragCounter.current === 0) {
-      setDragOverCard(null);
-    }
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent, targetCardKey: string) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      if (draggedCard && targetCardKey && draggedCard !== targetCardKey) {
-        setCardOrder((prevOrder: string[]) => {
-          const newOrder = [...prevOrder];
-          const draggedIndex = newOrder.indexOf(draggedCard);
-          const targetIndex = newOrder.indexOf(targetCardKey);
-          newOrder.splice(draggedIndex, 1);
-          newOrder.splice(targetIndex, 0, draggedCard);
-          return newOrder;
-        });
-      }
-
-      setDragOverCard(null);
-      dragCounter.current = 0;
-    },
-    [draggedCard]
-  );
-
-  const resetCardOrder = useCallback(() => {
-    setCardOrder(DEFAULT_CARD_ORDER);
-  }, []);
-
-  const hideDragHint = useCallback(() => {
-    setShowDragHint(false);
-    storage.setItem('dashboard-hide-drag-hint', 'true');
   }, []);
 
   const stats = useMemo(() => {
@@ -529,7 +373,7 @@ const Dashboard: React.FC = () => {
       onClick={(e) => {
         // Cancel drag mode if clicking outside of cards
         if (isDragMode && !(e.target as Element).closest('[data-card-key]')) {
-          handleTouchEnd();
+          dragHandlers.onTouchEnd();
         }
       }}
     >
@@ -745,15 +589,15 @@ const Dashboard: React.FC = () => {
               opacity: isDragMode && draggedCard === card.key ? 0.8 : 1
             }}
             draggable={!isDragMode}
-            onDragStart={(e) => handleDragStart(e, card.key)}
-            onDragEnd={handleDragEnd}
-            onDragOver={handleDragOver}
-            onDragEnter={(e) => handleDragEnter(e, card.key)}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, card.key)}
-            onTouchStart={() => handleTouchStart(card.key)}
-            onTouchEnd={handleTouchEnd}
-            onClick={() => handleCardTap(card.key)}
+            onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
+            onDragEnd={dragHandlers.onDragEnd}
+            onDragOver={dragHandlers.onDragOver}
+            onDragEnter={(e) => dragHandlers.onDragEnter(e, card.key)}
+            onDragLeave={dragHandlers.onDragLeave}
+            onDrop={(e) => dragHandlers.onDrop(e, card.key)}
+            onTouchStart={() => dragHandlers.onTouchStart(card.key)}
+            onTouchEnd={dragHandlers.onTouchEnd}
+            onClick={() => dragHandlers.onCardTap(card.key)}
           >
             {/* Desktop drag handle - smaller, hover-triggered */}
             {(

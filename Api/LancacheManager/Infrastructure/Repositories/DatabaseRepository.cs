@@ -293,6 +293,14 @@ public class DatabaseRepository : IDatabaseRepository
             // Note: LogEntries must be deleted first if Downloads is also being deleted (foreign key constraint)
             var orderedTables = tablesToClear.OrderBy(t => t == "LogEntries" ? 0 : t == "Downloads" ? 1 : 2).ToList();
 
+            // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
+            if (tablesToClear.Contains("Downloads") && !tablesToClear.Contains("LogEntries"))
+            {
+                _logger.LogInformation("Nullifying LogEntry.DownloadId foreign keys before deleting Downloads table");
+                await context.LogEntries.Where(le => le.DownloadId != null)
+                    .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (int?)null));
+            }
+
             foreach (var tableName in orderedTables)
             {
                 _logger.LogInformation($"Clearing table: {tableName}");

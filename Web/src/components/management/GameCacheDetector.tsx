@@ -144,45 +144,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setCurrentPage(1);
   }, [searchQuery]);
 
-  // Listen for completed game removals from SignalR
+  // Listen for notification events from SignalR (consolidated)
   useEffect(() => {
+    // Handle completed game removals
     const gameRemovalNotifs = notifications.filter(n => n.type === 'game_removal' && n.status === 'completed');
-
     gameRemovalNotifs.forEach((notif) => {
       const gameAppId = notif.details?.gameAppId;
       if (!gameAppId) return;
 
       // Remove from UI (backend already removed from database)
-      setGames((prev) => {
-        const updated = prev.filter((g) => g.game_app_id !== gameAppId);
-        return updated;
-      });
+      setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
       setTotalGames((prev) => prev - 1);
     });
-  }, [notifications]);
 
-  // Listen for database reset completion and re-check if logs are processed
-  useEffect(() => {
+    // Handle database reset completion
     const databaseResetNotifs = notifications.filter(n => n.type === 'database_reset' && n.status === 'completed');
-
     if (databaseResetNotifs.length > 0) {
-      // Database was reset, re-check if LogEntries exist in database
       console.log('[GameCacheDetector] Database reset detected, clearing games and re-checking database LogEntries');
-
-      // Clear the games list since database was reset
       setGames([]);
       setTotalGames(0);
-
       checkIfLogsProcessed();
     }
-  }, [notifications]);
 
-  // Listen for log processing completion and re-check if logs are now available
-  useEffect(() => {
+    // Handle log processing completion
     const logProcessingNotifs = notifications.filter(n => n.type === 'log_processing' && n.status === 'completed');
-
     if (logProcessingNotifs.length > 0) {
-      // Logs were processed, re-check if LogEntries now exist in database
       console.log('[GameCacheDetector] Log processing completed, re-checking database LogEntries');
       checkIfLogsProcessed();
     }
@@ -476,8 +462,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   Scan cache directory to find which games have stored files
                 </p>
               </div>
-              {!hasProcessedLogs && !checkingLogs ? (
-                <Tooltip content="Process access logs to populate the database first. LogEntries in the database are required for game detection.">
+              {(() => {
+                const detectButton = (
                   <Button
                     onClick={handleDetect}
                     disabled={loading || mockMode || cacheReadOnly || checkingPermissions || !hasProcessedLogs || checkingLogs}
@@ -488,19 +474,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   >
                     {loading ? 'Detecting...' : 'Detect Games'}
                   </Button>
-                </Tooltip>
-              ) : (
-                <Button
-                  onClick={handleDetect}
-                  disabled={loading || mockMode || cacheReadOnly || checkingPermissions || !hasProcessedLogs || checkingLogs}
-                  variant="filled"
-                  color="blue"
-                  leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                  title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
-                >
-                  {loading ? 'Detecting...' : 'Detect Games'}
-                </Button>
-              )}
+                );
+
+                return !hasProcessedLogs && !checkingLogs ? (
+                  <Tooltip content="Process access logs to populate the database first. LogEntries in the database are required for game detection.">
+                    {detectButton}
+                  </Tooltip>
+                ) : detectButton;
+              })()}
             </div>
           )}
 
