@@ -23,7 +23,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   onDataRefresh,
   refreshKey = 0
 }) => {
-  const { addNotification, updateNotification, notifications } = useNotifications();
+  const { addNotification, updateNotification, removeNotification, notifications } = useNotifications();
   const gameDetectionOp = useBackendOperation('activeGameDetection', 'gameDetection', 120);
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
@@ -220,6 +220,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Clear operation state - detection is complete
         await gameDetectionOp.clear();
 
+        // Remove the "Detecting games in cache..." notification
+        removeNotification('game_detection');
+
         setLoading(false);
 
         if (status.games && status.totalGamesDetected !== undefined) {
@@ -246,6 +249,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
         // Clear operation state - detection failed
         await gameDetectionOp.clear();
+
+        // Remove the "Detecting games in cache..." notification
+        removeNotification('game_detection');
 
         setLoading(false);
         const errorMsg = status.error || 'Detection failed';
