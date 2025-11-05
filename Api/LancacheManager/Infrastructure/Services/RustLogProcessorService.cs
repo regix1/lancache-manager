@@ -302,7 +302,7 @@ public class RustLogProcessorService
                     var finalElapsed = DateTime.UtcNow - startTime;
 
                     // Now send completion signal after the delay
-                    await _hubContext.Clients.All.SendAsync("BulkProcessingComplete", new
+                    await _hubContext.Clients.All.SendAsync("FastProcessingComplete", new
                     {
                         success = true,
                         message = "Log processing completed successfully",
@@ -331,14 +331,14 @@ public class RustLogProcessorService
             else
             {
                 // Non-zero exit code but not cancelled - this is an actual error
-                // Error is already logged, no need for SignalR notification as frontend uses BulkProcessingComplete
+                // Error is already logged, no need for SignalR notification as frontend uses FastProcessingComplete
                 return false;
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting Rust log processor");
-            // Error is already logged, no need for SignalR notification as frontend uses BulkProcessingComplete
+            // Error is already logged, no need for SignalR notification as frontend uses FastProcessingComplete
             return false;
         }
         finally

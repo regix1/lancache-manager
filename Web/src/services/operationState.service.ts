@@ -1,4 +1,3 @@
-import { fetchStateOrNull } from '../utils/silentFetch';
 import authService from './auth.service';
 import { storage } from '@utils/storage';
 
@@ -39,8 +38,20 @@ class OperationStateService {
   private updateDebounceTimers = new Map<string, NodeJS.Timeout>();
   private readonly UPDATE_DEBOUNCE_MS = 500;
   async getState(key: string): Promise<OperationState | null> {
-    const result = await fetchStateOrNull(`${API_URL}/api/operationstate/${key}`);
-    return result.ok ? result.data : null;
+    try {
+      const response = await fetch(`${API_URL}/api/operationstate/${key}`, {
+        signal: AbortSignal.timeout(5000)
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+
+      return null;
+    } catch (error: any) {
+      // Silently handle errors - operation state checks are non-critical
+      return null;
+    }
   }
 
   async saveState(

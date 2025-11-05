@@ -25,7 +25,7 @@ export interface SignalRProviderProps {
 export const SIGNALR_EVENTS = [
   'DownloadsRefresh',
   'ProcessingProgress',
-  'BulkProcessingComplete',
+  'FastProcessingComplete',
   'DepotMappingStarted',
   'DepotMappingProgress',
   'DepotMappingComplete',

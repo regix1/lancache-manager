@@ -165,7 +165,7 @@ fn delete_directory_full(
 
             // Otherwise, fail with a clear error message
             anyhow::bail!(
-                "Bulk removal failed for {}: {}. Please switch to 'Preserve Structure' or 'Rsync' mode.",
+                "Fast Mode removal failed for {}: {}. Please switch to 'Preserve Structure' or 'Rsync' mode.",
                 dir_path.display(),
                 err
             );
@@ -214,7 +214,7 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
                 let stderr = String::from_utf8_lossy(&result.stderr);
                 eprintln!("rsync stderr for {}: {}", dir_path.display(), stderr);
                 anyhow::bail!(
-                    "rsync failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
+                    "rsync failed for {}: {}. Please switch to 'Preserve Structure' or 'Fast Mode' mode.",
                     dir_path.display(),
                     stderr
                 );
@@ -244,7 +244,7 @@ fn delete_directory_rsync(dir_path: &Path, files_counter: &AtomicU64) -> Result<
         }
         Err(e) => {
             anyhow::bail!(
-                "rsync command not available or failed for {}: {}. Please switch to 'Preserve Structure' or 'Bulk Removal' mode.",
+                "rsync command not available or failed for {}: {}. Please switch to 'Preserve Structure' or 'Fast Mode' mode.",
                 dir_path.display(),
                 e
             );
@@ -258,7 +258,7 @@ fn delete_directory_rsync(
     _files_counter: &AtomicU64,
 ) -> Result<()> {
     anyhow::bail!(
-        "Rsync mode is only supported on Linux. Please switch to 'Preserve Structure' or 'Bulk Removal' mode."
+        "Rsync mode is only supported on Linux. Please switch to 'Preserve Structure' or 'Fast Mode' mode."
     );
 }
 
@@ -571,7 +571,7 @@ fn main() {
         eprintln!("                For local storage, use 4-8 threads");
         eprintln!("  delete_mode: Deletion method (default: preserve)");
         eprintln!("    - 'preserve': Delete files individually, preserve directory structure, shows file count");
-        eprintln!("    - 'full': Bulk directory removal, removes entire directories at once");
+        eprintln!("    - 'full': Fast Mode directory removal, removes entire directories at once");
         eprintln!("    - 'rsync': Use rsync --delete method, optimized for network storage (Linux only)");
         std::process::exit(1);
     }

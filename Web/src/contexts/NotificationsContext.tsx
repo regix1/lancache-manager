@@ -236,7 +236,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
-    const handleBulkProcessingComplete = (result: any) => {
+    const handleFastProcessingComplete = (result: any) => {
       const existing = notifications.find((n) => n.type === 'log_processing');
       if (existing) {
         updateNotification(existing.id, {
@@ -627,7 +627,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     // Subscribe to events
     signalR.on('ProcessingProgress', handleProcessingProgress);
-    signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
+    signalR.on('FastProcessingComplete', handleFastProcessingComplete);
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalComplete', handleGameRemovalComplete);
@@ -641,7 +641,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // Cleanup
     return () => {
       signalR.off('ProcessingProgress', handleProcessingProgress);
-      signalR.off('BulkProcessingComplete', handleBulkProcessingComplete);
+      signalR.off('FastProcessingComplete', handleFastProcessingComplete);
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       signalR.off('GameRemovalComplete', handleGameRemovalComplete);

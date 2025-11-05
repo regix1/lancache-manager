@@ -220,9 +220,9 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
       });
     };
 
-    // Handler for BulkProcessingComplete event
-    const handleBulkProcessingComplete = async (result: any) => {
-      console.log('SignalR BulkProcessingComplete received:', result);
+    // Handler for FastProcessingComplete event
+    const handleFastProcessingComplete = async (result: any) => {
+      console.log('SignalR FastProcessingComplete received:', result);
       // Stop polling immediately when we receive completion signal
       if (pollingInterval.current) {
         clearInterval(pollingInterval.current);
@@ -267,7 +267,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     // Subscribe to events
     signalR.on('ProcessingProgress', handleProcessingProgress);
-    signalR.on('BulkProcessingComplete', handleBulkProcessingComplete);
+    signalR.on('FastProcessingComplete', handleFastProcessingComplete);
     signalR.on('DownloadsRefresh', handleDownloadsRefresh);
 
     console.log('[LogProcessingManager] Subscribed to SignalR events');
@@ -278,7 +278,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     // Cleanup: unsubscribe from events
     return () => {
       signalR.off('ProcessingProgress', handleProcessingProgress);
-      signalR.off('BulkProcessingComplete', handleBulkProcessingComplete);
+      signalR.off('FastProcessingComplete', handleFastProcessingComplete);
       signalR.off('DownloadsRefresh', handleDownloadsRefresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
