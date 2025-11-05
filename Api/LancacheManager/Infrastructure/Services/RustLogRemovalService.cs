@@ -2,6 +2,7 @@ using System.Diagnostics;
 using LancacheManager.Application.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -16,6 +17,8 @@ public class RustLogRemovalService
     private readonly IPathResolver _pathResolver;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly CacheManagementService _cacheManagementService;
+    private readonly ProcessManager _processManager;
+    private readonly RustProcessHelper _rustProcessHelper;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
 
@@ -26,12 +29,16 @@ public class RustLogRemovalService
         ILogger<RustLogRemovalService> logger,
         IPathResolver pathResolver,
         IHubContext<DownloadHub> hubContext,
-        CacheManagementService cacheManagementService)
+        CacheManagementService cacheManagementService,
+        ProcessManager processManager,
+        RustProcessHelper rustProcessHelper)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _hubContext = hubContext;
         _cacheManagementService = cacheManagementService;
+        _processManager = processManager;
+        _rustProcessHelper = rustProcessHelper;
     }
 
     public class ProgressData
@@ -93,16 +100,10 @@ public class RustLogRemovalService
                 var arguments = $"remove \"{logDir}\" \"{service}\" \"{progressPath}\"";
                 _logger.LogInformation("Rust arguments: {Arguments}", arguments);
 
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = rustExecutablePath,
-                    Arguments = arguments,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
-                };
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustExecutablePath,
+                    arguments,
+                    Path.GetDirectoryName(rustExecutablePath));
 
                 _rustProcess = Process.Start(startInfo);
 
@@ -111,31 +112,8 @@ public class RustLogRemovalService
                     throw new Exception("Failed to start Rust process");
                 }
 
-                // Monitor stdout - track task for proper cleanup
-                var stdoutTask = Task.Run(async () =>
-                {
-                    while (!_rustProcess.StandardOutput.EndOfStream)
-                    {
-                        var line = await _rustProcess.StandardOutput.ReadLineAsync();
-                        if (!string.IsNullOrEmpty(line))
-                        {
-                            _logger.LogInformation("[Rust] {Line}", line);
-                        }
-                    }
-                });
-
-                // Monitor stderr - log errors/warnings for debugging
-                var stderrTask = Task.Run(async () =>
-                {
-                    while (!_rustProcess.StandardError.EndOfStream)
-                    {
-                        var line = await _rustProcess.StandardError.ReadLineAsync();
-                        if (!string.IsNullOrEmpty(line))
-                        {
-                            _logger.LogWarning("[Rust stderr] {Line}", line);
-                        }
-                    }
-                });
+                // Monitor stdout and stderr - track tasks for proper cleanup
+                var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log removal");
 
                 // Send initial progress notification
                 await _hubContext.Clients.All.SendAsync("LogRemovalProgress", new
@@ -152,25 +130,14 @@ public class RustLogRemovalService
                 // Start progress monitoring task
                 var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, _cancellationTokenSource.Token));
 
-                // Wait for process to complete
-                await _rustProcess.WaitForExitAsync(_cancellationTokenSource.Token);
+                // Wait for process to complete with graceful cancellation handling
+                await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
 
                 var exitCode = _rustProcess.ExitCode;
                 _logger.LogInformation("Rust log_manager exited with code {ExitCode}", exitCode);
 
                 // Wait for stdout/stderr reading tasks to complete
-                try
-                {
-                    await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5));
-                }
-                catch (TimeoutException)
-                {
-                    _logger.LogWarning("Timeout waiting for stdout/stderr tasks to complete");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
-                }
+                await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
 
                 // Stop the progress monitoring task
                 _cancellationTokenSource.Cancel();
@@ -285,31 +252,7 @@ public class RustLogRemovalService
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
     {
-        try
-        {
-            if (!File.Exists(progressPath))
-            {
-                return null;
-            }
-
-            string json;
-            using (var fileStream = new FileStream(progressPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-            using (var reader = new StreamReader(fileStream))
-            {
-                json = await reader.ReadToEndAsync();
-            }
-
-            var options = new System.Text.Json.JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-            return System.Text.Json.JsonSerializer.Deserialize<ProgressData>(json, options);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogTrace(ex, "Failed to read progress file (may not exist yet)");
-            return null;
-        }
+        return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
     }
 
     public async Task<ProgressData?> GetProgressAsync()

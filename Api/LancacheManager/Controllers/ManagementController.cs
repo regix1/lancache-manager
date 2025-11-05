@@ -2,6 +2,7 @@ using LancacheManager.Application.Services;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
@@ -28,6 +29,7 @@ public class ManagementController : ControllerBase
     private readonly SteamAuthRepository _steamAuthStorage;
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly RustProcessHelper _rustProcessHelper;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -44,7 +46,8 @@ public class ManagementController : ControllerBase
         SteamKit2Service steamKit2Service,
         SteamAuthRepository steamAuthStorage,
         IServiceScopeFactory serviceScopeFactory,
-        IHubContext<DownloadHub> hubContext)
+        IHubContext<DownloadHub> hubContext,
+        RustProcessHelper rustProcessHelper)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -61,6 +64,7 @@ public class ManagementController : ControllerBase
         _steamAuthStorage = steamAuthStorage;
         _serviceScopeFactory = serviceScopeFactory;
         _hubContext = hubContext;
+        _rustProcessHelper = rustProcessHelper;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -479,15 +483,8 @@ public class ManagementController : ControllerBase
                 });
             }
 
-            // Use FileStream with FileShare.ReadWrite to allow other processes to access the file
-            string json;
-            using (var fileStream = new System.IO.FileStream(progressPath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete))
-            using (var reader = new System.IO.StreamReader(fileStream))
-            {
-                json = await reader.ReadToEndAsync();
-            }
-
-            var rustProgress = System.Text.Json.JsonSerializer.Deserialize<RustLogProcessorService.ProgressData>(json);
+            // Read progress file using helper (handles FileShare.ReadWrite and deserialization)
+            var rustProgress = await _rustProcessHelper.ReadProgressFileAsync<RustLogProcessorService.ProgressData>(progressPath);
 
             if (rustProgress == null)
             {

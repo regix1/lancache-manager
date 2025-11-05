@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Data;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +19,8 @@ public class GameCacheDetectionService
     private readonly OperationStateService _operationStateService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SteamKit2Service _steamKit2Service;
+    private readonly ProcessManager _processManager;
+    private readonly RustProcessHelper _rustProcessHelper;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
 
     public class DetectionOperation
@@ -36,50 +39,20 @@ public class GameCacheDetectionService
         IPathResolver pathResolver,
         OperationStateService operationStateService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        SteamKit2Service steamKit2Service)
+        SteamKit2Service steamKit2Service,
+        ProcessManager processManager,
+        RustProcessHelper rustProcessHelper)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _operationStateService = operationStateService;
         _dbContextFactory = dbContextFactory;
         _steamKit2Service = steamKit2Service;
+        _processManager = processManager;
+        _rustProcessHelper = rustProcessHelper;
 
         // Restore any interrupted operations on startup
         RestoreInterruptedOperations();
-    }
-
-    /// <summary>
-    /// Waits for a process to exit with cancellation token support.
-    /// If cancelled, attempts to kill the process gracefully.
-    /// </summary>
-    private async Task WaitForProcessWithCancellationAsync(Process process, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation requested - try to kill the process
-            try
-            {
-                if (!process.HasExited)
-                {
-                    _logger.LogWarning("Cancellation requested - terminating process {ProcessName} (PID: {ProcessId})",
-                        process.ProcessName, process.Id);
-                    process.Kill(entireProcessTree: true);
-
-                    // Give it a moment to clean up
-                    await Task.Delay(100, CancellationToken.None);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to kill process during cancellation");
-            }
-
-            throw; // Re-throw the cancellation exception
-        }
     }
 
     public string StartDetectionAsync(bool incremental = true)
@@ -237,10 +210,7 @@ public class GameCacheDetectionService
 
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
 
-            if (!File.Exists(rustBinaryPath))
-            {
-                throw new FileNotFoundException($"Game cache detector binary not found at {rustBinaryPath}");
-            }
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache detector");
 
             if (!File.Exists(dbPath))
             {
@@ -287,128 +257,90 @@ public class GameCacheDetectionService
                 arguments = $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"";
             }
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustBinaryPath,
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
             operation.Message = "Scanning database and cache directory...";
 
-            using (var process = Process.Start(startInfo))
+            var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, CancellationToken.None);
+
+            // Log diagnostic output from stderr (contains scan progress and stats)
+            if (!string.IsNullOrWhiteSpace(result.Error))
             {
-                if (process == null)
-                {
-                    throw new Exception("Failed to start game_cache_detector process");
-                }
+                _logger.LogInformation("[GameDetection] Diagnostic output:\n{DiagnosticOutput}", result.Error);
+            }
 
-                var outputTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
-                var errorTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
+            if (result.ExitCode != 0)
+            {
+                _logger.LogError("[GameDetection] Process failed with exit code {ExitCode}. Error: {Error}",
+                    result.ExitCode, result.Error);
+                throw new Exception($"Game detection failed: {result.Error}");
+            }
 
-                await WaitForProcessWithCancellationAsync(process, CancellationToken.None);
+            // Read results from JSON
+            if (!File.Exists(outputJson))
+            {
+                throw new FileNotFoundException($"Output file not found: {outputJson}");
+            }
 
-                var output = await outputTask;
-                var error = await errorTask;
+            var json = await File.ReadAllTextAsync(outputJson);
+            var detectionResult = JsonSerializer.Deserialize<GameDetectionResult>(json);
 
-                // Log diagnostic output from stderr (contains scan progress and stats)
-                if (!string.IsNullOrWhiteSpace(error))
-                {
-                    _logger.LogInformation("[GameDetection] Diagnostic output:\n{DiagnosticOutput}", error);
-                }
+            if (detectionResult == null)
+            {
+                throw new Exception("Failed to parse detection results");
+            }
 
-                if (process.ExitCode != 0)
-                {
-                    _logger.LogError("[GameDetection] Process failed with exit code {ExitCode}. Error: {Error}",
-                        process.ExitCode, error);
-                    throw new Exception($"Game detection failed: {error}");
-                }
+            // Merge with existing games if this was an incremental scan
+            List<GameCacheInfo> finalGames;
+            int totalGamesDetected;
 
-                // Read results from JSON
-                if (!File.Exists(outputJson))
-                {
-                    throw new FileNotFoundException($"Output file not found: {outputJson}");
-                }
+            if (incremental && existingGames != null && existingGames.Count > 0)
+            {
+                // Merge existing games with newly detected games
+                finalGames = existingGames.ToList();
+                finalGames.AddRange(detectionResult.Games);
+                totalGamesDetected = finalGames.Count;
 
-                var json = await File.ReadAllTextAsync(outputJson);
-                var result = JsonSerializer.Deserialize<GameDetectionResult>(json);
+                var newGamesCount = detectionResult.TotalGamesDetected;
+                _logger.LogInformation("[GameDetection] Incremental scan complete: {NewCount} new games, {TotalCount} total",
+                    newGamesCount, totalGamesDetected);
 
-                if (result == null)
-                {
-                    throw new Exception("Failed to parse detection results");
-                }
+                operation.Message = newGamesCount > 0
+                    ? $"Found {newGamesCount} new game{(newGamesCount != 1 ? "s" : "")} ({totalGamesDetected} total with cache files)"
+                    : $"No new games detected ({totalGamesDetected} total with cache files)";
+            }
+            else
+            {
+                finalGames = detectionResult.Games;
+                totalGamesDetected = detectionResult.TotalGamesDetected;
+                operation.Message = $"Detected {totalGamesDetected} games with cache files";
+            }
 
-                // Merge with existing games if this was an incremental scan
-                List<GameCacheInfo> finalGames;
-                int totalGamesDetected;
+            operation.Status = "complete";
+            operation.Games = finalGames;
+            operation.TotalGamesDetected = totalGamesDetected;
 
-                if (incremental && existingGames != null && existingGames.Count > 0)
-                {
-                    // Merge existing games with newly detected games
-                    finalGames = existingGames.ToList();
-                    finalGames.AddRange(result.Games);
-                    totalGamesDetected = finalGames.Count;
+            // Save results to database (replaces in-memory cache)
+            await SaveGamesToDatabaseAsync(finalGames, incremental);
+            _logger.LogInformation("[GameDetection] Results saved to database - {Count} games total", totalGamesDetected);
 
-                    var newGamesCount = result.TotalGamesDetected;
-                    _logger.LogInformation("[GameDetection] Incremental scan complete: {NewCount} new games, {TotalCount} total",
-                        newGamesCount, totalGamesDetected);
+            // Update persisted state with complete status
+            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
+            {
+                Key = $"gameDetection_{operationId}",
+                Type = "gameDetection",
+                Status = "complete",
+                Message = operation.Message,
+                Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected = detectionResult.TotalGamesDetected })
+            });
 
-                    operation.Message = newGamesCount > 0
-                        ? $"Found {newGamesCount} new game{(newGamesCount != 1 ? "s" : "")} ({totalGamesDetected} total with cache files)"
-                        : $"No new games detected ({totalGamesDetected} total with cache files)";
-                }
-                else
-                {
-                    finalGames = result.Games;
-                    totalGamesDetected = result.TotalGamesDetected;
-                    operation.Message = $"Detected {totalGamesDetected} games with cache files";
-                }
+            _logger.LogInformation("[GameDetection] Completed: {Count} games detected", detectionResult.TotalGamesDetected);
 
-                operation.Status = "complete";
-                operation.Games = finalGames;
-                operation.TotalGamesDetected = totalGamesDetected;
-
-                // Save results to database (replaces in-memory cache)
-                await SaveGamesToDatabaseAsync(finalGames, incremental);
-                _logger.LogInformation("[GameDetection] Results saved to database - {Count} games total", totalGamesDetected);
-
-                // Update persisted state with complete status
-                _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
-                {
-                    Key = $"gameDetection_{operationId}",
-                    Type = "gameDetection",
-                    Status = "complete",
-                    Message = operation.Message,
-                    Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected = result.TotalGamesDetected })
-                });
-
-                _logger.LogInformation("[GameDetection] Completed: {Count} games detected", result.TotalGamesDetected);
-
-                // Clean up output file
-                try
-                {
-                    File.Delete(outputJson);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to delete output file: {File}", outputJson);
-                }
-
-                // Clean up excluded IDs file if it was created
-                if (!string.IsNullOrEmpty(excludedIdsPath) && File.Exists(excludedIdsPath))
-                {
-                    try
-                    {
-                        File.Delete(excludedIdsPath);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to delete excluded IDs file: {File}", excludedIdsPath);
-                    }
-                }
+            // Clean up temporary files
+            await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
+            if (!string.IsNullOrEmpty(excludedIdsPath))
+            {
+                await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
             }
         }
         catch (Exception ex)
@@ -429,16 +361,9 @@ public class GameCacheDetectionService
             });
 
             // Clean up excluded IDs file in error path too
-            if (!string.IsNullOrEmpty(excludedIdsPath) && File.Exists(excludedIdsPath))
+            if (!string.IsNullOrEmpty(excludedIdsPath))
             {
-                try
-                {
-                    File.Delete(excludedIdsPath);
-                }
-                catch (Exception cleanupEx)
-                {
-                    _logger.LogWarning(cleanupEx, "Failed to delete excluded IDs file: {File}", excludedIdsPath);
-                }
+                await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
             }
         }
     }

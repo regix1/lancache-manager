@@ -5,6 +5,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Application.Services;
@@ -16,6 +17,8 @@ public class CacheClearingService : IHostedService
     private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
     private readonly StateRepository _stateService;
+    private readonly ProcessManager _processManager;
+    private readonly RustProcessHelper _rustProcessHelper;
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
@@ -27,13 +30,17 @@ public class CacheClearingService : IHostedService
         IHubContext<DownloadHub> hubContext,
         IConfiguration configuration,
         IPathResolver pathResolver,
-        StateRepository stateService)
+        StateRepository stateService,
+        ProcessManager processManager,
+        RustProcessHelper rustProcessHelper)
     {
         _logger = logger;
         _hubContext = hubContext;
         _configuration = configuration;
         _pathResolver = pathResolver;
         _stateService = stateService;
+        _processManager = processManager;
+        _rustProcessHelper = rustProcessHelper;
 
         // Read thread count from configuration (default to 4)
         _threadCount = configuration.GetValue<int>("CacheClear:ThreadCount", 4);
@@ -76,40 +83,6 @@ public class CacheClearingService : IHostedService
         }
 
         _logger.LogInformation($"CacheClearingService initialized with cache path: {_cachePath}");
-    }
-
-    /// <summary>
-    /// Waits for a process to exit with cancellation token support.
-    /// If cancelled, attempts to kill the process gracefully.
-    /// </summary>
-    private async Task WaitForProcessWithCancellationAsync(Process process, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation requested - try to kill the process
-            try
-            {
-                if (!process.HasExited)
-                {
-                    _logger.LogWarning("Cancellation requested - terminating process {ProcessName} (PID: {ProcessId})",
-                        process.ProcessName, process.Id);
-                    process.Kill(entireProcessTree: true);
-
-                    // Give it a moment to clean up
-                    await Task.Delay(100, CancellationToken.None);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to kill process during cancellation");
-            }
-
-            throw; // Re-throw the cancellation exception
-        }
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -273,15 +246,9 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operation);
             SaveOperationToState(operation);
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustBinaryPath,
-                Arguments = $"\"{_cachePath}\" \"{progressFile}\" {_threadCount} {_deleteMode}",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"\"{_cachePath}\" \"{progressFile}\" {_threadCount} {_deleteMode}");
 
             using (var process = Process.Start(startInfo))
             {
@@ -312,61 +279,42 @@ public class CacheClearingService : IHostedService
                             return;
                         }
 
-                        if (File.Exists(progressFile))
+                        var progressData = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
+
+                        if (progressData != null)
                         {
-                            try
+                            operation.DirectoriesProcessed = progressData.DirectoriesProcessed;
+                            operation.TotalDirectories = progressData.TotalDirectories;
+                            operation.BytesDeleted = (long)progressData.BytesDeleted;
+                            operation.FilesDeleted = (long)progressData.FilesDeleted;
+                            operation.PercentComplete = progressData.PercentComplete;
+                            operation.StatusMessage = progressData.Message;
+
+                            await NotifyProgress(operation);
+
+                            // Log progress to console when:
+                            // 1. Every 5 directories, OR
+                            // 2. Every 30 seconds (if stuck on same directory)
+                            var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
+                            var dirsChanged = operation.DirectoriesProcessed != lastLoggedDirs;
+                            var shouldLog =
+                                (dirsChanged && operation.DirectoriesProcessed % 5 == 0) ||
+                                (dirsChanged && timeSinceLastLog.TotalSeconds >= 3) ||
+                                (!dirsChanged && timeSinceLastLog.TotalSeconds >= 30);
+
+                            if (shouldLog)
                             {
-                                string json;
-                                using (var fileStream = new FileStream(progressFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                                using (var reader = new StreamReader(fileStream))
-                                {
-                                    json = await reader.ReadToEndAsync();
-                                }
-
-                                var progressData = System.Text.Json.JsonSerializer.Deserialize<RustCacheProgress>(json, new System.Text.Json.JsonSerializerOptions
-                                {
-                                    PropertyNameCaseInsensitive = true
-                                });
-
-                                if (progressData != null)
-                                {
-                                    operation.DirectoriesProcessed = progressData.DirectoriesProcessed;
-                                    operation.TotalDirectories = progressData.TotalDirectories;
-                                    operation.BytesDeleted = (long)progressData.BytesDeleted;
-                                    operation.FilesDeleted = (long)progressData.FilesDeleted;
-                                    operation.PercentComplete = progressData.PercentComplete;
-                                    operation.StatusMessage = progressData.Message;
-
-                                    await NotifyProgress(operation);
-
-                                    // Log progress to console when:
-                                    // 1. Every 5 directories, OR
-                                    // 2. Every 30 seconds (if stuck on same directory)
-                                    var timeSinceLastLog = DateTime.UtcNow - lastLogTime;
-                                    var dirsChanged = operation.DirectoriesProcessed != lastLoggedDirs;
-                                    var shouldLog =
-                                        (dirsChanged && operation.DirectoriesProcessed % 5 == 0) ||
-                                        (dirsChanged && timeSinceLastLog.TotalSeconds >= 3) ||
-                                        (!dirsChanged && timeSinceLastLog.TotalSeconds >= 30);
-
-                                    if (shouldLog)
-                                    {
-                                        var activeInfo = progressData.ActiveCount > 0
-                                            ? $" | Active: {progressData.ActiveCount} [{string.Join(", ", progressData.ActiveDirectories)}]"
-                                            : "";
-                                        _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared{activeInfo}");
-                                        lastLoggedDirs = operation.DirectoriesProcessed;
-                                        lastLogTime = DateTime.UtcNow;
-                                    }
-
-                                    if (operation.DirectoriesProcessed % 10 == 0)
-                                    {
-                                        SaveOperationToState(operation);
-                                    }
-                                }
+                                var activeInfo = progressData.ActiveCount > 0
+                                    ? $" | Active: {progressData.ActiveCount} [{string.Join(", ", progressData.ActiveDirectories)}]"
+                                    : "";
+                                _logger.LogInformation($"Cache Clear Progress: {operation.PercentComplete:F1}% complete - {operation.DirectoriesProcessed}/{operation.TotalDirectories} directories cleared{activeInfo}");
+                                lastLoggedDirs = operation.DirectoriesProcessed;
+                                lastLogTime = DateTime.UtcNow;
                             }
-                            catch (Exception)
+
+                            if (operation.DirectoriesProcessed % 10 == 0)
                             {
+                                SaveOperationToState(operation);
                             }
                         }
                     }
@@ -376,7 +324,7 @@ public class CacheClearingService : IHostedService
                 var outputTask = process.StandardOutput.ReadToEndAsync(operation.CancellationTokenSource?.Token ?? CancellationToken.None);
                 var errorTask = process.StandardError.ReadToEndAsync(operation.CancellationTokenSource?.Token ?? CancellationToken.None);
 
-                await WaitForProcessWithCancellationAsync(process, operation.CancellationTokenSource?.Token ?? CancellationToken.None);
+                await _processManager.WaitForProcessAsync(process, operation.CancellationTokenSource?.Token ?? CancellationToken.None);
                 await pollTask;
 
                 var output = await outputTask;
@@ -400,36 +348,17 @@ public class CacheClearingService : IHostedService
                 }
 
                 // Read final progress
-                if (File.Exists(progressFile))
+                var finalProgress = await _rustProcessHelper.ReadProgressFileAsync<RustCacheProgress>(progressFile);
+                if (finalProgress != null)
                 {
-                    try
-                    {
-                        string json = await File.ReadAllTextAsync(progressFile);
-                        var progressData = System.Text.Json.JsonSerializer.Deserialize<RustCacheProgress>(json, new System.Text.Json.JsonSerializerOptions
-                        {
-                            PropertyNameCaseInsensitive = true
-                        });
-
-                        if (progressData != null)
-                        {
-                            operation.BytesDeleted = (long)progressData.BytesDeleted;
-                            operation.FilesDeleted = (long)progressData.FilesDeleted;
-                            operation.DirectoriesProcessed = progressData.DirectoriesProcessed;
-                            operation.TotalDirectories = progressData.TotalDirectories;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to read final progress");
-                    }
-
-                    // Clean up progress file
-                    try
-                    {
-                        File.Delete(progressFile);
-                    }
-                    catch { }
+                    operation.BytesDeleted = (long)finalProgress.BytesDeleted;
+                    operation.FilesDeleted = (long)finalProgress.FilesDeleted;
+                    operation.DirectoriesProcessed = finalProgress.DirectoriesProcessed;
+                    operation.TotalDirectories = finalProgress.TotalDirectories;
                 }
+
+                // Clean up progress file
+                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
 
                 operation.Status = ClearStatus.Completed;
                 operation.StatusMessage = $"Successfully cleared {operation.DirectoriesProcessed} cache directories";
@@ -756,15 +685,7 @@ public class CacheClearingService : IHostedService
         try
         {
             // Check if rsync command exists
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "which",
-                Arguments = "rsync",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo("which", "rsync");
 
             using var process = Process.Start(startInfo);
             if (process == null) return false;

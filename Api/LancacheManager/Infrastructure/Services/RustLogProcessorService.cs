@@ -21,6 +21,8 @@ public class RustLogProcessorService
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly StateRepository _stateService;
     private readonly IServiceProvider _serviceProvider;
+    private readonly ProcessManager _processManager;
+    private readonly RustProcessHelper _rustProcessHelper;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _progressMonitorTask;
@@ -32,13 +34,17 @@ public class RustLogProcessorService
         IPathResolver pathResolver,
         IHubContext<DownloadHub> hubContext,
         StateRepository stateService,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        ProcessManager processManager,
+        RustProcessHelper rustProcessHelper)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _hubContext = hubContext;
         _stateService = stateService;
         _serviceProvider = serviceProvider;
+        _processManager = processManager;
+        _rustProcessHelper = rustProcessHelper;
     }
 
     public class ProgressData
@@ -131,16 +137,10 @@ public class RustLogProcessorService
             // Pass auto_map_depots flag: Always 1 to map depots during processing (avoids showing "Unknown Game" in Active tab)
             // This ensures downloads are properly mapped before appearing in the UI
             var autoMapDepots = 1;
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustExecutablePath,
-                Arguments = $"\"{dbPath}\" \"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots}",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustExecutablePath,
+                $"\"{dbPath}\" \"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots}",
+                Path.GetDirectoryName(rustExecutablePath));
 
             // Pass TZ environment variable to Rust processor so it uses the correct timezone
             var tz = Environment.GetEnvironmentVariable("TZ");
@@ -157,27 +157,8 @@ public class RustLogProcessorService
                 throw new Exception("Failed to start Rust process");
             }
 
-            // Monitor stdout - track task for proper cleanup
-            var stdoutTask = Task.Run(async () =>
-            {
-                while (!_rustProcess.StandardOutput.EndOfStream)
-                {
-                    var line = await _rustProcess.StandardOutput.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(line))
-                    {
-                        _logger.LogInformation($"[Rust] {line}");
-                    }
-                }
-            });
-
-            // Monitor stderr - discard output to prevent buffer issues, track task for proper cleanup
-            var stderrTask = Task.Run(async () =>
-            {
-                while (!_rustProcess.StandardError.EndOfStream)
-                {
-                    await _rustProcess.StandardError.ReadLineAsync();
-                }
-            });
+            // Monitor stdout and stderr - track tasks for proper cleanup
+            var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust log processor");
 
             // Send initial progress notification to show UI immediately
             if (!silentMode)
@@ -204,25 +185,14 @@ public class RustLogProcessorService
             // Track start time for minimum display duration
             var startTime = DateTime.UtcNow;
 
-            // Wait for process to complete
-            await _rustProcess.WaitForExitAsync(_cancellationTokenSource.Token);
+            // Wait for process to complete with graceful cancellation handling
+            await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
 
             var exitCode = _rustProcess.ExitCode;
             _logger.LogInformation($"Rust processor exited with code {exitCode}");
 
             // Wait for stdout/stderr reading tasks to complete
-            try
-            {
-                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5));
-            }
-            catch (TimeoutException)
-            {
-                _logger.LogWarning("Timeout waiting for stdout/stderr tasks to complete");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
-            }
+            await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
 
             // Stop the progress monitoring task immediately
             _cancellationTokenSource.Cancel();
@@ -454,32 +424,7 @@ public class RustLogProcessorService
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
     {
-        try
-        {
-            if (!File.Exists(progressPath))
-            {
-                return null;
-            }
-
-            // Use FileStream with FileShare.ReadWrite to allow other processes to access the file
-            string json;
-            using (var fileStream = new FileStream(progressPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-            using (var reader = new StreamReader(fileStream))
-            {
-                json = await reader.ReadToEndAsync();
-            }
-
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-            return JsonSerializer.Deserialize<ProgressData>(json, options);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogTrace(ex, "Failed to read progress file (may not exist yet)");
-            return null;
-        }
+        return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
     }
 
     /// <summary>

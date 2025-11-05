@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Application.Services;
@@ -10,6 +11,8 @@ public class CacheManagementService
     private readonly IConfiguration _configuration;
     private readonly ILogger<CacheManagementService> _logger;
     private readonly IPathResolver _pathResolver;
+    private readonly ProcessManager _processManager;
+    private readonly RustProcessHelper _rustProcessHelper;
     private readonly string _cachePath;
     private readonly string _logPath;
 
@@ -18,11 +21,13 @@ public class CacheManagementService
     private DateTime? _lastLogWarningTime; // Track last time we logged a warning
     private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
 
-    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver)
+    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver, ProcessManager processManager, RustProcessHelper rustProcessHelper)
     {
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
+        _processManager = processManager;
+        _rustProcessHelper = rustProcessHelper;
 
         // Use PathResolver to get properly resolved paths
         var configCachePath = configuration["LanCache:CachePath"];
@@ -53,40 +58,6 @@ public class CacheManagementService
         }
 
         _logger.LogInformation($"CacheManagementService initialized - Cache: {_cachePath}, Logs: {_logPath}");
-    }
-
-    /// <summary>
-    /// Waits for a process to exit with cancellation token support.
-    /// If cancelled, attempts to kill the process gracefully.
-    /// </summary>
-    private async Task WaitForProcessWithCancellationAsync(Process process, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancellation requested - try to kill the process
-            try
-            {
-                if (!process.HasExited)
-                {
-                    _logger.LogWarning("Cancellation requested - terminating process {ProcessName} (PID: {ProcessId})",
-                        process.ProcessName, process.Id);
-                    process.Kill(entireProcessTree: true);
-
-                    // Give it a moment to clean up
-                    await Task.Delay(100, CancellationToken.None);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to kill process during cancellation");
-            }
-
-            throw; // Re-throw the cancellation exception
-        }
     }
 
     public CacheInfo GetCacheInfo()
@@ -250,24 +221,13 @@ public class CacheManagementService
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
             // Check if Rust binary exists
-            if (!File.Exists(rustBinaryPath))
-            {
-                var errorMsg = $"Rust log_manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Rust log_manager");
 
             _logger.LogInformation($"Using Rust binary for log filtering: {rustBinaryPath}");
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustBinaryPath,
-                Arguments = $"remove \"{logDir}\" \"{service}\" \"{progressFile}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"remove \"{logDir}\" \"{service}\" \"{progressFile}\"");
 
             using (var process = Process.Start(startInfo))
             {
@@ -280,7 +240,7 @@ public class CacheManagementService
                 var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                 var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await WaitForProcessWithCancellationAsync(process, cancellationToken);
+                await _processManager.WaitForProcessAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -345,12 +305,7 @@ public class CacheManagementService
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
 
             // Check if Rust binary exists
-            if (!File.Exists(rustBinaryPath))
-            {
-                var errorMsg = $"Rust log_manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Rust log_manager");
 
             // If forceRefresh is true, delete the cache file to force Rust to rescan
             if (forceRefresh && File.Exists(progressFile))
@@ -359,15 +314,9 @@ public class CacheManagementService
                 File.Delete(progressFile);
             }
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustBinaryPath,
-                Arguments = $"count \"{logDir}\" \"{progressFile}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"count \"{logDir}\" \"{progressFile}\"");
 
             using (var process = Process.Start(startInfo))
             {
@@ -380,7 +329,7 @@ public class CacheManagementService
                 var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                 var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await WaitForProcessWithCancellationAsync(process, cancellationToken);
+                await _processManager.WaitForProcessAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -395,29 +344,12 @@ public class CacheManagementService
                 }
 
                 // Read results from progress file
-                if (File.Exists(progressFile))
+                var progressData = await _rustProcessHelper.ReadProgressFileAsync<LogCountProgressData>(progressFile);
+
+                if (progressData != null)
                 {
-                    // Use FileStream with FileShare.ReadWrite to allow other processes to access the file
-                    string json;
-                    using (var fileStream = new FileStream(progressFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-                    using (var reader = new StreamReader(fileStream))
-                    {
-                        json = await reader.ReadToEndAsync();
-                    }
-
-                    if (string.IsNullOrWhiteSpace(json))
-                    {
-                        _logger.LogWarning("Rust progress file contained no data while counting logs. Path: {ProgressFile}", progressFile);
-                        return counts;
-                    }
-
                     try
                     {
-                        var options = new JsonSerializerOptions
-                        {
-                            PropertyNameCaseInsensitive = true
-                        };
-                        var progressData = JsonSerializer.Deserialize<LogCountProgressData>(json, options);
 
                         if (progressData?.ServiceCounts != null)
                         {
@@ -608,22 +540,11 @@ public class CacheManagementService
 
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
-            if (!File.Exists(rustBinaryPath))
-            {
-                var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustBinaryPath,
-                Arguments = $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"");
 
             using (var process = Process.Start(startInfo))
             {
@@ -635,7 +556,7 @@ public class CacheManagementService
                 var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                 var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await WaitForProcessWithCancellationAsync(process, cancellationToken);
+                await _processManager.WaitForProcessAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -720,22 +641,11 @@ public class CacheManagementService
 
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
-            if (!File.Exists(rustBinaryPath))
-            {
-                var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustBinaryPath,
-                Arguments = $"remove \"{dbPath}\" \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"remove \"{dbPath}\" \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"");
 
             using (var process = Process.Start(startInfo))
             {
@@ -747,7 +657,7 @@ public class CacheManagementService
                 var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                 var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await WaitForProcessWithCancellationAsync(process, cancellationToken);
+                await _processManager.WaitForProcessAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -798,24 +708,13 @@ public class CacheManagementService
 
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
-            if (!File.Exists(rustBinaryPath))
-            {
-                var errorMsg = $"Corruption manager binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
 
             try
             {
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = rustBinaryPath,
-                    Arguments = $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustBinaryPath,
+                    $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\"");
 
                 _logger.LogInformation("[CorruptionDetection] Running detect command: {Command} {Args}",
                     rustBinaryPath, startInfo.Arguments);
@@ -830,7 +729,7 @@ public class CacheManagementService
                     var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                     var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                    await WaitForProcessWithCancellationAsync(process, cancellationToken);
+                    await _processManager.WaitForProcessAsync(process, cancellationToken);
 
                     var output = await outputTask;
                     var error = await errorTask;
@@ -845,18 +744,7 @@ public class CacheManagementService
                     }
 
                     // Read the generated JSON file
-                    if (!File.Exists(outputJson))
-                    {
-                        _logger.LogError("[CorruptionDetection] Output JSON file not found: {Path}", outputJson);
-                        throw new FileNotFoundException($"Corruption details output file not found: {outputJson}");
-                    }
-
-                    var jsonContent = await File.ReadAllTextAsync(outputJson);
-                    _logger.LogInformation("[CorruptionDetection] Read JSON output, length: {Length}", jsonContent.Length);
-
-                    // Parse the report
-                    var report = JsonSerializer.Deserialize<CorruptionReport>(jsonContent,
-                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<CorruptionReport>(outputJson, "CorruptionDetection");
 
                     if (report?.CorruptedChunks == null)
                     {
@@ -871,16 +759,6 @@ public class CacheManagementService
 
                     _logger.LogInformation("[CorruptionDetection] Found {Count} corrupted chunks for service {Service}",
                         serviceDetails.Count, service);
-
-                    // Clean up temporary JSON file
-                    try
-                    {
-                        File.Delete(outputJson);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[CorruptionDetection] Failed to delete temporary JSON file: {Path}", outputJson);
-                    }
 
                     return serviceDetails;
                 }
@@ -949,12 +827,7 @@ public class CacheManagementService
 
             var rustBinaryPath = _pathResolver.GetRustGameRemoverPath();
 
-            if (!File.Exists(rustBinaryPath))
-            {
-                var errorMsg = $"Game cache remover binary not found at {rustBinaryPath}. Please ensure the Rust binaries are built.";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache remover");
 
             if (!File.Exists(dbPath))
             {
@@ -970,15 +843,9 @@ public class CacheManagementService
                 throw new DirectoryNotFoundException(errorMsg);
             }
 
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = rustBinaryPath,
-                Arguments = $"\"{dbPath}\" \"{logsDir}\" \"{_cachePath}\" {gameAppId} \"{outputJson}\"",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"\"{dbPath}\" \"{logsDir}\" \"{_cachePath}\" {gameAppId} \"{outputJson}\"");
 
             _logger.LogInformation("[GameRemoval] Running removal: {Binary} {Args}", rustBinaryPath, startInfo.Arguments);
 
@@ -992,7 +859,7 @@ public class CacheManagementService
                 var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                 var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
-                await WaitForProcessWithCancellationAsync(process, cancellationToken);
+                await _processManager.WaitForProcessAsync(process, cancellationToken);
 
                 var output = await outputTask;
                 var error = await errorTask;
@@ -1018,37 +885,10 @@ public class CacheManagementService
                 }
 
                 // Read the generated JSON file
-                if (!File.Exists(outputJson))
-                {
-                    _logger.LogError("[GameRemoval] Output JSON file not found: {Path}", outputJson);
-                    throw new FileNotFoundException($"Game removal output file not found: {outputJson}");
-                }
-
-                var jsonContent = await File.ReadAllTextAsync(outputJson);
-                _logger.LogInformation("[GameRemoval] Read JSON output, length: {Length}", jsonContent.Length);
-
-                // Parse the report
-                var report = JsonSerializer.Deserialize<GameCacheRemovalReport>(jsonContent,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-                if (report == null)
-                {
-                    _logger.LogError("[GameRemoval] Failed to parse removal report");
-                    throw new Exception("Failed to parse game removal report");
-                }
+                var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<GameCacheRemovalReport>(outputJson, "GameRemoval");
 
                 _logger.LogInformation("[GameRemoval] Removed {Files} files ({Bytes} bytes) for game {AppId}",
                     report.CacheFilesDeleted, report.TotalBytesFreed, gameAppId);
-
-                // Clean up temporary JSON file
-                try
-                {
-                    File.Delete(outputJson);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[GameRemoval] Failed to delete temporary JSON file: {Path}", outputJson);
-                }
 
                 return report;
             }

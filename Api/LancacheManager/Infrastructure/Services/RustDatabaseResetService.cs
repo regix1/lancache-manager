@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.Json;
+using LancacheManager.Application.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -14,6 +16,9 @@ public class RustDatabaseResetService
     private readonly ILogger<RustDatabaseResetService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly CacheManagementService _cacheManagementService;
+    private readonly ProcessManager _processManager;
+    private readonly RustProcessHelper _rustProcessHelper;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _progressMonitorTask;
@@ -23,11 +28,17 @@ public class RustDatabaseResetService
     public RustDatabaseResetService(
         ILogger<RustDatabaseResetService> logger,
         IPathResolver pathResolver,
-        IHubContext<DownloadHub> hubContext)
+        IHubContext<DownloadHub> hubContext,
+        CacheManagementService cacheManagementService,
+        ProcessManager processManager,
+        RustProcessHelper rustProcessHelper)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _hubContext = hubContext;
+        _cacheManagementService = cacheManagementService;
+        _processManager = processManager;
+        _rustProcessHelper = rustProcessHelper;
     }
 
     public class ProgressData
@@ -99,129 +110,95 @@ public class RustDatabaseResetService
                 timestamp = DateTime.UtcNow
             });
 
-            // Start Rust process
-            var startInfo = new ProcessStartInfo
+            // Wrap Rust process execution in shared lock to prevent concurrent database access
+            // This prevents database connection issues and SignalR disconnects during reset
+            return await _cacheManagementService.ExecuteWithLockAsync(async () =>
             {
-                FileName = rustExecutablePath,
-                Arguments = $"\"{dbPath}\" \"{dataDirectory}\" \"{progressPath}\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(rustExecutablePath)
-            };
+                // Start Rust process
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustExecutablePath,
+                    $"\"{dbPath}\" \"{dataDirectory}\" \"{progressPath}\"",
+                    Path.GetDirectoryName(rustExecutablePath));
 
-            _rustProcess = Process.Start(startInfo);
+                _rustProcess = Process.Start(startInfo);
 
-            if (_rustProcess == null)
-            {
-                throw new Exception("Failed to start rust database reset process");
-            }
-
-            // Monitor stdout - track task for proper cleanup
-            var stdoutTask = Task.Run(async () =>
-            {
-                while (!_rustProcess.StandardOutput.EndOfStream)
+                if (_rustProcess == null)
                 {
-                    var line = await _rustProcess.StandardOutput.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(line))
+                    throw new Exception("Failed to start rust database reset process");
+                }
+
+                // Monitor stdout and stderr - track tasks for proper cleanup
+                var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(_rustProcess, "Rust database reset");
+
+                // Start progress monitoring task
+                _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
+
+                // Wait for process to complete with graceful cancellation handling
+                await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
+
+                var exitCode = _rustProcess.ExitCode;
+                _logger.LogInformation($"rust database reset exited with code {exitCode}");
+
+                // Wait for stdout/stderr reading tasks to complete
+                await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
+
+                if (exitCode == 0)
+                {
+                    // Give Rust process a moment to write final progress file
+                    await Task.Delay(200);
+
+                    // Read and send final progress before stopping monitoring
+                    var finalProgress = await ReadProgressFileAsync(progressPath);
+                    if (finalProgress != null)
                     {
-                        _logger.LogInformation($"[rust reset] {line}");
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", finalProgress);
+                    }
+                    else
+                    {
+                        // Fallback completion message
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = false,
+                            percentComplete = 100.0,
+                            status = "complete",
+                            message = "Database reset completed successfully",
+                            timestamp = DateTime.UtcNow
+                        });
                     }
                 }
-            });
 
-            // Monitor stderr - log all as debug since warnings/errors would be in progress JSON, track task for proper cleanup
-            var stderrTask = Task.Run(async () =>
-            {
-                while (!_rustProcess.StandardError.EndOfStream)
+                // Stop the progress monitoring task after sending final progress
+                _cancellationTokenSource.Cancel();
+                if (_progressMonitorTask != null)
                 {
-                    var line = await _rustProcess.StandardError.ReadLineAsync();
-                    if (!string.IsNullOrEmpty(line))
+                    try
                     {
+                        await _progressMonitorTask;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected
                     }
                 }
-            });
 
-            // Start progress monitoring task
-            _progressMonitorTask = Task.Run(async () => await MonitorProgressAsync(progressPath, _cancellationTokenSource.Token));
-
-            // Wait for process to complete
-            await _rustProcess.WaitForExitAsync(_cancellationTokenSource.Token);
-
-            var exitCode = _rustProcess.ExitCode;
-            _logger.LogInformation($"rust database reset exited with code {exitCode}");
-
-            // Wait for stdout/stderr reading tasks to complete
-            try
-            {
-                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(TimeSpan.FromSeconds(5));
-            }
-            catch (TimeoutException)
-            {
-                _logger.LogWarning("Timeout waiting for stdout/stderr tasks to complete");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
-            }
-
-            if (exitCode == 0)
-            {
-                // Give Rust process a moment to write final progress file
-                await Task.Delay(200);
-
-                // Read and send final progress before stopping monitoring
-                var finalProgress = await ReadProgressFileAsync(progressPath);
-                if (finalProgress != null)
+                if (exitCode == 0)
                 {
-                    await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", finalProgress);
+                    return true;
                 }
                 else
                 {
-                    // Fallback completion message
                     await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                     {
                         isProcessing = false,
-                        percentComplete = 100.0,
-                        status = "complete",
-                        message = "Database reset completed successfully",
+                        percentComplete = 0.0,
+                        status = "error",
+                        message = $"Database reset failed with exit code {exitCode}",
                         timestamp = DateTime.UtcNow
                     });
-                }
-            }
 
-            // Stop the progress monitoring task after sending final progress
-            _cancellationTokenSource.Cancel();
-            if (_progressMonitorTask != null)
-            {
-                try
-                {
-                    await _progressMonitorTask;
+                    return false;
                 }
-                catch (OperationCanceledException)
-                {
-                    // Expected
-                }
-            }
-
-            if (exitCode == 0)
-            {
-                return true;
-            }
-            else
-            {
-                await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
-                {
-                    isProcessing = false,
-                    percentComplete = 0.0,
-                    status = "error",
-                    message = $"Database reset failed with exit code {exitCode}",
-                    timestamp = DateTime.UtcNow
-                });
-
-                return false;
-            }
+            }, _cancellationTokenSource.Token); // Close ExecuteWithLockAsync lambda
         }
         catch (Exception ex)
         {
@@ -272,31 +249,6 @@ public class RustDatabaseResetService
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
     {
-        try
-        {
-            if (!File.Exists(progressPath))
-            {
-                return null;
-            }
-
-            // Use FileStream with FileShare.ReadWrite to allow other processes to access the file
-            string json;
-            using (var fileStream = new FileStream(progressPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-            using (var reader = new StreamReader(fileStream))
-            {
-                json = await reader.ReadToEndAsync();
-            }
-
-            var options = new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            };
-            return JsonSerializer.Deserialize<ProgressData>(json, options);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogTrace(ex, "Failed to read progress file (may not exist yet)");
-            return null;
-        }
+        return await _rustProcessHelper.ReadProgressFileAsync<ProgressData>(progressPath);
     }
 }

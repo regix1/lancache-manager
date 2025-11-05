@@ -151,6 +151,13 @@ Console.WriteLine($"Data Protection keys will be stored in: {dataProtectionKeyPa
 // Register encryption service for state.json sensitive fields
 builder.Services.AddSingleton<SecureStateEncryptionService>();
 
+// Register process manager for tracking and cleaning up spawned processes
+builder.Services.AddSingleton<ProcessManager>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<ProcessManager>());
+
+// Register Rust process helper for common Rust process operations
+builder.Services.AddSingleton<RustProcessHelper>();
+
 // Register repositories with their interfaces
 builder.Services.AddSingleton<ISteamAuthRepository, SteamAuthRepository>();
 builder.Services.AddSingleton<IStateRepository, StateRepository>();
