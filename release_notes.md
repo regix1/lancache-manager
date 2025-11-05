@@ -1,5 +1,33 @@
 # What's New
 
+## Notification System Improvements
+
+Notifications are now faster and more reliable. Operations automatically resume their notifications if you refresh during a long-running task.
+
+**Bug Fix:** Notifications now properly clear when operations complete.
+
+---
+
+## Performance & Reliability Improvements
+
+**Faster UI** - Reduced memory usage and eliminated unnecessary re-renders throughout the application.
+
+**Background Operations** - Log processing, game detection, and cache removal now run in the background without blocking the UI.
+
+**Auto-Recovery** - Interrupted operations automatically resume when you reload the page.
+
+---
+
+## Bug Fixes
+
+**Stuck Notifications** - Fixed notifications that wouldn't clear after operations completed.
+
+**Memory Leaks** - Fixed issues causing the browser to use more memory over time.
+
+**Initialization Flow** - Setup status now tracks correctly across page refreshes.
+
+---
+
 ## Image Caching for Downloads Tab
 
 The Downloads Tab now caches game images locally for faster loading.
