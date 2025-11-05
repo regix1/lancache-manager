@@ -7,6 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
+mod cache_utils;
 mod corruption_detector;
 mod log_discovery;
 mod log_reader;
@@ -37,41 +38,6 @@ fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<(
 
     // Use shared progress writing utility
     progress_utils::write_progress_json(progress_path, &progress)
-}
-
-fn calculate_md5(cache_key: &str) -> String {
-    format!("{:x}", md5::compute(cache_key.as_bytes()))
-}
-
-fn calculate_cache_path(cache_dir: &Path, service: &str, url: &str, start: u64, end: u64) -> PathBuf {
-    let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
-    let hash = calculate_md5(&cache_key);
-
-    let len = hash.len();
-    if len < 4 {
-        return cache_dir.join(&hash);
-    }
-
-    let last_2 = &hash[len - 2..];
-    let middle_2 = &hash[len - 4..len - 2];
-
-    cache_dir.join(last_2).join(middle_2).join(&hash)
-}
-
-fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
-    // Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
-    let cache_key = format!("{}{}", service, url);
-    let hash = calculate_md5(&cache_key);
-
-    let len = hash.len();
-    if len < 4 {
-        return cache_dir.join(&hash);
-    }
-
-    let last_2 = &hash[len - 2..];
-    let middle_2 = &hash[len - 4..len - 2];
-
-    cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
 fn delete_corrupted_from_database(
@@ -452,7 +418,7 @@ fn main() -> Result<()> {
 
             for (url, response_size) in &corrupted_urls_with_sizes {
                 // FIRST: Try the no-range format (standard lancache format)
-                let cache_path_no_range = calculate_cache_path_no_range(&cache_dir, &service_lower, url);
+                let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
 
                 if cache_path_no_range.exists() {
                     // Found file with no-range format - delete it
@@ -469,7 +435,7 @@ fn main() -> Result<()> {
                     // FALLBACK: Try the chunked format with bytes range
                     if *response_size == 0 {
                         // If no response size, check at least the first chunk
-                        let cache_path = calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
+                        let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
 
                         if cache_path.exists() {
                             match std::fs::remove_file(&cache_path) {
@@ -483,7 +449,7 @@ fn main() -> Result<()> {
                         while start < *response_size {
                             let end = (start + slice_size - 1).min(*response_size - 1 + slice_size - 1);
 
-                            let cache_path = calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
+                            let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
 
                             if cache_path.exists() {
                                 match std::fs::remove_file(&cache_path) {

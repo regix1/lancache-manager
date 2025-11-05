@@ -8,6 +8,7 @@ use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
 
+mod cache_utils;
 mod log_discovery;
 mod log_reader;
 mod models;
@@ -27,41 +28,6 @@ struct RemovalReport {
     empty_dirs_removed: usize,
     log_entries_removed: u64,
     depot_ids: Vec<u32>,
-}
-
-fn calculate_md5(cache_key: &str) -> String {
-    format!("{:x}", md5::compute(cache_key.as_bytes()))
-}
-
-fn calculate_cache_path(cache_dir: &Path, service: &str, url: &str, start: u64, end: u64) -> PathBuf {
-    let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
-    let hash = calculate_md5(&cache_key);
-
-    let len = hash.len();
-    if len < 4 {
-        return cache_dir.join(&hash);
-    }
-
-    let last_2 = &hash[len - 2..];
-    let middle_2 = &hash[len - 4..len - 2];
-
-    cache_dir.join(last_2).join(middle_2).join(&hash)
-}
-
-fn calculate_cache_path_no_range(cache_dir: &Path, service: &str, url: &str) -> PathBuf {
-    // Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
-    let cache_key = format!("{}{}", service, url);
-    let hash = calculate_md5(&cache_key);
-
-    let len = hash.len();
-    if len < 4 {
-        return cache_dir.join(&hash);
-    }
-
-    let last_2 = &hash[len - 2..];
-    let middle_2 = &hash[len - 4..len - 2];
-
-    cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
 fn get_game_name_from_db(db_path: &Path, game_app_id: u32) -> Result<String> {
@@ -250,7 +216,7 @@ fn remove_cache_files_for_game(
 
             // Add no-range format path
             paths.push((
-                calculate_cache_path_no_range(cache_dir, &service_lower, url),
+                cache_utils::calculate_cache_path_no_range(cache_dir, &service_lower, url),
                 false, // not chunked
             ));
 
@@ -260,7 +226,7 @@ fn remove_cache_files_for_game(
                 while start < *total_bytes {
                     let end = (start + slice_size - 1).min(*total_bytes - 1 + slice_size - 1);
                     paths.push((
-                        calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64),
+                        cache_utils::calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64),
                         true, // chunked
                     ));
                     start += slice_size;
@@ -268,7 +234,7 @@ fn remove_cache_files_for_game(
             } else {
                 // Add first chunk as fallback
                 paths.push((
-                    calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575),
+                    cache_utils::calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575),
                     true,
                 ));
             }

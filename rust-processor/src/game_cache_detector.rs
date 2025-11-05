@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+mod cache_utils;
 mod progress_utils;
 
 #[derive(Debug, Serialize)]
@@ -43,10 +44,6 @@ struct CacheFileInfo {
     path: PathBuf,
     size: u64,
     // Note: hash is stored as HashMap key, not needed in struct
-}
-
-fn calculate_md5(cache_key: &str) -> String {
-    format!("{:x}", md5::compute(cache_key.as_bytes()))
 }
 
 /// Scan cache directory and build in-memory index of all cache files
@@ -296,7 +293,7 @@ fn detect_cache_files_for_game(
         .filter_map(|(service, url)| {
             // Calculate hash for this service+url combination
             let cache_key = format!("{}{}", service, url);
-            let hash = calculate_md5(&cache_key);
+            let hash = cache_utils::calculate_md5(&cache_key);
 
             // Instant HashMap lookup instead of file.exists()!
             if let Some(file_info) = cache_files_index.get(&hash) {
@@ -308,7 +305,7 @@ fn detect_cache_files_for_game(
                         let start = chunk * 1_048_576;
                         let end = start + 1_048_575;
                         let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
-                        let chunked_hash = calculate_md5(&chunked_key);
+                        let chunked_hash = cache_utils::calculate_md5(&chunked_key);
                         cache_files_index.get(&chunked_hash).map(|f| f.path.clone())
                     })
             }

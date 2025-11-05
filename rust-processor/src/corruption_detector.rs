@@ -1,3 +1,4 @@
+use crate::cache_utils;
 use crate::log_reader::LogFileReader;
 use crate::parser::LogParser;
 use crate::service_utils;
@@ -41,32 +42,10 @@ impl CorruptionDetector {
         }
     }
 
-    /// Calculate MD5 hash for a given cache key
-    fn calculate_md5(cache_key: &str) -> String {
-        format!("{:x}", md5::compute(cache_key.as_bytes()))
-    }
-
     /// Calculate cache file path using lancache's MD5 structure:
     /// /cache/{last_2_chars}/{2_chars_before_that}/{full_hash}
     fn calculate_cache_path(&self, service: &str, url: &str, start: u64, end: u64) -> String {
-        // Cache key format: "{service}{url}bytes={start}-{end}"
-        let cache_key = format!("{}{}bytes={}-{}", service, url, start, end);
-        let hash = Self::calculate_md5(&cache_key);
-
-        // Extract characters for path structure
-        let len = hash.len();
-        if len < 4 {
-            // Should never happen with MD5, but handle gracefully
-            return self.cache_dir.join(&hash).display().to_string();
-        }
-
-        let last_2 = &hash[len - 2..];
-        let middle_2 = &hash[len - 4..len - 2];
-
-        self.cache_dir
-            .join(last_2)
-            .join(middle_2)
-            .join(&hash)
+        cache_utils::calculate_cache_path(&self.cache_dir, service, url, start, end)
             .display()
             .to_string()
     }
