@@ -10,6 +10,9 @@ pub fn calculate_md5(cache_key: &str) -> String {
 /// /cache/{last_2_chars}/{2_chars_before_that}/{full_hash}
 ///
 /// Cache key format: "{service}{url}bytes={start}-{end}"
+///
+/// Note: This function is used by multiple binaries but not all, hence the allow(dead_code)
+#[allow(dead_code)]
 pub fn calculate_cache_path(
     cache_dir: &Path,
     service: &str,
@@ -35,6 +38,9 @@ pub fn calculate_cache_path(
 /// Lancache nginx cache key format: $cacheidentifier$uri (NO slice_range!)
 ///
 /// Cache key format: "{service}{url}"
+///
+/// Note: This function is used by multiple binaries but not all, hence the allow(dead_code)
+#[allow(dead_code)]
 pub fn calculate_cache_path_no_range(
     cache_dir: &Path,
     service: &str,
