@@ -2,13 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Server, Trash2, AlertTriangle, Loader2, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSignalR } from '@contexts/SignalRContext';
-
-interface CacheClearOperationData {
-  operationId: string;
-  lastProgress?: number;
-}
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -47,12 +41,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [rsyncAvailable, setRsyncAvailable] = useState(false);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
-
-  const cacheOp = useBackendOperation<CacheClearOperationData>(
-    'activeCacheClearOperation',
-    'cacheClearing',
-    30
-  );
+  const [isCacheClearing, setIsCacheClearing] = useState(false);
 
   // Report cache clearing status to parent
 
@@ -63,7 +52,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     loadCpuCount();
     loadRsyncAvailability();
     loadDirectoryPermissions();
-    restoreCacheOperation();
 
     // Poll CPU count every 30 seconds to detect VM/container changes
     const cpuPollInterval = setInterval(() => {
@@ -75,13 +63,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     };
   }, []);
 
-  // Listen for cache clear completion to clear operation state
+  // Listen for cache clear completion (via SignalR for UI state only)
   useEffect(() => {
     if (mockMode) return;
 
-    const handleCacheClearComplete = async () => {
-      console.log('[CacheManager] CacheClearComplete received, clearing operation state');
-      await cacheOp.clear();
+    const handleCacheClearComplete = () => {
+      setIsCacheClearing(false);
     };
 
     signalR.on('CacheClearComplete', handleCacheClearComplete);
@@ -89,7 +76,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     return () => {
       signalR.off('CacheClearComplete', handleCacheClearComplete);
     };
-  }, [mockMode, signalR, cacheOp]);
+  }, [mockMode, signalR]);
 
   const loadConfig = async () => {
     try {
@@ -187,21 +174,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     }
   };
 
-  const restoreCacheOperation = async () => {
-    const cacheClear = await cacheOp.load();
-    if (cacheClear?.data?.operationId) {
-      try {
-        const status = await ApiService.getCacheClearStatus(cacheClear.data.operationId);
-        if (!status || !['Running', 'Preparing'].includes(status.status)) {
-          // Operation is not running, clear the saved state
-          await cacheOp.clear();
-        }
-        // If still running, SignalR will handle all updates
-      } catch (err) {
-        await cacheOp.clear();
-      }
-    }
-  };
 
   const handleClearAllCache = () => {
     if (authMode !== 'authenticated') {
@@ -216,23 +188,21 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     setActionLoading(true);
     setShowConfirmModal(false);
 
+    // Set clearing state BEFORE API call to avoid race condition
+    // SignalR completion event may arrive before API returns
+    setIsCacheClearing(true);
+
     try {
-      const result = await ApiService.clearAllCache();
-      if (result.operationId) {
-        await cacheOp.save({ operationId: result.operationId });
-        // SignalR will handle all progress and completion updates via NotificationsContext
-        // Operation state will be cleared when CacheClearComplete event is received
-      }
+      await ApiService.clearAllCache();
+      // NotificationsContext handles success/error messages via SignalR
     } catch (err: any) {
       onError?.('Failed to start cache clearing: ' + (err?.message || 'Unknown error'));
+      setIsCacheClearing(false);
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Cache clearing is managed as a background service
-  // All notifications are handled by NotificationsContext via SignalR events
-  const isCacheClearingActive = !!(cacheOp.operation as any)?.data;
 
   return (
     <>
@@ -291,17 +261,16 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                 disabled={
                   actionLoading ||
                   mockMode ||
-                  isCacheClearingActive ||
-                  cacheOp.loading ||
+                  isCacheClearing ||
                   authMode !== 'authenticated' ||
                   cacheReadOnly ||
                   checkingPermissions
                 }
-                loading={actionLoading || cacheOp.loading || checkingPermissions}
+                loading={actionLoading || checkingPermissions}
                 className="w-full sm:w-48"
                 title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
               >
-                {isCacheClearingActive ? 'Clearing...' : 'Clear Cache'}
+                {isCacheClearing ? 'Clearing...' : 'Clear Cache'}
               </Button>
             </div>
 
@@ -328,7 +297,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     disabled={
                       deleteModeLoading ||
                       mockMode ||
-                      isCacheClearingActive ||
+                      isCacheClearing ||
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
@@ -344,7 +313,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     disabled={
                       deleteModeLoading ||
                       mockMode ||
-                      isCacheClearingActive ||
+                      isCacheClearing ||
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
@@ -361,7 +330,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       disabled={
                         deleteModeLoading ||
                         mockMode ||
-                        isCacheClearingActive ||
+                        isCacheClearing ||
                         authMode !== 'authenticated' ||
                         cacheReadOnly
                       }
@@ -390,7 +359,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       threadCount <= 1 ||
                       threadCountLoading ||
                       mockMode ||
-                      isCacheClearingActive ||
+                      isCacheClearing ||
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
@@ -410,7 +379,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       threadCount >= cpuCount ||
                       threadCountLoading ||
                       mockMode ||
-                      isCacheClearingActive ||
+                      isCacheClearing ||
                       authMode !== 'authenticated' ||
                       cacheReadOnly
                     }
@@ -478,8 +447,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           </div>
         </div>
       </Modal>
-
-      {cacheOp.error && <Alert color="orange">Backend storage error: {cacheOp.error}</Alert>}
     </>
   );
 };

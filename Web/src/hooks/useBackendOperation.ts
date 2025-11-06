@@ -100,12 +100,13 @@ export const useBackendOperation = <T = unknown>(
 
     try {
       await operationStateService.removeState(key);
-      setOperation(null);
     } catch (err: any) {
       console.error(`Failed to clear ${key}:`, err);
       setError(err.message);
-      throw err;
+      // Don't throw - we still want to clear local state
     } finally {
+      // ALWAYS clear local state, even if API call fails
+      setOperation(null);
       setLoading(false);
     }
   }, [key]);

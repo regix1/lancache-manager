@@ -353,10 +353,6 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         })
         .collect();
 
-    if hex_dirs.is_empty() {
-        anyhow::bail!("No cache directories found in {}", cache_path);
-    }
-
     let total_dirs = hex_dirs.len();
     eprintln!("Found {} cache directories to clear", total_dirs);
 
