@@ -3,6 +3,7 @@ using System;
 using LancacheManager.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,12 +11,69 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LancacheManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251108155457_AddCachedServiceDetections")]
+    partial class AddCachedServiceDetections
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
+
+            modelBuilder.Entity("LancacheManager.Models.BlizzardChunkMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ArchiveIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<uint>("ByteOffset")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DiscoveredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<uint>("FileSize")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("GameImageUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("GameName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Product")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArchiveIndex")
+                        .HasDatabaseName("IX_BlizzardChunkMappings_ArchiveIndex");
+
+                    b.HasIndex("Product")
+                        .HasDatabaseName("IX_BlizzardChunkMappings_Product");
+
+                    b.HasIndex("Product", "ArchiveIndex", "ByteOffset")
+                        .IsUnique()
+                        .HasDatabaseName("IX_BlizzardChunkMappings_ProductArchiveOffset");
+
+                    b.ToTable("BlizzardChunkMappings");
+                });
 
             modelBuilder.Entity("LancacheManager.Models.CachedGameDetection", b =>
                 {
@@ -142,6 +200,18 @@ namespace LancacheManager.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
+
+                    b.Property<int?>("BlizzardArchiveIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<uint?>("BlizzardByteOffset")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BlizzardFileName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BlizzardProduct")
+                        .HasColumnType("TEXT");
 
                     b.Property<long>("CacheHitBytes")
                         .HasColumnType("INTEGER");

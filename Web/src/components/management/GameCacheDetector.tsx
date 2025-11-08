@@ -19,7 +19,7 @@ import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useBackendOperation } from '@hooks/useBackendOperation';
-import type { GameCacheInfo } from '../../types';
+import type { GameCacheInfo, ServiceCacheInfo } from '../../types';
 
 interface GameCacheDetectorProps {
   mockMode?: boolean;
@@ -39,13 +39,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const gameDetectionOp = useBackendOperation('activeGameDetection', 'gameDetection', 120);
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
+  const [services, setServices] = useState<ServiceCacheInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [totalGames, setTotalGames] = useState<number>(0);
+  const [totalServices, setTotalServices] = useState<number>(0);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
+  const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
   const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
+  const [expandedServiceName, setExpandedServiceName] = useState<string | null>(null);
   const [expandingGameId, setExpandingGameId] = useState<number | null>(null);
-  const [showAllPaths, setShowAllPaths] = useState<Record<number, boolean>>({});
-  const [showAllUrls, setShowAllUrls] = useState<Record<number, boolean>>({});
+  const [expandingServiceName, setExpandingServiceName] = useState<string | null>(null);
+  const [showAllPaths, setShowAllPaths] = useState<Record<number | string, boolean>>({});
+  const [showAllUrls, setShowAllUrls] = useState<Record<number | string, boolean>>({});
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const detectionNotificationIdRef = useRef<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -68,23 +73,40 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, []);
 
-  // Load cached games from backend on mount and when refreshKey changes
+  // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
     const loadCachedGames = async () => {
       if (mockMode) return;
 
       try {
         const result = await ApiService.getCachedGameDetection();
-        if (result.hasCachedResults && result.games && result.totalGamesDetected) {
-          setGames(result.games);
-          setTotalGames(result.totalGamesDetected);
+        if (result.hasCachedResults) {
+          // Load games if available
+          if (result.games && result.totalGamesDetected) {
+            setGames(result.games);
+            setTotalGames(result.totalGamesDetected);
+          } else {
+            setGames([]);
+            setTotalGames(0);
+          }
+
+          // Load services if available
+          if (result.services && result.totalServicesDetected) {
+            setServices(result.services);
+            setTotalServices(result.totalServicesDetected);
+          } else {
+            setServices([]);
+            setTotalServices(0);
+          }
         } else {
           // No cached results - clear the display
           setGames([]);
           setTotalGames(0);
+          setServices([]);
+          setTotalServices(0);
         }
       } catch (err) {
-        console.error('[GameCacheDetector] Failed to load cached games:', err);
+        console.error('[GameCacheDetector] Failed to load cached games and services:', err);
         // Silent fail - not critical
       }
     };
@@ -171,16 +193,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       setTotalGames((prev) => prev - 1);
     });
 
+    // Handle completed service removals
+    const serviceRemovalNotifs = notifications.filter(
+      (n) => n.type === 'service_removal' && n.status === 'completed'
+    );
+    serviceRemovalNotifs.forEach((notif) => {
+      const serviceName = notif.details?.service;
+      if (!serviceName) return;
+
+      // Remove from UI (backend already removed from database)
+      setServices((prev) => prev.filter((s) => s.service_name !== serviceName));
+      setTotalServices((prev) => prev - 1);
+    });
+
     // Handle database reset completion
     const databaseResetNotifs = notifications.filter(
       (n) => n.type === 'database_reset' && n.status === 'completed'
     );
     if (databaseResetNotifs.length > 0) {
       console.log(
-        '[GameCacheDetector] Database reset detected, clearing games and re-checking database LogEntries'
+        '[GameCacheDetector] Database reset detected, clearing games/services and re-checking database LogEntries'
       );
       setGames([]);
       setTotalGames(0);
+      setServices([]);
+      setTotalServices(0);
       checkIfLogsProcessed();
     }
 
@@ -244,20 +281,39 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Clear operation state - detection is complete (non-blocking)
         gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
 
+        // Update games if available
         if (status.games && status.totalGamesDetected !== undefined) {
           setGames(status.games);
           setTotalGames(status.totalGamesDetected);
+        }
 
-          // Backend already saved to database - no need to save locally
+        // Update services if available
+        if (status.services && status.totalServicesDetected !== undefined) {
+          setServices(status.services);
+          setTotalServices(status.totalServicesDetected);
+        }
 
-          if (status.totalGamesDetected > 0) {
-            addNotification({
-              type: 'generic',
-              status: 'completed',
-              message: `Detected ${status.totalGamesDetected} game${status.totalGamesDetected !== 1 ? 's' : ''} with cache files`,
-              details: { notificationType: 'success' }
-            });
+        // Backend already saved to database - no need to save locally
+
+        // Show notification with detection results
+        const gamesCount = status.totalGamesDetected || 0;
+        const servicesCount = status.totalServicesDetected || 0;
+
+        if (gamesCount > 0 || servicesCount > 0) {
+          const parts = [];
+          if (gamesCount > 0) {
+            parts.push(`${gamesCount} game${gamesCount !== 1 ? 's' : ''}`);
           }
+          if (servicesCount > 0) {
+            parts.push(`${servicesCount} service${servicesCount !== 1 ? 's' : ''}`);
+          }
+
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: `Detected ${parts.join(' and ')} with cache files`,
+            details: { notificationType: 'success' }
+          });
         }
       } else if (status.status === 'failed') {
         // Detection failed
@@ -318,6 +374,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setError(null);
     setGames([]);
     setTotalGames(0);
+    setServices([]);
+    setTotalServices(0);
 
     try {
       // Start background detection
@@ -419,6 +477,64 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }
   };
 
+  const handleServiceRemoveClick = (service: ServiceCacheInfo) => {
+    if (!isAuthenticated) {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Full authentication required for management operations',
+        details: { notificationType: 'error' }
+      });
+      return;
+    }
+    setServiceToRemove(service);
+  };
+
+  const confirmServiceRemoval = async () => {
+    if (!serviceToRemove) return;
+
+    const serviceName = serviceToRemove.service_name;
+
+    // Add notification for tracking (shows in notification bar and on Remove button)
+    // Note: ID will be "service_removal-{serviceName}" for SignalR handler to find it
+    addNotification({
+      type: 'service_removal',
+      status: 'running',
+      message: `Removing ${serviceName} service...`,
+      details: {
+        service: serviceName
+      }
+    });
+
+    // Close modal immediately - progress shown via notifications
+    setServiceToRemove(null);
+    setError(null);
+
+    try {
+      const result = await ApiService.removeServiceFromCache(serviceName);
+
+      // Fire-and-forget: API returned 202 Accepted, removal is happening in background
+      // Service will be removed from list when SignalR ServiceRemovalComplete event arrives
+      console.log(`Service removal started for ${serviceName}: ${result.message}`);
+
+      // Trigger a refetch after removal likely completes to refresh downloads
+      setTimeout(() => {
+        onDataRefresh?.();
+      }, 30000); // Refresh after 30 seconds
+    } catch (err: any) {
+      const errorMsg = err.message || 'Failed to remove service from cache';
+
+      // Update notification to failed (ID is "service_removal-{serviceName}")
+      const notifId = `service_removal-${serviceName}`;
+      updateNotification(notifId, {
+        status: 'failed',
+        error: errorMsg
+      });
+
+      console.error('Service removal error:', err);
+    }
+  };
+
   const toggleGameDetails = (gameId: number) => {
     // If already expanded, collapse immediately
     if (expandedGameId === gameId) {
@@ -438,12 +554,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }, 50); // Small delay to let spinner show
   };
 
-  const toggleShowAllPaths = (gameId: number) => {
-    setShowAllPaths((prev) => ({ ...prev, [gameId]: !prev[gameId] }));
+  const toggleServiceDetails = (serviceName: string) => {
+    // If already expanded, collapse immediately
+    if (expandedServiceName === serviceName) {
+      setExpandedServiceName(null);
+      setShowAllPaths((prev) => ({ ...prev, [serviceName]: false })); // Reset show all when collapsing
+      setShowAllUrls((prev) => ({ ...prev, [serviceName]: false }));
+      return;
+    }
+
+    // Show loading state for expansion
+    setExpandingServiceName(serviceName);
+
+    // Use setTimeout to allow the loading spinner to render before heavy DOM updates
+    setTimeout(() => {
+      setExpandedServiceName(serviceName);
+      setExpandingServiceName(null);
+    }, 50); // Small delay to let spinner show
   };
 
-  const toggleShowAllUrls = (gameId: number) => {
-    setShowAllUrls((prev) => ({ ...prev, [gameId]: !prev[gameId] }));
+  const toggleShowAllPaths = (id: number | string) => {
+    setShowAllPaths((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleShowAllUrls = (id: number | string) => {
+    setShowAllUrls((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const formatBytes = (bytes: number): string => {
@@ -925,18 +1060,254 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 </>
               )}
 
+              {/* Services List */}
+              {!loading && totalServices > 0 && (
+                <>
+                  <div
+                    className="mb-3 p-3 rounded-lg border"
+                    style={{
+                      backgroundColor: 'var(--theme-bg-elevated)',
+                      borderColor: 'var(--theme-border-secondary)'
+                    }}
+                  >
+                    <div className="flex items-center gap-2 text-themed-primary font-medium">
+                      <Database className="w-5 h-5 text-themed-accent" />
+                      Found {totalServices} service{totalServices !== 1 ? 's' : ''} with cache files
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {services.map((service) => (
+                      <div
+                        key={service.service_name}
+                        className="rounded-lg border"
+                        style={{
+                          backgroundColor: 'var(--theme-bg-tertiary)',
+                          borderColor: 'var(--theme-border-secondary)'
+                        }}
+                      >
+                        <div className="flex items-center gap-2 p-3">
+                          <Button
+                            onClick={() => toggleServiceDetails(service.service_name)}
+                            variant="subtle"
+                            size="sm"
+                            className="flex-shrink-0"
+                            disabled={expandingServiceName === service.service_name}
+                          >
+                            {expandingServiceName === service.service_name ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : expandedServiceName === service.service_name ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+                          </Button>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="text-themed-primary font-semibold truncate capitalize">
+                                {service.service_name}
+                              </h4>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
+                              <span className="flex items-center gap-1">
+                                <FolderOpen className="w-3 h-3" />
+                                <strong className="text-themed-primary">
+                                  {service.cache_files_found.toLocaleString()}
+                                </strong>{' '}
+                                files
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <HardDrive className="w-3 h-3" />
+                                <strong className="text-themed-primary">
+                                  {formatBytes(service.total_size_bytes)}
+                                </strong>
+                              </span>
+                            </div>
+                          </div>
+                          <Tooltip content="Remove all cache files for this service">
+                            <Button
+                              onClick={() => handleServiceRemoveClick(service)}
+                              disabled={
+                                mockMode ||
+                                notifications.some(
+                                  (n) =>
+                                    n.type === 'service_removal' &&
+                                    n.details?.service === service.service_name &&
+                                    n.status === 'running'
+                                ) ||
+                                !isAuthenticated ||
+                                cacheReadOnly ||
+                                checkingPermissions
+                              }
+                              variant="filled"
+                              color="red"
+                              size="sm"
+                              loading={notifications.some(
+                                (n) =>
+                                  n.type === 'service_removal' &&
+                                  n.details?.service === service.service_name &&
+                                  n.status === 'running'
+                              )}
+                              title={
+                                cacheReadOnly
+                                  ? 'Cache directory is mounted read-only'
+                                  : undefined
+                              }
+                            >
+                              {notifications.some(
+                                (n) =>
+                                  n.type === 'service_removal' &&
+                                  n.details?.service === service.service_name &&
+                                  n.status === 'running'
+                              )
+                                ? 'Removing...'
+                                : 'Remove'}
+                            </Button>
+                          </Tooltip>
+                        </div>
+
+                        {/* Loading State for Expansion */}
+                        {expandingServiceName === service.service_name && (
+                          <div
+                            className="border-t px-3 py-4 flex items-center justify-center"
+                            style={{ borderColor: 'var(--theme-border-secondary)' }}
+                          >
+                            <div className="flex items-center gap-2 text-themed-muted">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span className="text-sm">Loading details...</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Expandable Details Section */}
+                        {expandedServiceName === service.service_name &&
+                          expandingServiceName !== service.service_name && (
+                            <div
+                              className="border-t px-3 py-3 space-y-3"
+                              style={{ borderColor: 'var(--theme-border-secondary)' }}
+                            >
+                              {/* Sample URLs */}
+                              {service.sample_urls.length > 0 && (
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-xs text-themed-muted font-medium">
+                                      Sample URLs ({service.sample_urls.length}):
+                                    </p>
+                                    {service.sample_urls.length > MAX_INITIAL_URLS && (
+                                      <Button
+                                        variant="subtle"
+                                        size="xs"
+                                        onClick={() => toggleShowAllUrls(service.service_name)}
+                                        className="text-xs"
+                                      >
+                                        {showAllUrls[service.service_name]
+                                          ? `Show less`
+                                          : `Show all ${service.sample_urls.length}`}
+                                      </Button>
+                                    )}
+                                  </div>
+                                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                                    {(showAllUrls[service.service_name]
+                                      ? service.sample_urls
+                                      : service.sample_urls.slice(0, MAX_INITIAL_URLS)
+                                    ).map((url, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="p-2 rounded border"
+                                        style={{
+                                          backgroundColor: 'var(--theme-bg-secondary)',
+                                          borderColor: 'var(--theme-border-primary)'
+                                        }}
+                                      >
+                                        <Tooltip content={url}>
+                                          <span className="text-xs font-mono text-themed-primary truncate block">
+                                            {url}
+                                          </span>
+                                        </Tooltip>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {!showAllUrls[service.service_name] &&
+                                    service.sample_urls.length > MAX_INITIAL_URLS && (
+                                      <p className="text-xs text-themed-muted mt-2 italic">
+                                        Showing {MAX_INITIAL_URLS} of {service.sample_urls.length}{' '}
+                                        URLs
+                                      </p>
+                                    )}
+                                </div>
+                              )}
+
+                              {/* Cache File Paths */}
+                              {service.cache_file_paths && service.cache_file_paths.length > 0 && (
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-xs text-themed-muted font-medium">
+                                      Cache File Locations (
+                                      {service.cache_file_paths.length.toLocaleString()}):
+                                    </p>
+                                    {service.cache_file_paths.length > MAX_INITIAL_PATHS && (
+                                      <Button
+                                        variant="subtle"
+                                        size="xs"
+                                        onClick={() => toggleShowAllPaths(service.service_name)}
+                                        className="text-xs"
+                                      >
+                                        {showAllPaths[service.service_name]
+                                          ? `Show less`
+                                          : `Show all ${service.cache_file_paths.length.toLocaleString()}`}
+                                      </Button>
+                                    )}
+                                  </div>
+                                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                                    {(showAllPaths[service.service_name]
+                                      ? service.cache_file_paths
+                                      : service.cache_file_paths.slice(0, MAX_INITIAL_PATHS)
+                                    ).map((path, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="p-2 rounded border"
+                                        style={{
+                                          backgroundColor: 'var(--theme-bg-secondary)',
+                                          borderColor: 'var(--theme-border-primary)'
+                                        }}
+                                      >
+                                        <Tooltip content={path}>
+                                          <span className="text-xs font-mono text-themed-primary truncate block">
+                                            {path}
+                                          </span>
+                                        </Tooltip>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {!showAllPaths[service.service_name] &&
+                                    service.cache_file_paths.length > MAX_INITIAL_PATHS && (
+                                      <p className="text-xs text-themed-muted mt-2 italic">
+                                        Showing {MAX_INITIAL_PATHS} of{' '}
+                                        {service.cache_file_paths.length.toLocaleString()} paths
+                                      </p>
+                                    )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
               {/* Empty State */}
-              {!loading && totalGames === 0 && games.length === 0 && !error && (
+              {!loading && totalGames === 0 && totalServices === 0 && games.length === 0 && services.length === 0 && !error && (
                 <div className="text-center py-8 text-themed-muted">
                   <HardDrive className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <div className="mb-2">No games with cache files detected</div>
+                  <div className="mb-2">No games or services with cache files detected</div>
                   {!hasProcessedLogs && !checkingLogs ? (
                     <div className="text-xs space-y-1">
                       <div className="text-themed-warning font-medium">
                         Database has no LogEntries
                       </div>
                       <div>
-                        Process access logs to populate the database. Game detection requires
+                        Process access logs to populate the database. Detection requires
                         LogEntries to match cache files.
                       </div>
                     </div>
@@ -951,18 +1322,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {/* Information Alert */}
               <Alert color="blue" className="about-section">
                 <div>
-                  <p className="text-xs font-medium mb-2">About Game Cache Detection:</p>
+                  <p className="text-xs font-medium mb-2">About Game & Service Cache Detection:</p>
                   <ul className="list-disc list-inside text-xs space-y-1 ml-2">
                     <li>
                       <strong>Requires processed logs:</strong> Access logs must be processed first
                       to populate the database
                     </li>
-                    <li>Scans database for game records and checks if cache files exist</li>
-                    <li>Shows total cache size and file count per game</li>
-                    <li>Removal deletes ALL cache files for the selected game</li>
+                    <li>Scans database for game and service records and checks if cache files exist</li>
+                    <li>Shows total cache size and file count per game/service</li>
+                    <li>Removal deletes ALL cache files, log entries, and database records for the selected item</li>
                     <li>
-                      Log entries are preserved for analytics (use Corruption Removal to delete
-                      logs)
+                      Service removal cleans up cache for non-game services (riot, blizzard, epic, wsus, etc.)
                     </li>
                   </ul>
                 </div>
@@ -972,7 +1342,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         </div>
       </Card>
 
-      {/* Confirmation Modal */}
+      {/* Game Removal Confirmation Modal */}
       <Modal
         opened={gameToRemove !== null}
         onClose={() => setGameToRemove(null)}
@@ -1019,6 +1389,59 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 color="red"
                 leftSection={<Trash2 className="w-4 h-4" />}
                 onClick={confirmRemoval}
+              >
+                Remove from Cache
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Service Removal Confirmation Modal */}
+      <Modal
+        opened={serviceToRemove !== null}
+        onClose={() => setServiceToRemove(null)}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Remove Service from Cache</span>
+          </div>
+        }
+      >
+        {serviceToRemove && (
+          <div className="space-y-4">
+            <p className="text-themed-secondary">
+              Are you sure you want to remove all cache files for{' '}
+              <span className="font-semibold text-themed-primary capitalize">{serviceToRemove.service_name}</span>{' '}
+              service?
+            </p>
+
+            <Alert color="yellow">
+              <div>
+                <p className="text-xs font-medium mb-2">This will:</p>
+                <ul className="list-disc list-inside text-xs space-y-1 ml-2">
+                  <li>
+                    Delete approximately {serviceToRemove.cache_files_found.toLocaleString()} cache
+                    files
+                  </li>
+                  <li>Free up approximately {formatBytes(serviceToRemove.total_size_bytes)}</li>
+                  <li>Remove ALL log entries for this service from the database</li>
+                  <li>Remove ALL download records for this service from the database</li>
+                  <li>Progress will be shown in the notification bar at the top</li>
+                  <li>This action cannot be undone</li>
+                </ul>
+              </div>
+            </Alert>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="default" onClick={() => setServiceToRemove(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="filled"
+                color="red"
+                leftSection={<Trash2 className="w-4 h-4" />}
+                onClick={confirmServiceRemoval}
               >
                 Remove from Cache
               </Button>

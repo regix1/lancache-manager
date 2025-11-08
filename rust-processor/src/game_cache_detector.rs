@@ -25,9 +25,20 @@ struct GameCacheInfo {
 }
 
 #[derive(Debug, Serialize)]
+struct ServiceCacheInfo {
+    service_name: String,
+    cache_files_found: usize,
+    total_size_bytes: u64,
+    sample_urls: Vec<String>,
+    cache_file_paths: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct DetectionReport {
     total_games_detected: usize,
+    total_services_detected: usize,
     games: Vec<GameCacheInfo>,
+    services: Vec<ServiceCacheInfo>,
 }
 
 #[derive(Debug)]
@@ -260,6 +271,111 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, exclud
     Ok(records)
 }
 
+fn query_service_downloads(db_path: &Path) -> Result<HashMap<String, Vec<(String, String)>>> {
+    let conn = Connection::open(db_path)
+        .context("Failed to open database")?;
+
+    eprintln!("Querying LogEntries for non-game services...");
+
+    // Services to detect (these typically don't have game AppIds)
+    // We'll exclude 'steam' since it's covered by game detection
+    let query = "
+        SELECT DISTINCT le.Service, le.Url
+        FROM LogEntries le
+        WHERE le.Service IS NOT NULL
+        AND le.Url IS NOT NULL
+        AND LOWER(le.Service) NOT IN ('steam', 'unknown', 'ip-address', 'localhost')
+        AND le.Service != ''
+        ORDER BY le.Service, le.BytesServed DESC
+    ";
+
+    let mut stmt = conn.prepare(query)?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+        ))
+    })?;
+
+    let mut services: HashMap<String, Vec<(String, String)>> = HashMap::new();
+
+    for row_result in rows {
+        if let Ok((service, url)) = row_result {
+            let service_lower = service.to_lowercase();
+            services
+                .entry(service_lower.clone())
+                .or_insert_with(Vec::new)
+                .push((service_lower, url));
+        }
+    }
+
+    let service_count = services.len();
+    let total_urls: usize = services.values().map(|v| v.len()).sum();
+    eprintln!("Found {} unique services with {} URLs", service_count, total_urls);
+
+    Ok(services)
+}
+
+fn detect_cache_files_for_service(
+    service_name: &str,
+    service_urls: &[(String, String)],
+    cache_files_index: &HashMap<String, CacheFileInfo>,
+) -> Result<ServiceCacheInfo> {
+    // Match URLs against in-memory cache index
+    let found_files: HashSet<PathBuf> = service_urls
+        .par_iter()
+        .filter_map(|(service, url)| {
+            // Calculate hash for this service+url combination
+            let cache_key = format!("{}{}", service, url);
+            let hash = cache_utils::calculate_md5(&cache_key);
+
+            // Instant HashMap lookup
+            if let Some(file_info) = cache_files_index.get(&hash) {
+                Some(file_info.path.clone())
+            } else {
+                // Also check chunked format for backwards compatibility
+                (0..100)
+                    .find_map(|chunk| {
+                        let start = chunk * 1_048_576;
+                        let end = start + 1_048_575;
+                        let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
+                        let chunked_hash = cache_utils::calculate_md5(&chunked_key);
+                        cache_files_index.get(&chunked_hash).map(|f| f.path.clone())
+                    })
+            }
+        })
+        .collect();
+
+    // Calculate total size from found files
+    let total_size: u64 = found_files
+        .iter()
+        .filter_map(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|hash| cache_files_index.get(hash))
+                .map(|info| info.size)
+        })
+        .sum();
+
+    let unique_urls: HashSet<String> = service_urls.iter().map(|(_, url)| url.clone()).collect();
+    let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
+
+    // Convert cache file paths to strings for output
+    let cache_file_paths: Vec<String> = found_files
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+
+    Ok(ServiceCacheInfo {
+        service_name: service_name.to_string(),
+        cache_files_found: found_files.len(),
+        total_size_bytes: total_size,
+        sample_urls,
+        cache_file_paths,
+    })
+}
+
 fn detect_cache_files_for_game(
     records: &[DownloadRecord],
     cache_files_index: &HashMap<String, CacheFileInfo>,
@@ -401,18 +517,7 @@ fn main() -> Result<()> {
     // This ensures we find and measure every cache file for complete accuracy
     let all_records = query_game_downloads(&db_path, None, &excluded_game_ids)?;
 
-    if all_records.is_empty() {
-        eprintln!("No games found in database.");
-        let report = DetectionReport {
-            total_games_detected: 0,
-            games: vec![],
-        };
-
-        let json = serde_json::to_string_pretty(&report)?;
-        fs::write(&output_json, json)?;
-        eprintln!("Report saved to: {}", output_json.display());
-        return Ok(());
-    }
+    // Continue even if no games found - we still want to detect services
 
     // Group records by game_app_id
     let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
@@ -470,13 +575,56 @@ fn main() -> Result<()> {
         }
     }
 
-    eprintln!("\n=== Scan Complete ===");
-    eprintln!("Total cache files found: {}", total_files_found);
-    eprintln!("Total cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
+    eprintln!("\n=== Game Scan Complete ===");
+    eprintln!("Total game cache files found: {}", total_files_found);
+    eprintln!("Total game cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
+
+    // PHASE 4: Detect non-game services
+    eprintln!("\n=== Phase 4: Detecting Non-Game Services ===");
+
+    let services_map = query_service_downloads(&db_path)?;
+
+    let mut detected_services = Vec::new();
+    let mut service_files_found = 0;
+    let mut service_bytes_found: u64 = 0;
+
+    for (service_name, service_urls) in services_map {
+        eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
+
+        match detect_cache_files_for_service(&service_name, &service_urls, &cache_files_index) {
+            Ok(info) => {
+                if info.cache_files_found > 0 {
+                    let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                    let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+
+                    if size_gb >= 1.0 {
+                        eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                    } else {
+                        eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                    }
+
+                    service_files_found += info.cache_files_found;
+                    service_bytes_found += info.total_size_bytes;
+                    detected_services.push(info);
+                } else {
+                    eprintln!("no cache files found");
+                }
+            }
+            Err(e) => {
+                eprintln!("ERROR: {}", e);
+            }
+        }
+    }
+
+    eprintln!("\n=== Service Scan Complete ===");
+    eprintln!("Total service cache files found: {}", service_files_found);
+    eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
 
     let report = DetectionReport {
         total_games_detected: detected_games.len(),
+        total_services_detected: detected_services.len(),
         games: detected_games,
+        services: detected_services,
     };
 
     let json = serde_json::to_string_pretty(&report)?;
@@ -484,6 +632,9 @@ fn main() -> Result<()> {
 
     eprintln!("\n=== Detection Summary ===");
     eprintln!("Games with cache files: {}", report.total_games_detected);
+    eprintln!("Services with cache files: {}", report.total_services_detected);
+    eprintln!("Total cache files: {}", total_files_found + service_files_found);
+    eprintln!("Total cache size: {:.2} GB", (total_bytes_found + service_bytes_found) as f64 / 1_073_741_824.0);
     eprintln!("Report saved to: {}", output_json.display());
 
     Ok(())

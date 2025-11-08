@@ -30,7 +30,9 @@ public class GameCacheDetectionService
         public string Status { get; set; } = "running"; // running, complete, failed
         public string? Message { get; set; }
         public List<GameCacheInfo>? Games { get; set; }
+        public List<ServiceCacheInfo>? Services { get; set; }
         public int TotalGamesDetected { get; set; }
+        public int TotalServicesDetected { get; set; }
         public string? Error { get; set; }
     }
 
@@ -324,6 +326,13 @@ public class GameCacheDetectionService
             await SaveGamesToDatabaseAsync(finalGames, incremental);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games total", totalGamesDetected);
 
+            // Save services to database
+            if (detectionResult.Services.Count > 0)
+            {
+                await SaveServicesToDatabaseAsync(detectionResult.Services);
+                _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", detectionResult.Services.Count);
+            }
+
             // Update persisted state with complete status
             _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
             {
@@ -396,22 +405,46 @@ public class GameCacheDetectionService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
+        var cachedServices = await dbContext.CachedServiceDetections.ToListAsync();
 
-        if (cachedGames.Count == 0)
+        if (cachedGames.Count == 0 && cachedServices.Count == 0)
         {
             return null;
         }
 
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
+        var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
+
+        var lastDetectedTime = DateTime.MinValue;
+        if (cachedGames.Count > 0)
+        {
+            lastDetectedTime = cachedGames.Max(g => g.LastDetectedUtc);
+        }
+        if (cachedServices.Count > 0)
+        {
+            var servicesMaxTime = cachedServices.Max(s => s.LastDetectedUtc);
+            if (servicesMaxTime > lastDetectedTime)
+            {
+                lastDetectedTime = servicesMaxTime;
+            }
+        }
+
+        var message = games.Count > 0 && services.Count > 0
+            ? $"Loaded {games.Count} games and {services.Count} services from cache"
+            : games.Count > 0
+                ? $"Loaded {games.Count} games from cache"
+                : $"Loaded {services.Count} services from cache";
 
         return new DetectionOperation
         {
             OperationId = "cached",
-            StartTime = cachedGames.Max(g => g.LastDetectedUtc),
+            StartTime = lastDetectedTime,
             Status = "complete",
-            Message = $"Loaded {games.Count} games from cache",
+            Message = message,
             Games = games,
-            TotalGamesDetected = games.Count
+            Services = services,
+            TotalGamesDetected = games.Count,
+            TotalServicesDetected = services.Count
         };
     }
 
@@ -419,8 +452,9 @@ public class GameCacheDetectionService
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         await dbContext.CachedGameDetections.ExecuteDeleteAsync();
+        await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
         await dbContext.SaveChangesAsync();
-        _logger.LogInformation("[GameDetection] Cache invalidated - all cached games deleted from database");
+        _logger.LogInformation("[GameDetection] Cache invalidated - all cached games and services deleted from database");
     }
 
     public async Task RemoveGameFromCacheAsync(uint gameAppId)
@@ -434,6 +468,20 @@ public class GameCacheDetectionService
             await dbContext.SaveChangesAsync();
             _logger.LogInformation("[GameDetection] Removed game {AppId} ({GameName}) from cache",
                 gameAppId, game.GameName);
+        }
+    }
+
+    public async Task RemoveServiceFromCacheAsync(string serviceName)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        var service = await dbContext.CachedServiceDetections
+            .FirstOrDefaultAsync(s => s.ServiceName.ToLower() == serviceName.ToLower());
+
+        if (service != null)
+        {
+            dbContext.CachedServiceDetections.Remove(service);
+            await dbContext.SaveChangesAsync();
+            _logger.LogInformation("[GameDetection] Removed service '{ServiceName}' from cache", serviceName);
         }
     }
 
@@ -530,6 +578,34 @@ public class GameCacheDetectionService
         await dbContext.SaveChangesAsync();
     }
 
+    private async Task SaveServicesToDatabaseAsync(List<ServiceCacheInfo> services)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        // Always clear existing services on detection (services don't support incremental)
+        await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
+
+        var now = DateTime.UtcNow;
+
+        foreach (var service in services)
+        {
+            var cachedService = new CachedServiceDetection
+            {
+                ServiceName = service.ServiceName,
+                CacheFilesFound = service.CacheFilesFound,
+                TotalSizeBytes = service.TotalSizeBytes,
+                SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls),
+                CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths),
+                LastDetectedUtc = now,
+                CreatedAtUtc = now
+            };
+
+            dbContext.CachedServiceDetections.Add(cachedService);
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
     private static GameCacheInfo ConvertToGameCacheInfo(CachedGameDetection cached)
     {
         return new GameCacheInfo
@@ -544,12 +620,30 @@ public class GameCacheDetectionService
         };
     }
 
+    private static ServiceCacheInfo ConvertToServiceCacheInfo(CachedServiceDetection cached)
+    {
+        return new ServiceCacheInfo
+        {
+            ServiceName = cached.ServiceName,
+            CacheFilesFound = cached.CacheFilesFound,
+            TotalSizeBytes = cached.TotalSizeBytes,
+            SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
+            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>()
+        };
+    }
+
     private class GameDetectionResult
     {
         [System.Text.Json.Serialization.JsonPropertyName("total_games_detected")]
         public int TotalGamesDetected { get; set; }
 
+        [System.Text.Json.Serialization.JsonPropertyName("total_services_detected")]
+        public int TotalServicesDetected { get; set; }
+
         [System.Text.Json.Serialization.JsonPropertyName("games")]
         public List<GameCacheInfo> Games { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonPropertyName("services")]
+        public List<ServiceCacheInfo> Services { get; set; } = new();
     }
 }

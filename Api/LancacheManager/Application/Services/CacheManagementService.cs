@@ -800,6 +800,24 @@ public class CacheManagementService
         public List<uint> DepotIds { get; set; } = new List<uint>();
     }
 
+    public class ServiceCacheRemovalReport
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("service_name")]
+        public string ServiceName { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("cache_files_deleted")]
+        public int CacheFilesDeleted { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("total_bytes_freed")]
+        public ulong TotalBytesFreed { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("log_entries_removed")]
+        public ulong LogEntriesRemoved { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("database_entries_deleted")]
+        public int DatabaseEntriesDeleted { get; set; }
+    }
+
     /// <summary>
     /// Remove all cache files for a specific game
     /// </summary>
@@ -896,6 +914,176 @@ public class CacheManagementService
         finally
         {
             _cacheLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Remove all cache files for a specific service
+    /// </summary>
+    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCache(string serviceName, CancellationToken cancellationToken = default)
+    {
+        await _cacheLock.WaitAsync();
+        try
+        {
+            _logger.LogInformation("[ServiceRemoval] Starting service cache removal for '{Service}'", serviceName);
+
+            // Check write permissions for cache and logs directories
+            if (!_pathResolver.IsCacheDirectoryWritable())
+            {
+                var errorMsg = $"Cannot write to cache directory: {_cachePath}. " +
+                              "Directory is mounted read-only. " +
+                              "Remove :ro from the cache volume mount in docker-compose.yml to enable service cache removal.";
+                _logger.LogWarning(errorMsg);
+                throw new UnauthorizedAccessException(errorMsg);
+            }
+
+            var dataDir = _pathResolver.GetDataDirectory();
+            var dbPath = _pathResolver.GetDatabasePath();
+            var logsDir = _pathResolver.GetLogsDirectory();
+
+            if (!_pathResolver.IsLogsDirectoryWritable())
+            {
+                var errorMsg = $"Cannot write to logs directory: {logsDir}. " +
+                              "Directory is mounted read-only. " +
+                              "Remove :ro from the logs volume mount in docker-compose.yml to enable service cache removal.";
+                _logger.LogWarning(errorMsg);
+                throw new UnauthorizedAccessException(errorMsg);
+            }
+            var progressPath = Path.Combine(dataDir, $"service_removal_{serviceName}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+            var rustBinaryPath = _pathResolver.GetRustServiceRemoverPath();
+
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Service remover");
+
+            if (!File.Exists(dbPath))
+            {
+                var errorMsg = $"Database not found at {dbPath}";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
+            }
+
+            if (!Directory.Exists(logsDir))
+            {
+                var errorMsg = $"Logs directory not found at {logsDir}";
+                _logger.LogError(errorMsg);
+                throw new DirectoryNotFoundException(errorMsg);
+            }
+
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                rustBinaryPath,
+                $"\"{dbPath}\" \"{logsDir}\" \"{_cachePath}\" \"{serviceName}\" \"{progressPath}\"");
+
+            _logger.LogInformation("[ServiceRemoval] Running removal: {Binary} {Args}", rustBinaryPath, startInfo.Arguments);
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new Exception("Failed to start service_remover process");
+                }
+
+                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+                await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                var output = await outputTask;
+                var error = await errorTask;
+
+                _logger.LogInformation("[ServiceRemoval] Process exit code: {Code}", process.ExitCode);
+
+                // Log stdout (completion messages and summary)
+                if (!string.IsNullOrEmpty(output))
+                {
+                    _logger.LogInformation("[ServiceRemoval] Process output:\n{Output}", output);
+                }
+
+                // Log stderr (diagnostic messages)
+                if (!string.IsNullOrEmpty(error))
+                {
+                    _logger.LogInformation("[ServiceRemoval] Process stderr: {Error}", error);
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    _logger.LogError("[ServiceRemoval] Failed with exit code {Code}: {Error}", process.ExitCode, error);
+                    throw new Exception($"service_remover failed with exit code {process.ExitCode}: {error}");
+                }
+
+                // Read the progress JSON file for the final report
+                // The progress file contains the final status with all stats
+                if (!File.Exists(progressPath))
+                {
+                    throw new FileNotFoundException($"Progress file not found: {progressPath}");
+                }
+
+                var progressJson = await File.ReadAllTextAsync(progressPath, cancellationToken);
+
+                // Parse to get the message which contains the summary
+                // For now, return a basic report - the Rust binary writes progress, not a full report
+                var report = new ServiceCacheRemovalReport
+                {
+                    ServiceName = serviceName,
+                    // These will be extracted from stderr output
+                    CacheFilesDeleted = 0,
+                    TotalBytesFreed = 0,
+                    LogEntriesRemoved = 0,
+                    DatabaseEntriesDeleted = 0
+                };
+
+                // Parse statistics from stderr output
+                if (!string.IsNullOrEmpty(error))
+                {
+                    ExtractServiceRemovalStats(error, report);
+                }
+
+                _logger.LogInformation("[ServiceRemoval] Removed {Files} files ({Bytes} bytes) for service '{Service}'",
+                    report.CacheFilesDeleted, report.TotalBytesFreed, serviceName);
+
+                // Clean up progress file
+                await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);
+
+                return report;
+            }
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
+
+    private static void ExtractServiceRemovalStats(string stderr, ServiceCacheRemovalReport report)
+    {
+        // Extract statistics from stderr output
+        // Format: "Cache files deleted: 123"
+        var cacheFilesMatch = System.Text.RegularExpressions.Regex.Match(stderr, @"Cache files deleted:\s*(\d+)");
+        if (cacheFilesMatch.Success && int.TryParse(cacheFilesMatch.Groups[1].Value, out var cacheFiles))
+        {
+            report.CacheFilesDeleted = cacheFiles;
+        }
+
+        // Format: "Bytes freed: 1.23 GB" or "Bytes freed: 123.45 MB"
+        var bytesMatch = System.Text.RegularExpressions.Regex.Match(stderr, @"Bytes freed:\s*([\d.]+)\s*(GB|MB)");
+        if (bytesMatch.Success && double.TryParse(bytesMatch.Groups[1].Value, out var bytes))
+        {
+            var unit = bytesMatch.Groups[2].Value;
+            report.TotalBytesFreed = unit == "GB"
+                ? (ulong)(bytes * 1_073_741_824.0)
+                : (ulong)(bytes * 1_048_576.0);
+        }
+
+        // Format: "Log entries removed: 456"
+        var logEntriesMatch = System.Text.RegularExpressions.Regex.Match(stderr, @"Log entries removed:\s*(\d+)");
+        if (logEntriesMatch.Success && ulong.TryParse(logEntriesMatch.Groups[1].Value, out var logEntries))
+        {
+            report.LogEntriesRemoved = logEntries;
+        }
+
+        // Format: "Database entries deleted: 789"
+        var dbEntriesMatch = System.Text.RegularExpressions.Regex.Match(stderr, @"Database entries deleted:\s*(\d+)");
+        if (dbEntriesMatch.Success && int.TryParse(dbEntriesMatch.Groups[1].Value, out var dbEntries))
+        {
+            report.DatabaseEntriesDeleted = dbEntries;
         }
     }
 }
