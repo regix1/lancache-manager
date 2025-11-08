@@ -44,6 +44,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [hasProcessedLogs, setHasProcessedLogs] = useState(false);
   const [checkingLogs, setCheckingLogs] = useState(true);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
+  const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -336,7 +337,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }
   };
 
-  const handleDetect = async () => {
+  const startDetection = async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
     if (mockMode) {
       const errorMsg = 'Detection disabled in mock mode';
       setError(errorMsg);
@@ -351,24 +352,29 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     setLoading(true);
     setError(null);
+    setScanType(scanTypeLabel);
     setGames([]);
     setTotalGames(0);
     setServices([]);
     setTotalServices(0);
     setLastDetectionTime(null); // Clear previous detection time when starting new scan
 
+    const notificationMessage = forceRefresh
+      ? 'Running full scan (all games and services)...'
+      : 'Running incremental scan (new games and services only)...';
+
     try {
       // Start background detection
-      const result = await ApiService.startGameCacheDetection();
+      const result = await ApiService.startGameCacheDetection(forceRefresh);
 
       // Save operation state for restoration on page refresh
-      await gameDetectionOp.save({ operationId: result.operationId });
+      await gameDetectionOp.save({ operationId: result.operationId, scanType: scanTypeLabel });
 
       // Add notification to show detection is in progress
       const notificationId = addNotification({
         type: 'generic',
         status: 'running',
-        message: 'Detecting games and services in cache...',
+        message: notificationMessage,
         details: { notificationType: 'info' }
       });
       detectionNotificationIdRef.current = notificationId;
@@ -384,7 +390,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Poll immediately
       pollDetectionStatus(result.operationId);
     } catch (err: any) {
-      const errorMsg = err.message || 'Failed to start game detection';
+      const errorMsg = err.message || 'Failed to start detection';
       setError(errorMsg);
       addNotification({
         type: 'generic',
@@ -392,8 +398,97 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         message: errorMsg,
         details: { notificationType: 'error' }
       });
-      console.error('Game detection error:', err);
+      console.error('Detection error:', err);
       setLoading(false);
+      setScanType(null);
+    }
+  };
+
+  const handleFullScan = () => startDetection(true, 'full');
+  const handleIncrementalScan = () => startDetection(false, 'incremental');
+
+  const handleLoadData = async () => {
+    if (mockMode) return;
+
+    setScanType('load');
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await ApiService.getCachedGameDetection();
+      if (result.hasCachedResults) {
+        // Load games if available
+        if (result.games && result.totalGamesDetected) {
+          setGames(result.games);
+          setTotalGames(result.totalGamesDetected);
+        } else {
+          setGames([]);
+          setTotalGames(0);
+        }
+
+        // Load services if available
+        if (result.services && result.totalServicesDetected) {
+          setServices(result.services);
+          setTotalServices(result.totalServicesDetected);
+        } else {
+          setServices([]);
+          setTotalServices(0);
+        }
+
+        // Store the last detection time
+        if (result.lastDetectionTime) {
+          setLastDetectionTime(result.lastDetectionTime);
+        }
+
+        // Show notification
+        const parts = [];
+        if (result.totalGamesDetected && result.totalGamesDetected > 0) {
+          parts.push(`${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`);
+        }
+        if (result.totalServicesDetected && result.totalServicesDetected > 0) {
+          parts.push(`${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`);
+        }
+
+        if (parts.length > 0) {
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: `Loaded ${parts.join(' and ')} from previous scan`,
+            details: { notificationType: 'success' }
+          });
+        } else {
+          addNotification({
+            type: 'generic',
+            status: 'completed',
+            message: 'No previous detection results found',
+            details: { notificationType: 'info' }
+          });
+        }
+      } else {
+        setGames([]);
+        setTotalGames(0);
+        setServices([]);
+        setTotalServices(0);
+        setLastDetectionTime(null);
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: 'No previous detection results found',
+          details: { notificationType: 'info' }
+        });
+      }
+    } catch (err) {
+      console.error('[GameCacheDetector] Failed to load data:', err);
+      setError('Failed to load previous results');
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Failed to load previous results',
+        details: { notificationType: 'error' }
+      });
+    } finally {
+      setLoading(false);
+      setScanType(null);
     }
   };
 
@@ -549,35 +644,85 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   Scan cache directory to find which games have stored files
                 </p>
               </div>
-              {(() => {
-                const detectButton = (
+              <div className="flex items-center gap-2">
+                {/* Load Data Button */}
+                <Tooltip content="Load previous detection results from database">
                   <Button
-                    onClick={handleDetect}
-                    disabled={
-                      loading ||
-                      mockMode ||
-                      cacheReadOnly ||
-                      checkingPermissions ||
-                      !hasProcessedLogs ||
-                      checkingLogs
-                    }
-                    variant="filled"
-                    color="blue"
-                    leftSection={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-                    title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
+                    onClick={handleLoadData}
+                    disabled={loading || mockMode || cacheReadOnly || checkingPermissions}
+                    variant="default"
+                    size="sm"
+                    leftSection={loading && scanType === 'load' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
                   >
-                    {loading ? 'Detecting...' : 'Detect Games'}
+                    {loading && scanType === 'load' ? 'Loading...' : 'Load Data'}
                   </Button>
-                );
+                </Tooltip>
 
-                return !hasProcessedLogs && !checkingLogs ? (
-                  <Tooltip content="Process access logs to populate the database first. LogEntries in the database are required for game detection.">
-                    {detectButton}
-                  </Tooltip>
-                ) : (
-                  detectButton
-                );
-              })()}
+                {/* Incremental Scan Button */}
+                {(() => {
+                  const incrementalButton = (
+                    <Button
+                      onClick={handleIncrementalScan}
+                      disabled={
+                        loading ||
+                        mockMode ||
+                        cacheReadOnly ||
+                        checkingPermissions ||
+                        !hasProcessedLogs ||
+                        checkingLogs
+                      }
+                      variant="default"
+                      size="sm"
+                      leftSection={loading && scanType === 'incremental' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                    >
+                      {loading && scanType === 'incremental' ? 'Scanning...' : 'Quick Scan'}
+                    </Button>
+                  );
+
+                  return !hasProcessedLogs && !checkingLogs ? (
+                    <Tooltip content="Process access logs first. LogEntries are required for detection.">
+                      {incrementalButton}
+                    </Tooltip>
+                  ) : (
+                    <Tooltip content="Scan for new games and services only (faster)">
+                      {incrementalButton}
+                    </Tooltip>
+                  );
+                })()}
+
+                {/* Full Scan Button */}
+                {(() => {
+                  const fullButton = (
+                    <Button
+                      onClick={handleFullScan}
+                      disabled={
+                        loading ||
+                        mockMode ||
+                        cacheReadOnly ||
+                        checkingPermissions ||
+                        !hasProcessedLogs ||
+                        checkingLogs
+                      }
+                      variant="filled"
+                      color="blue"
+                      size="sm"
+                      leftSection={loading && scanType === 'full' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                    >
+                      {loading && scanType === 'full' ? 'Scanning...' : 'Full Scan'}
+                    </Button>
+                  );
+
+                  return !hasProcessedLogs && !checkingLogs ? (
+                    <Tooltip content="Process access logs first. LogEntries are required for detection.">
+                      {fullButton}
+                    </Tooltip>
+                  ) : (
+                    <Tooltip content="Scan all games and services from scratch (slower)">
+                      {fullButton}
+                    </Tooltip>
+                  );
+                })()}
+              </div>
             </div>
           )}
 
@@ -611,7 +756,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     <Button
                       variant="subtle"
                       size="sm"
-                      onClick={handleDetect}
+                      onClick={handleIncrementalScan}
                       disabled={
                         loading ||
                         mockMode ||
@@ -621,7 +766,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                         checkingLogs
                       }
                     >
-                      Run New Scan
+                      Quick Scan
                     </Button>
                   </div>
                 </Alert>

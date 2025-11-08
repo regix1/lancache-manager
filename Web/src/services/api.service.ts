@@ -806,9 +806,10 @@ class ApiService {
   }
 
   // Start game cache detection as background operation
-  static async startGameCacheDetection(): Promise<{ operationId: string }> {
+  static async startGameCacheDetection(forceRefresh: boolean = false): Promise<{ operationId: string }> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/detect-games`, {
+      const url = `${API_BASE}/management/cache/detect-games${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, {
         method: 'POST',
         headers: this.getHeaders(),
         signal: AbortSignal.timeout(10000) // Short timeout since it returns immediately
