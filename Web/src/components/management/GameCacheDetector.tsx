@@ -191,8 +191,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (!gameAppId) return;
 
       // Remove from UI (backend already removed from database)
-      setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
-      setTotalGames((prev) => prev - 1);
+      setGames((prev) => {
+        const newGames = prev.filter((g) => g.game_app_id !== gameAppId);
+        setTotalGames(newGames.length);
+        return newGames;
+      });
     });
 
     // Handle completed service removals
@@ -204,8 +207,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       if (!serviceName) return;
 
       // Remove from UI (backend already removed from database)
-      setServices((prev) => prev.filter((s) => s.service_name !== serviceName));
-      setTotalServices((prev) => prev - 1);
+      setServices((prev) => {
+        const newServices = prev.filter((s) => s.service_name !== serviceName);
+        setTotalServices(newServices.length);
+        return newServices;
+      });
     });
 
     // Handle database reset completion
