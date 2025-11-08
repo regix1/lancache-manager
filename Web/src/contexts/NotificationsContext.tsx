@@ -688,7 +688,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
   }, [
     signalR,
-    notifications,
     updateNotification,
     addNotification,
     scheduleAutoDismiss,

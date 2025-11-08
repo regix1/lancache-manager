@@ -914,6 +914,9 @@ public class CacheManagementService
                 _logger.LogInformation("[GameRemoval] Removed {Files} files ({Bytes} bytes) for game {AppId}",
                     report.CacheFilesDeleted, report.TotalBytesFreed, gameAppId);
 
+                // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+                await _nginxLogRotationService.ReopenNginxLogsAsync();
+
                 return report;
             }
         }
@@ -1048,6 +1051,9 @@ public class CacheManagementService
 
                 // Clean up progress file
                 await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);
+
+                // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+                await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                 return report;
             }
