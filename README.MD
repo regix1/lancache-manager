@@ -29,6 +29,7 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 - [Custom Themes](#custom-themes)
 - [Optimization Settings](#optimization-settings)
 - [Image Caching](#image-caching)
+- [Nginx Log Rotation](#nginx-log-rotation)
 - [Depot Mappings](#depot-mappings)
 - [Grafana & Prometheus Integration](#grafana--prometheus-integration)
 - [API Examples](#api-examples)
@@ -157,6 +158,12 @@ services:
       # Use :ro for read-only monitoring
       # Remove :ro to enable cache clearing and game removal
       - /mnt/cache/cache:/cache:ro
+
+      # Docker socket for nginx log rotation (optional but recommended)
+      # Allows automatic nginx signaling when log files are rotated
+      # Mounted read-only for security - only needs to run docker exec
+      # Remove this line and set NginxLogRotation__Enabled=false if you don't need it
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       # User/Group IDs for file permissions
       - PUID=1006
@@ -190,6 +197,18 @@ services:
       # Require API key for /metrics endpoint (default: false)
       # Set to 'true' to protect Prometheus metrics
       - Security__RequireAuthForMetrics=false
+
+      # Nginx Log Rotation Settings
+
+      # Enable automatic nginx signaling (default: true)
+      # Prevents monolithic LANCache containers from losing log file access
+      # Set to 'false' if you don't use log rotation or don't mount docker.sock
+      - NginxLogRotation__Enabled=true
+
+      # Specify nginx container name (optional)
+      # Leave empty for automatic detection, or set to your container name
+      # Example: - NginxLogRotation__ContainerName=lancache
+      - NginxLogRotation__ContainerName=
 
       # Optimization Settings
 
@@ -425,6 +444,72 @@ The cache will rebuild automatically as you browse your downloads.
 - **Reduced Bandwidth** - Steam images are fetched once, not repeatedly
 - **Always Fresh** - Automatically detects when Steam updates artwork
 - **Efficient Storage** - Only images you've seen are cached
+
+<a id="nginx-log-rotation"></a>
+## Nginx Log Rotation [⬆](#-table-of-contents)
+
+Some LANCache setups use monolithic containers that periodically rotate log files. When logs rotate, nginx needs to be signaled to reopen the new log file, otherwise it keeps writing to the old file handle and you lose tracking of new downloads.
+
+LANCache Manager can automatically handle this for you.
+
+### How It Works
+
+When you mount the Docker socket and enable nginx log rotation:
+
+1. **Automatic Detection** - LANCache Manager watches for log file changes
+2. **Smart Signaling** - When a rotation is detected, it signals nginx to reopen log files
+3. **Seamless Tracking** - Your download monitoring continues without interruption
+4. **No Manual Work** - Everything happens automatically in the background
+
+### Setup (Optional)
+
+**1. Mount the Docker socket in your docker-compose:**
+
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+**2. Configure the settings (already enabled by default):**
+
+```yaml
+environment:
+  # Enable automatic nginx signaling (default: true)
+  - NginxLogRotation__Enabled=true
+
+  # Container name (leave empty for auto-detection)
+  - NginxLogRotation__ContainerName=
+```
+
+### Security Considerations
+
+**What access does this give?**
+- The Docker socket is mounted **read-only** (`:ro`)
+- LANCache Manager only runs `docker exec` commands to send signals to nginx
+- No ability to create, modify, or destroy containers
+- No access to other containers' filesystems
+
+**When to disable:**
+- You don't use log rotation
+- Your LANCache setup handles nginx signaling differently
+- You prefer to handle log rotation manually
+- Security policies don't allow Docker socket access
+
+**To disable:**
+1. Remove the Docker socket volume mount
+2. Set `NginxLogRotation__Enabled=false`
+
+### Manual Alternative
+
+If you don't want to mount the Docker socket, you can manually signal nginx after rotating logs:
+
+```bash
+# Find your nginx container
+docker ps | grep nginx
+
+# Signal nginx to reopen logs
+docker exec your-nginx-container nginx -s reopen
+```
 
 <a id="depot-mappings"></a>
 ## Depot Mappings [⬆](#-table-of-contents)
