@@ -47,15 +47,29 @@ public class NginxLogRotationService
                 return false;
             }
 
-            _logger.LogInformation("Sending USR1 signal to nginx in container: {ContainerName}", containerName);
+            _logger.LogInformation("Signaling nginx to reopen logs in container: {ContainerName}", containerName);
 
-            // Use 'docker kill --signal=USR1' to send signal to PID 1 (nginx)
-            // This is simpler than docker exec and doesn't require shell access
-            var success = await SendSignalToContainerAsync(containerName, "USR1");
-
-            if (success)
+            // Try method 1: Send USR1 to PID 1 (works if nginx is the main process)
+            var directSignalSuccess = await SendSignalToContainerAsync(containerName, "USR1");
+            if (directSignalSuccess)
             {
-                _logger.LogInformation("Successfully sent USR1 signal to nginx in {ContainerName}", containerName);
+                _logger.LogInformation("Successfully sent USR1 to PID 1 in {ContainerName}", containerName);
+            }
+
+            // Try method 2: Execute kill command inside container to find and signal nginx master process
+            // This works even when nginx is not PID 1 (e.g., running under supervisor)
+            var execSuccess = await ExecuteInContainerAsync(containerName,
+                "sh", "-c", "kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null || pgrep -f 'nginx: master' | head -1)");
+
+            if (execSuccess)
+            {
+                _logger.LogInformation("Successfully sent USR1 to nginx master process in {ContainerName}", containerName);
+                return true;
+            }
+
+            if (directSignalSuccess)
+            {
+                // First method worked, assume it was successful
                 return true;
             }
 
@@ -193,8 +207,60 @@ public class NginxLogRotationService
     }
 
     /// <summary>
+    /// Execute a command inside a container using 'docker exec'
+    /// </summary>
+    private async Task<bool> ExecuteInContainerAsync(string containerName, params string[] command)
+    {
+        try
+        {
+            var commandStr = string.Join(" ", command.Select(c => c.Contains(" ") ? $"\"{c}\"" : c));
+            var processStartInfo = new ProcessStartInfo
+            {
+                FileName = "docker",
+                Arguments = $"exec {containerName} {commandStr}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(processStartInfo);
+            if (process == null)
+            {
+                _logger.LogWarning("Failed to start docker exec process");
+                return false;
+            }
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync();
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+
+            if (process.ExitCode == 0)
+            {
+                _logger.LogDebug("Command executed successfully in container {Container}", containerName);
+                return true;
+            }
+            else
+            {
+                _logger.LogDebug("docker exec failed with exit code {ExitCode}: {Error}",
+                    process.ExitCode, stderr.Trim());
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error executing command in container {Container}", containerName);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Send a signal to a container using 'docker kill --signal'
-    /// This is simpler than docker exec and doesn't require shell access
+    /// This sends signal to PID 1 in the container
     /// </summary>
     private async Task<bool> SendSignalToContainerAsync(string containerName, string signal)
     {
