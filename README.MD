@@ -448,17 +448,17 @@ The cache will rebuild automatically as you browse your downloads.
 <a id="nginx-log-rotation"></a>
 ## Nginx Log Rotation [⬆](#-table-of-contents)
 
-Some LANCache setups use monolithic containers that periodically rotate log files. When logs rotate, nginx needs to be signaled to reopen the new log file, otherwise it keeps writing to the old file handle and you lose tracking of new downloads.
+LANCache uses a monolithic container that runs nginx. When you rotate log files (to manage disk space), the nginx process inside the container keeps writing to the old file handle instead of the new log file. This means new downloads don't get logged until you manually tell nginx to reopen its log files.
 
-LANCache Manager can automatically handle this for you.
+LANCache Manager can automatically handle this signaling for you.
 
 ### How It Works
 
 When you mount the Docker socket and enable nginx log rotation:
 
-1. **Automatic Detection** - LANCache Manager watches for log file changes
-2. **Smart Signaling** - When a rotation is detected, it signals nginx to reopen log files
-3. **Seamless Tracking** - Your download monitoring continues without interruption
+1. **Automatic Detection** - LANCache Manager detects when you've rotated or manipulated log files
+2. **Smart Signaling** - Sends the appropriate signal to nginx in your monolithic container to reopen log files
+3. **Seamless Logging** - Nginx starts writing to the new log file immediately
 4. **No Manual Work** - Everything happens automatically in the background
 
 ### Setup (Optional)
@@ -490,9 +490,8 @@ environment:
 - No access to other containers' filesystems
 
 **When to disable:**
-- You don't use log rotation
-- Your LANCache setup handles nginx signaling differently
-- You prefer to handle log rotation manually
+- You never rotate your log files
+- You manually signal nginx after rotating logs
 - Security policies don't allow Docker socket access
 
 **To disable:**
@@ -501,15 +500,17 @@ environment:
 
 ### Manual Alternative
 
-If you don't want to mount the Docker socket, you can manually signal nginx after rotating logs:
+If you don't want to mount the Docker socket, you'll need to manually signal nginx after each log rotation:
 
 ```bash
-# Find your nginx container
-docker ps | grep nginx
+# After rotating or truncating your access.log file
+docker exec lancache nginx -s reopen
 
-# Signal nginx to reopen logs
-docker exec your-nginx-container nginx -s reopen
+# Or if your container has a different name
+docker exec your-container-name nginx -s reopen
 ```
+
+Without this signal, nginx will continue writing to the old file handle and your new log file will stay empty.
 
 <a id="depot-mappings"></a>
 ## Depot Mappings [⬆](#-table-of-contents)
