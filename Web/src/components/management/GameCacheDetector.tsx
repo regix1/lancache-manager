@@ -744,30 +744,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {/* Previous Results Badge */}
               {!loading && lastDetectionTime && (totalGames > 0 || totalServices > 0) && (
                 <Alert color="blue">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">
-                        Showing results from previous scan
-                      </span>
-                      <span className="text-xs text-themed-muted">
-                        Detected {new Date(lastDetectionTime).toLocaleString()}
-                      </span>
-                    </div>
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      onClick={handleIncrementalScan}
-                      disabled={
-                        loading ||
-                        mockMode ||
-                        cacheReadOnly ||
-                        checkingPermissions ||
-                        !hasProcessedLogs ||
-                        checkingLogs
-                      }
-                    >
-                      Quick Scan
-                    </Button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">
+                      Showing results from previous scan
+                    </span>
+                    <span className="text-xs text-themed-muted">
+                      Detected {new Date(lastDetectionTime).toLocaleString()}
+                    </span>
                   </div>
                 </Alert>
               )}
