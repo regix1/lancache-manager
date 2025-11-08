@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     public DbSet<ClientStats> ClientStats { get; set; }
     public DbSet<ServiceStats> ServiceStats { get; set; }
     public DbSet<SteamDepotMapping> SteamDepotMappings { get; set; }
+    public DbSet<BlizzardChunkMapping> BlizzardChunkMappings { get; set; }
     public DbSet<LogEntryRecord> LogEntries { get; set; }
     public DbSet<CachedGameDetection> CachedGameDetections { get; set; }
 
@@ -89,5 +90,19 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<CachedGameDetection>()
             .HasIndex(c => c.LastDetectedUtc)
             .HasDatabaseName("IX_CachedGameDetection_LastDetectedUtc");
+
+        // BlizzardChunkMapping indexes for fast chunk lookups
+        modelBuilder.Entity<BlizzardChunkMapping>()
+            .HasIndex(m => new { m.Product, m.ArchiveIndex, m.ByteOffset })
+            .HasDatabaseName("IX_BlizzardChunkMappings_ProductArchiveOffset")
+            .IsUnique();
+
+        modelBuilder.Entity<BlizzardChunkMapping>()
+            .HasIndex(m => m.Product)
+            .HasDatabaseName("IX_BlizzardChunkMappings_Product");
+
+        modelBuilder.Entity<BlizzardChunkMapping>()
+            .HasIndex(m => m.ArchiveIndex)
+            .HasDatabaseName("IX_BlizzardChunkMappings_ArchiveIndex");
     }
 }

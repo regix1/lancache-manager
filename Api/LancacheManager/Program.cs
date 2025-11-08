@@ -247,6 +247,13 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamK
 builder.Services.AddSingleton<SteamService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamService>());
 
+// Register BlizzardProductDiscovery for auto-detecting Blizzard games
+builder.Services.AddSingleton<LancacheManager.Application.Services.Blizzard.BlizzardProductDiscovery>();
+
+// Register BlizzardService for Blizzard/Battle.net game chunk mapping
+builder.Services.AddSingleton<BlizzardService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<BlizzardService>());
+
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<PicsDataService>();

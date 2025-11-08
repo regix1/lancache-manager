@@ -16,6 +16,8 @@ public class GameImagesController : ControllerBase
 
     // Cache of failed image fetches to avoid repeated 404 warnings (AppId -> timestamp)
     private static readonly ConcurrentDictionary<uint, DateTime> _failedImageCache = new();
+    // Cache for Blizzard product images (ProductCode -> timestamp)
+    private static readonly ConcurrentDictionary<string, DateTime> _failedBlizzardImageCache = new();
     private static readonly TimeSpan _failedCacheDuration = TimeSpan.FromHours(24);
 
     public GameImagesController(
@@ -110,6 +112,100 @@ public class GameImagesController : ControllerBase
         {
             _logger.LogError(ex, $"Error proxying Steam header image for app {appId}");
             return StatusCode(500, new { error = "Failed to fetch game header image" });
+        }
+    }
+
+    /// <summary>
+    /// Serve Blizzard game images from cache or download if needed
+    /// </summary>
+    [HttpGet("blizzard/{productCode}")]
+    public async Task<IActionResult> GetBlizzardGameImage(string productCode, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(productCode))
+            {
+                return BadRequest(new { error = "Product code is required" });
+            }
+
+            // Check if this product has recently failed
+            if (_failedBlizzardImageCache.TryGetValue(productCode, out var failedTime))
+            {
+                if (DateTime.UtcNow - failedTime < _failedCacheDuration)
+                {
+                    _logger.LogTrace($"Skipping cached failed image for Blizzard product {productCode}");
+                    return NotFound(new { error = $"Game image not available for product {productCode}" });
+                }
+                else
+                {
+                    // Cache expired, remove it and try again
+                    _failedBlizzardImageCache.TryRemove(productCode, out _);
+                }
+            }
+
+            // Get current image URL from database (needed for auto-update detection)
+            var mapping = await _context.BlizzardChunkMappings
+                .Where(m => m.Product == productCode && !string.IsNullOrEmpty(m.GameImageUrl))
+                .OrderByDescending(m => m.DiscoveredAt)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            string? imageUrl = mapping?.GameImageUrl;
+
+            // If no URL in database, try to use default image URL patterns
+            if (string.IsNullOrEmpty(imageUrl))
+            {
+                _logger.LogTrace($"No game image URL found for Blizzard product {productCode} in database");
+                // Could optionally return a default/placeholder image here
+                return NotFound(new { error = $"Game image URL not found for product {productCode}" });
+            }
+
+            // FAST PATH with auto-update detection: Check cache and validate URL hasn't changed
+            var cachedResult = await _imageCacheService.GetCachedBlizzardImageAsync(productCode, imageUrl, cancellationToken);
+
+            if (cachedResult.HasValue)
+            {
+                var (imageBytes, contentType) = cachedResult.Value;
+
+                // Add cache headers with ETag for browser caching
+                Response.Headers["Cache-Control"] = "public, max-age=86400"; // Cache for 24 hours
+                Response.Headers["ETag"] = $"\"{productCode}\"";
+
+                return File(imageBytes, contentType);
+            }
+
+            // SLOW PATH: Not in cache or URL changed - download and cache the image
+            var result = await _imageCacheService.GetOrDownloadBlizzardImageAsync(productCode, imageUrl, cancellationToken);
+
+            if (result.HasValue)
+            {
+                var (imageBytes, contentType) = result.Value;
+
+                // Add cache headers with ETag for browser caching
+                Response.Headers["Cache-Control"] = "public, max-age=86400"; // Cache for 24 hours
+                Response.Headers["ETag"] = $"\"{productCode}\"";
+
+                return File(imageBytes, contentType);
+            }
+
+            // Image fetch failed - cache this failure
+            _failedBlizzardImageCache.TryAdd(productCode, DateTime.UtcNow);
+
+            return NotFound(new { error = $"Blizzard game image not available for product {productCode}" });
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogWarning($"Timeout fetching Blizzard image for product {productCode}");
+            _failedBlizzardImageCache.TryAdd(productCode, DateTime.UtcNow);
+            return StatusCode(504, new { error = "Request timeout fetching game image" });
+        }
+        catch (TaskCanceledException)
+        {
+            return StatusCode(499, new { error = "Request cancelled" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error serving Blizzard image for product {productCode}");
+            return StatusCode(500, new { error = "Failed to fetch game image" });
         }
     }
 

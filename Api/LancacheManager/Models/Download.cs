@@ -28,6 +28,12 @@ public class Download
     public string? LastUrl { get; set; } // Store the last URL to extract game info
     public uint? DepotId { get; set; } // Steam depot ID extracted from URLs
 
+    // Blizzard-specific fields for TACT system
+    public string? BlizzardProduct { get; set; } // Product code: "wow", "pro", "hs", etc.
+    public int? BlizzardArchiveIndex { get; set; } // Which archive file (0, 1, 2, ...)
+    public uint? BlizzardByteOffset { get; set; } // Byte offset within archive (4KB-aligned)
+    public string? BlizzardFileName { get; set; } // Resolved file name from chunk mapping
+
     // Computed properties need [JsonInclude] to be serialized
     [JsonInclude]
     public long TotalBytes => CacheHitBytes + CacheMissBytes;

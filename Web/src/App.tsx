@@ -32,6 +32,7 @@ const ServicesTab = lazy(() => import('@components/services/ServicesTab'));
 const UserTab = lazy(() => import('@components/user/UserTab'));
 const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
 const MemoryDiagnostics = lazy(() => import('@components/memory/MemoryDiagnostics'));
+const BlizzardTest = lazy(() => import('@components/blizzard/BlizzardTest'));
 
 // Wrapper components to inject mockMode from context into providers
 const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -358,6 +359,8 @@ const AppContent: React.FC = () => {
           return UserTab;
         case 'management':
           return ManagementTab;
+        case 'blizzard-test':
+          return BlizzardTest;
         default:
           return Dashboard;
       }

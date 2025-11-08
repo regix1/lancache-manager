@@ -305,6 +305,194 @@ public class ImageCacheService : IImageCacheService
         }
     }
 
+    public async Task<(byte[] imageBytes, string contentType)?> GetCachedBlizzardImageAsync(
+        string productCode,
+        string? currentImageUrl = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var cacheDir = _pathResolver.GetCachedImagesDirectory();
+            var cachedFilePath = Path.Combine(cacheDir, $"blizzard_{productCode}.jpg");
+            var metadataFilePath = Path.Combine(cacheDir, $"blizzard_{productCode}.jpg.meta");
+            var failureMarkerPath = Path.Combine(cacheDir, $"blizzard_{productCode}.failed");
+
+            // Check if this product is known to not have an image (404 marker)
+            if (File.Exists(failureMarkerPath))
+            {
+                _logger.LogTrace($"Blizzard product {productCode} has no image (cached 404)");
+                return null;
+            }
+
+            // Fast path - check if file exists
+            if (File.Exists(cachedFilePath))
+            {
+                // If currentImageUrl is provided, validate it hasn't changed
+                if (!string.IsNullOrEmpty(currentImageUrl) && File.Exists(metadataFilePath))
+                {
+                    var cachedUrl = await File.ReadAllTextAsync(metadataFilePath, cancellationToken);
+                    if (cachedUrl.Trim() != currentImageUrl.Trim())
+                    {
+                        _logger.LogInformation($"Image URL changed for Blizzard product {productCode}, cache invalid. Old: {cachedUrl}, New: {currentImageUrl}");
+                        // Delete the old cached image so it gets re-downloaded
+                        try
+                        {
+                            File.Delete(cachedFilePath);
+                            File.Delete(metadataFilePath);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"Failed to delete outdated cache for Blizzard product {productCode}");
+                        }
+                        return null;
+                    }
+                }
+
+                var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath, cancellationToken);
+                _logger.LogTrace($"Served cached image for Blizzard product {productCode}");
+                return (cachedBytes, "image/jpeg");
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, $"Error reading cached image for Blizzard product {productCode}");
+            return null;
+        }
+    }
+
+    public async Task<(byte[] imageBytes, string contentType)?> GetOrDownloadBlizzardImageAsync(
+        string productCode,
+        string imageUrl,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var cacheDir = _pathResolver.GetCachedImagesDirectory();
+            var cachedFilePath = Path.Combine(cacheDir, $"blizzard_{productCode}.jpg");
+            var metadataFilePath = Path.Combine(cacheDir, $"blizzard_{productCode}.jpg.meta");
+
+            // Check if cached file exists
+            if (File.Exists(cachedFilePath))
+            {
+                try
+                {
+                    // Check if the URL has changed
+                    bool urlChanged = false;
+                    if (File.Exists(metadataFilePath))
+                    {
+                        var cachedUrl = await File.ReadAllTextAsync(metadataFilePath, cancellationToken);
+                        if (cachedUrl.Trim() != imageUrl.Trim())
+                        {
+                            _logger.LogInformation($"Image URL changed for Blizzard product {productCode}, will re-download. Old: {cachedUrl}, New: {imageUrl}");
+                            urlChanged = true;
+                        }
+                    }
+
+                    if (!urlChanged)
+                    {
+                        _logger.LogTrace($"Loading cached image for Blizzard product {productCode}");
+                        var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath, cancellationToken);
+                        return (cachedBytes, "image/jpeg");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, $"Failed to read cached image for Blizzard product {productCode}, will re-download");
+                }
+            }
+
+            // Image not cached or read failed, download it
+            await _downloadLock.WaitAsync(cancellationToken);
+            try
+            {
+                // Double-check after acquiring lock (another thread might have downloaded it)
+                if (File.Exists(cachedFilePath))
+                {
+                    try
+                    {
+                        var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath, cancellationToken);
+                        return (cachedBytes, "image/jpeg");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, $"Failed to read cached image for Blizzard product {productCode} after lock, will re-download");
+                    }
+                }
+
+                _logger.LogDebug($"Downloading image for Blizzard product {productCode} from {imageUrl}");
+
+                var httpClient = _httpClientFactory.CreateClient("SteamImages"); // Reuse the same HTTP client
+                var response = await httpClient.GetAsync(imageUrl, cancellationToken);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogDebug($"Failed to download image for Blizzard product {productCode}, status: {response.StatusCode}");
+
+                    // Create a failure marker file to prevent repeated attempts
+                    if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        try
+                        {
+                            var failureMarkerPath = Path.Combine(cacheDir, $"blizzard_{productCode}.failed");
+                            await File.WriteAllTextAsync(failureMarkerPath,
+                                $"404 - Not Found\nURL: {imageUrl}\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC",
+                                cancellationToken);
+                            _logger.LogDebug($"Created failure marker for Blizzard product {productCode} (no image available)");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, $"Failed to create failure marker for Blizzard product {productCode}");
+                        }
+                    }
+
+                    return null;
+                }
+
+                var imageBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+
+                // Save to cache
+                try
+                {
+                    await File.WriteAllBytesAsync(cachedFilePath, imageBytes, cancellationToken);
+
+                    // Save metadata with the image URL for change detection
+                    await File.WriteAllTextAsync(metadataFilePath, imageUrl, cancellationToken);
+
+                    _logger.LogDebug($"Cached image for Blizzard product {productCode}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, $"Failed to cache image for Blizzard product {productCode}");
+                    // Continue even if caching fails - we can still return the image
+                }
+
+                return (imageBytes, contentType);
+            }
+            finally
+            {
+                _downloadLock.Release();
+            }
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogWarning($"Timeout downloading image for Blizzard product {productCode}");
+            return null;
+        }
+        catch (TaskCanceledException)
+        {
+            _logger.LogDebug($"Download cancelled for Blizzard product {productCode}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error getting or downloading image for Blizzard product {productCode}");
+            return null;
+        }
+    }
+
     private void EnsureCacheDirectoryExists()
     {
         try

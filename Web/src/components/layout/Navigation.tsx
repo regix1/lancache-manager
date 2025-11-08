@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { LayoutDashboard, Download, Laptop, Settings, Menu, X, Users } from 'lucide-react';
+import { LayoutDashboard, Download, Laptop, Settings, Menu, X, Users, FlaskConical } from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
 
 interface NavigationProps {
@@ -17,7 +17,8 @@ const Navigation: React.FC<NavigationProps> = React.memo(
       { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false },
       { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false },
       { id: 'users', label: 'Users', icon: Users, requiresAuth: true },
-      { id: 'management', label: 'Management', icon: Settings, requiresAuth: false }
+      { id: 'management', label: 'Management', icon: Settings, requiresAuth: false },
+      { id: 'blizzard-test', label: 'Blizzard Test', icon: FlaskConical, requiresAuth: true }
     ];
 
     // Filter tabs based on authentication - only show User tab to authenticated users (not guests)
