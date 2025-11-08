@@ -345,6 +345,33 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
+    // Service Removal Complete
+    const handleServiceRemovalComplete = (payload: any) => {
+      console.log('[NotificationsContext] ServiceRemovalComplete received:', payload);
+      const notificationId = `service_removal-${payload.serviceName}`;
+      console.log('[NotificationsContext] Looking for notification ID:', notificationId);
+
+      const existing = notifications.find((n) => n.id === notificationId);
+      if (!existing) return;
+
+      if (payload.success) {
+        updateNotification(notificationId, {
+          status: 'completed',
+          details: {
+            ...existing.details,
+            filesDeleted: payload.filesDeleted,
+            bytesFreed: payload.bytesFreed,
+            logEntriesRemoved: payload.logEntriesRemoved
+          }
+        });
+      } else {
+        updateNotification(notificationId, {
+          status: 'failed',
+          error: payload.message || 'Removal failed'
+        });
+      }
+    };
+
     // Database Reset
     const handleDatabaseResetProgress = (payload: any) => {
       const notificationId = 'database-reset';
@@ -631,6 +658,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalComplete', handleGameRemovalComplete);
+    signalR.on('ServiceRemovalComplete', handleServiceRemovalComplete);
     signalR.on('CacheClearProgress', handleCacheClearProgress);
     signalR.on('CacheClearComplete', handleCacheClearComplete);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
@@ -645,6 +673,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       signalR.off('GameRemovalComplete', handleGameRemovalComplete);
+      signalR.off('ServiceRemovalComplete', handleServiceRemovalComplete);
       signalR.off('CacheClearProgress', handleCacheClearProgress);
       signalR.off('CacheClearComplete', handleCacheClearComplete);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);

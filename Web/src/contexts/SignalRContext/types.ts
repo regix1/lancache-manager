@@ -33,6 +33,7 @@ export const SIGNALR_EVENTS = [
   'LogRemovalProgress',
   'LogRemovalComplete',
   'GameRemovalComplete',
+  'ServiceRemovalComplete',
   'CacheClearProgress',
   'CacheClearComplete',
   'GuestDurationUpdated',
