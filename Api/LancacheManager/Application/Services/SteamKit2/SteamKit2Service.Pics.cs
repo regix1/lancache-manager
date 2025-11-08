@@ -125,6 +125,7 @@ public partial class SteamKit2Service
                     success = true,
                     cancelled = true,
                     message = "Depot mapping scan cancelled",
+                    isLoggedOn = IsSteamAuthenticated,
                     timestamp = DateTime.UtcNow
                 });
             }
@@ -559,6 +560,7 @@ public partial class SteamKit2Service
                     totalMappings,
                     downloadsUpdated,
                     scanMode = incrementalOnly ? "incremental" : "full",
+                    isLoggedOn = IsSteamAuthenticated,
                     timestamp = DateTime.UtcNow
                 });
             }
@@ -589,6 +591,7 @@ public partial class SteamKit2Service
                     success = false,
                     message = $"Depot mapping failed: {ex.Message}",
                     error = ex.Message,
+                    isLoggedOn = IsSteamAuthenticated,
                     timestamp = DateTime.UtcNow
                 });
             }
