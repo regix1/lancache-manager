@@ -62,6 +62,9 @@ public class LinuxPathResolver : IPathResolver
     public string GetRustGameRemoverPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "game_cache_remover");
 
+    public string GetRustServiceRemoverPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "service_remover");
+
     public string GetDatabasePath() =>
         Path.Combine(GetDataDirectory(), "LancacheManager.db");
 

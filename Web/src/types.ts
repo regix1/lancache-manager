@@ -176,13 +176,23 @@ export interface GameCacheInfo {
   cache_file_paths: string[];
 }
 
+export interface ServiceCacheInfo {
+  service_name: string;
+  cache_files_found: number;
+  total_size_bytes: number;
+  sample_urls: string[];
+  cache_file_paths: string[];
+}
+
 export interface GameDetectionStatus {
   operationId: string;
   startTime: string;
   status: 'running' | 'complete' | 'failed';
   message?: string;
   games?: GameCacheInfo[];
+  services?: ServiceCacheInfo[];
   totalGamesDetected?: number;
+  totalServicesDetected?: number;
   error?: string;
 }
 
@@ -194,4 +204,12 @@ export interface GameCacheRemovalReport {
   empty_dirs_removed: number;
   log_entries_removed: number;
   depot_ids: number[];
+}
+
+export interface ServiceCacheRemovalReport {
+  service_name: string;
+  cache_files_deleted: number;
+  total_bytes_freed: number;
+  log_entries_removed: number;
+  database_entries_deleted: number;
 }

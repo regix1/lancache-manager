@@ -12,7 +12,8 @@ import type {
   DashboardStats,
   CorruptedChunkDetail,
   GameDetectionStatus,
-  GameCacheInfo
+  GameCacheInfo,
+  ServiceCacheInfo
   // GameCacheRemovalReport // No longer used - game removal is fire-and-forget
 } from '../types';
 
@@ -857,7 +858,9 @@ class ApiService {
   static async getCachedGameDetection(): Promise<{
     hasCachedResults: boolean;
     games?: GameCacheInfo[];
+    services?: ServiceCacheInfo[];
     totalGamesDetected?: number;
+    totalServicesDetected?: number;
   }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/detect-games-cached`, {
@@ -867,7 +870,9 @@ class ApiService {
       return await this.handleResponse<{
         hasCachedResults: boolean;
         games?: GameCacheInfo[];
+        services?: ServiceCacheInfo[];
         totalGamesDetected?: number;
+        totalServicesDetected?: number;
       }>(res);
     } catch (error) {
       console.error('getCachedGameDetection error:', error);
@@ -888,6 +893,23 @@ class ApiService {
       return await this.handleResponse<{ message: string; gameAppId: number; status: string }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
+      throw error;
+    }
+  }
+
+  // Remove all cache files for a specific service (fire-and-forget, requires auth)
+  static async removeServiceFromCache(
+    serviceName: string
+  ): Promise<{ message: string; serviceName: string; status: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/management/cache/service/${encodeURIComponent(serviceName)}`, {
+        method: 'DELETE',
+        headers: this.getHeaders()
+        // Returns immediately with 202 Accepted - removal happens in background
+      });
+      return await this.handleResponse<{ message: string; serviceName: string; status: string }>(res);
+    } catch (error) {
+      console.error('removeServiceFromCache error:', error);
       throw error;
     }
   }

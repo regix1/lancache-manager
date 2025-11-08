@@ -1307,6 +1307,83 @@ public class ManagementController : ControllerBase
         }
     }
 
+    [HttpDelete("cache/service/{serviceName}")]
+    [RequireAuth]
+    public IActionResult RemoveServiceFromCache(string serviceName)
+    {
+        try
+        {
+            _logger.LogInformation("Starting background service removal for '{Service}'", serviceName);
+
+            // Fire-and-forget: run in background using IServiceScopeFactory
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Create a new scope for the background task
+                    await using var scope = _serviceScopeFactory.CreateAsyncScope();
+                    var cacheService = scope.ServiceProvider.GetRequiredService<CacheManagementService>();
+                    var gameCacheDetectionService = scope.ServiceProvider.GetRequiredService<GameCacheDetectionService>();
+                    var logger = scope.ServiceProvider.GetRequiredService<ILogger<ManagementController>>();
+
+                    logger.LogInformation("[Background] Removing service '{Service}' from cache", serviceName);
+
+                    var report = await cacheService.RemoveServiceFromCache(serviceName);
+
+                    // Remove this service from the detection cache
+                    await gameCacheDetectionService.RemoveServiceFromCacheAsync(serviceName);
+                    logger.LogInformation("[Background] Successfully removed service '{Service}' - {Files} files, {Bytes} bytes",
+                        serviceName, report.CacheFilesDeleted, report.TotalBytesFreed);
+
+                    // Send completion notification via SignalR
+                    await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
+                    {
+                        success = true,
+                        serviceName = report.ServiceName,
+                        filesDeleted = report.CacheFilesDeleted,
+                        bytesFreed = report.TotalBytesFreed,
+                        logEntriesRemoved = report.LogEntriesRemoved,
+                        databaseEntriesDeleted = report.DatabaseEntriesDeleted,
+                        message = $"Successfully removed service '{report.ServiceName}' from cache"
+                    });
+                }
+                catch (Exception ex)
+                {
+                    // Log errors and send failure notification
+                    _logger.LogError(ex, "[Background] Error removing service '{Service}' from cache", serviceName);
+
+                    // Send failure notification via SignalR
+                    try
+                    {
+                        await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
+                        {
+                            success = false,
+                            serviceName,
+                            message = $"Failed to remove service '{serviceName}': {ex.Message}"
+                        });
+                    }
+                    catch (Exception signalREx)
+                    {
+                        _logger.LogError(signalREx, "[Background] Failed to send SignalR notification for service '{Service}'", serviceName);
+                    }
+                }
+            });
+
+            // Return 202 Accepted immediately
+            return Accepted(new
+            {
+                message = $"Service removal started for '{serviceName}'",
+                serviceName,
+                status = "processing"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error starting service removal for '{Service}'", serviceName);
+            return StatusCode(500, new { error = $"Failed to start service removal for '{serviceName}'", details = ex.Message });
+        }
+    }
+
     /// <summary>
     /// Get the current application state including viability check cache
     /// </summary>

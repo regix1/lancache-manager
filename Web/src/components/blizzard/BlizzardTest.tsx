@@ -541,7 +541,8 @@ const BlizzardTest: React.FC = () => {
                           <Button
                             onClick={() => handleClearProduct(productStat.product)}
                             disabled={loading[`clear-${productStat.product}`]}
-                            variant="danger"
+                            variant="filled"
+                            color="red"
                             className="flex items-center gap-2"
                           >
                             {loading[`clear-${productStat.product}`] ? (

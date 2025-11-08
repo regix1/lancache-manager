@@ -86,6 +86,11 @@ public interface IPathResolver
     string GetRustGameRemoverPath();
 
     /// <summary>
+    /// Gets the path to the Rust service remover executable
+    /// </summary>
+    string GetRustServiceRemoverPath();
+
+    /// <summary>
     /// Gets the path to the database file
     /// </summary>
     string GetDatabasePath();
