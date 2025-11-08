@@ -7,6 +7,7 @@ import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useBackendOperation } from '@hooks/useBackendOperation';
+import { formatDateTime } from '@utils/formatters';
 import GamesList from './game-cache-detector/GamesList';
 import ServicesList from './game-cache-detector/ServicesList';
 import GameRemovalModal from './game-cache-detector/GameRemovalModal';
@@ -749,7 +750,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       Showing results from previous scan
                     </span>
                     <span className="text-xs text-themed-muted">
-                      Detected {new Date(lastDetectionTime).toLocaleString()}
+                      Detected {formatDateTime(lastDetectionTime)}
                     </span>
                   </div>
                 </Alert>
