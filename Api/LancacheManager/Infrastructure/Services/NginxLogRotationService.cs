@@ -47,26 +47,15 @@ public class NginxLogRotationService
                 return false;
             }
 
-            _logger.LogInformation("Sending nginx log reopen signal to container: {ContainerName}", containerName);
+            _logger.LogInformation("Sending USR1 signal to nginx in container: {ContainerName}", containerName);
 
-            // Try nginx -s reopen first (preferred method)
-            var reopenSuccess = await ExecuteDockerCommandAsync(containerName, "nginx -s reopen");
+            // Use 'docker kill --signal=USR1' to send signal to PID 1 (nginx)
+            // This is simpler than docker exec and doesn't require shell access
+            var success = await SendSignalToContainerAsync(containerName, "USR1");
 
-            if (reopenSuccess)
+            if (success)
             {
-                _logger.LogInformation("Successfully signaled nginx to reopen logs in {ContainerName}", containerName);
-                return true;
-            }
-
-            // Fallback: Try sending SIGUSR1 to nginx master process
-            _logger.LogInformation("nginx -s reopen failed, attempting SIGUSR1 signal...");
-            var killSuccess = await ExecuteDockerCommandAsync(
-                containerName,
-                "sh -c \"kill -USR1 $(cat /var/run/nginx.pid || pgrep -f 'nginx: master')\"");
-
-            if (killSuccess)
-            {
-                _logger.LogInformation("Successfully sent SIGUSR1 to nginx in {ContainerName}", containerName);
+                _logger.LogInformation("Successfully sent USR1 signal to nginx in {ContainerName}", containerName);
                 return true;
             }
 
@@ -203,14 +192,18 @@ public class NginxLogRotationService
         }
     }
 
-    private async Task<bool> ExecuteDockerCommandAsync(string containerName, string command)
+    /// <summary>
+    /// Send a signal to a container using 'docker kill --signal'
+    /// This is simpler than docker exec and doesn't require shell access
+    /// </summary>
+    private async Task<bool> SendSignalToContainerAsync(string containerName, string signal)
     {
         try
         {
             var processStartInfo = new ProcessStartInfo
             {
                 FileName = "docker",
-                Arguments = $"exec {containerName} {command}",
+                Arguments = $"kill --signal={signal} {containerName}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -220,7 +213,7 @@ public class NginxLogRotationService
             using var process = Process.Start(processStartInfo);
             if (process == null)
             {
-                _logger.LogWarning("Failed to start docker process");
+                _logger.LogWarning("Failed to start docker kill process");
                 return false;
             }
 
@@ -234,22 +227,19 @@ public class NginxLogRotationService
 
             if (process.ExitCode == 0)
             {
-                if (!string.IsNullOrWhiteSpace(stdout))
-                {
-                    _logger.LogDebug("Docker command output: {Output}", stdout.Trim());
-                }
+                _logger.LogDebug("Signal {Signal} sent successfully to container {Container}", signal, containerName);
                 return true;
             }
             else
             {
-                _logger.LogWarning("Docker command failed with exit code {ExitCode}: {Error}",
+                _logger.LogWarning("docker kill failed with exit code {ExitCode}: {Error}",
                     process.ExitCode, stderr.Trim());
                 return false;
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error executing docker command: {Command}", command);
+            _logger.LogError(ex, "Error sending signal {Signal} to container {Container}", signal, containerName);
             return false;
         }
     }

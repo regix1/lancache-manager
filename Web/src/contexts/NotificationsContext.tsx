@@ -688,6 +688,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
   }, [
     signalR,
+    notifications,
     updateNotification,
     addNotification,
     scheduleAutoDismiss,
@@ -714,6 +715,31 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     window.addEventListener('picsvisibilitychange', handlePicsVisibilityChange);
     return () => window.removeEventListener('picsvisibilitychange', handlePicsVisibilityChange);
   }, [notifications, scheduleAutoDismiss]);
+
+  // Handle page visibility changes - dismiss stale completed notifications when tab becomes visible
+  React.useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && shouldAutoDismiss()) {
+        // Page became visible - clean up any old completed/failed notifications
+        notifications.forEach((notification) => {
+          if (notification.status === 'completed' || notification.status === 'failed') {
+            // Check if notification is old (more than 10 seconds)
+            const age = Date.now() - notification.startedAt.getTime();
+            if (age > 10000) {
+              // Old notification that should have been dismissed - remove it now
+              removeNotificationAnimated(notification.id);
+            } else {
+              // Recent notification - schedule normal auto-dismiss
+              scheduleAutoDismiss(notification.id);
+            }
+          }
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [notifications, scheduleAutoDismiss, removeNotificationAnimated]);
 
   // Universal Recovery: Check all backend operations on mount
   React.useEffect(() => {

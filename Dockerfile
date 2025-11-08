@@ -82,7 +82,8 @@ LABEL org.opencontainers.image.licenses="MIT"
 # Set version as environment variable for runtime access
 ENV LANCACHE_MANAGER_VERSION=${VERSION}
 
-# Install runtime dependencies including tools for fast cache clearing
+# Install runtime dependencies including tools for fast cache clearing and Docker CLI
+# Docker CLI is needed to send signals to nginx container via 'docker kill' command
 RUN apt-get update && \
     apt-get install -y \
     curl \
@@ -93,6 +94,15 @@ RUN apt-get update && \
     rsync \
     findutils \
     coreutils \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy published application
