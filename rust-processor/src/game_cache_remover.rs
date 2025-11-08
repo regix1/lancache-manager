@@ -7,6 +7,8 @@ use std::fs;
 use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 mod cache_utils;
 mod log_discovery;
@@ -345,7 +347,32 @@ fn remove_log_entries_for_game(
 
             {
                 let mut log_reader = LogFileReader::open(&log_file.path)?;
-                let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file.as_file());
+
+                // Create writer that matches the compression of the original file
+                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
+                    // Check extension to determine compression type
+                    let path_str = log_file.path.to_string_lossy();
+                    if path_str.ends_with(".gz") {
+                        // Gzip compression
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
+                        ))
+                    } else if path_str.ends_with(".zst") {
+                        // Zstd compression
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
+                        ))
+                    } else {
+                        // Unknown compression, treat as plain
+                        Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                    }
+                } else {
+                    // Plain text
+                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                };
+
                 let mut line = String::new();
 
                 loop {
@@ -382,6 +409,8 @@ fn remove_log_entries_for_game(
                 }
 
                 writer.flush()?;
+                // Ensure compression is finalized
+                drop(writer);
             }
 
             // If all lines would be removed, delete the entire file

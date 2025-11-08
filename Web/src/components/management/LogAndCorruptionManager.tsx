@@ -535,7 +535,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 <p className="text-themed-muted text-sm">
                   Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+
                   occurrences) in access logs. Removal will <strong>delete cache files</strong> from
-                  disk AND <strong>remove log entries</strong> for these chunks.
+                  disk, <strong>remove log entries</strong>, AND <strong>delete database records</strong> for entire download sessions with corrupted chunks.
                 </p>
               </div>
             </div>
@@ -819,6 +819,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                   <strong>Log entries</strong> from access.log for these chunks
                 </li>
                 <li>
+                  <strong>Database records</strong> for entire download sessions with corrupted chunks
+                </li>
+                <li>
                   <strong>Empty directories</strong> left after file removal
                 </li>
               </ul>
@@ -850,7 +853,7 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
               onClick={confirmRemoveCorruption}
               leftSection={<AlertTriangle className="w-4 h-4" />}
             >
-              Delete Cache Files & Log Entries
+              Delete Cache, Logs & Database Entries
             </Button>
           </div>
         </div>

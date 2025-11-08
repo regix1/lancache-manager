@@ -6,6 +6,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 
 mod cache_utils;
 mod corruption_detector;
@@ -52,8 +54,6 @@ fn delete_corrupted_from_database(
 
     let service_lower = service.to_lowercase();
 
-    // Build placeholders for SQL IN clause
-    // We'll delete records where Service matches AND URL is in our corrupted set
     let mut total_log_entries_deleted = 0;
     let mut total_downloads_deleted = 0;
 
@@ -61,12 +61,42 @@ fn delete_corrupted_from_database(
     let batch_size = 500;
     let urls: Vec<&String> = corrupted_urls.iter().collect();
 
+    // STEP 1: Collect all unique DownloadIds that have corrupted log entries
+    // We need to do this BEFORE deleting LogEntries, so we know which Downloads to remove
+    let mut download_ids_to_delete = std::collections::HashSet::new();
+
     for chunk in urls.chunks(batch_size) {
-        // Build placeholders: ?, ?, ?, ...
         let placeholders = vec!["?"; chunk.len()].join(", ");
 
-        // CRITICAL FIX: Delete LogEntries directly by matching Service and Url
-        // This ensures we clean up ALL log entries, not just those linked to Downloads
+        // Find all DownloadIds that have at least one corrupted log entry
+        let query = format!(
+            "SELECT DISTINCT DownloadId FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({}) AND DownloadId IS NOT NULL",
+            placeholders
+        );
+
+        let mut stmt = conn.prepare(&query)?;
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&service_lower];
+        for url in chunk {
+            params.push(url);
+        }
+
+        let download_ids = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+            row.get::<_, i32>(0)
+        })?;
+
+        for download_id in download_ids {
+            if let Ok(id) = download_id {
+                download_ids_to_delete.insert(id);
+            }
+        }
+    }
+
+    eprintln!("  Found {} download sessions with corrupted entries", download_ids_to_delete.len());
+
+    // STEP 2: Delete LogEntries with corrupted URLs
+    for chunk in urls.chunks(batch_size) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+
         let log_entries_query = format!(
             "DELETE FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({})",
             placeholders
@@ -79,24 +109,40 @@ fn delete_corrupted_from_database(
         }
         let log_deleted = log_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
         total_log_entries_deleted += log_deleted;
+    }
 
-        // Also delete Downloads that match LastUrl (housekeeping)
+    eprintln!("  Deleted {} log entry records", total_log_entries_deleted);
+
+    // STEP 3: Delete the entire Download sessions that had corrupted entries
+    // Process download IDs in batches as well
+    let download_ids_vec: Vec<i32> = download_ids_to_delete.into_iter().collect();
+
+    for chunk in download_ids_vec.chunks(batch_size) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+
+        // First delete all remaining LogEntries for these downloads (cleanup)
+        let cleanup_query = format!(
+            "DELETE FROM LogEntries WHERE DownloadId IN ({})",
+            placeholders
+        );
+
+        let mut cleanup_stmt = conn.prepare(&cleanup_query)?;
+        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        cleanup_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
+
+        // Then delete the Download records
         let downloads_query = format!(
-            "DELETE FROM Downloads WHERE LOWER(Service) = ? AND LastUrl IN ({})",
+            "DELETE FROM Downloads WHERE Id IN ({})",
             placeholders
         );
 
         let mut downloads_stmt = conn.prepare(&downloads_query)?;
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&service_lower];
-        for url in chunk {
-            params.push(url);
-        }
+        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
         let downloads_deleted = downloads_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
         total_downloads_deleted += downloads_deleted;
     }
 
-    eprintln!("  Deleted {} log entry records", total_log_entries_deleted);
-    eprintln!("  Deleted {} download records", total_downloads_deleted);
+    eprintln!("  Deleted {} download records (entire sessions with corrupted chunks)", total_downloads_deleted);
 
     Ok((total_downloads_deleted, total_log_entries_deleted))
 }
@@ -227,7 +273,6 @@ fn main() -> Result<()> {
 
             use log_reader::LogFileReader;
             use std::io::Write as IoWrite;
-            use std::io::BufWriter;
             use parser::LogParser;
             use std::collections::HashMap;
 
@@ -339,6 +384,8 @@ fn main() -> Result<()> {
                 eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
                 let file_result = (|| -> Result<u64> {
+                    use std::io::BufWriter;
+
                     // Create temp file for filtered output with automatic cleanup
                     let file_dir = log_file.path.parent().context("Failed to get file directory")?;
                     let temp_file = NamedTempFile::new_in(file_dir)?;
@@ -348,7 +395,32 @@ fn main() -> Result<()> {
 
                     {
                         let mut log_reader = LogFileReader::open(&log_file.path)?;
-                        let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file.as_file());
+
+                        // Create writer that matches the compression of the original file
+                        let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
+                            // Check extension to determine compression type
+                            let path_str = log_file.path.to_string_lossy();
+                            if path_str.ends_with(".gz") {
+                                // Gzip compression
+                                Box::new(BufWriter::with_capacity(
+                                    1024 * 1024,
+                                    GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
+                                ))
+                            } else if path_str.ends_with(".zst") {
+                                // Zstd compression
+                                Box::new(BufWriter::with_capacity(
+                                    1024 * 1024,
+                                    zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
+                                ))
+                            } else {
+                                // Unknown compression, treat as plain
+                                Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                            }
+                        } else {
+                            // Plain text
+                            Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                        };
+
                         let mut line = String::new();
 
                         loop {
@@ -377,6 +449,8 @@ fn main() -> Result<()> {
                         }
 
                         writer.flush()?;
+                        // Ensure compression is finalized for zstd
+                        drop(writer);
                     }
 
                     // If all lines would be removed, delete the entire file instead
