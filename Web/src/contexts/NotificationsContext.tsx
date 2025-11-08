@@ -135,10 +135,15 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const addNotification = useCallback(
     (notification: Omit<UnifiedNotification, 'id' | 'startedAt'>): string => {
       // For game_removal, use gameAppId in ID so SignalR handler can find it
-      const id =
-        notification.type === 'game_removal' && notification.details?.gameAppId
-          ? `${notification.type}-${notification.details.gameAppId}`
-          : `${notification.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // For service_removal, use service name in ID so SignalR handler can find it
+      let id: string;
+      if (notification.type === 'game_removal' && notification.details?.gameAppId) {
+        id = `${notification.type}-${notification.details.gameAppId}`;
+      } else if (notification.type === 'service_removal' && notification.details?.service) {
+        id = `${notification.type}-${notification.details.service}`;
+      } else {
+        id = `${notification.type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      }
 
       const newNotification: UnifiedNotification = {
         ...notification,
