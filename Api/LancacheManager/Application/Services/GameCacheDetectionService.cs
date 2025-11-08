@@ -321,6 +321,8 @@ public class GameCacheDetectionService
             operation.Status = "complete";
             operation.Games = finalGames;
             operation.TotalGamesDetected = totalGamesDetected;
+            operation.Services = detectionResult.Services;
+            operation.TotalServicesDetected = detectionResult.Services.Count;
 
             // Save results to database (replaces in-memory cache)
             await SaveGamesToDatabaseAsync(finalGames, incremental);
