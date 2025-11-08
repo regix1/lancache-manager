@@ -1225,7 +1225,8 @@ public class ManagementController : ControllerBase
             games = cachedResult.Games,
             services = cachedResult.Services,
             totalGamesDetected = cachedResult.TotalGamesDetected,
-            totalServicesDetected = cachedResult.TotalServicesDetected
+            totalServicesDetected = cachedResult.TotalServicesDetected,
+            lastDetectionTime = cachedResult.StartTime
         });
     }
 

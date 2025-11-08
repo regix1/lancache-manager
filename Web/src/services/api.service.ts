@@ -861,6 +861,7 @@ class ApiService {
     services?: ServiceCacheInfo[];
     totalGamesDetected?: number;
     totalServicesDetected?: number;
+    lastDetectionTime?: string;
   }> {
     try {
       const res = await fetch(`${API_BASE}/management/cache/detect-games-cached`, {
@@ -873,6 +874,7 @@ class ApiService {
         services?: ServiceCacheInfo[];
         totalGamesDetected?: number;
         totalServicesDetected?: number;
+        lastDetectionTime?: string;
       }>(res);
     } catch (error) {
       console.error('getCachedGameDetection error:', error);

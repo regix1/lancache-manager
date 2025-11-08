@@ -25,6 +25,7 @@ RUN cargo build --release && \
     cp target/release/corruption_manager /build/output/ && \
     cp target/release/game_cache_detector /build/output/ && \
     cp target/release/game_cache_remover /build/output/ && \
+    cp target/release/service_remover /build/output/ && \
     chmod +x /build/output/*
 
 # Stage 2: Build Frontend
