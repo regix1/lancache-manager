@@ -264,6 +264,9 @@ builder.Services.AddSingleton<RustDatabaseResetService>();
 // Register Rust log removal service
 builder.Services.AddSingleton<RustLogRemovalService>();
 
+// Register nginx log rotation service (signals nginx to reopen logs after manipulation)
+builder.Services.AddSingleton<NginxLogRotationService>();
+
 // Register CacheClearingService
 builder.Services.AddSingleton<CacheClearingService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -13,6 +14,7 @@ public class CacheManagementService
     private readonly IPathResolver _pathResolver;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly string _cachePath;
     private readonly string _logPath;
 
@@ -21,13 +23,14 @@ public class CacheManagementService
     private DateTime? _lastLogWarningTime; // Track last time we logged a warning
     private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
 
-    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver, ProcessManager processManager, RustProcessHelper rustProcessHelper)
+    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver, ProcessManager processManager, RustProcessHelper rustProcessHelper, NginxLogRotationService nginxLogRotationService)
     {
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
+        _nginxLogRotationService = nginxLogRotationService;
 
         // Use PathResolver to get properly resolved paths
         var configCachePath = configuration["LanCache:CachePath"];
@@ -681,6 +684,9 @@ public class CacheManagementService
             // No corruption summary cache to invalidate (Rust runs fresh each time)
             // Invalidate service count cache since corruption removal affects counts
             await InvalidateServiceCountsCache();
+
+            // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+            await _nginxLogRotationService.ReopenNginxLogsAsync();
         }
         finally
         {

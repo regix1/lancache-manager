@@ -19,6 +19,7 @@ public class RustLogRemovalService
     private readonly CacheManagementService _cacheManagementService;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly NginxLogRotationService _nginxLogRotationService;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
 
@@ -31,7 +32,8 @@ public class RustLogRemovalService
         IHubContext<DownloadHub> hubContext,
         CacheManagementService cacheManagementService,
         ProcessManager processManager,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        NginxLogRotationService nginxLogRotationService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -39,6 +41,7 @@ public class RustLogRemovalService
         _cacheManagementService = cacheManagementService;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
+        _nginxLogRotationService = nginxLogRotationService;
     }
 
     public class ProgressData
@@ -154,6 +157,9 @@ public class RustLogRemovalService
                 {
                     // Invalidate service counts cache so UI refreshes
                     await _cacheManagementService.InvalidateServiceCountsCache();
+
+                    // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+                    await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                     // Send completion notification
                     var finalProgress = await ReadProgressFileAsync(progressPath);

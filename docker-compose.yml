@@ -11,10 +11,17 @@ services:
     volumes:
       # Your data directory
       - ./data:/data
-      
+
       # Your actual paths from CACHE_ROOT
       - /mnt/logs:/logs:ro
       - /mnt/cache/cache:/cache:ro
+
+      # Docker socket for nginx log rotation (allows container to run docker exec)
+      # SECURITY NOTE: Mounting docker.sock gives this container access to Docker daemon.
+      # This is needed to signal nginx in the monolithic container to reopen log files
+      # after log manipulation. Mounted read-only (:ro) for minimal access.
+      # To disable this feature, set NginxLogRotation__Enabled=false and remove this line.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - PUID=1006
       - PGID=1006
@@ -30,3 +37,6 @@ services:
       - Security__RequireAuthForMetrics=false  # Set to 'true' to require API key for /metrics endpoint (Prometheus/Grafana access)
       # Optimization Settings
       - Optimizations__EnableGarbageCollectionManagement=false  # Set to 'true' to enable garbage collection optimization controls
+      # Nginx Log Rotation Settings (prevents monolithic container from losing log access)
+      - NginxLogRotation__Enabled=true          # Set to 'false' to disable automatic nginx log rotation
+      - NginxLogRotation__ContainerName=        # Leave empty for auto-detection, or set to your monolithic container name
