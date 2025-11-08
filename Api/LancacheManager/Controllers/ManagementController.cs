@@ -1223,7 +1223,9 @@ public class ManagementController : ControllerBase
         return Ok(new {
             hasCachedResults = true,
             games = cachedResult.Games,
-            totalGamesDetected = cachedResult.TotalGamesDetected
+            services = cachedResult.Services,
+            totalGamesDetected = cachedResult.TotalGamesDetected,
+            totalServicesDetected = cachedResult.TotalServicesDetected
         });
     }
 
