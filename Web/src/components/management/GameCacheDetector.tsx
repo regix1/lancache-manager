@@ -234,6 +234,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const pollDetectionStatus = async (operationId: string) => {
     try {
       const status = await ApiService.getGameDetectionStatus(operationId);
+      console.log('[GameCacheDetector] Poll status response:', status);
 
       if (status.status === 'complete') {
         // Detection complete
@@ -367,7 +368,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       const notificationId = addNotification({
         type: 'generic',
         status: 'running',
-        message: 'Detecting games in cache...',
+        message: 'Detecting games and services in cache...',
         details: { notificationType: 'info' }
       });
       detectionNotificationIdRef.current = notificationId;

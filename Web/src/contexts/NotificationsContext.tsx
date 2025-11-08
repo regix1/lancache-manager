@@ -960,7 +960,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   id: notificationId,
                   type: 'generic' as NotificationType,
                   status: 'running' as NotificationStatus,
-                  message: op.statusMessage || 'Detecting games in cache...',
+                  message: op.statusMessage || 'Detecting games and services in cache...',
                   progress: op.percentComplete || 0,
                   startedAt: new Date(),
                   details: {
