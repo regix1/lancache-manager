@@ -89,7 +89,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         {
             var authMode = _stateService.GetSteamAuthMode();
             var isAuthenticated = authMode == "authenticated" && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
-            return _isLoggedOn && isAuthenticated;
+            return isAuthenticated;
         }
     }
 
