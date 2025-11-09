@@ -87,22 +87,27 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             setLastDetectionTime(result.lastDetectionTime);
           }
 
-          // Show notification that cached results were loaded
-          const parts = [];
-          if (result.totalGamesDetected && result.totalGamesDetected > 0) {
-            parts.push(`${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`);
-          }
-          if (result.totalServicesDetected && result.totalServicesDetected > 0) {
-            parts.push(`${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`);
-          }
+          // Only show "Loaded previous results" notification if we're NOT actively running a scan
+          // Don't show it during full scan or quick scan - only when loading existing data
+          const isActivelyScanning = loading || scanType === 'full' || scanType === 'incremental';
 
-          if (parts.length > 0) {
-            addNotification({
-              type: 'generic',
-              status: 'completed',
-              message: `Loaded previous results: ${parts.join(' and ')}`,
-              details: { notificationType: 'info' }
-            });
+          if (!isActivelyScanning) {
+            const parts = [];
+            if (result.totalGamesDetected && result.totalGamesDetected > 0) {
+              parts.push(`${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`);
+            }
+            if (result.totalServicesDetected && result.totalServicesDetected > 0) {
+              parts.push(`${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`);
+            }
+
+            if (parts.length > 0) {
+              addNotification({
+                type: 'generic',
+                status: 'completed',
+                message: `Loaded previous results: ${parts.join(' and ')}`,
+                details: { notificationType: 'info' }
+              });
+            }
           }
         } else {
           // No cached results - clear the display
