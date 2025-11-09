@@ -289,19 +289,26 @@ public class DatabaseRepository : IDatabaseRepository
             double progressPerTable = 85.0 / tablesToClear.Count;
             double currentProgress = 0;
 
-            // Delete tables based on selection
-            // Note: LogEntries must be deleted first if Downloads is also being deleted (foreign key constraint)
-            var orderedTables = tablesToClear.OrderBy(t => t == "LogEntries" ? 0 : t == "Downloads" ? 1 : 2).ToList();
+            // Temporarily disable foreign key constraints for bulk deletion (SQLite)
+            // This prevents FK constraint errors during table deletions
+            _logger.LogInformation("Disabling foreign key constraints for bulk deletion");
+            await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF;");
 
-            // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
-            if (tablesToClear.Contains("Downloads") && !tablesToClear.Contains("LogEntries"))
+            try
             {
-                _logger.LogInformation("Nullifying LogEntry.DownloadId foreign keys before deleting Downloads table");
-                await context.LogEntries.Where(le => le.DownloadId != null)
-                    .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (int?)null));
-            }
+                // Delete tables based on selection
+                // Note: LogEntries must be deleted first if Downloads is also being deleted (foreign key constraint)
+                var orderedTables = tablesToClear.OrderBy(t => t == "LogEntries" ? 0 : t == "Downloads" ? 1 : 2).ToList();
 
-            foreach (var tableName in orderedTables)
+                // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
+                if (tablesToClear.Contains("Downloads") && !tablesToClear.Contains("LogEntries"))
+                {
+                    _logger.LogInformation("Nullifying LogEntry.DownloadId foreign keys before deleting Downloads table");
+                    await context.LogEntries.Where(le => le.DownloadId != null)
+                        .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (int?)null));
+                }
+
+                foreach (var tableName in orderedTables)
             {
                 _logger.LogInformation($"Clearing table: {tableName}");
 
@@ -454,10 +461,17 @@ public class DatabaseRepository : IDatabaseRepository
                 timestamp = DateTime.UtcNow
             });
 
-            // Invalidate relevant caches
-            if (tablesToClear.Contains("Downloads") || tablesToClear.Contains("ClientStats") || tablesToClear.Contains("ServiceStats") || tablesToClear.Contains("CachedGameDetections") || tablesToClear.Contains("LogEntries"))
+                // Invalidate relevant caches
+                if (tablesToClear.Contains("Downloads") || tablesToClear.Contains("ClientStats") || tablesToClear.Contains("ServiceStats") || tablesToClear.Contains("CachedGameDetections") || tablesToClear.Contains("LogEntries"))
+                {
+                    _statsCache.InvalidateDownloads();
+                }
+            }
+            finally
             {
-                _statsCache.InvalidateDownloads();
+                // Re-enable foreign key constraints
+                _logger.LogInformation("Re-enabling foreign key constraints");
+                await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON;");
             }
         }
         catch (Exception ex)
