@@ -112,6 +112,9 @@ CLAUDE.md
 .claude.json
 nul
 
+# Documentation and reference files (local only)
+notification_code.md
+
 # Development tools and temporary files
 rustup-init.exe
 *.backup.json
