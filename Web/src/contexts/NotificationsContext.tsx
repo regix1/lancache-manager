@@ -191,13 +191,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const status = payload.status || 'processing';
 
       if (status === 'complete') {
-        // Find existing notification and update it
+        // Find existing notification and update it, or create one if it doesn't exist (handles race condition)
         let notificationId: string | null = null;
         setNotifications((prev) => {
           const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
+
           if (!existing) {
-            console.warn('[NotificationsContext] No existing log_processing notification found');
-            return prev;
+            // Processing completed so fast that the starting event's state update hasn't committed yet
+            // Create a notification and immediately mark it as complete
+            const id = `log_processing-${Date.now()}`;
+            notificationId = id;
+            return [
+              ...prev,
+              {
+                id,
+                type: 'log_processing',
+                status: 'completed' as const,
+                message: 'Processing Complete!',
+                detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
+                progress: 100,
+                startedAt: new Date()
+              }
+            ];
           }
 
           notificationId = existing.id; // Capture ID for auto-dismiss
@@ -278,9 +293,24 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       let notificationId: string | null = null;
       setNotifications((prev) => {
         const existing = prev.find((n) => n.type === 'log_processing');
+
         if (!existing) {
-          console.warn('[NotificationsContext] No existing log_processing notification found');
-          return prev;
+          // Processing completed so fast that no notification was created yet (race condition)
+          // Create a notification and immediately mark it as complete
+          const id = `log_processing-${Date.now()}`;
+          notificationId = id;
+          return [
+            ...prev,
+            {
+              id,
+              type: 'log_processing',
+              status: 'completed' as const,
+              message: 'Processing Complete!',
+              detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
+              progress: 100,
+              startedAt: new Date()
+            }
+          ];
         }
 
         notificationId = existing.id; // Capture ID for auto-dismiss
