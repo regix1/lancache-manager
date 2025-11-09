@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { LayoutDashboard, Download, Laptop, Settings, Menu, X, Users } from 'lucide-react';
+import { LayoutDashboard, Download, Laptop, Settings, Menu, X, Users, Key } from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
 
 interface NavigationProps {
@@ -13,19 +13,26 @@ const Navigation: React.FC<NavigationProps> = React.memo(
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     const allTabs = [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false },
-      { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false },
-      { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false },
-      { id: 'users', label: 'Users', icon: Users, requiresAuth: true },
-      { id: 'management', label: 'Management', icon: Settings, requiresAuth: false }
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, requiresAuth: false, guestOnly: false },
+      { id: 'downloads', label: 'Downloads', icon: Download, requiresAuth: false, guestOnly: false },
+      { id: 'clients', label: 'Clients', icon: Laptop, requiresAuth: false, guestOnly: false },
+      { id: 'authenticate', label: 'Authenticate', icon: Key, requiresAuth: false, guestOnly: true },
+      { id: 'users', label: 'Users', icon: Users, requiresAuth: true, guestOnly: false },
+      { id: 'management', label: 'Management', icon: Settings, requiresAuth: true, guestOnly: false }
     ];
 
-    // Filter tabs based on authentication - only show User tab to authenticated users (not guests)
+    // Filter tabs based on authentication
     const tabs = useMemo(() => {
       return allTabs.filter((tab) => {
+        // Show auth-required tabs only to authenticated users
         if (tab.requiresAuth) {
           return authMode === 'authenticated';
         }
+        // Show guest-only tabs only to guests
+        if (tab.guestOnly) {
+          return authMode === 'guest';
+        }
+        // Show public tabs to everyone
         return true;
       });
     }, [authMode]);

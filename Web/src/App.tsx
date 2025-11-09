@@ -30,6 +30,7 @@ const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
 const DownloadsTab = lazy(() => import('@components/downloads/DownloadsTab'));
 const ClientsTab = lazy(() => import('@components/clients/ClientsTab'));
 const ServicesTab = lazy(() => import('@components/services/ServicesTab'));
+const AuthenticateTab = lazy(() => import('@components/auth/AuthenticateTab'));
 const UserTab = lazy(() => import('@components/user/UserTab'));
 const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
 const MemoryDiagnostics = lazy(() => import('@components/memory/MemoryDiagnostics'));
@@ -71,6 +72,14 @@ const AppContent: React.FC = () => {
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
+
+  // Switch away from auth-required tabs if auth is lost
+  useEffect(() => {
+    if (authMode !== 'authenticated' && (activeTab === 'users' || activeTab === 'management')) {
+      console.log('[App] Auth lost while on protected tab, switching to dashboard');
+      setActiveTab('dashboard');
+    }
+  }, [authMode, activeTab]);
 
   // Check if modal was dismissed this session
   const wasModalDismissed = useCallback(() => {
@@ -362,6 +371,8 @@ const AppContent: React.FC = () => {
           return ClientsTab;
         case 'services':
           return ServicesTab;
+        case 'authenticate':
+          return AuthenticateTab;
         case 'users':
           return UserTab;
         case 'management':
@@ -377,6 +388,8 @@ const AppContent: React.FC = () => {
           <ManagementTab onApiKeyRegenerated={handleApiKeyRegenerated} />
         ) : activeTab === 'users' ? (
           <UserTab />
+        ) : activeTab === 'authenticate' ? (
+          <AuthenticateTab />
         ) : (
           <TabComponent />
         )}

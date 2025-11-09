@@ -237,6 +237,7 @@ class AuthService {
   public exitGuestMode(): void {
     storage.removeItem('lancache_guest_session_start');
     storage.removeItem('lancache_guest_expires');
+    storage.removeItem('lancache_guest_session_id'); // Remove session ID to prevent conflicts
     this.authMode = 'unauthenticated';
     this.isAuthenticated = false;
   }
