@@ -49,6 +49,8 @@ public class StateRepository : IStateRepository
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
         public int GuestSessionDurationHours { get; set; } = 6; // Default to 6 hours
+        public string? SelectedTheme { get; set; } = "dark-default"; // Default theme for authenticated users
+        public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
 
         // PICS viability check caching (prevents repeated Steam API calls)
         public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
@@ -87,6 +89,8 @@ public class StateRepository : IStateRepository
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false;
         public int GuestSessionDurationHours { get; set; } = 6;
+        public string? SelectedTheme { get; set; } = "dark-default";
+        public string? DefaultGuestTheme { get; set; } = "dark-default";
 
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
@@ -491,6 +495,8 @@ public class StateRepository : IStateRepository
             HasDataLoaded = persisted.HasDataLoaded,
             HasProcessedLogs = persisted.HasProcessedLogs,
             GuestSessionDurationHours = persisted.GuestSessionDurationHours,
+            SelectedTheme = persisted.SelectedTheme ?? "dark-default",
+            DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -529,6 +535,8 @@ public class StateRepository : IStateRepository
             HasDataLoaded = state.HasDataLoaded,
             HasProcessedLogs = state.HasProcessedLogs,
             GuestSessionDurationHours = state.GuestSessionDurationHours,
+            SelectedTheme = state.SelectedTheme,
+            DefaultGuestTheme = state.DefaultGuestTheme,
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -627,5 +635,27 @@ public class StateRepository : IStateRepository
     public void SetGuestSessionDurationHours(int hours)
     {
         UpdateState(state => state.GuestSessionDurationHours = hours);
+    }
+
+    // Theme Preference Methods
+    public string? GetSelectedTheme()
+    {
+        return GetState().SelectedTheme ?? "dark-default";
+    }
+
+    public void SetSelectedTheme(string? themeId)
+    {
+        UpdateState(state => state.SelectedTheme = themeId ?? "dark-default");
+    }
+
+    // Default Guest Theme Methods
+    public string? GetDefaultGuestTheme()
+    {
+        return GetState().DefaultGuestTheme ?? "dark-default";
+    }
+
+    public void SetDefaultGuestTheme(string? themeId)
+    {
+        UpdateState(state => state.DefaultGuestTheme = themeId ?? "dark-default");
     }
 }

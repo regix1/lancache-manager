@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -13,13 +14,19 @@ public class ThemeController : ControllerBase
 {
     private readonly string _themesPath;
     private readonly ILogger<ThemeController> _logger;
+    private readonly IStateRepository _stateRepository;
 
     // System theme IDs that cannot be deleted
     private static readonly string[] SYSTEM_THEMES = { "dark-default", "light-default" };
 
-    public ThemeController(IConfiguration configuration, ILogger<ThemeController> logger, IPathResolver pathResolver)
+    public ThemeController(
+        IConfiguration configuration,
+        ILogger<ThemeController> logger,
+        IPathResolver pathResolver,
+        IStateRepository stateRepository)
     {
         _logger = logger;
+        _stateRepository = stateRepository;
 
         _themesPath = pathResolver.GetThemesDirectory();
 
@@ -458,4 +465,113 @@ public class ThemeController : ControllerBase
             return StatusCode(500, new { error = "Failed to cleanup themes", details = ex.Message });
         }
     }
+
+    // Theme Preference Endpoints
+    [HttpGet("preference")]
+    public IActionResult GetThemePreference()
+    {
+        try
+        {
+            var themeId = _stateRepository.GetSelectedTheme() ?? "dark-default";
+            _logger.LogInformation($"Retrieved theme preference: {themeId}");
+
+            return Ok(new
+            {
+                themeId = themeId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get theme preference");
+            return StatusCode(500, new { error = "Failed to get theme preference" });
+        }
+    }
+
+    [HttpPost("preference")]
+    [RequireAuth]
+    public IActionResult SetThemePreference([FromBody] ThemePreferenceRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
+        {
+            return BadRequest(new { error = "Theme ID is required" });
+        }
+
+        try
+        {
+            // Sanitize theme ID
+            var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
+
+            _stateRepository.SetSelectedTheme(themeId);
+            _logger.LogInformation($"Updated theme preference to: {themeId}");
+
+            return Ok(new
+            {
+                success = true,
+                themeId = themeId,
+                message = "Theme preference saved successfully"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save theme preference");
+            return StatusCode(500, new { error = "Failed to save theme preference" });
+        }
+    }
+
+    // Default Guest Theme Endpoints
+    [HttpGet("preferences/guest")]
+    public IActionResult GetDefaultGuestTheme()
+    {
+        try
+        {
+            var themeId = _stateRepository.GetDefaultGuestTheme() ?? "dark-default";
+            _logger.LogInformation($"Retrieved default guest theme: {themeId}");
+
+            return Ok(new
+            {
+                themeId = themeId
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get default guest theme");
+            return StatusCode(500, new { error = "Failed to get default guest theme" });
+        }
+    }
+
+    [HttpPost("preferences/guest")]
+    [RequireAuth]
+    public IActionResult SetDefaultGuestTheme([FromBody] ThemePreferenceRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
+        {
+            return BadRequest(new { error = "Theme ID is required" });
+        }
+
+        try
+        {
+            // Sanitize theme ID
+            var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "");
+
+            _stateRepository.SetDefaultGuestTheme(themeId);
+            _logger.LogInformation($"Updated default guest theme to: {themeId}");
+
+            return Ok(new
+            {
+                success = true,
+                themeId = themeId,
+                message = "Default guest theme saved successfully"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save default guest theme");
+            return StatusCode(500, new { error = "Failed to save default guest theme" });
+        }
+    }
+}
+
+public class ThemePreferenceRequest
+{
+    public string ThemeId { get; set; } = string.Empty;
 }

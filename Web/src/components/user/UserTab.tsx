@@ -17,6 +17,8 @@ import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
+import themeService from '@services/theme.service';
+import authService from '@services/auth.service';
 
 interface Session {
   id: string;
@@ -43,12 +45,13 @@ const UserTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
-  const [showRevokeModal, setShowRevokeModal] = useState(false);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
   const [updatingDuration, setUpdatingDuration] = useState(false);
+  const [defaultGuestTheme, setDefaultGuestTheme] = useState<string>('dark-default');
+  const [updatingGuestTheme, setUpdatingGuestTheme] = useState(false);
+  const [availableThemes, setAvailableThemes] = useState<Array<{ id: string; name: string }>>([]);
 
   const loadSessions = async (showLoading = false) => {
     try {
@@ -98,6 +101,59 @@ const UserTab: React.FC = () => {
     }
   };
 
+  const loadAvailableThemes = async () => {
+    try {
+      const themes = await themeService.loadThemes();
+      setAvailableThemes(
+        themes.map((theme) => ({
+          id: theme.meta.id,
+          name: theme.meta.name
+        }))
+      );
+    } catch (err) {
+      console.error('Failed to load available themes:', err);
+    }
+  };
+
+  const loadDefaultGuestTheme = async () => {
+    try {
+      const response = await fetch('/api/theme/preferences/guest', {
+        headers: ApiService.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setDefaultGuestTheme(data.themeId || 'dark-default');
+      }
+    } catch (err) {
+      console.error('Failed to load default guest theme:', err);
+    }
+  };
+
+  const handleUpdateGuestTheme = async (newThemeId: string) => {
+    try {
+      setUpdatingGuestTheme(true);
+      const response = await fetch('/api/theme/preferences/guest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...ApiService.getHeaders()
+        },
+        body: JSON.stringify({ themeId: newThemeId })
+      });
+
+      if (response.ok) {
+        setDefaultGuestTheme(newThemeId);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to update default guest theme');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to update default guest theme');
+    } finally {
+      setUpdatingGuestTheme(false);
+    }
+  };
+
   const durationOptions = [
     { value: '1', label: '1 hour' },
     { value: '2', label: '2 hours' },
@@ -114,6 +170,8 @@ const UserTab: React.FC = () => {
     // Initial load with loading spinner
     loadSessions(true);
     loadGuestDuration();
+    loadAvailableThemes();
+    loadDefaultGuestTheme();
 
     // Live refresh every 3 seconds for near-realtime updates (without loading spinner)
     const refreshInterval = setInterval(() => {
@@ -128,11 +186,17 @@ const UserTab: React.FC = () => {
 
   const handleRevokeSession = (session: Session) => {
     setPendingRevokeSession(session);
-    setShowRevokeModal(true);
   };
 
   const confirmRevokeSession = async () => {
     if (!pendingRevokeSession) return;
+
+    // Check if we're about to revoke our own session
+    const isOwnSession =
+      (pendingRevokeSession.type === 'authenticated' &&
+        pendingRevokeSession.id === authService.getDeviceId()) ||
+      (pendingRevokeSession.type === 'guest' &&
+        pendingRevokeSession.id === authService.getGuestSessionId());
 
     try {
       setRevokingSession(pendingRevokeSession.id);
@@ -147,15 +211,28 @@ const UserTab: React.FC = () => {
       });
 
       if (response.ok) {
+        // If we just revoked our own session, show feedback then logout
+        if (isOwnSession) {
+          console.warn('[UserTab] You revoked your own session - forcing logout');
+          setPendingRevokeSession(null);
+          setError('You revoked your own session. Logging out...');
+
+          // Wait 2 seconds so user can see the message
+          setTimeout(() => {
+            authService.clearAuth(); // Clear local state without API call (session already revoked)
+            window.location.reload();
+          }, 2000);
+          return;
+        }
+
         await loadSessions(false);
-        setShowRevokeModal(false);
         setPendingRevokeSession(null);
       } else {
         const errorData = await response.json();
-        alert(errorData.message || errorData.error || 'Failed to revoke session');
+        setError(errorData.message || errorData.error || 'Failed to revoke session');
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to revoke session');
+      setError(err.message || 'Failed to revoke session');
     } finally {
       setRevokingSession(null);
     }
@@ -163,11 +240,17 @@ const UserTab: React.FC = () => {
 
   const handleDeleteSession = (session: Session) => {
     setPendingDeleteSession(session);
-    setShowDeleteModal(true);
   };
 
   const confirmDeleteSession = async () => {
     if (!pendingDeleteSession) return;
+
+    // Check if we're about to delete our own session
+    const isOwnSession =
+      (pendingDeleteSession.type === 'authenticated' &&
+        pendingDeleteSession.id === authService.getDeviceId()) ||
+      (pendingDeleteSession.type === 'guest' &&
+        pendingDeleteSession.id === authService.getGuestSessionId());
 
     try {
       setDeletingSession(pendingDeleteSession.id);
@@ -182,15 +265,28 @@ const UserTab: React.FC = () => {
       });
 
       if (response.ok) {
+        // If we just deleted our own session, show feedback then logout
+        if (isOwnSession) {
+          console.warn('[UserTab] You deleted your own session - forcing logout');
+          setPendingDeleteSession(null);
+          setError('You deleted your own session. Logging out...');
+
+          // Wait 2 seconds so user can see the message
+          setTimeout(() => {
+            authService.clearAuth(); // Clear local state without API call (session already deleted)
+            window.location.reload();
+          }, 2000);
+          return;
+        }
+
         await loadSessions(false);
-        setShowDeleteModal(false);
         setPendingDeleteSession(null);
       } else {
         const errorData = await response.json();
-        alert(errorData.message || errorData.error || 'Failed to delete session');
+        setError(errorData.message || errorData.error || 'Failed to delete session');
       }
     } catch (err: any) {
-      alert(err.message || 'Failed to delete session');
+      setError(err.message || 'Failed to delete session');
     } finally {
       setDeletingSession(null);
     }
@@ -690,6 +786,30 @@ const UserTab: React.FC = () => {
               How long guest sessions remain valid before expiring
             </p>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-themed-primary mb-2">
+              Default Guest Theme
+            </label>
+            <div className="flex items-center gap-3">
+              <EnhancedDropdown
+                options={availableThemes.map((theme) => ({
+                  value: theme.id,
+                  label: theme.name
+                }))}
+                value={defaultGuestTheme}
+                onChange={handleUpdateGuestTheme}
+                disabled={updatingGuestTheme}
+                className="w-64"
+              />
+              {updatingGuestTheme && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+            </div>
+            <p className="text-xs text-themed-muted mt-2">
+              Default theme applied to all guest users (guests cannot change their theme)
+            </p>
+          </div>
         </div>
       </Card>
 
@@ -743,10 +863,9 @@ const UserTab: React.FC = () => {
 
       {/* Revoke Session Modal */}
       <Modal
-        opened={showRevokeModal}
+        opened={!!pendingRevokeSession}
         onClose={() => {
           if (!revokingSession) {
-            setShowRevokeModal(false);
             setPendingRevokeSession(null);
           }
         }}
@@ -804,10 +923,7 @@ const UserTab: React.FC = () => {
           <div className="flex justify-end space-x-3 pt-2">
             <Button
               variant="default"
-              onClick={() => {
-                setShowRevokeModal(false);
-                setPendingRevokeSession(null);
-              }}
+              onClick={() => setPendingRevokeSession(null)}
               disabled={!!revokingSession}
             >
               Cancel
@@ -826,10 +942,9 @@ const UserTab: React.FC = () => {
 
       {/* Delete Session Modal */}
       <Modal
-        opened={showDeleteModal}
+        opened={!!pendingDeleteSession}
         onClose={() => {
           if (!deletingSession) {
-            setShowDeleteModal(false);
             setPendingDeleteSession(null);
           }
         }}
@@ -890,10 +1005,7 @@ const UserTab: React.FC = () => {
           <div className="flex justify-end space-x-3 pt-2">
             <Button
               variant="default"
-              onClick={() => {
-                setShowDeleteModal(false);
-                setPendingDeleteSession(null);
-              }}
+              onClick={() => setPendingDeleteSession(null)}
               disabled={!!deletingSession}
             >
               Cancel

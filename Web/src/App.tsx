@@ -23,6 +23,7 @@ import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal'
 import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
 import { storage } from '@utils/storage';
+import themeService from '@services/theme.service';
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
@@ -284,11 +285,16 @@ const AppContent: React.FC = () => {
     } catch (error) {
       console.error('Error verifying depot initialization:', error);
     }
+
+    // Reload theme from server after initialization
+    await themeService.reloadThemeAfterAuth();
   };
 
   const handleAuthChanged = async () => {
     // Immediately check auth status without delay
     await refreshAuth();
+    // Reload theme from server after authentication changes
+    await themeService.reloadThemeAfterAuth();
   };
 
   const handleApiKeyRegenerated = () => {
@@ -300,6 +306,8 @@ const AppContent: React.FC = () => {
     // Close the regeneration modal and update authentication status
     setShowApiKeyRegenerationModal(false);
     await refreshAuth();
+    // Reload theme from server after re-authentication
+    await themeService.reloadThemeAfterAuth();
   };
 
   const handleFullScanModalDismiss = () => {

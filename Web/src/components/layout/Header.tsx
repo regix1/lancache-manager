@@ -136,10 +136,14 @@ const Header: React.FC<HeaderProps> = ({
                       }}
                     >
                       <span>{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
-                      <span style={{ opacity: 0.7 }}>|</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
-                        {deviceId}
-                      </span>
+                      {!isRevoked && (
+                        <>
+                          <span style={{ opacity: 0.7 }}>|</span>
+                          <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                            {deviceId}
+                          </span>
+                        </>
+                      )}
                     </div>
                   )}
                   {connectionStatus === 'connected' && (

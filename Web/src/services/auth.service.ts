@@ -85,10 +85,49 @@ class AuthService {
     // Check guest mode status every minute
     this.guestCheckInterval = setInterval(() => {
       this.checkGuestModeExpiry();
+      this.checkDeviceStillValid();
     }, 60000); // Check every minute
 
     // Initial check
     this.checkGuestModeExpiry();
+  }
+
+  private async checkDeviceStillValid(): Promise<void> {
+    // Only check if we're authenticated
+    if (this.authMode !== 'authenticated' || !this.isAuthenticated) {
+      return;
+    }
+
+    try {
+      // Check if our device ID still exists in the sessions list
+      const response = await fetch(`${API_URL}/api/auth/sessions`, {
+        headers: this.getAuthHeaders()
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const sessions = result.sessions || [];
+
+        // Check if our device ID exists in the authenticated sessions
+        const ourDeviceExists = sessions.some(
+          (session: any) => session.type === 'authenticated' && session.id === this.deviceId
+        );
+
+        // If our device was deleted, force logout
+        if (!ourDeviceExists) {
+          console.warn('[Auth] Device session was deleted - forcing logout');
+          this.logout();
+          window.dispatchEvent(new CustomEvent('auth-session-revoked', {
+            detail: { reason: 'Your device session was deleted by an administrator' }
+          }));
+          // Reload to show login screen
+          window.location.reload();
+        }
+      }
+    } catch (error) {
+      // Silently fail - don't log out on network errors
+      console.error('[Auth] Failed to validate device session:', error);
+    }
   }
 
   private checkGuestModeExpiry(): void {
@@ -213,7 +252,7 @@ class AuthService {
         // Still need to fetch hasData and hasEverBeenSetup for guest mode eligibility
         try {
           const response = await fetch(`${API_URL}/api/auth/check`, {
-            headers: { 'X-Device-Id': this.deviceId }
+            headers: this.getAuthHeaders()
           });
           const result = response.ok ? await response.json() : {};
 
@@ -251,7 +290,7 @@ class AuthService {
         // Fetch hasData and hasEverBeenSetup
         try {
           const response = await fetch(`${API_URL}/api/auth/check`, {
-            headers: { 'X-Device-Id': this.deviceId }
+            headers: this.getAuthHeaders()
           });
           const result = response.ok ? await response.json() : {};
 
@@ -279,9 +318,7 @@ class AuthService {
 
       // Standard authentication check
       const response = await fetch(`${API_URL}/api/auth/check`, {
-        headers: {
-          'X-Device-Id': this.deviceId
-        }
+        headers: this.getAuthHeaders()
       });
 
       if (response.ok) {

@@ -55,4 +55,16 @@ public interface IStateRepository
     string? GetSteamRefreshToken();
     void SetSteamRefreshToken(string? token);
     bool HasSteamRefreshToken();
+
+    // Guest Session Duration Methods
+    int GetGuestSessionDurationHours();
+    void SetGuestSessionDurationHours(int hours);
+
+    // Theme Preference Methods
+    string? GetSelectedTheme();
+    void SetSelectedTheme(string? themeId);
+
+    // Default Guest Theme Methods
+    string? GetDefaultGuestTheme();
+    void SetDefaultGuestTheme(string? themeId);
 }

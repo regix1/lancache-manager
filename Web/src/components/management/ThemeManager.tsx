@@ -616,6 +616,19 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
         {activeTab === 'themes' ? (
           <>
+            {/* Guest User Alert */}
+            {authService.authMode === 'guest' && (
+              <Alert color="blue" className="mb-6">
+                <div>
+                  <p className="text-sm font-medium mb-1">Guest Mode - Theme Selection Disabled</p>
+                  <p className="text-sm">
+                    Guest users cannot change themes. The theme is set by the administrator. To
+                    customize your theme, please authenticate with an API key.
+                  </p>
+                </div>
+              </Alert>
+            )}
+
             {/* Active Theme Selector */}
             <div className="mb-6 p-4 rounded-lg bg-themed-tertiary">
               <label className="block text-sm font-medium mb-2 text-themed-secondary">
@@ -630,10 +643,16 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                 onChange={handleThemeChange}
                 placeholder="Select a theme"
                 className="w-full"
+                disabled={authService.authMode === 'guest'}
               />
-              {previewTheme && (
+              {previewTheme && authService.authMode !== 'guest' && (
                 <p className="text-xs mt-2 text-themed-warning">
                   Preview mode active. Select a theme to apply it permanently.
+                </p>
+              )}
+              {authService.authMode === 'guest' && (
+                <p className="text-xs mt-2 text-themed-muted">
+                  Theme changes are disabled for guest users.
                 </p>
               )}
             </div>

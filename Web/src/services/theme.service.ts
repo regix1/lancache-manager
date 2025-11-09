@@ -1052,10 +1052,21 @@ class ThemeService {
     root.setAttribute('data-theme-id', theme.meta.id);
     this.currentTheme = theme;
 
-    // Save the theme ID and CSS for instant loading on next page load
-    storage.setItem('lancache_selected_theme', theme.meta.id);
-    storage.setItem('lancache_theme_css', themeStyles);
-    storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
+    // Only save theme preferences for authenticated users
+    // Guest users cannot change themes (they use the default guest theme set by admin)
+    if (authService.authMode === 'authenticated') {
+      // Save the theme ID and CSS for instant loading on next page load
+      storage.setItem('lancache_selected_theme', theme.meta.id);
+      storage.setItem('lancache_theme_css', themeStyles);
+      storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
+
+      // Save to API if user is authenticated (fire-and-forget)
+      if (authService.isAuthenticated) {
+        this.saveThemePreferenceToAPI(theme.meta.id).catch((error) => {
+          console.error('[ThemeService] Failed to save theme to API:', error);
+        });
+      }
+    }
 
     // Force re-render
     window.dispatchEvent(new Event('themechange'));
@@ -1102,12 +1113,35 @@ class ThemeService {
     // No preload or theme not found, apply defaults
     this.applyDefaultVariables();
 
-    // Check if user has a saved theme preference without preload
-    if (savedThemeId) {
-      const theme = await this.getTheme(savedThemeId);
-      if (theme) {
-        this.applyTheme(theme);
-        return;
+    // Check authentication status and load theme accordingly
+    if (authService.isAuthenticated && authService.authMode === 'authenticated') {
+      // Authenticated users: Try to load from API first
+      const apiThemeId = await this.getThemePreferenceFromAPI();
+      if (apiThemeId) {
+        const theme = await this.getTheme(apiThemeId);
+        if (theme) {
+          this.applyTheme(theme);
+          return;
+        }
+      }
+
+      // Fallback to localStorage for authenticated users
+      if (savedThemeId) {
+        const theme = await this.getTheme(savedThemeId);
+        if (theme) {
+          this.applyTheme(theme);
+          return;
+        }
+      }
+    } else if (authService.authMode === 'guest') {
+      // Guest users: Load default guest theme from API (set by admin)
+      const guestThemeId = await this.getDefaultGuestThemeFromAPI();
+      if (guestThemeId) {
+        const theme = await this.getTheme(guestThemeId);
+        if (theme) {
+          this.applyTheme(theme);
+          return;
+        }
       }
     }
 
@@ -1298,6 +1332,108 @@ class ThemeService {
     const theme = await this.getTheme(themeId);
     if (theme) {
       this.applyTheme(theme);
+    }
+  }
+
+  // API methods for theme preference persistence
+  private async getThemePreferenceFromAPI(): Promise<string | null> {
+    try {
+      const response = await fetch(`${API_BASE}/theme/preference`, {
+        headers: authService.getAuthHeaders()
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.themeId || null;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[ThemeService] Failed to fetch theme preference from API:', error);
+      return null;
+    }
+  }
+
+  private async getDefaultGuestThemeFromAPI(): Promise<string | null> {
+    try {
+      const response = await fetch(`${API_BASE}/theme/preferences/guest`, {
+        headers: authService.getAuthHeaders()
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.themeId || null;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[ThemeService] Failed to fetch default guest theme from API:', error);
+      return null;
+    }
+  }
+
+  private async saveThemePreferenceToAPI(themeId: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${API_BASE}/theme/preference`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authService.getAuthHeaders()
+        },
+        body: JSON.stringify({ themeId })
+      });
+
+      if (response.ok) {
+        return true;
+      } else if (response.status === 401 || response.status === 403) {
+        // Guest users will get 401/403 - this is expected, fail silently
+        return false;
+      } else {
+        console.error('[ThemeService] Failed to save theme preference:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('[ThemeService] Error saving theme preference to API:', error);
+      return false;
+    }
+  }
+
+  // Called after authentication to reload theme from server
+  async reloadThemeAfterAuth(): Promise<void> {
+    // Check if user is authenticated
+    if (authService.isAuthenticated && authService.authMode === 'authenticated') {
+      // Authenticated users: Try to load theme from API
+      const savedThemeId = await this.getThemePreferenceFromAPI();
+
+      if (savedThemeId) {
+        const theme = await this.getTheme(savedThemeId);
+        if (theme) {
+          this.applyTheme(theme);
+          return;
+        }
+      }
+
+      // Fallback to localStorage if API didn't have a preference
+      const localThemeId = storage.getItem('lancache_selected_theme');
+      if (localThemeId) {
+        const theme = await this.getTheme(localThemeId);
+        if (theme) {
+          this.applyTheme(theme);
+          // Save to API for future use
+          await this.saveThemePreferenceToAPI(localThemeId);
+          return;
+        }
+      }
+    } else if (authService.authMode === 'guest') {
+      // Guest users: Load default guest theme from API
+      const guestThemeId = await this.getDefaultGuestThemeFromAPI();
+      if (guestThemeId) {
+        const theme = await this.getTheme(guestThemeId);
+        if (theme) {
+          this.applyTheme(theme);
+          return;
+        }
+      }
     }
   }
 
