@@ -15,6 +15,7 @@ export type NotificationType =
   | 'cache_clearing'
   | 'service_removal'
   | 'game_removal'
+  | 'corruption_removal'
   | 'database_reset'
   | 'depot_mapping'
   | 'generic';
@@ -191,65 +192,118 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       if (status === 'complete') {
         // Find existing notification and update it
-        const existing = notifications.find(
-          (n) => n.type === 'log_processing' && n.status === 'running'
-        );
-        if (existing) {
-          updateNotification(existing.id, {
-            status: 'completed',
-            message: 'Processing Complete!',
-            detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
-            progress: 100
+        let notificationId: string | null = null;
+        setNotifications((prev) => {
+          const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
+          if (!existing) {
+            console.warn('[NotificationsContext] No existing log_processing notification found');
+            return prev;
+          }
+
+          notificationId = existing.id; // Capture ID for auto-dismiss
+
+          const updated = prev.map((n) => {
+            if (n.id === existing.id) {
+              return {
+                ...n,
+                status: 'completed' as const,
+                message: 'Processing Complete!',
+                detailMessage: `Successfully processed ${payload.entriesProcessed?.toLocaleString() || 0} entries`,
+                progress: 100
+              };
+            }
+            return n;
           });
+
+          return updated;
+        });
+
+        // Schedule auto-dismiss using captured ID
+        if (notificationId) {
+          scheduleAutoDismiss(notificationId);
         }
       } else {
         const message = `Processing: ${payload.mbProcessed?.toFixed(1) || 0} MB of ${payload.mbTotal?.toFixed(1) || 0} MB`;
         const detailMessage = `${payload.entriesProcessed?.toLocaleString() || 0} of ${payload.totalLines?.toLocaleString() || 0} entries`;
 
-        const existing = notifications.find(
-          (n) => n.type === 'log_processing' && n.status === 'running'
-        );
-        if (existing) {
-          updateNotification(existing.id, {
-            message,
-            detailMessage,
-            progress: Math.min(99.9, currentProgress),
-            details: {
-              ...existing.details,
-              mbProcessed: payload.mbProcessed,
-              mbTotal: payload.mbTotal,
-              entriesProcessed: payload.entriesProcessed,
-              totalLines: payload.totalLines
-            }
-          });
-        } else {
-          // Create new notification
-          addNotification({
-            type: 'log_processing',
-            status: 'running',
-            message,
-            detailMessage,
-            progress: Math.min(99.9, currentProgress),
-            details: {
-              mbProcessed: payload.mbProcessed,
-              mbTotal: payload.mbTotal,
-              entriesProcessed: payload.entriesProcessed,
-              totalLines: payload.totalLines
-            }
-          });
-        }
+        // Use setNotifications to get current state (avoid stale closure)
+        setNotifications((prev) => {
+          const existing = prev.find((n) => n.type === 'log_processing' && n.status === 'running');
+          if (existing) {
+            return prev.map((n) => {
+              if (n.id === existing.id) {
+                return {
+                  ...n,
+                  message,
+                  detailMessage,
+                  progress: Math.min(99.9, currentProgress),
+                  details: {
+                    ...n.details,
+                    mbProcessed: payload.mbProcessed,
+                    mbTotal: payload.mbTotal,
+                    entriesProcessed: payload.entriesProcessed,
+                    totalLines: payload.totalLines
+                  }
+                };
+              }
+              return n;
+            });
+          } else {
+            // Create new notification
+            const id = `log_processing-${Date.now()}`;
+            return [
+              ...prev,
+              {
+                id,
+                type: 'log_processing',
+                status: 'running',
+                message,
+                detailMessage,
+                progress: Math.min(99.9, currentProgress),
+                startedAt: new Date(),
+                details: {
+                  mbProcessed: payload.mbProcessed,
+                  mbTotal: payload.mbTotal,
+                  entriesProcessed: payload.entriesProcessed,
+                  totalLines: payload.totalLines
+                }
+              }
+            ];
+          }
+        });
       }
     };
 
     const handleFastProcessingComplete = (result: any) => {
-      const existing = notifications.find((n) => n.type === 'log_processing');
-      if (existing) {
-        updateNotification(existing.id, {
-          status: 'completed',
-          message: 'Processing Complete!',
-          detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
-          progress: 100
+      let notificationId: string | null = null;
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.type === 'log_processing');
+        if (!existing) {
+          console.warn('[NotificationsContext] No existing log_processing notification found');
+          return prev;
+        }
+
+        notificationId = existing.id; // Capture ID for auto-dismiss
+
+        const updated = prev.map((n) => {
+          if (n.id === existing.id) {
+            return {
+              ...n,
+              status: 'completed' as const,
+              message: 'Processing Complete!',
+              detailMessage: `Successfully processed ${result.entriesProcessed?.toLocaleString() || 0} entries from ${result.linesProcessed?.toLocaleString() || 0} lines in ${result.elapsed?.toFixed(1) || 0} minutes.`,
+              progress: 100
+            };
+          }
+          return n;
         });
+
+        return updated;
+      });
+
+      // Schedule auto-dismiss using captured ID
+      if (notificationId) {
+        scheduleAutoDismiss(notificationId);
       }
     };
 
@@ -265,23 +319,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             ? `Removing ${payload.service} entries (${linesRemoved.toLocaleString()} removed)...`
             : payload.message || `Removing ${payload.service} entries...`;
 
-        const existing = notifications.find(
-          (n) => n.id === notificationId && n.status === 'running'
-        );
-        if (existing) {
-          updateNotification(notificationId, {
-            message,
-            progress: payload.percentComplete || 0,
-            details: {
-              ...existing.details,
-              service: payload.service,
-              linesProcessed: payload.linesProcessed || 0,
-              linesRemoved: payload.linesRemoved || 0
-            }
-          });
-        } else {
-          // Create notification with fixed ID based on service, removing any old completed/failed ones first
-          setNotifications((prev) => {
+        // Use setNotifications to get current state (avoid stale closure)
+        setNotifications((prev) => {
+          const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+          if (existing) {
+            return prev.map((n) => {
+              if (n.id === notificationId) {
+                return {
+                  ...n,
+                  message,
+                  progress: payload.percentComplete || 0,
+                  details: {
+                    ...n.details,
+                    service: payload.service,
+                    linesProcessed: payload.linesProcessed || 0,
+                    linesRemoved: payload.linesRemoved || 0
+                  }
+                };
+              }
+              return n;
+            });
+          } else {
+            // Create notification with fixed ID based on service, removing any old completed/failed ones first
             const filtered = prev.filter((n) => n.id !== notificationId);
             return [
               ...filtered,
@@ -299,8 +358,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 }
               }
             ];
-          });
-        }
+          }
+        });
       }
     };
 
@@ -329,25 +388,41 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = `game_removal-${payload.gameAppId}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
 
-      const existing = notifications.find((n) => n.id === notificationId);
-      if (!existing) return;
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        if (!existing) {
+          console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+          return prev;
+        }
 
-      if (payload.success) {
-        updateNotification(notificationId, {
-          status: 'completed',
-          details: {
-            ...existing.details,
-            filesDeleted: payload.filesDeleted,
-            bytesFreed: payload.bytesFreed,
-            logEntriesRemoved: payload.logEntriesRemoved
+        return prev.map((n) => {
+          if (n.id === notificationId) {
+            if (payload.success) {
+              return {
+                ...n,
+                status: 'completed' as const,
+                details: {
+                  ...n.details,
+                  filesDeleted: payload.filesDeleted,
+                  bytesFreed: payload.bytesFreed,
+                  logEntriesRemoved: payload.logEntriesRemoved
+                }
+              };
+            } else {
+              return {
+                ...n,
+                status: 'failed' as const,
+                error: payload.message || 'Removal failed'
+              };
+            }
           }
+          return n;
         });
-      } else {
-        updateNotification(notificationId, {
-          status: 'failed',
-          error: payload.message || 'Removal failed'
-        });
-      }
+      });
+
+      // Schedule auto-dismiss
+      scheduleAutoDismiss(notificationId);
     };
 
     // Service Removal Complete
@@ -356,24 +431,105 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const notificationId = `service_removal-${payload.serviceName}`;
       console.log('[NotificationsContext] Looking for notification ID:', notificationId);
 
-      const existing = notifications.find((n) => n.id === notificationId);
-      if (!existing) return;
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        if (!existing) {
+          console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+          return prev;
+        }
 
-      if (payload.success) {
-        updateNotification(notificationId, {
-          status: 'completed',
-          details: {
-            ...existing.details,
-            filesDeleted: payload.filesDeleted,
-            bytesFreed: payload.bytesFreed,
-            logEntriesRemoved: payload.logEntriesRemoved
+        return prev.map((n) => {
+          if (n.id === notificationId) {
+            if (payload.success) {
+              return {
+                ...n,
+                status: 'completed' as const,
+                details: {
+                  ...n.details,
+                  filesDeleted: payload.filesDeleted,
+                  bytesFreed: payload.bytesFreed,
+                  logEntriesRemoved: payload.logEntriesRemoved
+                }
+              };
+            } else {
+              return {
+                ...n,
+                status: 'failed' as const,
+                error: payload.message || 'Removal failed'
+              };
+            }
           }
+          return n;
         });
-      } else {
-        updateNotification(notificationId, {
-          status: 'failed',
-          error: payload.message || 'Removal failed'
+      });
+
+      // Schedule auto-dismiss
+      scheduleAutoDismiss(notificationId);
+    };
+
+    // Corruption Removal Started
+    const handleCorruptionRemovalStarted = (payload: any) => {
+      console.log('[NotificationsContext] CorruptionRemovalStarted received:', payload);
+      const notificationId = `corruption_removal-${payload.service}`;
+
+      // Remove any existing corruption removal notifications for this service and add new one
+      setNotifications((prev) => {
+        const filtered = prev.filter((n) => n.id !== notificationId);
+        return [
+          ...filtered,
+          {
+            id: notificationId,
+            type: 'corruption_removal',
+            status: 'running',
+            message: payload.message || `Removing corrupted chunks for ${payload.service}...`,
+            startedAt: new Date(),
+            progress: 0
+          }
+        ];
+      });
+    };
+
+    // Corruption Removal Complete
+    const handleCorruptionRemovalComplete = (payload: any) => {
+      console.log('[NotificationsContext] CorruptionRemovalComplete received:', payload);
+      const notificationId = `corruption_removal-${payload.service}`;
+
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        if (!existing) {
+          console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+          return prev;
+        }
+
+        // Update the notification
+        const updated = prev.map((n) => {
+          if (n.id === notificationId) {
+            if (payload.success) {
+              return {
+                ...n,
+                status: 'completed' as const,
+                message: payload.message || `Successfully removed corrupted chunks for ${payload.service}`,
+                progress: 100
+              };
+            } else {
+              return {
+                ...n,
+                status: 'failed' as const,
+                error: payload.error || payload.message || 'Corruption removal failed'
+              };
+            }
+          }
+          return n;
         });
+
+        return updated;
+      });
+
+      // Schedule auto-dismiss
+      if (payload.success || !payload.success) {
+        scheduleAutoDismiss(notificationId);
       }
     };
 
@@ -393,17 +549,22 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           error: payload.message
         });
       } else {
-        const existing = notifications.find(
-          (n) => n.id === notificationId && n.status === 'running'
-        );
-        if (existing) {
-          updateNotification(notificationId, {
-            message: payload.message || 'Resetting database...',
-            progress: payload.percentComplete || 0
-          });
-        } else {
-          // Create notification with fixed ID, removing any old completed/failed ones first
-          setNotifications((prev) => {
+        // Use setNotifications to get current state (avoid stale closure)
+        setNotifications((prev) => {
+          const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+          if (existing) {
+            return prev.map((n) => {
+              if (n.id === notificationId) {
+                return {
+                  ...n,
+                  message: payload.message || 'Resetting database...',
+                  progress: payload.percentComplete || 0
+                };
+              }
+              return n;
+            });
+          } else {
+            // Create notification with fixed ID, removing any old completed/failed ones first
             const filtered = prev.filter((n) => n.id !== notificationId);
             return [
               ...filtered,
@@ -416,8 +577,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                 startedAt: new Date()
               }
             ];
-          });
-        }
+          }
+        });
       }
     };
 
@@ -425,21 +586,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleCacheClearProgress = (payload: any) => {
       const notificationId = 'cache_clearing';
 
-      const existing = notifications.find((n) => n.id === notificationId && n.status === 'running');
-      if (existing) {
-        updateNotification(notificationId, {
-          message: payload.statusMessage || 'Clearing cache...',
-          progress: payload.percentComplete || 0,
-          details: {
-            ...existing.details,
-            filesDeleted: payload.filesDeleted || 0,
-            directoriesProcessed: payload.directoriesProcessed || 0,
-            bytesDeleted: payload.bytesDeleted || 0
-          }
-        });
-      } else {
-        // Create notification with fixed ID, removing any old completed/failed ones first
-        setNotifications((prev) => {
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+        if (existing) {
+          return prev.map((n) => {
+            if (n.id === notificationId) {
+              return {
+                ...n,
+                message: payload.statusMessage || 'Clearing cache...',
+                progress: payload.percentComplete || 0,
+                details: {
+                  ...n.details,
+                  filesDeleted: payload.filesDeleted || 0,
+                  directoriesProcessed: payload.directoriesProcessed || 0,
+                  bytesDeleted: payload.bytesDeleted || 0
+                }
+              };
+            }
+            return n;
+          });
+        } else {
+          // Create notification with fixed ID, removing any old completed/failed ones first
           const filtered = prev.filter((n) => n.id !== notificationId);
           return [
             ...filtered,
@@ -457,8 +625,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               }
             }
           ];
-        });
-      }
+        }
+      });
     };
 
     // Cache Clear Complete
@@ -466,25 +634,41 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       console.log('[NotificationsContext] CacheClearComplete received:', payload);
       const notificationId = 'cache_clearing';
 
-      const existing = notifications.find((n) => n.id === notificationId);
-      if (!existing) return;
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        if (!existing) {
+          console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+          return prev;
+        }
 
-      if (payload.success) {
-        updateNotification(notificationId, {
-          status: 'completed',
-          message: payload.message || 'Cache cleared successfully',
-          details: {
-            ...existing.details,
-            filesDeleted: payload.filesDeleted,
-            directoriesProcessed: payload.directoriesProcessed
+        return prev.map((n) => {
+          if (n.id === notificationId) {
+            if (payload.success) {
+              return {
+                ...n,
+                status: 'completed' as const,
+                message: payload.message || 'Cache cleared successfully',
+                details: {
+                  ...n.details,
+                  filesDeleted: payload.filesDeleted,
+                  directoriesProcessed: payload.directoriesProcessed
+                }
+              };
+            } else {
+              return {
+                ...n,
+                status: 'failed' as const,
+                error: payload.error || payload.message || 'Cache clear failed'
+              };
+            }
           }
+          return n;
         });
-      } else {
-        updateNotification(notificationId, {
-          status: 'failed',
-          error: payload.error || payload.message || 'Cache clear failed'
-        });
-      }
+      });
+
+      // Schedule auto-dismiss
+      scheduleAutoDismiss(notificationId);
     };
 
     // Depot Mapping Started
@@ -517,36 +701,48 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       console.log('[NotificationsContext] DepotMappingProgress received:', payload);
       const notificationId = 'depot_mapping';
 
-      const existing = notifications.find((n) => n.id === notificationId);
-      if (!existing) return;
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+        if (!existing) {
+          console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+          return prev;
+        }
 
-      updateNotification(notificationId, {
-        progress: payload.percentComplete || 0,
-        message: payload.message || payload.status || 'Processing depot mappings...',
-        details: {
-          ...existing.details,
-          isLoggedOn:
-            payload.isLoggedOn !== undefined ? payload.isLoggedOn : existing.details?.isLoggedOn
-        },
-        detailMessage: (() => {
-          // PICS scan progress (processedBatches exists)
-          if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
-            return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
-              payload.depotMappingsFound !== undefined
-                ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
-                : ''
-            }`;
+        return prev.map((n) => {
+          if (n.id === notificationId) {
+            return {
+              ...n,
+              progress: payload.percentComplete || 0,
+              message: payload.message || payload.status || 'Processing depot mappings...',
+              details: {
+                ...n.details,
+                isLoggedOn:
+                  payload.isLoggedOn !== undefined ? payload.isLoggedOn : n.details?.isLoggedOn
+              },
+              detailMessage: (() => {
+                // PICS scan progress (processedBatches exists)
+                if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
+                  return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
+                    payload.depotMappingsFound !== undefined
+                      ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
+                      : ''
+                  }`;
+                }
+                // Download mapping progress (processedMappings exists)
+                if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
+                  return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
+                    payload.mappingsApplied !== undefined
+                      ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied`
+                      : ''
+                  }`;
+                }
+                return undefined;
+              })()
+            };
           }
-          // Download mapping progress (processedMappings exists)
-          if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
-            return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
-              payload.mappingsApplied !== undefined
-                ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied`
-                : ''
-            }`;
-          }
-          return undefined;
-        })()
+          return n;
+        });
       });
     };
 
@@ -557,20 +753,31 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       // Handle cancellation
       if (payload.cancelled) {
-        const existing = notifications.find((n) => n.id === notificationId);
-        if (existing) {
-          updateNotification(notificationId, {
-            status: 'completed',
-            message: 'Depot mapping scan cancelled',
-            progress: 100,
-            details: {
-              ...existing.details,
-              cancelled: true
+        setNotifications((prev) => {
+          const existing = prev.find((n) => n.id === notificationId);
+          if (!existing) {
+            console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+            return prev;
+          }
+
+          return prev.map((n) => {
+            if (n.id === notificationId) {
+              return {
+                ...n,
+                status: 'completed' as const,
+                message: 'Depot mapping scan cancelled',
+                progress: 100,
+                details: {
+                  ...n.details,
+                  cancelled: true
+                }
+              };
             }
+            return n;
           });
-          // Use shorter delay for cancelled operations
-          scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
-        }
+        });
+        // Use shorter delay for cancelled operations
+        scheduleAutoDismiss(notificationId, CANCELLED_NOTIFICATION_DELAY_MS);
         return;
       }
 
@@ -616,18 +823,30 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
                 // After animation, show completion status
                 setTimeout(() => {
-                  const existing = notifications.find((n) => n.id === notificationId);
-                  if (existing) {
-                    updateNotification(notificationId, {
-                      status: 'completed',
-                      message: payload.message || 'Depot mapping completed successfully',
-                      details: {
-                        ...existing.details,
-                        totalMappings: payload.totalMappings,
-                        downloadsUpdated: payload.downloadsUpdated
+                  setNotifications((prevNotes) => {
+                    const existing = prevNotes.find((n) => n.id === notificationId);
+                    if (!existing) {
+                      console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+                      return prevNotes;
+                    }
+
+                    return prevNotes.map((n) => {
+                      if (n.id === notificationId) {
+                        return {
+                          ...n,
+                          status: 'completed' as const,
+                          message: payload.message || 'Depot mapping completed successfully',
+                          details: {
+                            ...n.details,
+                            totalMappings: payload.totalMappings,
+                            downloadsUpdated: payload.downloadsUpdated
+                          }
+                        };
                       }
+                      return n;
                     });
-                  }
+                  });
+                  scheduleAutoDismiss(notificationId);
                 }, NOTIFICATION_ANIMATION_DURATION_MS);
               }
             }, interval);
@@ -636,18 +855,30 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           });
         } else {
           // Full scan - show completion immediately
-          const existing = notifications.find((n) => n.id === notificationId);
-          if (existing) {
-            updateNotification(notificationId, {
-              status: 'completed',
-              message: payload.message || `Depot mapping completed successfully`,
-              details: {
-                ...existing.details,
-                totalMappings: payload.totalMappings,
-                downloadsUpdated: payload.downloadsUpdated
+          setNotifications((prev) => {
+            const existing = prev.find((n) => n.id === notificationId);
+            if (!existing) {
+              console.warn('[NotificationsContext] No existing notification found for:', notificationId);
+              return prev;
+            }
+
+            return prev.map((n) => {
+              if (n.id === notificationId) {
+                return {
+                  ...n,
+                  status: 'completed' as const,
+                  message: payload.message || `Depot mapping completed successfully`,
+                  details: {
+                    ...n.details,
+                    totalMappings: payload.totalMappings,
+                    downloadsUpdated: payload.downloadsUpdated
+                  }
+                };
               }
+              return n;
             });
-          }
+          });
+          scheduleAutoDismiss(notificationId);
         }
       } else {
         updateNotification(notificationId, {
@@ -664,6 +895,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
     signalR.on('GameRemovalComplete', handleGameRemovalComplete);
     signalR.on('ServiceRemovalComplete', handleServiceRemovalComplete);
+    signalR.on('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
+    signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     signalR.on('CacheClearProgress', handleCacheClearProgress);
     signalR.on('CacheClearComplete', handleCacheClearComplete);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
@@ -679,6 +912,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
       signalR.off('GameRemovalComplete', handleGameRemovalComplete);
       signalR.off('ServiceRemovalComplete', handleServiceRemovalComplete);
+      signalR.off('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
+      signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
       signalR.off('CacheClearProgress', handleCacheClearProgress);
       signalR.off('CacheClearComplete', handleCacheClearComplete);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);

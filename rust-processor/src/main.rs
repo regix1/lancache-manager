@@ -7,9 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::BufRead;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use std::thread;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 mod log_discovery;
@@ -28,7 +26,6 @@ use session::SessionTracker;
 
 const BULK_BATCH_SIZE: usize = 1_000; // Reduced from 2000 to lower memory spikes
 const SESSION_GAP_MINUTES: i64 = 5;
-const CANCEL_CHECK_INTERVAL: usize = 1_000; // Check for cancellation every 1k lines
 const LINE_BUFFER_CAPACITY: usize = 1024; // Reduced from 2048 for better memory efficiency
 
 #[derive(Serialize)]
@@ -56,7 +53,6 @@ struct Processor {
     total_lines: AtomicU64,
     lines_parsed: AtomicU64,
     entries_saved: AtomicU64,
-    cancel_flag: Arc<AtomicBool>,
     local_tz: Tz,
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
@@ -69,31 +65,14 @@ impl Processor {
         log_dir: PathBuf,
         log_base_name: String,
         progress_path: PathBuf,
-        cancel_path: PathBuf,
         start_position: u64,
         auto_map_depots: bool,
     ) -> Self {
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-
         // Get timezone from environment variable (same as C# uses)
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
         let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
         println!("Using timezone: {} (from TZ env var)", local_tz);
         println!("Auto-map depots: {}", auto_map_depots);
-
-        // Spawn background thread to monitor cancel file
-        let cancel_flag_clone = Arc::clone(&cancel_flag);
-        let cancel_path_clone = cancel_path.clone();
-        thread::spawn(move || {
-            while !cancel_flag_clone.load(Ordering::Relaxed) {
-                if cancel_path_clone.exists() {
-                    println!("Cancellation detected by monitor thread!");
-                    cancel_flag_clone.store(true, Ordering::Relaxed);
-                    break;
-                }
-                thread::sleep(Duration::from_millis(50)); // Check every 50ms
-            }
-        });
 
         Self {
             db_path,
@@ -106,7 +85,6 @@ impl Processor {
             total_lines: AtomicU64::new(0),
             lines_parsed: AtomicU64::new(0),
             entries_saved: AtomicU64::new(0),
-            cancel_flag,
             local_tz,
             auto_map_depots,
             last_logged_percent: AtomicU64::new(0),
@@ -126,10 +104,6 @@ impl Processor {
         // Return the local time components (this discards the timezone info but keeps the adjusted time)
         // e.g., if UTC is 22:28:34 and TZ is America/Chicago (UTC-6), this returns 16:28:34
         NaiveDateTime::new(local_datetime.date_naive(), local_datetime.time())
-    }
-
-    fn should_cancel(&self) -> bool {
-        self.cancel_flag.load(Ordering::Relaxed)
     }
 
     /// Count total lines across all discovered log files
@@ -246,13 +220,6 @@ impl Processor {
                 eprintln!("  Continuing with remaining files...");
                 continue;
             }
-
-            // Check for cancellation between files
-            if self.should_cancel() {
-                println!("Cancellation requested between files - stopping processing");
-                self.write_progress("cancelled", "Processing cancelled by user")?;
-                return Err(anyhow::anyhow!("Processing cancelled by user"));
-            }
         }
 
         println!("\nAll files processed successfully!");
@@ -300,13 +267,6 @@ impl Processor {
         self.write_progress("processing", &format!("Reading {}...", log_file.path.display()))?;
 
         loop {
-            // Check for cancellation
-            if self.should_cancel() {
-                println!("Cancellation requested - stopping processing");
-                self.write_progress("cancelled", "Processing cancelled by user")?;
-                return Err(anyhow::anyhow!("Processing cancelled by user"));
-            }
-
             line_buffer.clear();
             let bytes_read = reader.read_line(&mut line_buffer)?;
 
@@ -322,15 +282,6 @@ impl Processor {
 
             self.lines_parsed.fetch_add(1, Ordering::Relaxed);
 
-            // Check for cancellation every CANCEL_CHECK_INTERVAL lines
-            if self.lines_parsed.load(Ordering::Relaxed) % CANCEL_CHECK_INTERVAL as u64 == 0 {
-                if self.should_cancel() {
-                    println!("Cancellation requested - stopping processing");
-                    self.write_progress("cancelled", "Processing cancelled by user")?;
-                    return Err(anyhow::anyhow!("Processing cancelled by user"));
-                }
-            }
-
             // Parse the line (trim to remove newline)
             let trimmed_line = line_buffer.trim();
             if let Some(entry) = self.parser.parse_line(trimmed_line) {
@@ -343,12 +294,6 @@ impl Processor {
 
                 // Process batch when it reaches BULK_BATCH_SIZE
                 if batch.len() >= BULK_BATCH_SIZE {
-                    if self.should_cancel() {
-                        println!("Cancellation requested - stopping processing");
-                        self.write_progress("cancelled", "Processing cancelled by user")?;
-                        return Err(anyhow::anyhow!("Processing cancelled by user"));
-                    }
-
                     self.process_batch(conn, &batch)?;
                     batch.clear();
                     // Don't shrink here - we'll reuse the capacity for the next batch
@@ -398,12 +343,6 @@ impl Processor {
         // Process each group and count actually inserted entries
         let mut total_inserted = 0u64;
         for (session_key, group_entries) in &grouped {
-            // Check for cancellation between processing groups for faster response
-            if self.should_cancel() {
-                println!("Cancellation requested during batch processing - rolling back transaction");
-                // Return error without committing, transaction will auto-rollback
-                return Err(anyhow::anyhow!("Processing cancelled by user"));
-            }
             total_inserted += self.process_session_group(&tx, session_key, group_entries)?;
         }
 
@@ -799,21 +738,11 @@ fn main() -> Result<()> {
     // Log file base name (hardcoded for now, could be made configurable)
     let log_base_name = "access.log".to_string();
 
-    // Create cancel marker path in same directory as progress file
-    let mut cancel_path = progress_path.clone();
-    cancel_path.set_file_name("cancel_processing.marker");
-
-    // Delete cancel marker if it exists from previous run
-    if cancel_path.exists() {
-        let _ = std::fs::remove_file(&cancel_path);
-    }
-
     let mut processor = Processor::new(
         db_path,
         log_dir,
         log_base_name,
         progress_path,
-        cancel_path,
         start_position,
         auto_map_depots
     );

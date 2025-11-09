@@ -1,9 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Application.Services;
 
@@ -15,6 +17,7 @@ public class CacheManagementService
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
+    private readonly IHubContext<DownloadHub> _hubContext;
     private readonly string _cachePath;
     private readonly string _logPath;
 
@@ -23,7 +26,7 @@ public class CacheManagementService
     private DateTime? _lastLogWarningTime; // Track last time we logged a warning
     private readonly TimeSpan _logWarningThrottle = TimeSpan.FromMinutes(5); // Only log warnings every 5 minutes
 
-    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver, ProcessManager processManager, RustProcessHelper rustProcessHelper, NginxLogRotationService nginxLogRotationService)
+    public CacheManagementService(IConfiguration configuration, ILogger<CacheManagementService> logger, IPathResolver pathResolver, ProcessManager processManager, RustProcessHelper rustProcessHelper, NginxLogRotationService nginxLogRotationService, IHubContext<DownloadHub> hubContext)
     {
         _configuration = configuration;
         _logger = logger;
@@ -31,6 +34,7 @@ public class CacheManagementService
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
+        _hubContext = hubContext;
 
         // Use PathResolver to get properly resolved paths
         var configCachePath = configuration["LanCache:CachePath"];
@@ -642,6 +646,14 @@ public class CacheManagementService
             _logger.LogInformation("[CorruptionDetection] Removal params - db: {DbPath}, logDir: {LogDir}, cacheDir: {CacheDir}, progress: {Progress}",
                 dbPath, logDir, cacheDir, progressPath);
 
+            // Send start notification via SignalR
+            await _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
+            {
+                service,
+                message = $"Starting corruption removal for {service}...",
+                timestamp = DateTime.UtcNow
+            }, cancellationToken);
+
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
@@ -675,10 +687,30 @@ public class CacheManagementService
                 if (process.ExitCode != 0)
                 {
                     _logger.LogError("[CorruptionDetection] Removal failed with exit code {Code}: {Error}", process.ExitCode, error);
+
+                    // Send failure notification via SignalR
+                    await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                    {
+                        success = false,
+                        service,
+                        message = $"Failed to remove corrupted chunks for {service}",
+                        error = error,
+                        timestamp = DateTime.UtcNow
+                    }, cancellationToken);
+
                     throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
                 }
 
                 _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service}", service);
+
+                // Send success notification via SignalR
+                await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                {
+                    success = true,
+                    service,
+                    message = $"Successfully removed corrupted chunks for {service}",
+                    timestamp = DateTime.UtcNow
+                }, cancellationToken);
             }
 
             // No corruption summary cache to invalidate (Rust runs fresh each time)

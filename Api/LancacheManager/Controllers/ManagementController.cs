@@ -177,6 +177,29 @@ public class ManagementController : ControllerBase
         return Ok(new { message = "Operation cancelled", operationId });
     }
 
+    [HttpGet("cache/active-operations")]
+    public IActionResult GetActiveCacheOperations()
+    {
+        try
+        {
+            // Return list of active cache clearing operations for recovery on page reload
+            var activeOperations = _cacheClearingService.GetAllOperations()
+                .Where(op => op.Status == "Preparing" || op.Status == "Running")
+                .ToList();
+
+            return Ok(new
+            {
+                hasActiveOperations = activeOperations.Any(),
+                operations = activeOperations
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting active cache operations");
+            return Ok(new { hasActiveOperations = false, operations = new List<object>() });
+        }
+    }
+
     [HttpDelete("cache")]
     [RequireAuth]
     public async Task<IActionResult> ClearCache([FromQuery] string? service = null)
@@ -255,40 +278,6 @@ public class ManagementController : ControllerBase
         }
     }
 
-    [HttpGet("database/reset-status")]
-    public IActionResult GetResetStatus()
-    {
-        try
-        {
-            var dataDirectory = _pathResolver.GetDataDirectory();
-            var progressPath = Path.Combine(dataDirectory, "reset_progress.json");
-
-            if (!System.IO.File.Exists(progressPath))
-            {
-                return Ok(new
-                {
-                    isProcessing = _rustDatabaseResetService.IsProcessing,
-                    percentComplete = 0.0,
-                    status = "idle",
-                    message = "Not processing"
-                });
-            }
-
-            var json = System.IO.File.ReadAllText(progressPath);
-            var progress = System.Text.Json.JsonSerializer.Deserialize<RustDatabaseResetService.ProgressData>(json);
-
-            return Ok(progress);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting reset status");
-            return Ok(new
-            {
-                isProcessing = _rustDatabaseResetService.IsProcessing,
-                error = ex.Message
-            });
-        }
-    }
 
     [HttpPost("database/reset-selected")]
     [RequireAuth]
@@ -320,6 +309,27 @@ public class ManagementController : ControllerBase
         {
             _logger.LogError(ex, "Error resetting selected tables");
             return StatusCode(500, new { error = "Failed to reset selected tables", details = ex.Message });
+        }
+    }
+
+    [HttpGet("database/reset-status")]
+    public IActionResult GetDatabaseResetStatus()
+    {
+        try
+        {
+            // Return database reset status for recovery on page reload
+            var isProcessing = _rustDatabaseResetService.IsProcessing;
+
+            return Ok(new
+            {
+                isProcessing,
+                status = isProcessing ? "processing" : "idle"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting database reset status");
+            return Ok(new { isProcessing = false, status = "idle" });
         }
     }
 
@@ -691,27 +701,6 @@ public class ManagementController : ControllerBase
         }
     }
 
-    [HttpGet("cache/active-operations")]
-    public IActionResult GetActiveClearOperations()
-    {
-        try
-        {
-            var operations = _cacheClearingService.GetAllOperations()
-                .Where(op => op.Status == "Running" || op.Status == "Preparing")
-                .ToList();
-
-            return Ok(new
-            {
-                hasActive = operations.Any(),
-                operations
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting active cache clear operations");
-            return StatusCode(500, new { error = "Failed to get active cache clear operations", details = ex.Message });
-        }
-    }
 
     [HttpGet("cache/thread-count")]
     public IActionResult GetCacheThreadCount()
@@ -1122,33 +1111,6 @@ public class ManagementController : ControllerBase
         {
             _logger.LogError(ex, "Error during Steam logout");
             return StatusCode(500, new { error = "Failed to logout from Steam", details = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// Clear all depot mappings from the database
-    /// </summary>
-    [HttpDelete("depot-mappings")]
-    [RequireAuth]
-    public async Task<IActionResult> ClearDepotMappings()
-    {
-        try
-        {
-            _logger.LogInformation("Clearing depot mappings from database");
-
-            var count = await _dbService.ClearDepotMappings();
-
-            return Ok(new
-            {
-                message = $"Successfully cleared {count} depot mappings from database",
-                count,
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error clearing depot mappings");
-            return StatusCode(500, new { error = "Failed to clear depot mappings", details = ex.Message });
         }
     }
 

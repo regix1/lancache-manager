@@ -457,12 +457,22 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
       }
     };
 
+    const handleCorruptionRemovalComplete = async (payload: any) => {
+      // Management-specific: Refresh LogAndCorruptionManager component after corruption removal
+      if (payload.success) {
+        // Refresh LogAndCorruptionManager to show updated corruption summary
+        await refreshLogAndCorruptionRef.current();
+      }
+    };
+
     // Subscribe to management-specific events
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
+    signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
 
     // Cleanup: unsubscribe from all events
     return () => {
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
+      signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode]); // signalR.on/off are stable, don't need signalR as dependency

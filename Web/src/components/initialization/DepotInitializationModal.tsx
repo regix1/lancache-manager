@@ -384,7 +384,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       setDownloadStatus('Downloading depot mappings from GitHub (290,000+ mappings)...');
-      await ApiService.downloadPrecreatedPicsData();
+      await ApiService.downloadPrecreatedDepotData();
 
       // Step 2: Import into database
       setDownloadStatus('Import complete! Finalizing setup...');

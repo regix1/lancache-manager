@@ -276,8 +276,8 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     setRemovingCorruption(service);
 
     try {
-      const result = await ApiService.removeCorruptedChunks(service);
-      onSuccess?.(result.message || `Corrupted chunks removed for ${service}`);
+      await ApiService.removeCorruptedChunks(service);
+      // Success notification now handled by SignalR (CorruptionRemovalComplete event)
 
       await loadAllData();
       onDataRefresh?.();

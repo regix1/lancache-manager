@@ -36,6 +36,8 @@ export const SIGNALR_EVENTS = [
   'ServiceRemovalComplete',
   'CacheClearProgress',
   'CacheClearComplete',
+  'CorruptionRemovalStarted',
+  'CorruptionRemovalComplete',
   'GuestDurationUpdated',
   'AutomaticScanSkipped'
 ] as const;
