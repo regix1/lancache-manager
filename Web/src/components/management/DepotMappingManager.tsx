@@ -36,7 +36,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   onSuccess,
   onDataRefresh
 }) => {
-  const { notifications } = useNotifications();
+  const { notifications, updateNotification } = useNotifications();
   const { progress: picsProgress, isLoading: picsLoading, refreshProgress } = usePicsProgress();
   const depotMappingOp = useBackendOperation('activeDepotMapping', 'depotMapping', 120);
   const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{
@@ -89,6 +89,15 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           const data = operation.data as any;
           if (data.operationType) {
             console.log('[DepotMapping] Restoring interrupted depot mapping operation');
+
+            // Clear any old stuck depot_mapping notifications from before page refresh
+            const oldNotifications = notifications.filter((n) => n.type === 'depot_mapping');
+            oldNotifications.forEach((n) => {
+              console.log('[DepotMapping] Clearing old notification:', n.id);
+              updateNotification(n.id, { status: 'completed', message: 'Loading...' });
+            });
+
+            // Restore loading state
             setActionLoading(true);
             setOperationType(data.operationType);
             if (data.depotSource) {
