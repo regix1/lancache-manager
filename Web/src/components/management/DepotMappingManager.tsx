@@ -7,6 +7,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
+import { useBackendOperation } from '@hooks/useBackendOperation';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
 
@@ -37,6 +38,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 }) => {
   const { notifications } = useNotifications();
   const { progress: picsProgress, isLoading: picsLoading, refreshProgress } = usePicsProgress();
+  const depotMappingOp = useBackendOperation('activeDepotMapping', 'depotMapping', 120);
   const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{
     hours: number;
     minutes: number;
@@ -77,6 +79,31 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       progressPercent: picsProgress.progressPercent || 0
     };
   }, [picsProgress]);
+
+  // Restore depot mapping operation on mount
+  useEffect(() => {
+    const restoreDepotMapping = async () => {
+      try {
+        const operation = await depotMappingOp.load();
+        if (operation?.data) {
+          const data = operation.data as any;
+          if (data.operationType) {
+            console.log('[DepotMapping] Restoring interrupted depot mapping operation');
+            setActionLoading(true);
+            setOperationType(data.operationType);
+            if (data.depotSource) {
+              setDepotSource(data.depotSource);
+            }
+            // SignalR will handle the completion when it arrives
+          }
+        }
+      } catch (err) {
+        console.error('[DepotMapping] Failed to restore depot mapping operation:', err);
+      }
+    };
+
+    restoreDepotMapping();
+  }, []); // Only run on mount
 
   // Update local countdown when depotConfig changes
   useEffect(() => {
@@ -212,6 +239,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     );
 
     if (picsNotifications.length > 0) {
+      // Clear operation state - depot mapping is complete/failed
+      depotMappingOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+
       // Refresh progress data when scan completes
       setTimeout(() => {
         refreshProgress();
@@ -238,6 +268,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     storage.setItem('githubDownloading', 'true');
     storage.removeItem('githubDownloadComplete');
 
+    // Save operation state for restoration on page refresh
+    await depotMappingOp.save({
+      operationType: 'downloading',
+      depotSource: 'github'
+    });
+
     try {
       await ApiService.downloadPrecreatedDepotData();
       onSuccess?.('GitHub depot data downloaded! Mappings are being applied to your downloads.');
@@ -248,6 +284,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       storage.removeItem('githubDownloading');
       storage.setItem('githubDownloadComplete', 'true');
       storage.setItem('githubDownloadTime', new Date().toISOString());
+
+      // Clear operation state - download complete
+      await depotMappingOp.clear();
 
       // Refresh the depot config after download
       await refreshProgress();
@@ -260,6 +299,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       // Clear downloading flag on error
       storage.removeItem('githubDownloading');
+
+      // Clear operation state - download failed
+      await depotMappingOp.clear();
     } finally {
       setActionLoading(false);
       setOperationType(null);
@@ -339,6 +381,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       const scanType = useIncrementalScan ? 'Incremental' : 'Full';
       onSuccess?.(`${scanType} depot scan started - mappings will be applied when complete`);
       setTimeout(() => onDataRefresh?.(), 2000);
+
+      // Save operation state for restoration on page refresh
+      await depotMappingOp.save({
+        operationType: 'scanning',
+        depotSource,
+        scanType
+      });
 
       // Keep operation type active - it will be cleared when scan completes
     } catch (err: any) {
