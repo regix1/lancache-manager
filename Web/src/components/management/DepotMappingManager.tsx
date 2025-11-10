@@ -97,38 +97,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               updateNotification(n.id, { status: 'completed', message: 'Loading...' });
             });
 
-            // Check if depot mapping is actually still running on backend
-            try {
-              const picsStatus = await ApiService.getPicsStatus();
-              const isActuallyRunning = picsStatus?.steamKit2?.isRebuildRunning === true;
-
-              if (isActuallyRunning) {
-                // Still running, restore loading state
-                console.log('[DepotMapping] Depot mapping is still running, restoring loading state');
-                setActionLoading(true);
-                setOperationType(data.operationType);
-                if (data.depotSource) {
-                  setDepotSource(data.depotSource);
-                }
-                // SignalR will handle the completion when it arrives
-              } else {
-                // Already completed, clear stuck state
-                console.log('[DepotMapping] Depot mapping already completed, clearing stuck state');
-                await depotMappingOp.clear();
-                setActionLoading(false);
-                setOperationType(null);
-                // Refresh progress data
-                await refreshProgress();
-              }
-            } catch (err) {
-              // If we can't check status, assume it's still running
-              console.warn('[DepotMapping] Could not check depot mapping status, assuming still running');
-              setActionLoading(true);
-              setOperationType(data.operationType);
-              if (data.depotSource) {
-                setDepotSource(data.depotSource);
-              }
+            // Restore loading state
+            setActionLoading(true);
+            setOperationType(data.operationType);
+            if (data.depotSource) {
+              setDepotSource(data.depotSource);
             }
+            // SignalR will handle the completion when it arrives
           }
         }
       } catch (err) {
