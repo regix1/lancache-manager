@@ -27,8 +27,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   onDataRefresh,
   refreshKey = 0
 }) => {
-  const { addNotification, updateNotification, removeNotification, notifications } =
-    useNotifications();
+  const { addNotification, updateNotification, notifications } = useNotifications();
   const gameDetectionOp = useBackendOperation('activeGameDetection', 'gameDetection', 120);
   const [loading, setLoading] = useState(false);
   const [games, setGames] = useState<GameCacheInfo[]>([]);
