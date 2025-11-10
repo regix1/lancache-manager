@@ -128,9 +128,47 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         const data = operation.data as any;
         if (data.operationId && data.scanType) {
           console.log('[GameCacheDetector] Restoring interrupted game detection operation');
-          setLoading(true);
-          setScanType(data.scanType);
-          // SignalR will handle the completion when it arrives
+
+          // Clear any old stuck game_detection notifications from before page refresh
+          const oldNotifications = notifications.filter((n) => n.type === 'game_detection');
+          oldNotifications.forEach((n) => {
+            console.log('[GameCacheDetector] Clearing old game_detection notification:', n.id);
+            updateNotification(n.id, { status: 'completed', message: 'Loading...' });
+          });
+
+          // Check if detection is actually still running on backend
+          try {
+            const status = await ApiService.getGameDetectionStatus(data.operationId);
+            if (status.status === 'complete' || status.status === 'failed') {
+              // Operation already completed, clear state and load results
+              console.log('[GameCacheDetector] Restored operation already completed');
+              await gameDetectionOp.clear();
+              setLoading(false);
+              setScanType(null);
+
+              if (status.status === 'complete') {
+                // Load results from database
+                const result = await ApiService.getCachedGameDetection();
+                if (result.hasCachedResults) {
+                  if (result.games) setGames(result.games);
+                  if (result.totalGamesDetected) setTotalGames(result.totalGamesDetected);
+                  if (result.services) setServices(result.services);
+                  if (result.totalServicesDetected) setTotalServices(result.totalServicesDetected);
+                  if (result.lastDetectionTime) setLastDetectionTime(result.lastDetectionTime);
+                }
+              }
+            } else {
+              // Still running, restore loading state
+              setLoading(true);
+              setScanType(data.scanType);
+              // SignalR will handle the completion when it arrives
+            }
+          } catch (err) {
+            // If we can't check status, assume it's still running
+            console.warn('[GameCacheDetector] Could not check operation status, assuming still running');
+            setLoading(true);
+            setScanType(data.scanType);
+          }
         }
       }
     } catch (err) {
