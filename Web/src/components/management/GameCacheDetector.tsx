@@ -262,55 +262,57 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       checkIfLogsProcessed();
     }
 
-    // Handle game detection completion
-    const gameDetectionNotifs = notifications.filter(
-      (n) => n.type === 'game_detection' && n.status === 'completed'
-    );
-    if (gameDetectionNotifs.length > 0) {
-      console.log('[GameCacheDetector] Game detection completed, loading results from database');
-      setLoading(false);
-      setScanType(null);
+    // Handle game detection completion - ONLY if we're expecting one (loading is true)
+    if (loading) {
+      const gameDetectionNotifs = notifications.filter(
+        (n) => n.type === 'game_detection' && n.status === 'completed'
+      );
+      if (gameDetectionNotifs.length > 0) {
+        console.log('[GameCacheDetector] Game detection completed, loading results from database');
+        setLoading(false);
+        setScanType(null);
 
-      // Clear operation state - detection is complete
-      gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+        // Clear operation state - detection is complete
+        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
 
-      // Load fresh results from the database (backend already saved them)
-      const loadResults = async () => {
-        try {
-          const result = await ApiService.getCachedGameDetection();
-          if (result.hasCachedResults) {
-            if (result.games && result.totalGamesDetected) {
-              setGames(result.games);
-              setTotalGames(result.totalGamesDetected);
+        // Load fresh results from the database (backend already saved them)
+        const loadResults = async () => {
+          try {
+            const result = await ApiService.getCachedGameDetection();
+            if (result.hasCachedResults) {
+              if (result.games && result.totalGamesDetected) {
+                setGames(result.games);
+                setTotalGames(result.totalGamesDetected);
+              }
+              if (result.services && result.totalServicesDetected) {
+                setServices(result.services);
+                setTotalServices(result.totalServicesDetected);
+              }
+              if (result.lastDetectionTime) {
+                setLastDetectionTime(result.lastDetectionTime);
+              }
             }
-            if (result.services && result.totalServicesDetected) {
-              setServices(result.services);
-              setTotalServices(result.totalServicesDetected);
-            }
-            if (result.lastDetectionTime) {
-              setLastDetectionTime(result.lastDetectionTime);
-            }
+          } catch (err) {
+            console.error('[GameCacheDetector] Failed to load detection results:', err);
           }
-        } catch (err) {
-          console.error('[GameCacheDetector] Failed to load detection results:', err);
-        }
-      };
-      loadResults();
-    }
+        };
+        loadResults();
+      }
 
-    // Handle game detection failure
-    const gameDetectionFailedNotifs = notifications.filter(
-      (n) => n.type === 'game_detection' && n.status === 'failed'
-    );
-    if (gameDetectionFailedNotifs.length > 0) {
-      console.error('[GameCacheDetector] Game detection failed');
-      setLoading(false);
-      setScanType(null);
+      // Handle game detection failure - ONLY if we're expecting one (loading is true)
+      const gameDetectionFailedNotifs = notifications.filter(
+        (n) => n.type === 'game_detection' && n.status === 'failed'
+      );
+      if (gameDetectionFailedNotifs.length > 0) {
+        console.error('[GameCacheDetector] Game detection failed');
+        setLoading(false);
+        setScanType(null);
 
-      // Clear operation state - detection failed
-      gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+        // Clear operation state - detection failed
+        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+      }
     }
-  }, [notifications]);
+  }, [notifications, loading]);
 
   const startDetection = async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
     if (mockMode) {

@@ -242,22 +242,25 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   }, [depotConfig, localNextCrawlIn, mockMode, isAuthenticated, actionLoading]);
 
   // Listen for PICS scan completion via SignalR and refresh state
+  // ONLY react if we're expecting a completion (operationType is set)
   useEffect(() => {
-    const picsNotifications = notifications.filter(
-      (n) => n.type === 'depot_mapping' && (n.status === 'completed' || n.status === 'failed')
-    );
+    if (operationType) {
+      const picsNotifications = notifications.filter(
+        (n) => n.type === 'depot_mapping' && (n.status === 'completed' || n.status === 'failed')
+      );
 
-    if (picsNotifications.length > 0) {
-      // Clear operation state - depot mapping is complete/failed
-      depotMappingOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+      if (picsNotifications.length > 0) {
+        // Clear operation state - depot mapping is complete/failed
+        depotMappingOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
 
-      // Refresh progress data when scan completes
-      setTimeout(() => {
-        refreshProgress();
-        onDataRefresh?.();
-      }, 1000);
+        // Refresh progress data when scan completes
+        setTimeout(() => {
+          refreshProgress();
+          onDataRefresh?.();
+        }, 1000);
+      }
     }
-  }, [notifications, onDataRefresh]);
+  }, [notifications, onDataRefresh, operationType]);
 
   // Clear operation type when scan completes
   useEffect(() => {
