@@ -18,6 +18,7 @@ export type NotificationType =
   | 'corruption_removal'
   | 'database_reset'
   | 'depot_mapping'
+  | 'game_detection'
   | 'generic';
 
 export type NotificationStatus = 'running' | 'completed' | 'failed';
@@ -64,6 +65,12 @@ export interface UnifiedNotification {
     isProcessing?: boolean;
     isLoggedOn?: boolean;
     downloadsUpdated?: number;
+
+    // For game_detection
+    operationId?: string;
+    scanType?: 'full' | 'incremental';
+    totalGamesDetected?: number;
+    totalServicesDetected?: number;
 
     // For generic notifications
     notificationType?: 'success' | 'error' | 'info' | 'warning';
@@ -563,6 +570,111 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
+    // Game Detection Started
+    const handleGameDetectionStarted = (payload: any) => {
+      console.log('[NotificationsContext] GameDetectionStarted received:', payload);
+      const notificationId = `game_detection-${payload.operationId}`;
+
+      // Remove any existing game detection notifications and add new one
+      setNotifications((prev) => {
+        const filtered = prev.filter((n) => n.type !== 'game_detection');
+        return [
+          ...filtered,
+          {
+            id: notificationId,
+            type: 'game_detection',
+            status: 'running',
+            message: payload.message || 'Running game cache detection...',
+            startedAt: new Date(),
+            progress: 0,
+            details: {
+              operationId: payload.operationId,
+              scanType: payload.scanType
+            }
+          }
+        ];
+      });
+    };
+
+    // Game Detection Complete
+    const handleGameDetectionComplete = (payload: any) => {
+      console.log('[NotificationsContext] GameDetectionComplete received:', payload);
+      const notificationId = `game_detection-${payload.operationId}`;
+
+      // Use setNotifications to get current state (avoid stale closure)
+      setNotifications((prev) => {
+        const existing = prev.find((n) => n.id === notificationId);
+
+        if (!existing) {
+          // Detection completed so fast that no notification was created yet (race condition)
+          // Create a notification and immediately mark it as complete
+          const id = `game_detection-${Date.now()}`;
+          scheduleAutoDismiss(id);
+
+          if (payload.success) {
+            return [
+              ...prev,
+              {
+                id,
+                type: 'game_detection' as const,
+                status: 'completed' as const,
+                message: payload.message || 'Game detection complete',
+                progress: 100,
+                startedAt: new Date(),
+                details: {
+                  totalGamesDetected: payload.totalGamesDetected || 0,
+                  totalServicesDetected: payload.totalServicesDetected || 0
+                }
+              }
+            ];
+          } else {
+            return [
+              ...prev,
+              {
+                id,
+                type: 'game_detection' as const,
+                status: 'failed' as const,
+                message: payload.message || 'Game detection failed',
+                startedAt: new Date(),
+                error: payload.error || 'Detection failed'
+              }
+            ];
+          }
+        }
+
+        // Update the notification
+        const updated = prev.map((n) => {
+          if (n.id === notificationId) {
+            if (payload.success) {
+              return {
+                ...n,
+                status: 'completed' as const,
+                message: payload.message || 'Game detection complete',
+                progress: 100,
+                details: {
+                  ...n.details,
+                  totalGamesDetected: payload.totalGamesDetected || 0,
+                  totalServicesDetected: payload.totalServicesDetected || 0
+                }
+              };
+            } else {
+              return {
+                ...n,
+                status: 'failed' as const,
+                error: payload.error || payload.message || 'Game detection failed'
+              };
+            }
+          }
+          return n;
+        });
+
+        return updated;
+      });
+
+      // Schedule auto-dismiss
+      scheduleAutoDismiss(notificationId);
+    };
+
     // Database Reset
     const handleDatabaseResetProgress = (payload: any) => {
       const notificationId = 'database-reset';
@@ -927,6 +1039,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('ServiceRemovalComplete', handleServiceRemovalComplete);
     signalR.on('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
     signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+    signalR.on('GameDetectionStarted', handleGameDetectionStarted);
+    signalR.on('GameDetectionComplete', handleGameDetectionComplete);
     signalR.on('CacheClearProgress', handleCacheClearProgress);
     signalR.on('CacheClearComplete', handleCacheClearComplete);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
@@ -944,6 +1058,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('ServiceRemovalComplete', handleServiceRemovalComplete);
       signalR.off('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
       signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+      signalR.off('GameDetectionStarted', handleGameDetectionStarted);
+      signalR.off('GameDetectionComplete', handleGameDetectionComplete);
       signalR.off('CacheClearProgress', handleCacheClearProgress);
       signalR.off('CacheClearComplete', handleCacheClearComplete);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);

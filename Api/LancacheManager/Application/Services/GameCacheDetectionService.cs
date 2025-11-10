@@ -2,9 +2,11 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Data;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Application.Services;
@@ -21,6 +23,7 @@ public class GameCacheDetectionService
     private readonly SteamKit2Service _steamKit2Service;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
 
     public class DetectionOperation
@@ -43,7 +46,8 @@ public class GameCacheDetectionService
         IDbContextFactory<AppDbContext> dbContextFactory,
         SteamKit2Service steamKit2Service,
         ProcessManager processManager,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        IHubContext<DownloadHub> hubContext)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -52,6 +56,7 @@ public class GameCacheDetectionService
         _steamKit2Service = steamKit2Service;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
+        _hubContext = hubContext;
 
         // Restore any interrupted operations on startup
         RestoreInterruptedOperations();
@@ -60,12 +65,17 @@ public class GameCacheDetectionService
     public string StartDetectionAsync(bool incremental = true)
     {
         var operationId = Guid.NewGuid().ToString();
+        var scanType = incremental ? "incremental" : "full";
+        var message = incremental
+            ? "Starting incremental scan (new games and services only)..."
+            : "Starting full scan (all games and services)...";
+
         var operation = new DetectionOperation
         {
             OperationId = operationId,
             StartTime = DateTime.UtcNow,
             Status = "running",
-            Message = "Starting game cache detection..."
+            Message = message
         };
 
         _operations[operationId] = operation;
@@ -78,6 +88,18 @@ public class GameCacheDetectionService
             Status = "running",
             Message = operation.Message,
             Data = JsonSerializer.SerializeToElement(new { operationId })
+        });
+
+        // Send SignalR notification that detection started
+        _ = Task.Run(async () =>
+        {
+            await _hubContext.Clients.All.SendAsync("GameDetectionStarted", new
+            {
+                operationId,
+                scanType,
+                message,
+                timestamp = DateTime.UtcNow
+            });
         });
 
         // Start detection in background
@@ -347,6 +369,17 @@ public class GameCacheDetectionService
 
             _logger.LogInformation("[GameDetection] Completed: {Count} games detected", detectionResult.TotalGamesDetected);
 
+            // Send SignalR notification that detection completed successfully
+            await _hubContext.Clients.All.SendAsync("GameDetectionComplete", new
+            {
+                success = true,
+                operationId,
+                totalGamesDetected,
+                totalServicesDetected = detectionResult.Services.Count,
+                message = operation.Message,
+                timestamp = DateTime.UtcNow
+            });
+
             // Clean up temporary files
             await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
             if (!string.IsNullOrEmpty(excludedIdsPath))
@@ -369,6 +402,16 @@ public class GameCacheDetectionService
                 Status = "failed",
                 Message = operation.Message,
                 Data = JsonSerializer.SerializeToElement(new { operationId, error = ex.Message })
+            });
+
+            // Send SignalR notification that detection failed
+            await _hubContext.Clients.All.SendAsync("GameDetectionComplete", new
+            {
+                success = false,
+                operationId,
+                message = operation.Message,
+                error = ex.Message,
+                timestamp = DateTime.UtcNow
             });
 
             // Clean up excluded IDs file in error path too

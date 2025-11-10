@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HardDrive, Loader2, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
@@ -38,8 +38,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [totalServices, setTotalServices] = useState<number>(0);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const detectionNotificationIdRef = useRef<string | null>(null);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [hasProcessedLogs, setHasProcessedLogs] = useState(false);
@@ -47,14 +45,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
 
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
 
   // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
@@ -137,19 +127,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       const operation = await gameDetectionOp.load();
       if (operation?.data) {
         const data = operation.data as any;
-        if (data.operationId) {
+        if (data.operationId && data.scanType) {
+          console.log('[GameCacheDetector] Restoring interrupted game detection operation');
           setLoading(true);
-
-          // Start polling for the status of the restored operation
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-          }
-          pollingIntervalRef.current = setInterval(() => {
-            pollDetectionStatus(data.operationId);
-          }, 5000); // Poll every 5 seconds
-
-          // Poll immediately to get current status
-          pollDetectionStatus(data.operationId);
+          setScanType(data.scanType);
+          // SignalR will handle the completion when it arrives
         }
       }
     } catch (err) {
@@ -242,112 +224,56 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       console.log('[GameCacheDetector] Log processing completed, re-checking database LogEntries');
       checkIfLogsProcessed();
     }
-  }, [notifications]);
 
-  const pollDetectionStatus = async (operationId: string) => {
-    try {
-      const status = await ApiService.getGameDetectionStatus(operationId);
-      console.log('[GameCacheDetector] Poll status response:', status);
+    // Handle game detection completion
+    const gameDetectionNotifs = notifications.filter(
+      (n) => n.type === 'game_detection' && n.status === 'completed'
+    );
+    if (gameDetectionNotifs.length > 0) {
+      console.log('[GameCacheDetector] Game detection completed, loading results from database');
+      setLoading(false);
+      setScanType(null);
 
-      if (status.status === 'complete') {
-        // Detection complete
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
+      // Clear operation state - detection is complete
+      gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
 
-        // Remove the "Detecting games in cache..." notification FIRST
-        // Do this before any await to ensure notification always clears
-        // Handle both manually started (stored in ref) and recovered (hardcoded id) cases
-        if (detectionNotificationIdRef.current) {
-          removeNotification(detectionNotificationIdRef.current);
-          detectionNotificationIdRef.current = null;
-        }
-        removeNotification('game_detection'); // Also remove recovery notification if it exists
-
-        setLoading(false);
-
-        // Clear operation state - detection is complete (non-blocking)
-        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
-
-        // Update games if available
-        if (status.games && status.totalGamesDetected !== undefined) {
-          setGames(status.games);
-          setTotalGames(status.totalGamesDetected);
-        }
-
-        // Update services if available
-        if (status.services && status.totalServicesDetected !== undefined) {
-          setServices(status.services);
-          setTotalServices(status.totalServicesDetected);
-        }
-
-        // Set the detection time to now (fresh results)
-        setLastDetectionTime(new Date().toISOString());
-
-        // Backend already saved to database - no need to save locally
-
-        // Show notification with detection results
-        const gamesCount = status.totalGamesDetected || 0;
-        const servicesCount = status.totalServicesDetected || 0;
-
-        if (gamesCount > 0 || servicesCount > 0) {
-          const parts = [];
-          if (gamesCount > 0) {
-            parts.push(`${gamesCount} game${gamesCount !== 1 ? 's' : ''}`);
+      // Load fresh results from the database (backend already saved them)
+      const loadResults = async () => {
+        try {
+          const result = await ApiService.getCachedGameDetection();
+          if (result.hasCachedResults) {
+            if (result.games && result.totalGamesDetected) {
+              setGames(result.games);
+              setTotalGames(result.totalGamesDetected);
+            }
+            if (result.services && result.totalServicesDetected) {
+              setServices(result.services);
+              setTotalServices(result.totalServicesDetected);
+            }
+            if (result.lastDetectionTime) {
+              setLastDetectionTime(result.lastDetectionTime);
+            }
           }
-          if (servicesCount > 0) {
-            parts.push(`${servicesCount} service${servicesCount !== 1 ? 's' : ''}`);
-          }
-
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: `Detected ${parts.join(' and ')} with cache files`,
-            details: { notificationType: 'success' }
-          });
+        } catch (err) {
+          console.error('[GameCacheDetector] Failed to load detection results:', err);
         }
-      } else if (status.status === 'failed') {
-        // Detection failed
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-
-        // Remove the "Detecting games in cache..." notification FIRST
-        // Do this before any await to ensure notification always clears
-        // Handle both manually started (stored in ref) and recovered (hardcoded id) cases
-        if (detectionNotificationIdRef.current) {
-          removeNotification(detectionNotificationIdRef.current);
-          detectionNotificationIdRef.current = null;
-        }
-        removeNotification('game_detection'); // Also remove recovery notification if it exists
-
-        setLoading(false);
-
-        // Clear operation state - detection failed (non-blocking)
-        gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
-
-        const errorMsg = status.error || 'Detection failed';
-        setError(errorMsg);
-        addNotification({
-          type: 'generic',
-          status: 'failed',
-          message: errorMsg,
-          details: { notificationType: 'error' }
-        });
-      }
-      // If status is 'running', continue polling
-    } catch (err: any) {
-      // Log errors but continue polling - detection might just be slow
-      if (err.name === 'TimeoutError' || err.message?.includes('timeout')) {
-        console.warn('[GameCacheDetector] Timeout checking detection status, will retry...');
-      } else {
-        console.error('[GameCacheDetector] Error polling detection status:', err);
-      }
-      // Continue polling - don't give up
+      };
+      loadResults();
     }
-  };
+
+    // Handle game detection failure
+    const gameDetectionFailedNotifs = notifications.filter(
+      (n) => n.type === 'game_detection' && n.status === 'failed'
+    );
+    if (gameDetectionFailedNotifs.length > 0) {
+      console.error('[GameCacheDetector] Game detection failed');
+      setLoading(false);
+      setScanType(null);
+
+      // Clear operation state - detection failed
+      gameDetectionOp.clear().catch((err) => console.error('Failed to clear operation state:', err));
+    }
+  }, [notifications]);
 
   const startDetection = async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
     if (mockMode) {
@@ -371,36 +297,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setTotalServices(0);
     setLastDetectionTime(null); // Clear previous detection time when starting new scan
 
-    const notificationMessage = forceRefresh
-      ? 'Running full scan (all games and services)...'
-      : 'Running incremental scan (new games and services only)...';
-
     try {
-      // Start background detection
+      // Start background detection - SignalR will send GameDetectionStarted event
       const result = await ApiService.startGameCacheDetection(forceRefresh);
 
       // Save operation state for restoration on page refresh
       await gameDetectionOp.save({ operationId: result.operationId, scanType: scanTypeLabel });
-
-      // Add notification to show detection is in progress
-      const notificationId = addNotification({
-        type: 'generic',
-        status: 'running',
-        message: notificationMessage,
-        details: { notificationType: 'info' }
-      });
-      detectionNotificationIdRef.current = notificationId;
-
-      // Start polling for status
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-      pollingIntervalRef.current = setInterval(() => {
-        pollDetectionStatus(result.operationId);
-      }, 5000); // Poll every 5 seconds - detection can take a while
-
-      // Poll immediately
-      pollDetectionStatus(result.operationId);
+      // Success! SignalR notifications will handle the rest
     } catch (err: any) {
       const errorMsg = err.message || 'Failed to start detection';
       setError(errorMsg);
