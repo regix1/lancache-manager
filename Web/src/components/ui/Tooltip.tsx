@@ -35,6 +35,24 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const tooltipsDisabled =
     document.documentElement.getAttribute('data-disable-tooltips') === 'true';
 
+  // Add scroll listener to hide tooltip on mobile scroll
+  useEffect(() => {
+    if (!show) return;
+
+    const handleScroll = () => {
+      setShow(false);
+    };
+
+    // Listen for scroll events on window and any scrollable parents
+    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+    window.addEventListener('touchmove', handleScroll, { passive: true, capture: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll, { capture: true });
+      window.removeEventListener('touchmove', handleScroll, { capture: true });
+    };
+  }, [show]);
+
   // Default children with conditional cursor style
   const defaultChildren = (
     <Info
@@ -62,6 +80,16 @@ export const Tooltip: React.FC<TooltipProps> = ({
           }
         }}
         onMouseLeave={() => setShow(false)}
+        onTouchStart={(e) => {
+          if (!tooltipsDisabled) {
+            setShow(true);
+            const touch = e.touches[0];
+            setX(touch.clientX);
+            setY(touch.clientY);
+          }
+        }}
+        onTouchEnd={() => setShow(false)}
+        onTouchCancel={() => setShow(false)}
       >
         {childContent}
       </div>
