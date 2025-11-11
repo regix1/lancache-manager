@@ -103,7 +103,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     fetchProgress();
   }, [mockMode]);
 
-  // Poll every 30 seconds to update countdown and status
+  // Poll every 30 seconds ONLY for countdown updates (not for scan status)
+  // SignalR handles scan status changes via events
   useEffect(() => {
     if (mockMode) return;
 
@@ -113,6 +114,20 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
 
     return () => clearInterval(interval);
   }, [mockMode]);
+
+  // Monitor SignalR connection state - re-fetch state on reconnection
+  // This ensures we recover from missed messages during connection loss
+  useEffect(() => {
+    if (mockMode) return;
+
+    console.log('[PicsProgress] SignalR connection state:', signalR.connectionState);
+
+    // When SignalR reconnects, immediately fetch current state to recover any missed messages
+    if (signalR.connectionState === 'connected') {
+      console.log('[PicsProgress] SignalR connected/reconnected - fetching current state');
+      fetchProgress();
+    }
+  }, [signalR.connectionState, mockMode]);
 
   // Listen for real-time depot mapping updates via SignalR
   useEffect(() => {

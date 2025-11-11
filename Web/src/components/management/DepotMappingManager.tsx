@@ -55,6 +55,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   const [githubDownloadComplete, setGithubDownloadComplete] = useState(false);
   const [githubDownloading, setGithubDownloading] = useState(false);
   const lastViabilityCheck = useRef<number>(0);
+  const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastProgressUpdateRef = useRef<number>(Date.now());
 
   // Derive depotConfig from picsProgress with nextCrawlIn conversion
   const depotConfig = useMemo(() => {
@@ -266,8 +268,65 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   useEffect(() => {
     if (!depotConfig?.isRunning && operationType === 'scanning') {
       setOperationType(null);
+      setActionLoading(false);
+      // Clear timeout when scan completes
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
     }
   }, [depotConfig?.isRunning, operationType]);
+
+  // Safety timeout: Auto-clear stuck loading state if no progress for 5 minutes
+  // This handles cases where SignalR messages are lost during concurrent operations
+  useEffect(() => {
+    // Only monitor when we're actively scanning
+    if (operationType === 'scanning' && depotConfig?.isRunning) {
+      // Update last progress time when scan is running
+      lastProgressUpdateRef.current = Date.now();
+
+      // Clear any existing timeout
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+      }
+
+      // Set a new timeout - if no state change for 5 minutes, assume stuck
+      scanTimeoutRef.current = setTimeout(() => {
+        const timeSinceUpdate = Date.now() - lastProgressUpdateRef.current;
+        console.warn(
+          '[DepotMapping] Scan timeout detected - no updates for',
+          Math.round(timeSinceUpdate / 1000),
+          'seconds'
+        );
+
+        // Force refresh progress to check actual backend state
+        refreshProgress().then(() => {
+          // If still showing as running after refresh, something is wrong
+          // Clear the stuck state
+          if (depotConfig?.isRunning) {
+            console.warn('[DepotMapping] Forcing clear of stuck loading state');
+            setOperationType(null);
+            setActionLoading(false);
+            depotMappingOp.clear();
+            onError?.('Depot scan may have stalled. Please check the status and try again.');
+          }
+        });
+      }, 5 * 60 * 1000); // 5 minutes
+
+      return () => {
+        if (scanTimeoutRef.current) {
+          clearTimeout(scanTimeoutRef.current);
+          scanTimeoutRef.current = null;
+        }
+      };
+    } else {
+      // Not scanning - clear timeout
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+    }
+  }, [operationType, depotConfig?.isRunning, depotConfig?.progressPercent]);
 
   const handleDownloadFromGitHub = async () => {
     setChangeGapWarning(null);
