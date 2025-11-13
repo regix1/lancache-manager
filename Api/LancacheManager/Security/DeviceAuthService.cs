@@ -1,7 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Data;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Security;
 
@@ -9,9 +10,8 @@ public class DeviceAuthService
 {
     private readonly ILogger<DeviceAuthService> _logger;
     private readonly ApiKeyService _apiKeyService;
-    private readonly IPathResolver _pathResolver;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly IConfiguration _configuration;
-    private readonly string _devicesDirectory;
     private readonly Dictionary<string, DeviceRegistration> _deviceCache = new();
     private readonly object _cacheLock = new object();
 
@@ -19,19 +19,12 @@ public class DeviceAuthService
         ILogger<DeviceAuthService> logger,
         ApiKeyService apiKeyService,
         IConfiguration configuration,
-        IPathResolver pathResolver)
+        IDbContextFactory<AppDbContext> contextFactory)
     {
         _logger = logger;
         _apiKeyService = apiKeyService;
         _configuration = configuration;
-        _pathResolver = pathResolver;
-        _devicesDirectory = configuration["Security:DevicesPath"] ?? _pathResolver.GetDevicesDirectory();
-
-        // Ensure devices directory exists
-        if (!Directory.Exists(_devicesDirectory))
-        {
-            Directory.CreateDirectory(_devicesDirectory);
-        }
+        _contextFactory = contextFactory;
 
         LoadDeviceRegistrations();
     }
@@ -307,12 +300,42 @@ public class DeviceAuthService
     {
         try
         {
-            var filePath = GetDeviceFilePath(registration.DeviceId);
-            var json = JsonSerializer.Serialize(registration, new JsonSerializerOptions
+            using var context = _contextFactory.CreateDbContext();
+
+            // Check if device exists
+            var existingSession = context.UserSessions.FirstOrDefault(s => s.SessionId == registration.DeviceId);
+
+            if (existingSession != null)
             {
-                WriteIndented = true
-            });
-            File.WriteAllText(filePath, json);
+                // Update existing device
+                existingSession.DeviceName = registration.DeviceName ?? string.Empty;
+                existingSession.IpAddress = registration.IpAddress ?? string.Empty;
+                existingSession.OperatingSystem = registration.OperatingSystem ?? string.Empty;
+                existingSession.Browser = registration.Browser ?? string.Empty;
+                existingSession.LastSeenAtUtc = registration.LastSeenAt ?? DateTime.UtcNow;
+                existingSession.ApiKey = registration.EncryptedApiKey;
+            }
+            else
+            {
+                // Create new device session
+                var userSession = new UserSession
+                {
+                    SessionId = registration.DeviceId,
+                    DeviceName = registration.DeviceName ?? string.Empty,
+                    IpAddress = registration.IpAddress ?? string.Empty,
+                    OperatingSystem = registration.OperatingSystem ?? string.Empty,
+                    Browser = registration.Browser ?? string.Empty,
+                    IsGuest = false,
+                    CreatedAtUtc = registration.RegisteredAt,
+                    ExpiresAtUtc = null, // Authenticated users don't expire
+                    LastSeenAtUtc = registration.LastSeenAt ?? DateTime.UtcNow,
+                    IsRevoked = false,
+                    ApiKey = registration.EncryptedApiKey
+                };
+                context.UserSessions.Add(userSession);
+            }
+
+            context.SaveChanges();
         }
         catch (Exception ex)
         {
@@ -324,11 +347,23 @@ public class DeviceAuthService
     {
         try
         {
-            var filePath = GetDeviceFilePath(deviceId);
-            if (File.Exists(filePath))
+            using var context = _contextFactory.CreateDbContext();
+            var userSession = context.UserSessions.FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest);
+
+            if (userSession != null)
             {
-                var json = File.ReadAllText(filePath);
-                return JsonSerializer.Deserialize<DeviceRegistration>(json);
+                return new DeviceRegistration
+                {
+                    DeviceId = userSession.SessionId,
+                    EncryptedApiKey = userSession.ApiKey ?? string.Empty,
+                    RegisteredAt = userSession.CreatedAtUtc,
+                    ExpiresAt = DateTime.UtcNow.AddYears(100), // Effectively never expires
+                    DeviceName = userSession.DeviceName,
+                    IpAddress = userSession.IpAddress,
+                    OperatingSystem = userSession.OperatingSystem,
+                    Browser = userSession.Browser,
+                    LastSeenAt = userSession.LastSeenAtUtc
+                };
             }
         }
         catch (Exception ex)
@@ -342,83 +377,64 @@ public class DeviceAuthService
     {
         try
         {
-            if (!Directory.Exists(_devicesDirectory))
-            {
-                return;
-            }
+            using var context = _contextFactory.CreateDbContext();
+            var sessions = context.UserSessions
+                .Where(s => !s.IsGuest && !s.IsRevoked)
+                .ToList();
 
-            var files = Directory.GetFiles(_devicesDirectory, "*.json");
-            foreach (var file in files)
+            lock (_cacheLock)
             {
-                try
+                _deviceCache.Clear();
+
+                foreach (var userSession in sessions)
                 {
-                    var json = File.ReadAllText(file);
-                    var registration = JsonSerializer.Deserialize<DeviceRegistration>(json);
-                    if (registration != null && registration.ExpiresAt > DateTime.UtcNow)
+                    var registration = new DeviceRegistration
                     {
-                        lock (_cacheLock)
-                        {
-                            _deviceCache[registration.DeviceId] = registration;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error loading device file: {File}", file);
+                        DeviceId = userSession.SessionId,
+                        EncryptedApiKey = userSession.ApiKey ?? string.Empty,
+                        RegisteredAt = userSession.CreatedAtUtc,
+                        ExpiresAt = DateTime.UtcNow.AddYears(100), // Effectively never expires
+                        DeviceName = userSession.DeviceName,
+                        IpAddress = userSession.IpAddress,
+                        OperatingSystem = userSession.OperatingSystem,
+                        Browser = userSession.Browser,
+                        LastSeenAt = userSession.LastSeenAtUtc
+                    };
+
+                    _deviceCache[registration.DeviceId] = registration;
                 }
             }
 
-            _logger.LogInformation("Loaded {Count} device registrations", _deviceCache.Count);
+            _logger.LogInformation("Loaded {Count} device registrations from database", _deviceCache.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading device registrations");
+            _logger.LogError(ex, "Error loading device registrations from database");
         }
-    }
-
-    private string GetDeviceFilePath(string deviceId)
-    {
-        // Sanitize device ID for filesystem
-        var safeId = Convert.ToBase64String(
-            Encoding.UTF8.GetBytes(deviceId))
-            .Replace("/", "_")
-            .Replace("+", "-")
-            .Replace("=", "");
-
-        return Path.Combine(_devicesDirectory, $"{safeId}.json");
     }
 
     public int RevokeAllDevices()
     {
         try
         {
-            int revokedCount = 0;
+            using var context = _contextFactory.CreateDbContext();
+            var devices = context.UserSessions.Where(s => !s.IsGuest).ToList();
+            int revokedCount = devices.Count;
+
+            foreach (var device in devices)
+            {
+                context.UserSessions.Remove(device);
+            }
+
+            context.SaveChanges();
 
             // Clear the cache
             lock (_cacheLock)
             {
-                revokedCount = _deviceCache.Count;
                 _deviceCache.Clear();
             }
 
-            // Delete all device files
-            if (Directory.Exists(_devicesDirectory))
-            {
-                var files = Directory.GetFiles(_devicesDirectory, "*.json");
-                foreach (var file in files)
-                {
-                    try
-                    {
-                        File.Delete(file);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, $"Failed to delete device file: {file}");
-                    }
-                }
-
-                _logger.LogWarning($"Revoked all {revokedCount} device registrations");
-            }
+            _logger.LogWarning("Revoked all {Count} device registrations", revokedCount);
 
             return revokedCount;
         }
@@ -446,14 +462,9 @@ public class DeviceAuthService
                 }
             }
 
-            // Check if any device files exist on disk
-            if (Directory.Exists(_devicesDirectory))
-            {
-                var files = Directory.GetFiles(_devicesDirectory, "*.json");
-                return files.Length > 0;
-            }
-
-            return false;
+            // Check database
+            using var context = _contextFactory.CreateDbContext();
+            return context.UserSessions.Any(s => !s.IsGuest);
         }
         catch (Exception ex)
         {
@@ -469,25 +480,35 @@ public class DeviceAuthService
     {
         var devices = new List<DeviceInfo>();
 
-        lock (_cacheLock)
+        try
         {
-            foreach (var registration in _deviceCache.Values)
+            // Read from database instead of cache
+            using var context = _contextFactory.CreateDbContext();
+            var sessions = context.UserSessions
+                .Where(s => !s.IsGuest)
+                .ToList();
+
+            foreach (var session in sessions)
             {
                 devices.Add(new DeviceInfo
                 {
-                    DeviceId = registration.DeviceId,
-                    DeviceName = registration.DeviceName,
-                    IpAddress = registration.IpAddress,
-                    LocalIp = registration.LocalIp,
-                    Hostname = registration.Hostname,
-                    OperatingSystem = registration.OperatingSystem,
-                    Browser = registration.Browser,
-                    RegisteredAt = registration.RegisteredAt,
-                    LastSeenAt = registration.LastSeenAt,
-                    ExpiresAt = registration.ExpiresAt,
-                    IsExpired = registration.ExpiresAt <= DateTime.UtcNow
+                    DeviceId = session.SessionId,
+                    DeviceName = session.DeviceName ?? "Unknown Device",
+                    IpAddress = session.IpAddress ?? string.Empty,
+                    LocalIp = null,
+                    Hostname = null,
+                    OperatingSystem = session.OperatingSystem ?? string.Empty,
+                    Browser = session.Browser ?? string.Empty,
+                    RegisteredAt = session.CreatedAtUtc,
+                    LastSeenAt = session.LastSeenAtUtc,
+                    ExpiresAt = session.ExpiresAtUtc ?? DateTime.MaxValue,
+                    IsExpired = session.ExpiresAtUtc.HasValue && session.ExpiresAtUtc <= DateTime.UtcNow
                 });
             }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading devices from database");
         }
 
         return devices.OrderByDescending(d => d.LastSeenAt ?? d.RegisteredAt).ToList();
@@ -501,17 +522,20 @@ public class DeviceAuthService
     {
         try
         {
-            // Remove from cache
-            lock (_cacheLock)
-            {
-                _deviceCache.Remove(deviceId);
-            }
+            using var context = _contextFactory.CreateDbContext();
+            var userSession = context.UserSessions.FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest);
 
-            // Delete file
-            var filePath = GetDeviceFilePath(deviceId);
-            if (File.Exists(filePath))
+            if (userSession != null)
             {
-                File.Delete(filePath);
+                context.UserSessions.Remove(userSession);
+                context.SaveChanges();
+
+                // Remove from cache
+                lock (_cacheLock)
+                {
+                    _deviceCache.Remove(deviceId);
+                }
+
                 _logger.LogWarning("Revoked device: {DeviceId}", deviceId);
                 return (true, "Device revoked successfully");
             }

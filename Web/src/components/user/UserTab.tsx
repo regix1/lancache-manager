@@ -9,7 +9,8 @@ import {
   Clock,
   Network,
   Monitor,
-  Globe
+  Globe,
+  Edit
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -52,6 +53,10 @@ const UserTab: React.FC = () => {
   const [defaultGuestTheme, setDefaultGuestTheme] = useState<string>('dark-default');
   const [updatingGuestTheme, setUpdatingGuestTheme] = useState(false);
   const [availableThemes, setAvailableThemes] = useState<Array<{ id: string; name: string }>>([]);
+  const [editingSession, setEditingSession] = useState<Session | null>(null);
+  const [editingPreferences, setEditingPreferences] = useState<any>(null);
+  const [loadingPreferences, setLoadingPreferences] = useState(false);
+  const [savingPreferences, setSavingPreferences] = useState(false);
 
   const loadSessions = async (showLoading = false) => {
     try {
@@ -122,7 +127,7 @@ const UserTab: React.FC = () => {
       });
       if (response.ok) {
         const data = await response.json();
-        setDefaultGuestTheme(data.themeId || 'dark-default');
+          setDefaultGuestTheme(data.themeId || 'dark-default');
       }
     } catch (err) {
       console.error('Failed to load default guest theme:', err);
@@ -289,6 +294,84 @@ const UserTab: React.FC = () => {
       setError(err.message || 'Failed to delete session');
     } finally {
       setDeletingSession(null);
+    }
+  };
+
+  const handleEditSession = async (session: Session) => {
+    setEditingSession(session);
+    setLoadingPreferences(true);
+    try {
+      const response = await fetch(`/api/userpreferences/session/${encodeURIComponent(session.id)}`, {
+        headers: ApiService.getHeaders()
+      });
+
+      if (response.ok) {
+        const prefs = await response.json();
+        setEditingPreferences(prefs);
+      } else {
+        // Initialize with defaults if no preferences exist
+        setEditingPreferences({
+          selectedTheme: null,
+          sharpCorners: false,
+          disableFocusOutlines: true,
+          disableTooltips: false,
+          picsAlwaysVisible: false,
+          hideAboutSections: false,
+          disableStickyNotifications: false
+        });
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load user preferences');
+      setEditingSession(null);
+    } finally {
+      setLoadingPreferences(false);
+    }
+  };
+
+  const handleSavePreferences = async () => {
+    if (!editingSession || !editingPreferences) return;
+
+    try {
+      setSavingPreferences(true);
+      const response = await fetch(`/api/userpreferences/session/${encodeURIComponent(editingSession.id)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...ApiService.getHeaders()
+        },
+        body: JSON.stringify(editingPreferences)
+      });
+
+      if (response.ok) {
+        // Check if we're editing our own session
+        const isOwnSession =
+          (editingSession.type === 'authenticated' &&
+            editingSession.id === authService.getDeviceId()) ||
+          (editingSession.type === 'guest' &&
+            editingSession.id === authService.getGuestSessionId());
+
+        // If editing own session, apply the changes immediately
+        if (isOwnSession) {
+          if (editingPreferences.selectedTheme) {
+            await themeService.setTheme(editingPreferences.selectedTheme);
+          }
+          await themeService.setSharpCorners(editingPreferences.sharpCorners);
+          await themeService.setDisableTooltips(editingPreferences.disableTooltips);
+          await themeService.setHideAboutSections(editingPreferences.hideAboutSections);
+          await themeService.setDisableStickyNotifications(editingPreferences.disableStickyNotifications);
+          await themeService.setPicsAlwaysVisible(editingPreferences.picsAlwaysVisible);
+        }
+
+        setEditingSession(null);
+        setEditingPreferences(null);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to save preferences');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to save preferences');
+    } finally {
+      setSavingPreferences(false);
     }
   };
 
@@ -688,41 +771,27 @@ const UserTab: React.FC = () => {
                           </div>
 
                           {/* ID Display - Combined for authenticated users, separate for guests */}
-                          {session.type === 'authenticated' ? (
-                            // Authenticated users: Device ID and Session ID are the same
-                            <div
-                              className="text-xs font-mono truncate overflow-x-auto"
-                              style={{ color: 'var(--theme-text-muted)' }}
-                              title={`Device/Session ID: ${session.id}`}
-                            >
-                              Device/Session ID: {session.id}
-                            </div>
-                          ) : (
-                            // Guest users: Show both IDs separately
-                            <>
-                              {session.deviceId && (
-                                <div
-                                  className="text-xs font-mono truncate overflow-x-auto"
-                                  style={{ color: 'var(--theme-text-muted)' }}
-                                  title={`Device ID: ${session.deviceId}`}
-                                >
-                                  Device ID: {session.deviceId}
-                                </div>
-                              )}
-                              <div
-                                className="text-xs font-mono truncate overflow-x-auto"
-                                style={{ color: 'var(--theme-text-muted)' }}
-                                title={`Session ID: ${session.id}`}
-                              >
-                                Session ID: {session.id}
-                              </div>
-                            </>
-                          )}
+                          <div
+                            className="text-xs font-mono truncate overflow-x-auto"
+                            style={{ color: 'var(--theme-text-muted)' }}
+                            title={`Device/Session ID: ${session.id}`}
+                          >
+                            Device/Session ID: {session.id}
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex gap-2 items-start justify-end w-full sm:w-auto sm:min-w-[180px]">
+                    <div className="flex gap-2 items-start justify-end w-full sm:w-auto sm:min-w-[240px]">
+                      <Button
+                        variant="default"
+                        color="blue"
+                        size="sm"
+                        leftSection={<Edit className="w-4 h-4" />}
+                        onClick={() => handleEditSession(session)}
+                      >
+                        Edit
+                      </Button>
                       {session.type === 'guest' && !session.isRevoked && !session.isExpired && (
                         <Button
                           variant="default"
@@ -888,24 +957,9 @@ const UserTab: React.FC = () => {
               <p className="text-sm text-themed-primary font-medium">
                 {pendingRevokeSession.deviceName || 'Unknown Device'}
               </p>
-              {pendingRevokeSession.type === 'authenticated' ? (
-                // Authenticated: Show combined Device/Session ID
-                <p className="text-xs text-themed-muted font-mono">
-                  Device/Session ID: {pendingRevokeSession.id}
-                </p>
-              ) : (
-                // Guest: Show both IDs separately
-                <>
-                  {pendingRevokeSession.deviceId && (
-                    <p className="text-xs text-themed-muted font-mono">
-                      Device ID: {pendingRevokeSession.deviceId}
-                    </p>
-                  )}
-                  <p className="text-xs text-themed-muted font-mono">
-                    Session ID: {pendingRevokeSession.id}
-                  </p>
-                </>
-              )}
+              <p className="text-xs text-themed-muted font-mono">
+                Device/Session ID: {pendingRevokeSession.id}
+              </p>
             </div>
           )}
 
@@ -970,24 +1024,9 @@ const UserTab: React.FC = () => {
               <p className="text-sm text-themed-primary font-medium">
                 {pendingDeleteSession.deviceName || 'Unknown Device'}
               </p>
-              {pendingDeleteSession.type === 'authenticated' ? (
-                // Authenticated: Show combined Device/Session ID
-                <p className="text-xs text-themed-muted font-mono">
-                  Device/Session ID: {pendingDeleteSession.id}
-                </p>
-              ) : (
-                // Guest: Show both IDs separately
-                <>
-                  {pendingDeleteSession.deviceId && (
-                    <p className="text-xs text-themed-muted font-mono">
-                      Device ID: {pendingDeleteSession.deviceId}
-                    </p>
-                  )}
-                  <p className="text-xs text-themed-muted font-mono">
-                    Session ID: {pendingDeleteSession.id}
-                  </p>
-                </>
-              )}
+              <p className="text-xs text-themed-muted font-mono">
+                Device/Session ID: {pendingDeleteSession.id}
+              </p>
             </div>
           )}
 
@@ -1018,6 +1057,200 @@ const UserTab: React.FC = () => {
               loading={!!deletingSession}
             >
               Delete Permanently
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit User Preferences Modal */}
+      <Modal
+        opened={!!editingSession}
+        onClose={() => {
+          if (!savingPreferences) {
+            setEditingSession(null);
+            setEditingPreferences(null);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <Edit className="w-6 h-6 text-themed-accent" />
+            <span>Edit User Preferences</span>
+          </div>
+        }
+        size="lg"
+      >
+        <div className="space-y-4">
+          {editingSession && (
+            <div className="p-3 rounded-lg bg-themed-tertiary space-y-1">
+              <p className="text-sm text-themed-primary font-medium">
+                {editingSession.deviceName || 'Unknown Device'}
+              </p>
+              <p className="text-xs text-themed-muted">
+                {editingSession.type === 'authenticated' ? 'Authenticated User' : 'Guest User'}
+              </p>
+              <p className="text-xs text-themed-muted font-mono">Device/Session ID: {editingSession.id}</p>
+            </div>
+          )}
+
+          {loadingPreferences && (
+            <div className="text-center py-8">
+              <Loader2
+                className="w-8 h-8 animate-spin mx-auto"
+                style={{ color: 'var(--theme-text-muted)' }}
+              />
+              <p className="text-sm mt-2" style={{ color: 'var(--theme-text-secondary)' }}>
+                Loading preferences...
+              </p>
+            </div>
+          )}
+
+          {!loadingPreferences && editingPreferences && (
+            <div className="space-y-4">
+              {/* Theme Selection */}
+              <div>
+                <label className="block text-sm font-medium text-themed-primary mb-2">
+                  Selected Theme
+                </label>
+                <EnhancedDropdown
+                  options={[
+                    {
+                      value: 'default',
+                      label: `Default Theme (${availableThemes.find(t => t.id === defaultGuestTheme)?.name || defaultGuestTheme})`
+                    },
+                    ...availableThemes.map((theme) => ({
+                      value: theme.id,
+                      label: theme.name
+                    }))
+                  ]}
+                  value={
+                    !editingPreferences.selectedTheme ||
+                    editingPreferences.selectedTheme === defaultGuestTheme
+                      ? 'default'
+                      : editingPreferences.selectedTheme
+                  }
+                  onChange={(value) =>
+                    setEditingPreferences({
+                      ...editingPreferences,
+                      selectedTheme: value === 'default' ? defaultGuestTheme : value
+                    })
+                  }
+                  className="w-full"
+                />
+              </div>
+
+              {/* UI Preferences */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-themed-primary">UI Preferences</h4>
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingPreferences.sharpCorners}
+                    onChange={(e) =>
+                      setEditingPreferences({
+                        ...editingPreferences,
+                        sharpCorners: e.target.checked
+                      })
+                    }
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--theme-primary)' }}
+                  />
+                  <span className="text-sm text-themed-secondary">Sharp Corners</span>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingPreferences.disableTooltips}
+                    onChange={(e) =>
+                      setEditingPreferences({
+                        ...editingPreferences,
+                        disableTooltips: e.target.checked
+                      })
+                    }
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--theme-primary)' }}
+                  />
+                  <span className="text-sm text-themed-secondary">Disable Tooltips</span>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editingPreferences.hideAboutSections}
+                    onChange={(e) =>
+                      setEditingPreferences({
+                        ...editingPreferences,
+                        hideAboutSections: e.target.checked
+                      })
+                    }
+                    className="w-4 h-4 rounded"
+                    style={{ accentColor: 'var(--theme-primary)' }}
+                  />
+                  <span className="text-sm text-themed-secondary">Hide Info Sections</span>
+                </label>
+
+                {/* Only show notification preferences for authenticated users */}
+                {editingSession.type === 'authenticated' && (
+                  <>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingPreferences.disableStickyNotifications}
+                        onChange={(e) =>
+                          setEditingPreferences({
+                            ...editingPreferences,
+                            disableStickyNotifications: e.target.checked
+                          })
+                        }
+                        className="w-4 h-4 rounded"
+                        style={{ accentColor: 'var(--theme-primary)' }}
+                      />
+                      <span className="text-sm text-themed-secondary">
+                        Disable Sticky Notifications
+                      </span>
+                    </label>
+
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editingPreferences.picsAlwaysVisible}
+                        onChange={(e) =>
+                          setEditingPreferences({
+                            ...editingPreferences,
+                            picsAlwaysVisible: e.target.checked
+                          })
+                        }
+                        className="w-4 h-4 rounded"
+                        style={{ accentColor: 'var(--theme-primary)' }}
+                      />
+                      <span className="text-sm text-themed-secondary">Universal Notifications Always Visible</span>
+                    </label>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border)' }}>
+            <Button
+              variant="default"
+              onClick={() => {
+                setEditingSession(null);
+                setEditingPreferences(null);
+              }}
+              disabled={savingPreferences}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="blue"
+              onClick={handleSavePreferences}
+              loading={savingPreferences}
+              disabled={loadingPreferences}
+            >
+              Save Preferences
             </Button>
           </div>
         </div>

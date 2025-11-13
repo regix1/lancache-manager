@@ -24,6 +24,7 @@ import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
 import { storage } from '@utils/storage';
 import themeService from '@services/theme.service';
+import preferencesService from '@services/preferences.service';
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
@@ -182,6 +183,13 @@ const AppContent: React.FC = () => {
       signalR.off('AutomaticScanSkipped', handleAutomaticScanSkipped);
     };
   }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
+
+  // Setup SignalR listener for user preference updates
+  useEffect(() => {
+    if (!signalR) return;
+
+    preferencesService.setupSignalRListener(signalR.on);
+  }, [signalR]);
 
   // Fetch server timezone on mount
   useEffect(() => {

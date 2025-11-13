@@ -1097,6 +1097,32 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     return () => window.removeEventListener('picsvisibilitychange', handlePicsVisibilityChange);
   }, [notifications, scheduleAutoDismiss]);
 
+  // Listen for custom toast notifications (e.g., preference changes)
+  React.useEffect(() => {
+    const handleShowToast = (event: any) => {
+      const { type, message, duration } = event.detail;
+
+      const notificationId = addNotification({
+        type: 'generic',
+        status: 'completed',
+        message,
+        details: {
+          notificationType: type || 'info'
+        }
+      });
+
+      // Auto-dismiss after specified duration or default
+      if (shouldAutoDismiss()) {
+        setTimeout(() => {
+          removeNotificationAnimated(notificationId);
+        }, duration || 4000);
+      }
+    };
+
+    window.addEventListener('show-toast', handleShowToast);
+    return () => window.removeEventListener('show-toast', handleShowToast);
+  }, [addNotification, removeNotificationAnimated]);
+
   // Universal Recovery: Check all backend operations on mount
   React.useEffect(() => {
     const recoverAllOperations = async () => {

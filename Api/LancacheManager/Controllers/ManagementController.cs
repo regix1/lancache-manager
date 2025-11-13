@@ -30,6 +30,7 @@ public class ManagementController : ControllerBase
     private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly IHubContext<DownloadHub> _hubContext;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly LancacheManager.Services.SessionMigrationService _sessionMigrationService;
 
     public ManagementController(
         CacheManagementService cacheService,
@@ -47,7 +48,8 @@ public class ManagementController : ControllerBase
         SteamAuthRepository steamAuthStorage,
         IServiceScopeFactory serviceScopeFactory,
         IHubContext<DownloadHub> hubContext,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        LancacheManager.Services.SessionMigrationService sessionMigrationService)
     {
         _cacheService = cacheService;
         _dbService = dbService;
@@ -65,6 +67,7 @@ public class ManagementController : ControllerBase
         _serviceScopeFactory = serviceScopeFactory;
         _hubContext = hubContext;
         _rustProcessHelper = rustProcessHelper;
+        _sessionMigrationService = sessionMigrationService;
 
         var dataDirectory = _pathResolver.GetDataDirectory();
         if (!Directory.Exists(dataDirectory))
@@ -1374,6 +1377,32 @@ public class ManagementController : ControllerBase
         {
             _logger.LogError(ex, "Error getting application state");
             return StatusCode(500, new { error = "Failed to get application state" });
+        }
+    }
+
+    /// <summary>
+    /// Migrate old JSON-based sessions to database (one-time migration)
+    /// </summary>
+    [HttpPost("migrate-sessions")]
+    public async Task<IActionResult> MigrateSessions()
+    {
+        try
+        {
+            var (devicesImported, guestSessionsImported, filesDeleted) =
+                await _sessionMigrationService.MigrateOldSessionsToDatabase();
+
+            return Ok(new
+            {
+                message = "Migration completed successfully",
+                devicesImported,
+                guestSessionsImported,
+                filesDeleted
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during session migration");
+            return StatusCode(500, new { error = "Migration failed", details = ex.Message });
         }
     }
 }

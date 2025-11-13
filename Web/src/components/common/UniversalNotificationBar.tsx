@@ -316,7 +316,7 @@ const UnifiedNotificationItem = ({
 const UniversalNotificationBar: React.FC = () => {
   const { notifications, removeNotification } = useNotifications();
   const [stickyDisabled, setStickyDisabled] = useState(
-    themeService.getDisableStickyNotifications()
+    themeService.getDisableStickyNotificationsSync()
   );
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
@@ -325,7 +325,7 @@ const UniversalNotificationBar: React.FC = () => {
   // Listen for sticky notifications setting changes
   useEffect(() => {
     const handleStickyChange = () => {
-      setStickyDisabled(themeService.getDisableStickyNotifications());
+      setStickyDisabled(themeService.getDisableStickyNotificationsSync());
     };
 
     window.addEventListener('stickynotificationschange', handleStickyChange);

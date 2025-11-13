@@ -160,8 +160,8 @@ class AuthService {
     const durationInMs = durationHours * 60 * 60 * 1000;
     const expiryTime = now + durationInMs;
 
-    // Generate a unique guest session ID
-    const guestSessionId = `guest_${this.deviceId}_${now}`;
+    // Use device ID directly as guest session ID (simplified from old guest_{deviceId}_{timestamp} format)
+    const guestSessionId = this.deviceId;
 
     storage.setItem('lancache_guest_session_id', guestSessionId);
     storage.setItem('lancache_guest_session_start', now.toString());
@@ -192,6 +192,9 @@ class AuthService {
         durationHours,
         'hours'
       );
+
+      // Dispatch event to trigger preference reload now that guest session exists
+      window.dispatchEvent(new CustomEvent('guest-session-created'));
     } catch (error) {
       console.warn('[Auth] Failed to register guest session with backend:', error);
       // Continue with guest mode even if backend registration fails

@@ -1,7 +1,7 @@
 import { API_BASE } from '../utils/constants';
 import authService from './auth.service';
+import preferencesService from './preferences.service';
 import * as TOML from 'toml';
-import packageJson from '../../package.json';
 import { storage } from '@utils/storage';
 
 interface ThemeColors {
@@ -190,6 +190,88 @@ class ThemeService {
 
   private currentTheme: Theme | null = null;
   private styleElement: HTMLStyleElement | null = null;
+  private preferenceListenersSetup = false;
+
+  /**
+   * Setup listeners for live preference updates
+   */
+  setupPreferenceListeners(): void {
+    if (this.preferenceListenersSetup) {
+      return; // Already setup
+    }
+
+    console.log('[ThemeService] Setting up preference change listeners');
+
+    window.addEventListener('preference-changed', async (event: any) => {
+      const { key, value } = event.detail;
+      console.log(`[ThemeService] Preference changed: ${key} = ${value}`);
+
+      // Show a notification to inform the user
+      const preferenceNames: Record<string, string> = {
+        selectedTheme: 'Theme',
+        sharpCorners: 'Sharp Corners',
+        disableFocusOutlines: 'Focus Outlines',
+        disableTooltips: 'Tooltips',
+        picsAlwaysVisible: 'Universal Notifications',
+        hideAboutSections: 'Info Sections',
+        disableStickyNotifications: 'Sticky Notifications'
+      };
+
+      // Dispatch a notification event
+      window.dispatchEvent(
+        new CustomEvent('show-toast', {
+          detail: {
+            type: 'info',
+            message: `Your ${preferenceNames[key] || 'setting'} has been updated by an administrator`,
+            duration: 4000
+          }
+        })
+      );
+
+      switch (key) {
+        case 'selectedTheme':
+          if (value && value !== this.getCurrentThemeId()) {
+            console.log(`[ThemeService] Applying new theme: ${value}`);
+            await this.setTheme(value);
+          }
+          break;
+
+        case 'sharpCorners':
+          // Re-apply current theme to update border radius
+          if (this.currentTheme) {
+            this.applyTheme(this.currentTheme);
+          } else {
+            this.applyDefaultVariables();
+          }
+          break;
+
+        case 'disableFocusOutlines':
+          document.documentElement.setAttribute('data-disable-focus-outlines', value.toString());
+          window.dispatchEvent(new Event('focusoutlineschange'));
+          break;
+
+        case 'disableTooltips':
+          document.documentElement.setAttribute('data-disable-tooltips', value.toString());
+          window.dispatchEvent(new Event('tooltipschange'));
+          break;
+
+        case 'picsAlwaysVisible':
+          window.dispatchEvent(new Event('picsvisibilitychange'));
+          break;
+
+        case 'hideAboutSections':
+          document.documentElement.setAttribute('data-hide-about-sections', value.toString());
+          window.dispatchEvent(new Event('aboutsectionsvisibilitychange'));
+          break;
+
+        case 'disableStickyNotifications':
+          window.dispatchEvent(new Event('stickynotificationschange'));
+          break;
+      }
+    });
+
+    this.preferenceListenersSetup = true;
+  }
 
   async loadThemes(): Promise<Theme[]> {
     const builtInThemes = this.getBuiltInThemes();
@@ -670,7 +752,7 @@ class ThemeService {
   }
 
   private applyDefaultVariables(): void {
-    const sharpCorners = storage.getItem('lancache_sharp_corners') === 'true';
+    const sharpCorners = this.getSharpCornersSync();
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
     const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
     const borderRadiusXl = sharpCorners ? '0px' : '1rem';
@@ -831,34 +913,12 @@ class ThemeService {
     }
 
     // Apply theme-specific settings
-    // Check if user has manually overridden these settings, otherwise use theme defaults
-    const existingSharpCorners = storage.getItem('lancache_sharp_corners');
-    const existingDisableFocusOutlines = storage.getItem('lancache_disable_focus_outlines');
-    const existingDisableTooltips = storage.getItem('lancache_disable_tooltips');
+    // Check prefs from database/API, then fall back to theme defaults
+    const prefs = preferencesService.getPreferencesSync();
 
-    const sharpCorners =
-      existingSharpCorners !== null
-        ? existingSharpCorners === 'true'
-        : (theme.meta.sharpCorners ?? false);
-    const disableFocusOutlines =
-      existingDisableFocusOutlines !== null
-        ? existingDisableFocusOutlines === 'true'
-        : (theme.meta.disableFocusOutlines ?? false);
-    const disableTooltips =
-      existingDisableTooltips !== null
-        ? existingDisableTooltips === 'true'
-        : (theme.meta.disableTooltips ?? false);
-
-    // Update localStorage if not already set
-    if (existingSharpCorners === null) {
-      storage.setItem('lancache_sharp_corners', sharpCorners.toString());
-    }
-    if (existingDisableFocusOutlines === null) {
-      storage.setItem('lancache_disable_focus_outlines', disableFocusOutlines.toString());
-    }
-    if (existingDisableTooltips === null) {
-      storage.setItem('lancache_disable_tooltips', disableTooltips.toString());
-    }
+    const sharpCorners = prefs?.sharpCorners ?? (theme.meta.sharpCorners ?? false);
+    const disableFocusOutlines = prefs?.disableFocusOutlines ?? (theme.meta.disableFocusOutlines ?? false);
+    const disableTooltips = prefs?.disableTooltips ?? (theme.meta.disableTooltips ?? false);
 
     // Apply focus outlines setting
     document.documentElement.setAttribute(
@@ -1052,44 +1112,21 @@ class ThemeService {
     root.setAttribute('data-theme-id', theme.meta.id);
     this.currentTheme = theme;
 
-    // Only save theme preferences for authenticated users
-    // Guest users cannot change themes (they use the default guest theme set by admin)
-    if (authService.authMode === 'authenticated') {
-      // Save the theme ID and CSS for instant loading on next page load
-      storage.setItem('lancache_selected_theme', theme.meta.id);
-      storage.setItem('lancache_theme_css', themeStyles);
-      storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
-
-      // Save to API if user is authenticated (fire-and-forget)
-      if (authService.isAuthenticated) {
-        this.saveThemePreferenceToAPI(theme.meta.id).catch((error) => {
-          console.error('[ThemeService] Failed to save theme to API:', error);
-        });
-      }
-    }
+    // Save theme preferences for all users (authenticated and guests)
+    // Save the theme ID and CSS for instant loading on next page load (localStorage for caching)
+    storage.setItem('lancache_selected_theme', theme.meta.id);
+    storage.setItem('lancache_theme_css', themeStyles);
+    storage.setItem('lancache_theme_dark', theme.meta.isDark ? 'true' : 'false');
 
     // Force re-render
     window.dispatchEvent(new Event('themechange'));
   }
 
   async loadSavedTheme(): Promise<void> {
-    // Check for feature migrations
-    this.migrateLocalStorageFeatures();
-
-    // Initialize focus outlines setting
-    const disableFocusOutlines = this.getDisableFocusOutlines();
-    document.documentElement.setAttribute(
-      'data-disable-focus-outlines',
-      disableFocusOutlines.toString()
-    );
-
-    // Initialize tooltips setting
-    const disableTooltips = this.getDisableTooltips();
-    document.documentElement.setAttribute('data-disable-tooltips', disableTooltips.toString());
-
-    // Initialize hide about sections setting
-    const hideAboutSections = this.getHideAboutSections();
-    document.documentElement.setAttribute('data-hide-about-sections', hideAboutSections.toString());
+    // Initialize with default settings (no API calls at startup)
+    document.documentElement.setAttribute('data-disable-focus-outlines', 'false');
+    document.documentElement.setAttribute('data-disable-tooltips', 'false');
+    document.documentElement.setAttribute('data-hide-about-sections', 'false');
 
     // Check if we have a preloaded theme from the HTML
     const preloadStyle = document.getElementById('lancache-theme-preload');
@@ -1110,38 +1147,15 @@ class ThemeService {
       storage.removeItem('lancache_theme_dark');
     }
 
-    // No preload or theme not found, apply defaults
+    // Apply default Tailwind dark theme
     this.applyDefaultVariables();
 
-    // Check authentication status and load theme accordingly
-    if (authService.isAuthenticated && authService.authMode === 'authenticated') {
-      // Authenticated users: Try to load from API first
-      const apiThemeId = await this.getThemePreferenceFromAPI();
-      if (apiThemeId) {
-        const theme = await this.getTheme(apiThemeId);
-        if (theme) {
-          this.applyTheme(theme);
-          return;
-        }
-      }
-
-      // Fallback to localStorage for authenticated users
-      if (savedThemeId) {
-        const theme = await this.getTheme(savedThemeId);
-        if (theme) {
-          this.applyTheme(theme);
-          return;
-        }
-      }
-    } else if (authService.authMode === 'guest') {
-      // Guest users: Load default guest theme from API (set by admin)
-      const guestThemeId = await this.getDefaultGuestThemeFromAPI();
-      if (guestThemeId) {
-        const theme = await this.getTheme(guestThemeId);
-        if (theme) {
-          this.applyTheme(theme);
-          return;
-        }
+    // Fallback to localStorage cache if API didn't have a preference
+    if (savedThemeId) {
+      const theme = await this.getTheme(savedThemeId);
+      if (theme) {
+        this.applyTheme(theme);
+        return;
       }
     }
 
@@ -1152,45 +1166,7 @@ class ThemeService {
     }
   }
 
-  private migrateLocalStorageFeatures(): void {
-    const migrationVersion = storage.getItem('lancache_migration_version');
-    const currentVersion = packageJson.version;
-
-    if (migrationVersion !== currentVersion) {
-      // Migration for sharp corners feature
-      if (!storage.getItem('lancache_sharp_corners')) {
-        storage.setItem('lancache_sharp_corners', 'false'); // Default to rounded
-      }
-
-      // Migration for disable focus outlines feature
-      if (!storage.getItem('lancache_disable_focus_outlines')) {
-        storage.setItem('lancache_disable_focus_outlines', 'true'); // Default to disabled (no blue borders)
-      }
-
-      // Migration for disable tooltips feature
-      if (!storage.getItem('lancache_disable_tooltips')) {
-        storage.setItem('lancache_disable_tooltips', 'false'); // Default to enabled
-      }
-
-      // Migration for PICS always visible feature
-      if (!storage.getItem('lancache_pics_always_visible')) {
-        storage.setItem('lancache_pics_always_visible', 'false'); // Default to only show when processing
-      }
-
-      // Migration for hide about sections feature
-      if (!storage.getItem('lancache_hide_about_sections')) {
-        storage.setItem('lancache_hide_about_sections', 'false'); // Default to showing about sections
-      }
-
-      // Migration for disable sticky notifications feature
-      if (!storage.getItem('lancache_disable_sticky_notifications')) {
-        storage.setItem('lancache_disable_sticky_notifications', 'false'); // Default to sticky enabled
-      }
-
-      // Set migration version to prevent future runs
-      storage.setItem('lancache_migration_version', currentVersion);
-    }
-  }
+  // Migration removed - preferences are now stored in the database via API
 
   getCurrentThemeId(): string {
     return this.currentTheme?.meta.id || 'dark-default';
@@ -1249,10 +1225,11 @@ class ThemeService {
     return toml;
   }
 
-  setSharpCorners(enabled: boolean): void {
-    storage.setItem('lancache_sharp_corners', enabled.toString());
+  async setSharpCorners(enabled: boolean): Promise<void> {
+    // Save to API (this will trigger SignalR broadcast to other users)
+    await preferencesService.setPreference('sharpCorners', enabled);
 
-    // Re-apply current theme to update border radius variables
+    // Apply immediately for current user
     if (this.currentTheme) {
       this.applyTheme(this.currentTheme);
     } else {
@@ -1260,12 +1237,18 @@ class ThemeService {
     }
   }
 
-  getSharpCorners(): boolean {
-    return storage.getItem('lancache_sharp_corners') === 'true';
+  async getSharpCorners(): Promise<boolean> {
+    return await preferencesService.getPreference('sharpCorners');
   }
 
-  setDisableFocusOutlines(enabled: boolean): void {
-    storage.setItem('lancache_disable_focus_outlines', enabled.toString());
+  getSharpCornersSync(): boolean {
+    const prefs = preferencesService.getPreferencesSync();
+    return prefs?.sharpCorners || false;
+  }
+
+  async setDisableFocusOutlines(enabled: boolean): Promise<void> {
+    // Save to API
+    await preferencesService.setPreference('disableFocusOutlines', enabled);
 
     // Trigger CSS update
     document.documentElement.setAttribute('data-disable-focus-outlines', enabled.toString());
@@ -1274,12 +1257,18 @@ class ThemeService {
     window.dispatchEvent(new Event('focusoutlineschange'));
   }
 
-  getDisableFocusOutlines(): boolean {
-    return storage.getItem('lancache_disable_focus_outlines') === 'true';
+  async getDisableFocusOutlines(): Promise<boolean> {
+    return await preferencesService.getPreference('disableFocusOutlines');
   }
 
-  setDisableTooltips(enabled: boolean): void {
-    storage.setItem('lancache_disable_tooltips', enabled.toString());
+  getDisableFocusOutlinesSync(): boolean {
+    const prefs = preferencesService.getPreferencesSync();
+    return prefs?.disableFocusOutlines ?? true; // Default to true
+  }
+
+  async setDisableTooltips(enabled: boolean): Promise<void> {
+    // Save to API
+    await preferencesService.setPreference('disableTooltips', enabled);
 
     // Trigger update
     document.documentElement.setAttribute('data-disable-tooltips', enabled.toString());
@@ -1288,23 +1277,35 @@ class ThemeService {
     window.dispatchEvent(new Event('tooltipschange'));
   }
 
-  getDisableTooltips(): boolean {
-    return storage.getItem('lancache_disable_tooltips') === 'true';
+  async getDisableTooltips(): Promise<boolean> {
+    return await preferencesService.getPreference('disableTooltips');
   }
 
-  setPicsAlwaysVisible(enabled: boolean): void {
-    storage.setItem('lancache_pics_always_visible', enabled.toString());
+  getDisableTooltipsSync(): boolean {
+    const prefs = preferencesService.getPreferencesSync();
+    return prefs?.disableTooltips || false;
+  }
 
-    // Dispatch event for any components that need to react
+  async setPicsAlwaysVisible(enabled: boolean): Promise<void> {
+    // Save to API (this will trigger SignalR broadcast to other users)
+    await preferencesService.setPreference('picsAlwaysVisible', enabled);
+
+    // Apply immediately for current user
     window.dispatchEvent(new Event('picsvisibilitychange'));
   }
 
-  getPicsAlwaysVisible(): boolean {
-    return storage.getItem('lancache_pics_always_visible') === 'true';
+  async getPicsAlwaysVisible(): Promise<boolean> {
+    return await preferencesService.getPreference('picsAlwaysVisible');
   }
 
-  setHideAboutSections(enabled: boolean): void {
-    storage.setItem('lancache_hide_about_sections', enabled.toString());
+  getPicsAlwaysVisibleSync(): boolean {
+    const prefs = preferencesService.getPreferencesSync();
+    return prefs?.picsAlwaysVisible || false;
+  }
+
+  async setHideAboutSections(enabled: boolean): Promise<void> {
+    // Save to API
+    await preferencesService.setPreference('hideAboutSections', enabled);
 
     // Update data attribute for CSS styling
     document.documentElement.setAttribute('data-hide-about-sections', enabled.toString());
@@ -1313,19 +1314,30 @@ class ThemeService {
     window.dispatchEvent(new Event('aboutsectionsvisibilitychange'));
   }
 
-  getHideAboutSections(): boolean {
-    return storage.getItem('lancache_hide_about_sections') === 'true';
+  async getHideAboutSections(): Promise<boolean> {
+    return await preferencesService.getPreference('hideAboutSections');
   }
 
-  setDisableStickyNotifications(enabled: boolean): void {
-    storage.setItem('lancache_disable_sticky_notifications', enabled.toString());
+  getHideAboutSectionsSync(): boolean {
+    const prefs = preferencesService.getPreferencesSync();
+    return prefs?.hideAboutSections || false;
+  }
 
-    // Dispatch event for any components that need to react
+  async setDisableStickyNotifications(enabled: boolean): Promise<void> {
+    // Save to API (this will trigger SignalR broadcast to other users)
+    await preferencesService.setPreference('disableStickyNotifications', enabled);
+
+    // Apply immediately for current user
     window.dispatchEvent(new Event('stickynotificationschange'));
   }
 
-  getDisableStickyNotifications(): boolean {
-    return storage.getItem('lancache_disable_sticky_notifications') === 'true';
+  async getDisableStickyNotifications(): Promise<boolean> {
+    return await preferencesService.getPreference('disableStickyNotifications');
+  }
+
+  getDisableStickyNotificationsSync(): boolean {
+    const prefs = preferencesService.getPreferencesSync();
+    return prefs?.disableStickyNotifications || false;
   }
 
   async setTheme(themeId: string): Promise<void> {
@@ -1335,104 +1347,32 @@ class ThemeService {
     }
   }
 
-  // API methods for theme preference persistence
-  private async getThemePreferenceFromAPI(): Promise<string | null> {
-    try {
-      const response = await fetch(`${API_BASE}/theme/preference`, {
-        headers: authService.getAuthHeaders()
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.themeId || null;
-      }
-
-      return null;
-    } catch (error) {
-      console.error('[ThemeService] Failed to fetch theme preference from API:', error);
-      return null;
-    }
-  }
-
-  private async getDefaultGuestThemeFromAPI(): Promise<string | null> {
-    try {
-      const response = await fetch(`${API_BASE}/theme/preferences/guest`, {
-        headers: authService.getAuthHeaders()
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.themeId || null;
-      }
-
-      return null;
-    } catch (error) {
-      console.error('[ThemeService] Failed to fetch default guest theme from API:', error);
-      return null;
-    }
-  }
-
-  private async saveThemePreferenceToAPI(themeId: string): Promise<boolean> {
-    try {
-      const response = await fetch(`${API_BASE}/theme/preference`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authService.getAuthHeaders()
-        },
-        body: JSON.stringify({ themeId })
-      });
-
-      if (response.ok) {
-        return true;
-      } else if (response.status === 401 || response.status === 403) {
-        // Guest users will get 401/403 - this is expected, fail silently
-        return false;
-      } else {
-        console.error('[ThemeService] Failed to save theme preference:', response.status);
-        return false;
-      }
-    } catch (error) {
-      console.error('[ThemeService] Error saving theme preference to API:', error);
-      return false;
-    }
-  }
+  // Removed old API methods - now using preferencesService instead
 
   // Called after authentication to reload theme from server
   async reloadThemeAfterAuth(): Promise<void> {
-    // Check if user is authenticated
-    if (authService.isAuthenticated && authService.authMode === 'authenticated') {
-      // Authenticated users: Try to load theme from API
-      const savedThemeId = await this.getThemePreferenceFromAPI();
+    // Reload preferences from API
+    preferencesService.clearCache();
+    const prefs = await preferencesService.loadPreferences();
 
-      if (savedThemeId) {
-        const theme = await this.getTheme(savedThemeId);
-        if (theme) {
-          this.applyTheme(theme);
-          return;
-        }
+    // Load theme from preferences
+    if (prefs.selectedTheme) {
+      const theme = await this.getTheme(prefs.selectedTheme);
+      if (theme) {
+        this.applyTheme(theme);
+        return;
       }
+    }
 
-      // Fallback to localStorage if API didn't have a preference
-      const localThemeId = storage.getItem('lancache_selected_theme');
-      if (localThemeId) {
-        const theme = await this.getTheme(localThemeId);
-        if (theme) {
-          this.applyTheme(theme);
-          // Save to API for future use
-          await this.saveThemePreferenceToAPI(localThemeId);
-          return;
-        }
-      }
-    } else if (authService.authMode === 'guest') {
-      // Guest users: Load default guest theme from API
-      const guestThemeId = await this.getDefaultGuestThemeFromAPI();
-      if (guestThemeId) {
-        const theme = await this.getTheme(guestThemeId);
-        if (theme) {
-          this.applyTheme(theme);
-          return;
-        }
+    // Fallback to localStorage if API didn't have a preference
+    const localThemeId = storage.getItem('lancache_selected_theme');
+    if (localThemeId) {
+      const theme = await this.getTheme(localThemeId);
+      if (theme) {
+        this.applyTheme(theme);
+        // Save to API for future use
+        await preferencesService.setPreference('selectedTheme', localThemeId);
+        return;
       }
     }
   }

@@ -13,6 +13,8 @@ public class AppDbContext : DbContext
     public DbSet<LogEntryRecord> LogEntries { get; set; }
     public DbSet<CachedGameDetection> CachedGameDetections { get; set; }
     public DbSet<CachedServiceDetection> CachedServiceDetections { get; set; }
+    public DbSet<UserSession> UserSessions { get; set; }
+    public DbSet<UserPreferences> UserPreferences { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -100,5 +102,35 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<CachedServiceDetection>()
             .HasIndex(c => c.LastDetectedUtc)
             .HasDatabaseName("IX_CachedServiceDetection_LastDetectedUtc");
+
+        // UserSession indexes
+        modelBuilder.Entity<UserSession>()
+            .HasIndex(s => s.IsGuest)
+            .HasDatabaseName("IX_UserSessions_IsGuest");
+
+        modelBuilder.Entity<UserSession>()
+            .HasIndex(s => s.LastSeenAtUtc)
+            .HasDatabaseName("IX_UserSessions_LastSeenAtUtc");
+
+        modelBuilder.Entity<UserSession>()
+            .HasIndex(s => s.ExpiresAtUtc)
+            .HasDatabaseName("IX_UserSessions_ExpiresAtUtc");
+
+        modelBuilder.Entity<UserSession>()
+            .HasIndex(s => s.IsRevoked)
+            .HasDatabaseName("IX_UserSessions_IsRevoked");
+
+        // UserPreferences configuration
+        modelBuilder.Entity<UserPreferences>()
+            .HasIndex(p => p.SessionId)
+            .HasDatabaseName("IX_UserPreferences_SessionId")
+            .IsUnique();
+
+        // Configure one-to-one relationship between UserSession and UserPreferences
+        modelBuilder.Entity<UserSession>()
+            .HasOne(s => s.Preferences)
+            .WithOne(p => p.Session)
+            .HasForeignKey<UserPreferences>(p => p.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

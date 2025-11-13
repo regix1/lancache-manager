@@ -90,12 +90,51 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       if (saved) setCurrentTheme(saved);
     }
 
-    // Load current option states
-    setSharpCornersEnabled(themeService.getSharpCorners());
-    setTooltipsDisabled(themeService.getDisableTooltips());
-    setPicsAlwaysVisible(themeService.getPicsAlwaysVisible());
-    setHideAboutSections(themeService.getHideAboutSections());
-    setDisableStickyNotifications(themeService.getDisableStickyNotifications());
+    // Load current option states (using sync versions for immediate display)
+    setSharpCornersEnabled(themeService.getSharpCornersSync());
+    setTooltipsDisabled(themeService.getDisableTooltipsSync());
+    setPicsAlwaysVisible(themeService.getPicsAlwaysVisibleSync());
+    setHideAboutSections(themeService.getHideAboutSectionsSync());
+    setDisableStickyNotifications(themeService.getDisableStickyNotificationsSync());
+
+    // Listen for live preference changes from admin
+    const handlePreferenceChange = (event: any) => {
+      const { key, value } = event.detail;
+      console.log(`[ThemeManager] Received preference change: ${key} = ${value}`);
+
+      switch (key) {
+        case 'selectedTheme':
+          if (value) {
+            setCurrentTheme(value);
+            setPreviewTheme(null);
+          }
+          break;
+        case 'sharpCorners':
+          setSharpCornersEnabled(value);
+          break;
+        case 'disableFocusOutlines':
+          // This is handled by theme service, no UI state to update
+          break;
+        case 'disableTooltips':
+          setTooltipsDisabled(value);
+          break;
+        case 'picsAlwaysVisible':
+          setPicsAlwaysVisible(value);
+          break;
+        case 'hideAboutSections':
+          setHideAboutSections(value);
+          break;
+        case 'disableStickyNotifications':
+          setDisableStickyNotifications(value);
+          break;
+      }
+    };
+
+    window.addEventListener('preference-changed', handlePreferenceChange);
+
+    return () => {
+      window.removeEventListener('preference-changed', handlePreferenceChange);
+    };
   }, []);
 
   // Handler Functions

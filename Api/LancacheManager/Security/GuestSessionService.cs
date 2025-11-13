@@ -1,6 +1,7 @@
-using System.Text.Json;
+using LancacheManager.Data;
 using LancacheManager.Infrastructure.Repositories;
-using LancacheManager.Infrastructure.Services.Interfaces;
+using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace LancacheManager.Security;
@@ -8,27 +9,18 @@ namespace LancacheManager.Security;
 public class GuestSessionService
 {
     private readonly ILogger<GuestSessionService> _logger;
-    private readonly IPathResolver _pathResolver;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly StateRepository _stateRepository;
     private readonly IConfiguration _configuration;
-    private readonly string _sessionsDirectory;
     private readonly Dictionary<string, GuestSession> _sessionCache = new();
     private readonly object _cacheLock = new();
 
-    public GuestSessionService(ILogger<GuestSessionService> logger, IPathResolver pathResolver, StateRepository stateRepository, IConfiguration configuration)
+    public GuestSessionService(ILogger<GuestSessionService> logger, IDbContextFactory<AppDbContext> contextFactory, StateRepository stateRepository, IConfiguration configuration)
     {
         _logger = logger;
-        _pathResolver = pathResolver;
+        _contextFactory = contextFactory;
         _stateRepository = stateRepository;
         _configuration = configuration;
-        _sessionsDirectory = Path.Combine(_pathResolver.GetDevicesDirectory(), "guest_sessions");
-
-        // Create directory if it doesn't exist
-        if (!Directory.Exists(_sessionsDirectory))
-        {
-            Directory.CreateDirectory(_sessionsDirectory);
-            _logger.LogInformation("Created guest sessions directory: {Directory}", _sessionsDirectory);
-        }
 
         // Initialize guest session duration from appsettings.json if not already set
         InitializeGuestSessionDuration();
@@ -99,18 +91,11 @@ public class GuestSessionService
     {
         try
         {
-            // Extract device ID from session ID (format: guest_{deviceId}_{timestamp})
-            string? deviceId = null;
-            var parts = request.SessionId.Split('_');
-            if (parts.Length >= 3 && parts[0] == "guest")
-            {
-                deviceId = parts[1];
-            }
-
+            // SessionId IS the device ID now (unified approach)
             var session = new GuestSession
             {
                 SessionId = request.SessionId,
-                DeviceId = deviceId,
+                DeviceId = request.SessionId, // Now they're the same
                 DeviceName = request.DeviceName,
                 IpAddress = ipAddress,
                 OperatingSystem = request.OperatingSystem,
@@ -128,8 +113,8 @@ public class GuestSessionService
                 _sessionCache[session.SessionId] = session;
             }
 
-            _logger.LogInformation("Guest session created: {SessionId}, Device: {DeviceName}, DeviceId: {DeviceId}",
-                session.SessionId, session.DeviceName ?? "Unknown", deviceId ?? "Unknown");
+            _logger.LogInformation("Guest session created: {SessionId}, Device: {DeviceName}",
+                session.SessionId, session.DeviceName ?? "Unknown");
 
             return session;
         }
@@ -197,21 +182,10 @@ public class GuestSessionService
         {
             foreach (var session in _sessionCache.Values)
             {
-                // Extract device ID from session ID if not already present (for backward compatibility)
-                var deviceId = session.DeviceId;
-                if (string.IsNullOrEmpty(deviceId))
-                {
-                    var parts = session.SessionId.Split('_');
-                    if (parts.Length >= 3 && parts[0] == "guest")
-                    {
-                        deviceId = parts[1];
-                    }
-                }
-
                 sessions.Add(new GuestSessionInfo
                 {
                     SessionId = session.SessionId,
-                    DeviceId = deviceId,
+                    DeviceId = session.DeviceId, // Now always set (same as SessionId)
                     DeviceName = session.DeviceName,
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,
@@ -266,19 +240,21 @@ public class GuestSessionService
     {
         try
         {
-            lock (_cacheLock)
-            {
-                // Remove from cache
-                _sessionCache.Remove(sessionId);
+            using var context = _contextFactory.CreateDbContext();
+            var userSession = context.UserSessions.FirstOrDefault(s => s.SessionId == sessionId && s.IsGuest);
 
-                // Delete file from disk
-                var filePath = GetSessionFilePath(sessionId);
-                if (File.Exists(filePath))
+            if (userSession != null)
+            {
+                context.UserSessions.Remove(userSession);
+                context.SaveChanges();
+
+                lock (_cacheLock)
                 {
-                    File.Delete(filePath);
-                    _logger.LogInformation("Deleted guest session: {SessionId}", sessionId);
-                    return true;
+                    _sessionCache.Remove(sessionId);
                 }
+
+                _logger.LogInformation("Deleted guest session: {SessionId}", sessionId);
+                return true;
             }
 
             return false;
@@ -300,27 +276,24 @@ public class GuestSessionService
 
         try
         {
-            lock (_cacheLock)
-            {
-                var expiredSessions = _sessionCache.Values
-                    .Where(s => s.ExpiresAt < cutoffDate)
-                    .Select(s => s.SessionId)
-                    .ToList();
+            using var context = _contextFactory.CreateDbContext();
+            var expiredSessions = context.UserSessions
+                .Where(s => s.IsGuest && s.ExpiresAtUtc < cutoffDate)
+                .ToList();
 
-                foreach (var sessionId in expiredSessions)
+            foreach (var session in expiredSessions)
+            {
+                context.UserSessions.Remove(session);
+                lock (_cacheLock)
                 {
-                    _sessionCache.Remove(sessionId);
-                    var filePath = GetSessionFilePath(sessionId);
-                    if (File.Exists(filePath))
-                    {
-                        File.Delete(filePath);
-                        count++;
-                    }
+                    _sessionCache.Remove(session.SessionId);
                 }
+                count++;
             }
 
             if (count > 0)
             {
+                context.SaveChanges();
                 _logger.LogInformation("Cleaned up {Count} expired guest sessions", count);
             }
         }
@@ -336,9 +309,46 @@ public class GuestSessionService
     {
         try
         {
-            var filePath = GetSessionFilePath(session.SessionId);
-            var json = JsonSerializer.Serialize(session, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(filePath, json);
+            using var context = _contextFactory.CreateDbContext();
+
+            // Check if session exists
+            var existingSession = context.UserSessions.FirstOrDefault(s => s.SessionId == session.SessionId);
+
+            if (existingSession != null)
+            {
+                // Update existing session
+                existingSession.DeviceName = session.DeviceName ?? string.Empty;
+                existingSession.IpAddress = session.IpAddress ?? string.Empty;
+                existingSession.OperatingSystem = session.OperatingSystem ?? string.Empty;
+                existingSession.Browser = session.Browser ?? string.Empty;
+                existingSession.LastSeenAtUtc = session.LastSeenAt ?? DateTime.UtcNow;
+                existingSession.ExpiresAtUtc = session.ExpiresAt;
+                existingSession.IsRevoked = session.IsRevoked;
+                existingSession.RevokedAtUtc = session.RevokedAt;
+                existingSession.RevokedBy = session.RevokedBy;
+            }
+            else
+            {
+                // Create new session
+                var userSession = new UserSession
+                {
+                    SessionId = session.SessionId,
+                    DeviceName = session.DeviceName ?? string.Empty,
+                    IpAddress = session.IpAddress ?? string.Empty,
+                    OperatingSystem = session.OperatingSystem ?? string.Empty,
+                    Browser = session.Browser ?? string.Empty,
+                    IsGuest = true,
+                    CreatedAtUtc = session.CreatedAt,
+                    ExpiresAtUtc = session.ExpiresAt,
+                    LastSeenAtUtc = session.LastSeenAt ?? DateTime.UtcNow,
+                    IsRevoked = session.IsRevoked,
+                    RevokedAtUtc = session.RevokedAt,
+                    RevokedBy = session.RevokedBy
+                };
+                context.UserSessions.Add(userSession);
+            }
+
+            context.SaveChanges();
         }
         catch (Exception ex)
         {
@@ -350,49 +360,46 @@ public class GuestSessionService
     {
         try
         {
-            if (!Directory.Exists(_sessionsDirectory))
-            {
-                return;
-            }
+            using var context = _contextFactory.CreateDbContext();
+            var sessions = context.UserSessions
+                .Where(s => s.IsGuest)
+                .ToList();
 
-            var files = Directory.GetFiles(_sessionsDirectory, "*.json");
-
-            foreach (var file in files)
+            lock (_cacheLock)
             {
-                try
+                _sessionCache.Clear();
+
+                foreach (var userSession in sessions)
                 {
-                    var json = File.ReadAllText(file);
-                    var session = JsonSerializer.Deserialize<GuestSession>(json);
-
-                    if (session != null)
+                    var session = new GuestSession
                     {
-                        lock (_cacheLock)
-                        {
-                            _sessionCache[session.SessionId] = session;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to load guest session file: {File}", file);
+                        SessionId = userSession.SessionId,
+                        DeviceId = userSession.SessionId, // Now unified
+                        DeviceName = userSession.DeviceName,
+                        IpAddress = userSession.IpAddress,
+                        OperatingSystem = userSession.OperatingSystem,
+                        Browser = userSession.Browser,
+                        CreatedAt = userSession.CreatedAtUtc,
+                        ExpiresAt = userSession.ExpiresAtUtc ?? DateTime.UtcNow.AddHours(GetGuestSessionDurationHours()),
+                        LastSeenAt = userSession.LastSeenAtUtc,
+                        IsRevoked = userSession.IsRevoked,
+                        RevokedAt = userSession.RevokedAtUtc,
+                        RevokedBy = userSession.RevokedBy
+                    };
+
+                    _sessionCache[session.SessionId] = session;
                 }
             }
 
-            _logger.LogInformation("Loaded {Count} guest sessions from disk", _sessionCache.Count);
+            _logger.LogInformation("Loaded {Count} guest sessions from database", _sessionCache.Count);
 
             // Clean up old sessions on startup
             CleanupExpiredSessions();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error loading guest sessions");
+            _logger.LogError(ex, "Error loading guest sessions from database");
         }
-    }
-
-    private string GetSessionFilePath(string sessionId)
-    {
-        var safeFileName = string.Concat(sessionId.Where(c => char.IsLetterOrDigit(c) || c == '-'));
-        return Path.Combine(_sessionsDirectory, $"{safeFileName}.json");
     }
 
     /// <summary>
