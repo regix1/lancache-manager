@@ -2,6 +2,7 @@ using LancacheManager.Application.Services;
 using LancacheManager.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories;
+using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -160,10 +161,69 @@ public class AuthController : ControllerBase
             _logger.LogInformation("Device registration attempt from Server IP: {ServerIP}, Local IP: {LocalIP}, Device: {DeviceId}",
                 ipAddress, request.LocalIp ?? "not detected", request.DeviceId);
 
+            // Check if this device had a guest session before authentication
+            var existingGuestSession = _guestSessionService.GetSessionByDeviceId(request.DeviceId);
+
             var result = _deviceAuthService.RegisterDevice(request, ipAddress, userAgent);
 
             if (result.Success)
             {
+                try
+                {
+                    // Check if UserSession already exists for this device
+                    var existingUserSession = _dbContext.UserSessions.FirstOrDefault(s => s.SessionId == request.DeviceId);
+
+                    if (existingGuestSession != null && existingUserSession != null)
+                    {
+                        // Upgrade existing guest session to authenticated
+                        _logger.LogInformation("Upgrading guest session {SessionId} to authenticated device {DeviceId}",
+                            existingGuestSession.SessionId, request.DeviceId);
+
+                        existingUserSession.IsGuest = false;
+                        existingUserSession.IsRevoked = false;
+                        existingUserSession.RevokedAtUtc = null;
+                        existingUserSession.RevokedBy = null;
+                        existingUserSession.ExpiresAtUtc = null; // Authenticated sessions don't expire
+                        existingUserSession.LastSeenAtUtc = DateTime.UtcNow;
+                        _dbContext.SaveChanges();
+
+                        // Revoke the in-memory guest session (so it doesn't show in sessions list)
+                        _guestSessionService.RevokeSession(existingGuestSession.SessionId, "System (Upgraded to authenticated)");
+                        _logger.LogInformation("Upgraded UserSession {SessionId} from guest to authenticated", existingUserSession.SessionId);
+                    }
+                    else if (existingUserSession == null)
+                    {
+                        // Create new UserSession for direct authentication (not from guest)
+                        _logger.LogInformation("Creating UserSession for direct authentication: {DeviceId}", request.DeviceId);
+
+                        // Parse UserAgent to get OS and browser info (same logic as DeviceAuthService)
+                        var (os, browser) = ParseUserAgent(userAgent);
+
+                        var newUserSession = new UserSession
+                        {
+                            SessionId = request.DeviceId,
+                            IsGuest = false,
+                            CreatedAtUtc = DateTime.UtcNow,
+                            LastSeenAtUtc = DateTime.UtcNow,
+                            ExpiresAtUtc = null, // Authenticated sessions don't expire
+                            IsRevoked = false,
+                            DeviceName = request.DeviceName ?? "Unknown Device",
+                            IpAddress = ipAddress ?? "Unknown",
+                            OperatingSystem = os ?? "Unknown",
+                            Browser = browser ?? "Unknown"
+                        };
+
+                        _dbContext.UserSessions.Add(newUserSession);
+                        _dbContext.SaveChanges();
+                        _logger.LogInformation("Created UserSession for authenticated device {DeviceId}", request.DeviceId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error creating/updating UserSession during authentication");
+                    // Don't fail the registration if this fails
+                }
+
                 return Ok(result);
             }
 
@@ -473,25 +533,32 @@ public class AuthController : ControllerBase
                 type = "authenticated"
             }).ToList();
 
-            var guestSessions = guests.Select(g => new
-            {
-                id = g.SessionId,
-                deviceId = g.DeviceId, // Browser fingerprint device ID (extracted from session ID)
-                deviceName = g.DeviceName,
-                ipAddress = g.IpAddress,
-                localIp = (string?)null,
-                hostname = (string?)null,
-                operatingSystem = g.OperatingSystem,
-                browser = g.Browser,
-                createdAt = g.CreatedAt,
-                lastSeenAt = g.LastSeenAt,
-                expiresAt = g.ExpiresAt,
-                isExpired = g.IsExpired,
-                isRevoked = g.IsRevoked,
-                revokedAt = g.RevokedAt,
-                revokedBy = g.RevokedBy,
-                type = "guest"
-            }).ToList();
+            // Get authenticated device IDs to filter out upgraded guest sessions
+            var authenticatedDeviceIds = new HashSet<string>(devices.Select(d => d.DeviceId));
+
+            // Filter out guest sessions that have been upgraded to authenticated
+            // (these will have matching authenticated sessions with same device ID)
+            var guestSessions = guests
+                .Where(g => !authenticatedDeviceIds.Contains(g.SessionId)) // Exclude if upgraded
+                .Select(g => new
+                {
+                    id = g.SessionId,
+                    deviceId = g.DeviceId, // Browser fingerprint device ID (extracted from session ID)
+                    deviceName = g.DeviceName,
+                    ipAddress = g.IpAddress,
+                    localIp = (string?)null,
+                    hostname = (string?)null,
+                    operatingSystem = g.OperatingSystem,
+                    browser = g.Browser,
+                    createdAt = g.CreatedAt,
+                    lastSeenAt = g.LastSeenAt,
+                    expiresAt = g.ExpiresAt,
+                    isExpired = g.IsExpired,
+                    isRevoked = g.IsRevoked,
+                    revokedAt = g.RevokedAt,
+                    revokedBy = g.RevokedBy,
+                    type = "guest"
+                }).ToList();
 
             var allSessions = authenticatedSessions.Concat(guestSessions)
                 .OrderByDescending(s => s.lastSeenAt ?? s.createdAt)
@@ -628,6 +695,78 @@ public class AuthController : ControllerBase
             _logger.LogError(ex, "Error setting guest session duration");
             return StatusCode(500, new { error = "Failed to set guest session duration", message = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Parse user agent string to extract OS and browser information
+    /// </summary>
+    private (string? os, string? browser) ParseUserAgent(string? userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent))
+        {
+            return (null, null);
+        }
+
+        string? os = null;
+        string? browser = null;
+
+        // Detect OS
+        if (userAgent.Contains("Windows NT 10.0"))
+            os = "Windows 10/11";
+        else if (userAgent.Contains("Windows NT 6.3"))
+            os = "Windows 8.1";
+        else if (userAgent.Contains("Windows NT 6.2"))
+            os = "Windows 8";
+        else if (userAgent.Contains("Windows NT 6.1"))
+            os = "Windows 7";
+        else if (userAgent.Contains("Windows"))
+            os = "Windows";
+        else if (userAgent.Contains("Mac OS X"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Mac OS X (\d+[._]\d+)");
+            os = match.Success ? $"macOS {match.Groups[1].Value.Replace('_', '.')}" : "macOS";
+        }
+        else if (userAgent.Contains("Linux"))
+            os = "Linux";
+        else if (userAgent.Contains("Android"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Android (\d+(\.\d+)?)");
+            os = match.Success ? $"Android {match.Groups[1].Value}" : "Android";
+        }
+        else if (userAgent.Contains("iPhone") || userAgent.Contains("iPad"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"OS (\d+_\d+)");
+            os = match.Success ? $"iOS {match.Groups[1].Value.Replace('_', '.')}" : "iOS";
+        }
+
+        // Detect Browser (order matters - check specific browsers before generic ones)
+        if (userAgent.Contains("Edg/"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Edg/([\d.]+)");
+            browser = match.Success ? $"Edge {match.Groups[1].Value}" : "Edge";
+        }
+        else if (userAgent.Contains("OPR/") || userAgent.Contains("Opera/"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"(?:OPR|Opera)/([\d.]+)");
+            browser = match.Success ? $"Opera {match.Groups[1].Value}" : "Opera";
+        }
+        else if (userAgent.Contains("Chrome/"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Chrome/([\d.]+)");
+            browser = match.Success ? $"Chrome {match.Groups[1].Value}" : "Chrome";
+        }
+        else if (userAgent.Contains("Safari/") && !userAgent.Contains("Chrome"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Version/([\d.]+)");
+            browser = match.Success ? $"Safari {match.Groups[1].Value}" : "Safari";
+        }
+        else if (userAgent.Contains("Firefox/"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(userAgent, @"Firefox/([\d.]+)");
+            browser = match.Success ? $"Firefox {match.Groups[1].Value}" : "Firefox";
+        }
+
+        return (os, browser);
     }
 
     public class ValidateGuestSessionRequest

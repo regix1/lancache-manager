@@ -20,6 +20,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
+import { useAuth } from '@contexts/AuthContext';
 
 interface Session {
   id: string;
@@ -41,6 +42,7 @@ interface Session {
 }
 
 const UserTab: React.FC = () => {
+  const { refreshAuth } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -223,9 +225,9 @@ const UserTab: React.FC = () => {
           setError('You revoked your own session. Logging out...');
 
           // Wait 2 seconds so user can see the message
-          setTimeout(() => {
+          setTimeout(async () => {
             authService.clearAuth(); // Clear local state without API call (session already revoked)
-            window.location.reload();
+            await refreshAuth(); // Refresh auth state to show authentication modal
           }, 2000);
           return;
         }
@@ -277,9 +279,9 @@ const UserTab: React.FC = () => {
           setError('You deleted your own session. Logging out...');
 
           // Wait 2 seconds so user can see the message
-          setTimeout(() => {
+          setTimeout(async () => {
             authService.clearAuth(); // Clear local state without API call (session already deleted)
-            window.location.reload();
+            await refreshAuth(); // Refresh auth state to show authentication modal
           }, 2000);
           return;
         }

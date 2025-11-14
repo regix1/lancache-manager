@@ -106,7 +106,7 @@ interface NotificationsProviderProps {
 
 // Helper function to check if notifications should auto-dismiss
 const shouldAutoDismiss = (): boolean => {
-  return !themeService.getPicsAlwaysVisible();
+  return !themeService.getPicsAlwaysVisibleSync();
 };
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {

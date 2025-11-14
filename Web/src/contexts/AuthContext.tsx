@@ -52,6 +52,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     fetchAuth();
   }, []);
 
+  // Listen for auth state changes from handleUnauthorized
+  useEffect(() => {
+    const handleAuthStateChanged = () => {
+      console.log('[Auth] Auth state changed, refreshing...');
+      refreshAuth();
+    };
+
+    window.addEventListener('auth-state-changed', handleAuthStateChanged);
+    return () => window.removeEventListener('auth-state-changed', handleAuthStateChanged);
+  }, []);
+
   // Poll for auth changes (device revocation, guest expiration)
   useEffect(() => {
     if (isLoading) return;
@@ -78,9 +89,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         try {
           const result = await authService.checkAuth();
           if (!result.isAuthenticated || result.authMode !== 'authenticated') {
-            // Device was revoked! Force page reload to show login
-            console.warn('[Auth] Device authentication was revoked. Forcing reload...');
-            window.location.reload();
+            // Device was revoked! Update state to show authentication modal
+            console.warn('[Auth] Device authentication was revoked.');
+            setIsAuthenticated(false);
+            setAuthMode('unauthenticated');
+            lastAuthState = false;
+            lastAuthMode = 'unauthenticated';
           }
         } catch (error) {
           console.error('[Auth] Failed to verify authentication:', error);
@@ -94,12 +108,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           setAuthMode(result.authMode);
           lastAuthMode = result.authMode;
         }
-      }
-
-      // Detect if authentication state changed from authenticated to unauthenticated
-      if (lastAuthState && !currentAuthState && authService.authMode === 'unauthenticated') {
-        console.warn('[Auth] Authentication lost. Forcing reload...');
-        window.location.reload();
       }
     }, 5000); // Check every 5 seconds
 

@@ -120,8 +120,7 @@ class AuthService {
           window.dispatchEvent(new CustomEvent('auth-session-revoked', {
             detail: { reason: 'Your device session was deleted by an administrator' }
           }));
-          // Reload to show login screen
-          window.location.reload();
+          // State update will trigger authentication modal
         }
       }
     } catch (error) {
@@ -436,6 +435,9 @@ class AuthService {
 
   async logout(): Promise<{ success: boolean; message: string }> {
     try {
+      // Set flag to prevent handleUnauthorized from interfering during logout
+      storage.setItem('lancache_logging_out', 'true');
+
       const response = await fetch(`${API_URL}/api/auth/logout`, {
         method: 'POST',
         headers: {
@@ -451,11 +453,17 @@ class AuthService {
         this.isAuthenticated = false;
         this.authMode = 'unauthenticated';
 
+        // Clear the flag
+        storage.removeItem('lancache_logging_out');
+
         return {
           success: true,
           message: result.message || 'Logged out successfully'
         };
       }
+
+      // Clear the flag on failure
+      storage.removeItem('lancache_logging_out');
 
       return {
         success: false,
@@ -463,6 +471,8 @@ class AuthService {
       };
     } catch (error: any) {
       console.error('Logout failed:', error);
+      // Clear the flag on error
+      storage.removeItem('lancache_logging_out');
       return {
         success: false,
         message: error.message || 'Network error during logout'
@@ -611,23 +621,30 @@ class AuthService {
   }
 
   handleUnauthorized(): void {
+    // Check if we're in the middle of an intentional logout
+    if (storage.getItem('lancache_logging_out') === 'true') {
+      console.log('[Auth] Skipping unauthorized handler during logout');
+      return;
+    }
+
     console.warn(
-      '[Auth] Unauthorized access detected - device was likely revoked. Forcing reload...'
+      '[Auth] Unauthorized access detected - device was likely revoked.'
     );
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     storage.removeItem('lancache_auth_registered');
     storage.removeItem('lancache_api_key');
     this.apiKey = null;
-    // Clear device ID so a new one is generated on next request
-    // This handles API key regeneration scenarios where all devices are revoked
+
+    // IMPORTANT: Clear device ID from both localStorage AND cookies
+    // Otherwise the cookie backup will restore it and create an infinite loop
     storage.removeItem('lancache_device_id');
+    BrowserFingerprint.clearDeviceId();
+
     this.deviceId = this.getOrCreateDeviceId(); // Re-generate with fingerprint (synchronous)
 
-    // Force page reload to show authentication modal
-    setTimeout(() => {
-      window.location.reload();
-    }, 500); // Small delay to ensure state is cleared
+    // Dispatch event to trigger auth state refresh
+    window.dispatchEvent(new CustomEvent('auth-state-changed'));
   }
 
   clearAuth(): void {
@@ -645,7 +662,11 @@ class AuthService {
     storage.removeItem('lancache_auth_registered');
     storage.removeItem('lancache_api_key');
     this.apiKey = null;
+
+    // Clear device ID from both localStorage AND cookies
     storage.removeItem('lancache_device_id');
+    BrowserFingerprint.clearDeviceId();
+
     this.deviceId = this.getOrCreateDeviceId(); // Re-generate with fingerprint (synchronous)
     this.exitGuestMode(); // Also clear guest mode
   }

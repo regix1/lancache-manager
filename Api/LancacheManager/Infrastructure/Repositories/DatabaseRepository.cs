@@ -249,7 +249,7 @@ public class DatabaseRepository : IDatabaseRepository
             });
 
             // Validate table names to prevent SQL injection
-            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections" };
+            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "UserSessions", "UserPreferences" };
             var tablesToClear = tableNames.Where(t => validTables.Contains(t)).ToList();
 
             if (tablesToClear.Count == 0)
@@ -278,6 +278,8 @@ public class DatabaseRepository : IDatabaseRepository
                     "ServiceStats" => await context.ServiceStats.CountAsync(),
                     "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(),
                     "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
+                    "UserSessions" => await context.UserSessions.CountAsync(),
+                    "UserPreferences" => await context.UserPreferences.CountAsync(),
                     _ => 0
                 };
                 totalRows += count;
@@ -289,6 +291,11 @@ public class DatabaseRepository : IDatabaseRepository
             double progressPerTable = 85.0 / tablesToClear.Count;
             double currentProgress = 0;
 
+            // Track which session-related events need to be broadcast AFTER operation completes
+            // This prevents race conditions with page reloads during database operations
+            bool shouldBroadcastPreferencesReset = false;
+            bool shouldBroadcastSessionsCleared = false;
+
             // Temporarily disable foreign key constraints for bulk deletion (SQLite)
             // This prevents FK constraint errors during table deletions
             _logger.LogInformation("Disabling foreign key constraints for bulk deletion");
@@ -297,8 +304,14 @@ public class DatabaseRepository : IDatabaseRepository
             try
             {
                 // Delete tables based on selection
-                // Note: LogEntries must be deleted first if Downloads is also being deleted (foreign key constraint)
-                var orderedTables = tablesToClear.OrderBy(t => t == "LogEntries" ? 0 : t == "Downloads" ? 1 : 2).ToList();
+                // Note: LogEntries must be deleted before Downloads (foreign key constraint)
+                // Note: UserPreferences must be deleted before UserSessions (foreign key constraint)
+                var orderedTables = tablesToClear.OrderBy(t =>
+                    t == "LogEntries" ? 0 :
+                    t == "UserPreferences" ? 1 :
+                    t == "Downloads" ? 2 :
+                    t == "UserSessions" ? 3 :
+                    4).ToList();
 
                 // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
                 if (tablesToClear.Contains("Downloads") && !tablesToClear.Contains("LogEntries"))
@@ -409,6 +422,44 @@ public class DatabaseRepository : IDatabaseRepository
                             timestamp = DateTime.UtcNow
                         });
                         break;
+
+                    case "UserPreferences":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var userPreferencesCount = await context.UserPreferences.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {userPreferencesCount:N0} user preferences");
+                        deletedRows += userPreferencesCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared user preferences ({userPreferencesCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+
+                        // Mark that we need to broadcast preferences reset event after operation completes
+                        shouldBroadcastPreferencesReset = true;
+                        break;
+
+                    case "UserSessions":
+                        // Use ExecuteDeleteAsync for direct deletion
+                        var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync();
+                        _logger.LogInformation($"Cleared {userSessionsCount:N0} user sessions");
+                        deletedRows += userSessionsCount;
+
+                        await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
+                        {
+                            isProcessing = true,
+                            percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                            status = "deleting",
+                            message = $"Cleared user sessions ({userSessionsCount:N0} rows)",
+                            timestamp = DateTime.UtcNow
+                        });
+
+                        // Mark that we need to broadcast sessions cleared event after operation completes
+                        shouldBroadcastSessionsCleared = true;
+                        break;
                 }
 
                 currentProgress += progressPerTable;
@@ -472,6 +523,28 @@ public class DatabaseRepository : IDatabaseRepository
                 // Re-enable foreign key constraints
                 _logger.LogInformation("Re-enabling foreign key constraints");
                 await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON;");
+            }
+
+            // Broadcast session-related events AFTER all database operations complete
+            // This prevents race conditions where clients reload during the operation
+            if (shouldBroadcastPreferencesReset)
+            {
+                _logger.LogInformation("Broadcasting UserPreferencesReset event to all clients");
+                await _hubContext.Clients.All.SendAsync("UserPreferencesReset", new
+                {
+                    message = "User preferences have been reset to defaults",
+                    timestamp = DateTime.UtcNow
+                });
+            }
+
+            if (shouldBroadcastSessionsCleared)
+            {
+                _logger.LogInformation("Broadcasting UserSessionsCleared event to all clients");
+                await _hubContext.Clients.All.SendAsync("UserSessionsCleared", new
+                {
+                    message = "All user sessions have been cleared",
+                    timestamp = DateTime.UtcNow
+                });
             }
         }
         catch (Exception ex)

@@ -172,13 +172,23 @@ class PreferencesService {
   }
 
   /**
-   * Setup SignalR listener for preference updates (called from main.tsx)
-   * Pass in the SignalR context's `on` method
+   * Setup SignalR listener for preference updates (called from App.tsx)
+   * Pass in the SignalR context object
    */
-  setupSignalRListener(signalROn: (eventName: string, handler: (...args: any[]) => void) => void): void {
-    this.handlerRegistered = true;
+  setupSignalRListener(signalR: { on: (eventName: string, handler: (...args: any[]) => void) => void }): void {
+    // Prevent duplicate registrations
+    if (this.handlerRegistered) {
+      console.log('[PreferencesService] SignalR listeners already registered, skipping');
+      return;
+    }
 
-    signalROn('UserPreferencesUpdated', (payload: any) => {
+    this.handlerRegistered = true;
+    console.log('[PreferencesService] Registering SignalR listeners');
+    console.log('[PreferencesService] SignalR object:', signalR);
+    console.log('[PreferencesService] SignalR.on type:', typeof signalR.on);
+
+    console.log('[PreferencesService] About to register UserPreferencesUpdated handler');
+    signalR.on('UserPreferencesUpdated', (payload: any) => {
 
       const { sessionId, preferences: newPreferences } = payload;
 
@@ -258,6 +268,23 @@ class PreferencesService {
         }
       }
     });
+
+    // Listen for UserPreferencesReset (when preferences table is cleared)
+    const handleReset = async (payload: any) => {
+      console.log('[PreferencesService] UserPreferencesReset event received:', payload);
+      console.log('[PreferencesService] UserPreferences table was reset, reloading defaults...');
+
+      // Clear cached preferences
+      this.clearCache();
+
+      // Dispatch a custom event for themeService to handle
+      window.dispatchEvent(new CustomEvent('preferences-reset'));
+      console.log('[PreferencesService] Dispatched preferences-reset event');
+    };
+
+    console.log('[PreferencesService] Registering UserPreferencesReset handler');
+    signalR.on('UserPreferencesReset', handleReset);
+    console.log('[PreferencesService] UserPreferencesReset handler registered');
   }
 
   /**

@@ -145,60 +145,24 @@ public partial class SteamKit2Service
 
     private async Task ConnectAndBuildIndexAsync(CancellationToken ct, bool incrementalOnly = false)
     {
-        const int maxRetries = 2; // Max 2 retries = 3 total attempts
-        int attempt = 0;
-
-        while (attempt <= maxRetries)
+        try
         {
-            try
-            {
-                if (attempt > 0)
-                {
-                    _logger.LogInformation("Retry attempt {Attempt}/{MaxRetries} for PICS crawl", attempt, maxRetries);
-                    await Task.Delay(5000, ct); // Wait 5 seconds before retry
-                }
+            // Stop idle disconnect timer since we're actively using the connection
+            StopIdleDisconnectTimer();
 
-                // Stop idle disconnect timer since we're actively using the connection
-                StopIdleDisconnectTimer();
-
-                await ConnectAndLoginAsync(ct);
-                _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
-                await BuildDepotIndexAsync(ct, incrementalOnly);
-
-                // Check if we still have unmapped downloads after the scan
-                if (incrementalOnly)
-                {
-                    int unmappedCount = await CheckUnmappedDownloadsAsync();
-                    if (unmappedCount > 0 && attempt < maxRetries)
-                    {
-                        _logger.LogWarning("Found {UnmappedCount} unmapped downloads after incremental scan - will retry", unmappedCount);
-                        attempt++;
-                        continue;
-                    }
-                    else if (unmappedCount > 0)
-                    {
-                        _logger.LogWarning("Found {UnmappedCount} unmapped downloads after all retries", unmappedCount);
-                    }
-                }
-
-                // Success - exit retry loop
-                break;
-            }
-            catch (OperationCanceledException)
-            {
-                // Cancellation is expected - don't retry, just rethrow
-                throw;
-            }
-            catch (Exception ex) when (attempt < maxRetries)
-            {
-                _logger.LogError(ex, "Failed to connect and build depot index (attempt {Attempt}/{MaxRetries})", attempt + 1, maxRetries + 1);
-                attempt++;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to connect and build depot index after all retries");
-                break;
-            }
+            await ConnectAndLoginAsync(ct);
+            _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
+            await BuildDepotIndexAsync(ct, incrementalOnly);
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation is expected - don't retry, just rethrow
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to connect and build depot index");
+            throw;
         }
     }
 
@@ -283,49 +247,9 @@ public partial class SteamKit2Service
                 _logger.LogInformation("Starting incremental update with {Count} existing depot mappings", _depotToAppMappings.Count);
             }
 
-            // Enumerate every appid by crawling the PICS changelist with retry logic
-            List<uint> appIds = new List<uint>();
-            int retryCount = 0;
-            const int maxRetries = 3;
-
-            while (retryCount < maxRetries)
-            {
-                try
-                {
-                    appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
-                    _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
-                    break; // Success, exit retry loop
-                }
-                catch (OperationCanceledException) when (retryCount < maxRetries - 1)
-                {
-                    retryCount++;
-                    _logger.LogWarning("PICS enumeration timed out or was cancelled (attempt {Attempt}/{Max}), retrying in 10 seconds...",
-                        retryCount, maxRetries);
-
-                    // Wait before retrying, but check if we're being cancelled
-                    try
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(10), ct);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // If the delay was cancelled, propagate the cancellation
-                        throw;
-                    }
-
-                    // Ensure we're still connected before retrying
-                    if (!_isLoggedOn)
-                    {
-                        await ConnectAndLoginAsync(ct);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    // Final retry failed or explicit cancellation, propagate
-                    _logger.LogError("PICS enumeration failed after {Attempts} attempts", retryCount + 1);
-                    throw;
-                }
-            }
+            // Enumerate every appid by crawling the PICS changelist
+            List<uint> appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
+            _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
 
             var allBatches = appIds
                 .Where(id => !_scannedApps.Contains(id))
@@ -701,17 +625,25 @@ public partial class SteamKit2Service
 
         if (!incrementalOnly && _lastChangeNumberSeen == 0 && !hasExistingMappings)
         {
-            _logger.LogInformation("Full update mode with no existing data: Using Steam Web API to get all app IDs");
-            var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
-            _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API", webApiApps.Count);
+            _logger.LogInformation("Full update mode with no existing data: Attempting Steam Web API to get all app IDs");
+            try
+            {
+                var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
+                _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API", webApiApps.Count);
 
-            // Get and save current change number so future incremental updates work
-            var changeNumberJob = _steamApps.PICSGetChangesSince(0, false, false);
-            var changeNumberResult = await WaitForCallbackAsync(changeNumberJob, ct);
-            _lastChangeNumberSeen = changeNumberResult.CurrentChangeNumber;
-            _logger.LogInformation("Initialized change number to {ChangeNumber} for future incremental updates", _lastChangeNumberSeen);
+                // Get and save current change number so future incremental updates work
+                var changeNumberJob = _steamApps.PICSGetChangesSince(0, false, false);
+                var changeNumberResult = await WaitForCallbackAsync(changeNumberJob, ct);
+                _lastChangeNumberSeen = changeNumberResult.CurrentChangeNumber;
+                _logger.LogInformation("Initialized change number to {ChangeNumber} for future incremental updates", _lastChangeNumberSeen);
 
-            return webApiApps;
+                return webApiApps;
+            }
+            catch (Exception)
+            {
+                _logger.LogInformation("Steam Web API unavailable - falling back to PICS enumeration");
+                // Continue to PICS enumeration below
+            }
         }
 
         if (incrementalOnly && hasExistingMappings && _lastChangeNumberSeen == 0)
@@ -778,21 +710,33 @@ public partial class SteamKit2Service
 
                 // User has already been informed via viability check and chose to proceed with full scan
                 // OR this is an automatic fallback during a flexible scan - just proceed with Web API
-                _logger.LogInformation("PICS indicates full update needed - proceeding with Web API fallback (user already confirmed or this is a flexible scan)");
+                _logger.LogInformation("PICS indicates full update needed - attempting Web API fallback (user already confirmed or this is a flexible scan)");
                 _lastScanWasForced = true; // Mark that this scan was forced to be full
 
-                // Fall back to Web API
-                var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
-                _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API fallback", webApiApps.Count);
-
-                // Update change number even when falling back to Web API so future incremental updates work
-                if (currentChangeNumber > _lastChangeNumberSeen)
+                // Attempt to fall back to Web API
+                try
                 {
-                    _lastChangeNumberSeen = currentChangeNumber;
-                    _logger.LogInformation("Updated change number to {ChangeNumber} after Web API fallback", _lastChangeNumberSeen);
-                }
+                    var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
+                    _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API fallback", webApiApps.Count);
 
-                return webApiApps;
+                    // Update change number even when falling back to Web API so future incremental updates work
+                    if (currentChangeNumber > _lastChangeNumberSeen)
+                    {
+                        _lastChangeNumberSeen = currentChangeNumber;
+                        _logger.LogInformation("Updated change number to {ChangeNumber} after Web API fallback", _lastChangeNumberSeen);
+                    }
+
+                    return webApiApps;
+                }
+                catch (Exception)
+                {
+                    _logger.LogWarning(
+                        "Steam Web API unavailable during RequiresFullUpdate. " +
+                        "Cannot complete full enumeration without Web API. Returning partial results from PICS.");
+                    // Don't reset counter - let it reach max and break out of loop
+                    // This prevents infinite loop when both PICS requires full update AND Web API is down
+                    break; // Exit loop immediately and return what we have
+                }
             }
 
             consecutiveFullUpdates = 0;
@@ -831,24 +775,62 @@ public partial class SteamKit2Service
 
     /// <summary>
     /// Get all app IDs from Steam Web API (no auth needed)
+    /// Includes cooldown protection to avoid hammering a down endpoint
     /// </summary>
     private async Task<List<uint>> TryGetAllAppIdsFromWebApiAsync()
     {
-        using var http = _httpClientFactory.CreateClient();
-        http.Timeout = TimeSpan.FromMinutes(2);
-        var json = await http.GetStringAsync("https://api.steampowered.com/ISteamApps/GetAppList/v2/");
-        using var doc = JsonDocument.Parse(json);
-
-        var apps = doc.RootElement.GetProperty("applist").GetProperty("apps");
-        var ids = new List<uint>(apps.GetArrayLength());
-        foreach (var e in apps.EnumerateArray())
+        // Check if we're in cooldown period after a recent failure
+        if (_lastWebApiFailure.HasValue)
         {
-            if (e.TryGetProperty("appid", out var idElem) && idElem.TryGetUInt32(out var id))
-                ids.Add(id);
+            var timeSinceFailure = DateTime.UtcNow - _lastWebApiFailure.Value;
+            if (timeSinceFailure < _webApiCooldownPeriod)
+            {
+                var remainingCooldown = _webApiCooldownPeriod - timeSinceFailure;
+                _logger.LogDebug(
+                    "Steam Web API in cooldown - {Minutes:F0} minutes remaining",
+                    remainingCooldown.TotalMinutes);
+                throw new InvalidOperationException("Steam Web API in cooldown period");
+            }
         }
 
-        ids.Sort();
-        return ids;
+        try
+        {
+            using var http = _httpClientFactory.CreateClient();
+            http.Timeout = TimeSpan.FromMinutes(2);
+            var json = await http.GetStringAsync("https://api.steampowered.com/ISteamApps/GetAppList/v2/");
+            using var doc = JsonDocument.Parse(json);
+
+            var apps = doc.RootElement.GetProperty("applist").GetProperty("apps");
+            var ids = new List<uint>(apps.GetArrayLength());
+            foreach (var e in apps.EnumerateArray())
+            {
+                if (e.TryGetProperty("appid", out var idElem) && idElem.TryGetUInt32(out var id))
+                    ids.Add(id);
+            }
+
+            ids.Sort();
+
+            // Success - clear any previous failure tracking
+            if (_lastWebApiFailure.HasValue)
+            {
+                _logger.LogInformation("Steam Web API is back online");
+                _lastWebApiFailure = null;
+            }
+
+            return ids;
+        }
+        catch (Exception)
+        {
+            // Record failure time to trigger cooldown
+            if (!_lastWebApiFailure.HasValue)
+            {
+                _lastWebApiFailure = DateTime.UtcNow;
+                _logger.LogWarning(
+                    "Steam Web API unavailable (will retry in {Hours} hour(s))",
+                    _webApiCooldownPeriod.TotalHours);
+            }
+            throw;
+        }
     }
 
     private async Task<T> WaitForCallbackAsync<T>(AsyncJob<T> job, CancellationToken ct, TimeSpan? timeout = null) where T : CallbackMsg

@@ -55,6 +55,10 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private bool _lastScanWasForced = false; // Track if the last scan was forced to be full due to Steam requirements
     private bool _automaticScanSkipped = false; // Track if an automatic scan was skipped due to requiring full scan
 
+    // Web API failure tracking to avoid hammering a down endpoint
+    private DateTime? _lastWebApiFailure = null;
+    private TimeSpan _webApiCooldownPeriod = TimeSpan.FromHours(1); // Wait 1 hour after failure before retrying
+
     // depotId -> set of appIds (can be multiple for shared depots)
     private readonly ConcurrentDictionary<uint, HashSet<uint>> _depotToAppMappings = new();
     // depotId -> owner appId (from depotfromapp PICS field)

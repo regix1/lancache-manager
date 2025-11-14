@@ -42,7 +42,9 @@ export const SIGNALR_EVENTS = [
   'GameDetectionComplete',
   'GuestDurationUpdated',
   'AutomaticScanSkipped',
-  'UserPreferencesUpdated'
+  'UserPreferencesUpdated',
+  'UserPreferencesReset',
+  'UserSessionsCleared'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];

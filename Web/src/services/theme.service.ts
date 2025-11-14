@@ -191,6 +191,8 @@ class ThemeService {
   private currentTheme: Theme | null = null;
   private styleElement: HTMLStyleElement | null = null;
   private preferenceListenersSetup = false;
+  private isProcessingReset = false;
+  private suppressNotifications = false;
 
   /**
    * Setup listeners for live preference updates
@@ -206,27 +208,29 @@ class ThemeService {
       const { key, value } = event.detail;
       console.log(`[ThemeService] Preference changed: ${key} = ${value}`);
 
-      // Show a notification to inform the user
-      const preferenceNames: Record<string, string> = {
-        selectedTheme: 'Theme',
-        sharpCorners: 'Sharp Corners',
-        disableFocusOutlines: 'Focus Outlines',
-        disableTooltips: 'Tooltips',
-        picsAlwaysVisible: 'Universal Notifications',
-        hideAboutSections: 'Info Sections',
-        disableStickyNotifications: 'Sticky Notifications'
-      };
+      // Show a notification to inform the user (unless notifications are suppressed)
+      if (!this.suppressNotifications) {
+        const preferenceNames: Record<string, string> = {
+          selectedTheme: 'Theme',
+          sharpCorners: 'Sharp Corners',
+          disableFocusOutlines: 'Focus Outlines',
+          disableTooltips: 'Tooltips',
+          picsAlwaysVisible: 'Universal Notifications',
+          hideAboutSections: 'Info Sections',
+          disableStickyNotifications: 'Sticky Notifications'
+        };
 
-      // Dispatch a notification event
-      window.dispatchEvent(
-        new CustomEvent('show-toast', {
-          detail: {
-            type: 'info',
-            message: `Your ${preferenceNames[key] || 'setting'} has been updated by an administrator`,
-            duration: 4000
-          }
-        })
-      );
+        // Dispatch a notification event
+        window.dispatchEvent(
+          new CustomEvent('show-toast', {
+            detail: {
+              type: 'info',
+              message: `Your ${preferenceNames[key] || 'setting'} has been updated by an administrator`,
+              duration: 4000
+            }
+          })
+        );
+      }
 
       switch (key) {
         case 'selectedTheme':
@@ -267,6 +271,49 @@ class ThemeService {
         case 'disableStickyNotifications':
           window.dispatchEvent(new Event('stickynotificationschange'));
           break;
+      }
+    });
+
+    // Listen for preferences reset event
+    window.addEventListener('preferences-reset', async () => {
+      // Prevent duplicate processing
+      if (this.isProcessingReset) {
+        console.log('[ThemeService] Already processing reset, skipping duplicate');
+        return;
+      }
+
+      this.isProcessingReset = true;
+      this.suppressNotifications = true; // Suppress individual preference notifications during reset
+      console.log('[ThemeService] Preferences reset, applying defaults...');
+
+      try {
+        // Clear localStorage theme cache
+        storage.removeItem('lancache_selected_theme');
+        storage.removeItem('lancache_theme_css');
+        storage.removeItem('lancache_theme_dark');
+
+        // Reload preferences (will get defaults from API)
+        await preferencesService.loadPreferences();
+
+        // Load and apply default theme
+        await this.loadSavedTheme();
+
+        // Show notification
+        window.dispatchEvent(
+          new CustomEvent('show-toast', {
+            detail: {
+              type: 'info',
+              message: 'Your preferences have been reset to defaults',
+              duration: 5000
+            }
+          })
+        );
+      } finally {
+        // Reset flags after a delay to allow event to complete
+        setTimeout(() => {
+          this.isProcessingReset = false;
+          this.suppressNotifications = false;
+        }, 1000);
       }
     });
 

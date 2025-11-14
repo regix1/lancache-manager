@@ -205,6 +205,43 @@ public class GuestSessionService
     }
 
     /// <summary>
+    /// Get a specific guest session by device ID
+    /// </summary>
+    public GuestSessionInfo? GetSessionByDeviceId(string deviceId)
+    {
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            return null;
+        }
+
+        lock (_cacheLock)
+        {
+            // DeviceId equals SessionId for guest sessions
+            if (_sessionCache.TryGetValue(deviceId, out var session))
+            {
+                return new GuestSessionInfo
+                {
+                    SessionId = session.SessionId,
+                    DeviceId = session.DeviceId,
+                    DeviceName = session.DeviceName,
+                    IpAddress = session.IpAddress,
+                    OperatingSystem = session.OperatingSystem,
+                    Browser = session.Browser,
+                    CreatedAt = session.CreatedAt,
+                    LastSeenAt = session.LastSeenAt,
+                    ExpiresAt = session.ExpiresAt,
+                    IsExpired = session.ExpiresAt <= DateTime.UtcNow,
+                    IsRevoked = session.IsRevoked,
+                    RevokedAt = session.RevokedAt,
+                    RevokedBy = session.RevokedBy
+                };
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Revoke a guest session
     /// </summary>
     public bool RevokeSession(string sessionId, string? revokedBy = null)

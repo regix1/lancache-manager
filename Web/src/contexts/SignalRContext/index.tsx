@@ -47,10 +47,14 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
   // Subscribe to an event
   const on = useCallback((eventName: string, handler: EventHandler) => {
+    console.log(`[SignalR] Registering handler for event: ${eventName}`);
+
     if (!eventHandlersRef.current.has(eventName)) {
       eventHandlersRef.current.set(eventName, new Set());
     }
     eventHandlersRef.current.get(eventName)!.add(handler);
+
+    console.log(`[SignalR] Handler registered. Total handlers for ${eventName}: ${eventHandlersRef.current.get(eventName)?.size || 0}`);
 
     // If connection exists and is connected, add the handler to SignalR
     if (
@@ -181,8 +185,12 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       const setupEventDispatchers = () => {
         SIGNALR_EVENTS.forEach((eventName) => {
           connection.on(eventName, (...args: any[]) => {
+            console.log(`[SignalR] Received event: ${eventName}`, args);
+
             // Dispatch to all registered handlers for this event
             const handlers = eventHandlersRef.current.get(eventName);
+            console.log(`[SignalR] Handlers for ${eventName}:`, handlers?.size || 0);
+
             if (handlers && handlers.size > 0) {
               handlers.forEach((handler) => {
                 try {
@@ -191,6 +199,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
                   console.error(`[SignalR] Error in handler for ${eventName}:`, error);
                 }
               });
+            } else {
+              console.warn(`[SignalR] No handlers registered for event: ${eventName}`);
             }
           });
         });
@@ -309,3 +319,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
   return <SignalRContext.Provider value={value}>{children}</SignalRContext.Provider>;
 };
+
+// Export session sync hook
+export { useSessionSync } from './useSessionSync';

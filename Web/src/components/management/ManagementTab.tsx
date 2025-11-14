@@ -125,6 +125,18 @@ const DatabaseManager: React.FC<{
       label: 'Game Cache Detection',
       description: 'Cached results from game cache detection scans',
       details: 'Pre-computed game detections from cache files to speed up dashboard loading'
+    },
+    {
+      name: 'UserSessions',
+      label: 'User Sessions',
+      description: 'Active and historical user session records',
+      details: 'Session tracking with device info, IP addresses, and authentication status'
+    },
+    {
+      name: 'UserPreferences',
+      label: 'User Preferences',
+      description: 'Per-session user interface preferences',
+      details: 'Theme selections and UI customization settings linked to sessions'
     }
   ];
 

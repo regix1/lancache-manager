@@ -331,7 +331,44 @@ builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 var app = builder.Build();
 
-// Initialize API Key on startup
+// IMPORTANT: Apply database migrations FIRST before any service tries to access the database
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        logger.LogInformation("Checking database migrations...");
+
+        // This will create the database if it doesn't exist and apply all pending migrations
+        await dbContext.Database.MigrateAsync();
+
+        logger.LogInformation("Database migrations applied successfully");
+
+        // Verify connection
+        var canConnect = await dbContext.Database.CanConnectAsync();
+        if (!canConnect)
+        {
+            throw new Exception("Cannot connect to database after migration");
+        }
+
+        // Load initial stats into cache
+        var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
+        await statsCache.RefreshFromDatabase(dbContext);
+
+        // Note: LancacheMetricsService will start automatically as IHostedService
+
+        logger.LogInformation("Database initialization complete");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Database initialization failed");
+        throw; // Fail fast if database init fails
+    }
+}
+
+// NOW it's safe to initialize services that depend on the database
 using (var scope = app.Services.CreateScope())
 {
     var apiKeyService = scope.ServiceProvider.GetRequiredService<ApiKeyService>();
@@ -427,43 +464,6 @@ app.MapFallback(async context =>
         await context.Response.WriteAsync("index.html not found");
     }
 });
-
-// Apply EF Core migrations
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-
-    try
-    {
-        logger.LogInformation("Checking database migrations...");
-
-        // This will create the database if it doesn't exist and apply all pending migrations
-        await dbContext.Database.MigrateAsync();
-
-        logger.LogInformation("Database migrations applied successfully");
-
-        // Verify connection
-        var canConnect = await dbContext.Database.CanConnectAsync();
-        if (!canConnect)
-        {
-            throw new Exception("Cannot connect to database after migration");
-        }
-
-        // Load initial stats into cache
-        var statsCache = scope.ServiceProvider.GetRequiredService<StatsCache>();
-        await statsCache.RefreshFromDatabase(dbContext);
-
-        // Note: LancacheMetricsService will start automatically as IHostedService
-
-        logger.LogInformation("Database initialization complete");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Database initialization failed");
-        throw; // Fail fast if database init fails
-    }
-}
 
 // Log depot count for diagnostics (non-blocking background task after scope is disposed)
 _ = Task.Run(async () =>

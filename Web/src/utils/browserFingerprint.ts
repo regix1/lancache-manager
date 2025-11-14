@@ -188,4 +188,34 @@ export class BrowserFingerprint {
     }
     return null;
   }
+
+  /**
+   * Delete a cookie
+   */
+  private static deleteCookie(name: string): void {
+    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;SameSite=Strict`;
+  }
+
+  /**
+   * Clear the stored device ID from both localStorage and cookies
+   * Use this when the user's session is revoked/cleared
+   */
+  static clearDeviceId(): void {
+    const STORAGE_KEY = 'lancache_device_id';
+
+    // Remove from localStorage
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {
+      console.warn('[BrowserFingerprint] Could not remove from localStorage:', e);
+    }
+
+    // Remove from cookie
+    try {
+      this.deleteCookie(STORAGE_KEY);
+      console.log('[BrowserFingerprint] Device ID cleared from localStorage and cookies');
+    } catch (e) {
+      console.warn('[BrowserFingerprint] Could not remove cookie:', e);
+    }
+  }
 }
