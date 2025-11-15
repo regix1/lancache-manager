@@ -10,7 +10,7 @@ export function formatNextCrawlTime(
   nextCrawlIn: any,
   isRunning = false,
   fullScanRequired = false,
-  crawlIncrementalMode = true
+  crawlIncrementalMode: boolean | string = true
 ): string {
   if (isRunning) {
     return 'Running now';
@@ -67,7 +67,9 @@ export function formatNextCrawlTime(
 
   // Handle "due now" cases
   if (totalSeconds <= 0) {
-    if (fullScanRequired && crawlIncrementalMode) {
+    // Check if it's incremental mode (true or not "github")
+    const isIncrementalMode = typeof crawlIncrementalMode === 'boolean' ? crawlIncrementalMode : crawlIncrementalMode !== 'github';
+    if (fullScanRequired && isIncrementalMode) {
       return 'Due now (Full scan required)';
     }
     return 'Due now';

@@ -52,20 +52,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     fetchAuth();
   }, []);
 
-  // Listen for auth state changes from handleUnauthorized
+  // Listen for auth state changes from handleUnauthorized and other events
   useEffect(() => {
     const handleAuthStateChanged = () => {
       console.log('[Auth] Auth state changed, refreshing...');
       refreshAuth();
     };
 
+    // Listen for localStorage changes (cross-tab sync)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'auth-token' || e.key === 'auth-mode') {
+        console.log('[Auth] Storage changed in another tab, refreshing...');
+        refreshAuth();
+      }
+    };
+
     window.addEventListener('auth-state-changed', handleAuthStateChanged);
-    return () => window.removeEventListener('auth-state-changed', handleAuthStateChanged);
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('auth-state-changed', handleAuthStateChanged);
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
-  // Poll for auth changes (device revocation, guest expiration)
+  // Reduced polling for specific scenarios (device revocation, guest expiration)
+  // Only polls when user is authenticated or in guest mode
   useEffect(() => {
     if (isLoading) return;
+
+    // Only set up polling if we're authenticated or in guest/expired mode
+    const needsPolling = authService.authMode === 'authenticated' ||
+                         authService.authMode === 'guest' ||
+                         authService.authMode === 'expired';
+
+    if (!needsPolling) {
+      return; // No polling needed for unauthenticated users
+    }
 
     let lastAuthState = authService.isAuthenticated;
     let lastAuthMode = authService.authMode;
@@ -109,10 +132,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           lastAuthMode = result.authMode;
         }
       }
-    }, 5000); // Check every 5 seconds
+    }, 30000); // Reduced to 30 seconds (was 5 seconds)
 
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [isLoading, authMode]);
 
   return (
     <AuthContext.Provider

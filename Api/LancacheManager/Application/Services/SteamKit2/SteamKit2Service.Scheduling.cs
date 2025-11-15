@@ -32,12 +32,31 @@ public partial class SteamKit2Service
 
                 if (!IsRebuildRunning && _isRunning)
                 {
-                    var scanType = _crawlIncrementalMode ? "incremental" : "full";
+                    var scanType = GetCrawlModeString(_crawlIncrementalMode);
                     _logger.LogInformation("Starting overdue {ScanType} PICS update (last crawl was {Minutes} minutes ago)",
                         scanType, (int)timeSinceLastCrawl.TotalMinutes);
 
+                    // Check if GitHub mode - download from GitHub instead of connecting to Steam
+                    if (IsGithubMode(_crawlIncrementalMode))
+                    {
+                        _logger.LogInformation("[GitHub Mode] Downloading depot data from GitHub (no Steam connection)");
+                        var success = await DownloadAndImportGitHubDataAsync(_cancellationTokenSource.Token);
+
+                        if (success)
+                        {
+                            _lastCrawlTime = DateTime.UtcNow;
+                            _logger.LogInformation("[GitHub Mode] Depot data updated successfully");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("[GitHub Mode] Failed to download depot data - will retry on next scheduled check");
+                        }
+
+                        return;
+                    }
+
                     // For automatic incremental scans, check viability first
-                    if (_crawlIncrementalMode)
+                    if (IsIncrementalMode(_crawlIncrementalMode))
                     {
                         try
                         {
@@ -89,7 +108,7 @@ public partial class SteamKit2Service
                         }
                     }
 
-                    if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: _crawlIncrementalMode))
+                    if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode)))
                     {
                         _lastCrawlTime = DateTime.UtcNow;
                     }
@@ -130,12 +149,31 @@ public partial class SteamKit2Service
         {
             if (!IsRebuildRunning)
             {
-                var scanType = _crawlIncrementalMode ? "incremental" : "full";
+                var scanType = GetCrawlModeString(_crawlIncrementalMode);
                 _logger.LogInformation("Starting scheduled {ScanType} PICS update (due: last crawl was {Minutes} minutes ago)",
                     scanType, (int)timeSinceLastCrawl.TotalMinutes);
 
+                // Check if GitHub mode - download from GitHub instead of connecting to Steam
+                if (IsGithubMode(_crawlIncrementalMode))
+                {
+                    _logger.LogInformation("[GitHub Mode] Downloading depot data from GitHub (no Steam connection)");
+                    var success = await DownloadAndImportGitHubDataAsync(_cancellationTokenSource.Token);
+
+                    if (success)
+                    {
+                        _lastCrawlTime = DateTime.UtcNow;
+                        _logger.LogInformation("[GitHub Mode] Depot data updated successfully");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[GitHub Mode] Failed to download depot data - will retry on next scheduled check");
+                    }
+
+                    return;
+                }
+
                 // For automatic incremental scans, check viability first
-                if (_crawlIncrementalMode)
+                if (IsIncrementalMode(_crawlIncrementalMode))
                 {
                     try
                     {
@@ -186,7 +224,7 @@ public partial class SteamKit2Service
                     }
                 }
 
-                if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: _crawlIncrementalMode))
+                if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode)))
                 {
                     _lastCrawlTime = DateTime.UtcNow;
                 }

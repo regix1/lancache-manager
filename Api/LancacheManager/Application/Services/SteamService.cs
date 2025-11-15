@@ -113,9 +113,8 @@ public class SteamService : IHostedService, IDisposable
                 return;
             }
 
-            // Refresh from Steam API
-            await RefreshFromSteamApiAsync();
-            await SaveToDatabaseAsync();
+            // App names are now provided by PICS data - no need to refresh from Steam Web API V2
+            _logger.LogInformation("App names are provided by PICS depot mappings. Use 'Download Pre-created Data' or run an incremental PICS scan to update app data.");
 
             _lastRefresh = DateTime.UtcNow;
             _isReady = true;
@@ -141,92 +140,6 @@ public class SteamService : IHostedService, IDisposable
         }
     }
 
-    private async Task RefreshFromSteamApiAsync()
-    {
-        try
-        {
-            // Get app list from Steam API
-            var appListUrl = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
-            var response = await _httpClient.GetAsync(appListUrl);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning($"Failed to get Steam app list: {response.StatusCode}");
-                return;
-            }
-
-            var json = await response.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-
-            if (!doc.RootElement.TryGetProperty("applist", out var applist) ||
-                !applist.TryGetProperty("apps", out var apps))
-            {
-                _logger.LogWarning("Invalid Steam app list response format");
-                return;
-            }
-
-            var newSteamApps = new Dictionary<uint, SteamAppInfo>();
-            var processedCount = 0;
-
-            foreach (var app in apps.EnumerateArray())
-            {
-                if (app.TryGetProperty("appid", out var appIdElement) &&
-                    app.TryGetProperty("name", out var nameElement))
-                {
-                    var appId = appIdElement.GetUInt32();
-                    var name = nameElement.GetString();
-
-                    if (!string.IsNullOrWhiteSpace(name) && IsValidGameAppId(appId))
-                    {
-                        newSteamApps[appId] = new SteamAppInfo
-                        {
-                            AppId = appId,
-                            Name = name,
-                            Type = "game",
-                            CacheTime = DateTime.UtcNow
-                        };
-                        processedCount++;
-                    }
-                }
-            }
-
-            _steamApps = newSteamApps;
-            _logger.LogInformation($"Loaded {processedCount} Steam apps from API");
-
-            // Update depot mappings (this would require additional Steam API calls or database)
-            await RefreshDepotMappingsAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error refreshing from Steam API");
-        }
-    }
-
-    private Task RefreshDepotMappingsAsync()
-    {
-        // For now, we'll rely on database stored mappings and real-time depot extraction
-        // In a full implementation, this would query Steam's depot information
-        _logger.LogInformation("Depot mappings refresh completed (using database and real-time extraction)");
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Validates if an App ID is likely to be a real game
-    /// </summary>
-    private static bool IsValidGameAppId(uint appId)
-    {
-        // App IDs below 100 are typically system/reserved
-        if (appId < 100) return false;
-
-        // App IDs above 3,000,000 are uncommon for games
-        if (appId > 3000000) return false;
-
-        // Known system app ranges
-        if (appId >= 228980 && appId <= 228999) return false; // Steamworks redistributables
-        if (appId >= 1000 && appId <= 1099) return false; // Steam client/system
-
-        return true;
-    }
 
     #endregion
 

@@ -47,6 +47,7 @@ public class SteamAuthRepository : ISteamAuthRepository
         public string? Username { get; set; }
         public string? RefreshToken { get; set; } // Decrypted in memory, encrypted in storage
         public DateTime? LastAuthenticated { get; set; }
+        public string? SteamApiKey { get; set; } // Steam Web API key for V1 fallback (decrypted in memory, encrypted in storage)
     }
 
     /// <summary>
@@ -59,6 +60,7 @@ public class SteamAuthRepository : ISteamAuthRepository
         public string? Username { get; set; }
         public string? RefreshToken { get; set; } // Encrypted with ENC2: prefix
         public DateTime? LastAuthenticated { get; set; }
+        public string? SteamApiKey { get; set; } // Encrypted with ENC2: prefix
     }
 
     /// <summary>
@@ -123,6 +125,7 @@ public class SteamAuthRepository : ISteamAuthRepository
 
                     // Convert persisted data to in-memory data, decrypting sensitive fields
                     var decryptedRefreshToken = _encryption.Decrypt(persisted.RefreshToken);
+                    var decryptedApiKey = _encryption.Decrypt(persisted.SteamApiKey);
 
                     // If decryption failed (returned null) and we had encrypted data, clear the invalid data
                     if (decryptedRefreshToken == null && !string.IsNullOrEmpty(persisted.RefreshToken))
@@ -149,7 +152,8 @@ public class SteamAuthRepository : ISteamAuthRepository
                         Mode = persisted.Mode,
                         Username = persisted.Username,
                         RefreshToken = decryptedRefreshToken,
-                        LastAuthenticated = persisted.LastAuthenticated
+                        LastAuthenticated = persisted.LastAuthenticated,
+                        SteamApiKey = decryptedApiKey
                     };
 
                 }
@@ -188,7 +192,8 @@ public class SteamAuthRepository : ISteamAuthRepository
                     Username = data.Username,
                     // Encrypt using Microsoft Data Protection API with API key as part of encryption
                     RefreshToken = _encryption.Encrypt(data.RefreshToken),
-                    LastAuthenticated = data.LastAuthenticated
+                    LastAuthenticated = data.LastAuthenticated,
+                    SteamApiKey = _encryption.Encrypt(data.SteamApiKey)
                 };
 
                 var json = JsonSerializer.Serialize(persisted, new JsonSerializerOptions { WriteIndented = true });

@@ -619,36 +619,59 @@ public partial class SteamKit2Service
 
         var allApps = new HashSet<uint>();
 
-        // Only use Web API for full update when there's truly no existing data
-        // If we have mappings loaded (from JSON or DB), use PICS even with change number 0
+        // Check if we have existing data
         bool hasExistingMappings = _depotToAppMappings.Count > 0;
-
-        if (!incrementalOnly && _lastChangeNumberSeen == 0 && !hasExistingMappings)
-        {
-            _logger.LogInformation("Full update mode with no existing data: Attempting Steam Web API to get all app IDs");
-            try
-            {
-                var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
-                _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API", webApiApps.Count);
-
-                // Get and save current change number so future incremental updates work
-                var changeNumberJob = _steamApps.PICSGetChangesSince(0, false, false);
-                var changeNumberResult = await WaitForCallbackAsync(changeNumberJob, ct);
-                _lastChangeNumberSeen = changeNumberResult.CurrentChangeNumber;
-                _logger.LogInformation("Initialized change number to {ChangeNumber} for future incremental updates", _lastChangeNumberSeen);
-
-                return webApiApps;
-            }
-            catch (Exception)
-            {
-                _logger.LogInformation("Steam Web API unavailable - falling back to PICS enumeration");
-                // Continue to PICS enumeration below
-            }
-        }
 
         if (incrementalOnly && hasExistingMappings && _lastChangeNumberSeen == 0)
         {
             _logger.LogInformation("Incremental mode with existing data but no change number - will use PICS to check for updates");
+        }
+
+        // For full scans, use Web API to enumerate all apps first, then PICS for depot info
+        if (!incrementalOnly)
+        {
+            _logger.LogInformation("Full scan requested - enumerating all apps via Web API V2/V1");
+            try
+            {
+                var webApiAppIds = await EnumerateAllAppIdsViaWebApiAsync(ct);
+
+                // Success! Add all app IDs to our collection
+                foreach (var appId in webApiAppIds)
+                {
+                    allApps.Add(appId);
+                }
+
+                _logger.LogInformation("Successfully enumerated {Count} apps via Web API - will now query PICS for depot information", webApiAppIds.Count);
+
+                // IMPORTANT: Get and save current change number for future incremental updates
+                // Even though we're using Web API for app enumeration, we still need the PICS change number
+                var changeNumberJob = _steamApps.PICSGetChangesSince(0, false, false);
+                var changeNumberResult = await WaitForCallbackAsync(changeNumberJob, ct);
+                var latestChangeNumber = changeNumberResult.CurrentChangeNumber;
+
+                if (latestChangeNumber > _lastChangeNumberSeen)
+                {
+                    _lastChangeNumberSeen = latestChangeNumber;
+                    _logger.LogInformation("Initialized change number to {ChangeNumber} for future incremental updates", _lastChangeNumberSeen);
+                }
+
+                // Skip the PICS changes loop and go directly to processing the apps we got from Web API
+                var appList = allApps.OrderBy(id => id).ToList();
+                return appList;
+            }
+            catch (Exception webApiEx)
+            {
+                _logger.LogError(webApiEx, "Failed to enumerate via Web API for full scan");
+
+                // Provide helpful error message
+                var errorMessage = webApiEx.Message;
+                if (string.IsNullOrEmpty(errorMessage))
+                {
+                    errorMessage = "Full scan requires Steam Web API, but it is unavailable. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button, or configure a Steam Web API key for V1 fallback.";
+                }
+
+                throw new InvalidOperationException(errorMessage, webApiEx);
+            }
         }
 
         // For incremental updates, use PICS changes
@@ -699,43 +722,45 @@ public partial class SteamKit2Service
             {
                 consecutiveFullUpdates++;
 
-                // If user requested incremental-only scan, cancel instead of auto-switching to full
-                // This only applies to automatic scheduled scans, not manual full scans from the UI
+                // Steam is requesting a full update - this means the change gap is too large
+                // Try to use the Steam Web API (V2/V1) to get all app IDs
+                _logger.LogWarning("PICS requesting full update - change gap is too large for incremental scan. Attempting to use Steam Web API for full enumeration.");
+                _lastScanWasForced = true; // Mark that scan was forced to be full
+
                 if (incrementalOnly)
                 {
-                    _logger.LogWarning("PICS requesting full update, but user requested incremental-only. Cancelling scan.");
-                    _lastScanWasForced = true; // Mark that scan was cancelled due to forced full requirement
-                    throw new InvalidOperationException("Steam requires a full scan - change gap is too large for incremental update. Please run a full scan.");
+                    throw new InvalidOperationException("Steam requires a full scan - change gap is too large for incremental update. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button in the Management page, or run a full scan instead.");
                 }
 
-                // User has already been informed via viability check and chose to proceed with full scan
-                // OR this is an automatic fallback during a flexible scan - just proceed with Web API
-                _logger.LogInformation("PICS indicates full update needed - attempting Web API fallback (user already confirmed or this is a flexible scan)");
-                _lastScanWasForced = true; // Mark that this scan was forced to be full
-
-                // Attempt to fall back to Web API
                 try
                 {
-                    var webApiApps = await TryGetAllAppIdsFromWebApiAsync();
-                    _logger.LogInformation("Retrieved {Count} app IDs from Steam Web API fallback", webApiApps.Count);
+                    // Try to enumerate via Web API (V2 or V1 with API key)
+                    _logger.LogInformation("Attempting full scan via Steam Web API (V2/V1 fallback)");
+                    var webApiAppIds = await EnumerateAllAppIdsViaWebApiAsync(ct);
 
-                    // Update change number even when falling back to Web API so future incremental updates work
-                    if (currentChangeNumber > _lastChangeNumberSeen)
+                    // Success! Add all app IDs to our collection
+                    foreach (var appId in webApiAppIds)
                     {
-                        _lastChangeNumberSeen = currentChangeNumber;
-                        _logger.LogInformation("Updated change number to {ChangeNumber} after Web API fallback", _lastChangeNumberSeen);
+                        allApps.Add(appId);
                     }
 
-                    return webApiApps;
+                    _logger.LogInformation("Successfully enumerated {Count} apps via Steam Web API - continuing with PICS scan", webApiAppIds.Count);
+
+                    // Break out of PICS loop since we got all apps via Web API
+                    break;
                 }
-                catch (Exception)
+                catch (Exception webApiEx)
                 {
-                    _logger.LogWarning(
-                        "Steam Web API unavailable during RequiresFullUpdate. " +
-                        "Cannot complete full enumeration without Web API. Returning partial results from PICS.");
-                    // Don't reset counter - let it reach max and break out of loop
-                    // This prevents infinite loop when both PICS requires full update AND Web API is down
-                    break; // Exit loop immediately and return what we have
+                    _logger.LogError(webApiEx, "Failed to enumerate via Steam Web API - full scan not possible");
+
+                    // Provide helpful error message based on the exception
+                    var errorMessage = webApiEx.Message;
+                    if (string.IsNullOrEmpty(errorMessage))
+                    {
+                        errorMessage = "Steam requires a full scan, but the Steam Web API is unavailable. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button in the Management page.";
+                    }
+
+                    throw new InvalidOperationException(errorMessage, webApiEx);
                 }
             }
 
@@ -774,61 +799,57 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Get all app IDs from Steam Web API (no auth needed)
-    /// Includes cooldown protection to avoid hammering a down endpoint
+    /// Enumerate all app IDs via Steam Web API V2/V1 (used when PICS requires full update)
+    /// Falls back from V2 (no auth) to V1 (with API key)
     /// </summary>
-    private async Task<List<uint>> TryGetAllAppIdsFromWebApiAsync()
+    private async Task<List<uint>> EnumerateAllAppIdsViaWebApiAsync(CancellationToken ct)
     {
-        // Check if we're in cooldown period after a recent failure
-        if (_lastWebApiFailure.HasValue)
-        {
-            var timeSinceFailure = DateTime.UtcNow - _lastWebApiFailure.Value;
-            if (timeSinceFailure < _webApiCooldownPeriod)
-            {
-                var remainingCooldown = _webApiCooldownPeriod - timeSinceFailure;
-                _logger.LogDebug(
-                    "Steam Web API in cooldown - {Minutes:F0} minutes remaining",
-                    remainingCooldown.TotalMinutes);
-                throw new InvalidOperationException("Steam Web API in cooldown period");
-            }
-        }
+        _logger.LogInformation("Attempting to enumerate app IDs via Steam Web API (V2/V1 fallback)");
 
         try
         {
-            using var http = _httpClientFactory.CreateClient();
-            http.Timeout = TimeSpan.FromMinutes(2);
-            var json = await http.GetStringAsync("https://api.steampowered.com/ISteamApps/GetAppList/v2/");
-            using var doc = JsonDocument.Parse(json);
+            // Check if Web API is operational
+            var status = await _steamWebApiService.GetApiStatusAsync();
 
-            var apps = doc.RootElement.GetProperty("applist").GetProperty("apps");
-            var ids = new List<uint>(apps.GetArrayLength());
-            foreach (var e in apps.EnumerateArray())
+            if (!status.IsFullyOperational)
             {
-                if (e.TryGetProperty("appid", out var idElem) && idElem.TryGetUInt32(out var id))
-                    ids.Add(id);
+                _logger.LogWarning("Steam Web API is not operational: {Message}", status.Message);
+
+                // If V1 needs an API key but none is configured, provide helpful guidance
+                if (status.Version == SteamWebApiService.SteamApiVersion.V1NoKey)
+                {
+                    throw new InvalidOperationException(
+                        "Full scan required but Steam Web API V2 is unavailable. " +
+                        "Please configure a Steam Web API key in Management → Integration & Services → Steam Web API Status, " +
+                        "OR download pre-created depot mappings from GitHub using the 'Download Pre-created Data' button.");
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "Full scan required but Steam Web API is unavailable. " +
+                        "Please download pre-created depot mappings from GitHub using the 'Download Pre-created Data' button.");
+                }
             }
 
-            ids.Sort();
+            // Get app list from Web API (V2 or V1 with key)
+            var apps = await _steamWebApiService.GetAppListAsync();
 
-            // Success - clear any previous failure tracking
-            if (_lastWebApiFailure.HasValue)
+            if (apps == null || apps.Count == 0)
             {
-                _logger.LogInformation("Steam Web API is back online");
-                _lastWebApiFailure = null;
+                _logger.LogError("Steam Web API returned no apps");
+                throw new InvalidOperationException("Steam Web API returned no apps - service may be temporarily unavailable");
             }
 
-            return ids;
+            _logger.LogInformation("Steam Web API enumeration complete using {Version}. Found {Count} apps",
+                status.Version, apps.Count);
+
+            // Convert to app IDs only
+            var appIds = apps.Select(a => a.AppId).OrderBy(id => id).ToList();
+            return appIds;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Record failure time to trigger cooldown
-            if (!_lastWebApiFailure.HasValue)
-            {
-                _lastWebApiFailure = DateTime.UtcNow;
-                _logger.LogWarning(
-                    "Steam Web API unavailable (will retry in {Hours} hour(s))",
-                    _webApiCooldownPeriod.TotalHours);
-            }
+            _logger.LogError(ex, "Failed to enumerate app IDs via Steam Web API");
             throw;
         }
     }

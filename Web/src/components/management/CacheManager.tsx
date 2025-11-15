@@ -52,15 +52,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     loadCpuCount();
     loadRsyncAvailability();
     loadDirectoryPermissions();
-
-    // Poll CPU count every 30 seconds to detect VM/container changes
-    const cpuPollInterval = setInterval(() => {
-      loadCpuCount();
-    }, 30000);
-
-    return () => {
-      clearInterval(cpuPollInterval);
-    };
   }, []);
 
   // Listen for cache clear completion (via SignalR for UI state only)

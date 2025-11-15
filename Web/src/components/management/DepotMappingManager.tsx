@@ -8,6 +8,7 @@ import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal'
 import { useNotifications } from '@contexts/NotificationsContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
 import { useBackendOperation } from '@hooks/useBackendOperation';
+import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
 
@@ -38,6 +39,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 }) => {
   const { notifications, updateNotification } = useNotifications();
   const { progress: picsProgress, isLoading: picsLoading, refreshProgress } = usePicsProgress();
+  const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
   const depotMappingOp = useBackendOperation('activeDepotMapping', 'depotMapping', 120);
   const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{
     hours: number;
@@ -57,6 +59,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   const lastViabilityCheck = useRef<number>(0);
   const scanTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastProgressUpdateRef = useRef<number>(Date.now());
+  const autoSwitchAttemptedRef = useRef<boolean>(false);
 
   // Derive depotConfig from picsProgress with nextCrawlIn conversion
   const depotConfig = useMemo(() => {
@@ -161,6 +164,97 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
     return () => clearInterval(timer);
   }, [localNextCrawlIn, depotConfig?.isRunning, depotConfig?.crawlIntervalHours]);
+
+  // Auto-select GitHub when Web API is not available (for Apply Now Source)
+  useEffect(() => {
+    // Web API is not available when:
+    // 1. picsProgress says it's not available, OR
+    // 2. Steam Web API status shows it's not fully operational (V2 down AND no V1 key)
+    const webApiNotAvailable =
+      picsProgress?.isWebApiAvailable === false ||
+      (!webApiLoading && webApiStatus && !webApiStatus.isFullyOperational);
+
+    // Only auto-switch if Web API is not available and user is not authenticated (GitHub mode available)
+    if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
+      // Don't override if user already selected GitHub
+      if (depotSource !== 'github') {
+        console.log('[DepotMapping] Web API unavailable - defaulting Apply Now Source to GitHub mode');
+        setDepotSource('github');
+      }
+    }
+  }, [picsProgress?.isWebApiAvailable, webApiStatus, webApiLoading, steamAuthMode, depotSource]);
+
+  // Auto-switch automatic scan schedule to GitHub when Web API is not available
+  useEffect(() => {
+    // Wait for Web API status to finish loading before making decisions
+    if (webApiLoading) return;
+
+    // Web API is not available when:
+    // 1. picsProgress says it's not available, OR
+    // 2. Steam Web API status shows it's not fully operational (V2 down AND no V1 key)
+    const webApiNotAvailable =
+      picsProgress?.isWebApiAvailable === false ||
+      (!webApiLoading && webApiStatus && !webApiStatus.isFullyOperational);
+
+    const webApiAvailable =
+      picsProgress?.isWebApiAvailable === true ||
+      (!webApiLoading && webApiStatus && webApiStatus.isFullyOperational);
+
+    // Only auto-switch if:
+    // 1. User is authenticated (to avoid 401 errors)
+    // 2. Web API is not available (both V2 and V1)
+    // 3. User has NOT configured a V1 API key (if they have a key, let them use V1 instead)
+    // 4. Steam auth mode is anonymous (GitHub mode is available)
+    // 5. Current mode is incremental or full (which require Web API)
+    // 6. Haven't already attempted auto-switch
+    if (
+      isAuthenticated &&
+      webApiNotAvailable &&
+      !webApiStatus?.hasApiKey &&
+      steamAuthMode !== 'authenticated' &&
+      depotConfig?.crawlIncrementalMode !== 'github' &&
+      !autoSwitchAttemptedRef.current
+    ) {
+      console.log(
+        '[DepotMapping] Web API V2 down and no V1 API key configured - switching automatic scan schedule to GitHub mode'
+      );
+
+      // Mark that we've attempted the switch to prevent repeats
+      autoSwitchAttemptedRef.current = true;
+
+      // Call API to switch to GitHub mode
+      fetch('/api/gameinfo/steamkit/scan-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify('github')
+      })
+        .then((response) => {
+          if (response.ok) {
+            // Also set interval to 30 minutes (0.5 hours) for GitHub mode
+            return fetch('/api/gameinfo/steamkit/interval', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(0.5)
+            });
+          } else if (response.status === 401) {
+            console.warn('[DepotMapping] Not authorized to switch scan mode - skipping auto-switch');
+          }
+        })
+        .then(() => {
+          console.log('[DepotMapping] Successfully switched to GitHub mode with 30-minute interval');
+          refreshProgress();
+        })
+        .catch((error) => {
+          console.error('[DepotMapping] Failed to switch to GitHub mode:', error);
+        });
+    }
+
+    // Reset the flag when Web API becomes available again
+    if (webApiAvailable && autoSwitchAttemptedRef.current) {
+      console.log('[DepotMapping] Web API is now available - resetting auto-switch flag');
+      autoSwitchAttemptedRef.current = false;
+    }
+  }, [isAuthenticated, picsProgress?.isWebApiAvailable, webApiStatus?.hasApiKey, webApiStatus?.isFullyOperational, webApiLoading, steamAuthMode, depotConfig?.crawlIncrementalMode, refreshProgress]);
 
   // Check for pending GitHub download from localStorage on mount
   useEffect(() => {
@@ -379,7 +473,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   };
 
-  const executeApplyDepotMappings = async (forceFull = false) => {
+  const executeApplyDepotMappings = async () => {
     if (!isAuthenticated) {
       onError?.('Authentication required');
       return;
@@ -388,14 +482,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     setActionLoading(true);
     try {
       // If GitHub is selected, download from GitHub
-      if (depotSource === 'github' && !forceFull) {
+      if (depotSource === 'github') {
         await handleDownloadFromGitHub();
         return;
       }
 
       setOperationType('scanning');
 
-      // Otherwise, use Steam scan (incremental or full)
+      // Use Steam scan (incremental or full based on user selection)
       // Check if JSON file exists and needs to be imported to database
       const picsStatus = await ApiService.getPicsStatus();
       const hasJsonFile = picsStatus?.jsonFile?.exists === true;
@@ -414,15 +508,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
 
-      // Use the selected scan mode (or force full if modal confirmed)
-      const useIncrementalScan = forceFull ? false : depotSource === 'incremental';
+      // Use incremental or full scan based on user selection
+      const useIncrementalScan = depotSource === 'incremental';
       console.log(
         '[DepotMapping] Calling triggerSteamKitRebuild with incremental:',
         useIncrementalScan,
         'depotSource:',
-        depotSource,
-        'forceFull:',
-        forceFull
+        depotSource
       );
       const response = await ApiService.triggerSteamKitRebuild(useIncrementalScan);
       console.log('[DepotMapping] Backend response:', response);
@@ -566,12 +658,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   className="font-medium text-sm mb-1"
                   style={{ color: 'var(--theme-error-text)' }}
                 >
-                  Automatic Scan Skipped - Full Scan Required
+                  Automatic Scan Skipped - Data Update Required
                 </p>
                 <p className="text-xs" style={{ color: 'var(--theme-error-text)', opacity: 0.9 }}>
-                  The scheduled incremental scan was skipped because Steam requires a full scan. The
-                  change gap is too large for an incremental update. Please manually run a full scan
-                  or download pre-created data from GitHub.
+                  The scheduled incremental scan was skipped because the change gap is too large. Please
+                  download the latest pre-created data from GitHub to reset your baseline, then
+                  incremental scans will work again.
                 </p>
               </div>
             </div>
@@ -596,7 +688,22 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       ? 'Loading...'
                       : depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'
-                        : `${depotConfig.crawlIntervalHours} hour${depotConfig.crawlIntervalHours !== 1 ? 's' : ''}`}
+                        : (() => {
+                            // If Web API is unavailable and user is anonymous, show GitHub interval
+                            const webApiNotAvailable =
+                              !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+
+                            if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
+                              return '30 minutes';
+                            }
+
+                            // Otherwise show backend value
+                            return depotConfig.crawlIncrementalMode === 'github'
+                              ? '30 minutes'
+                              : depotConfig.crawlIntervalHours === 0.5
+                                ? '30 minutes'
+                                : `${depotConfig.crawlIntervalHours} hour${depotConfig.crawlIntervalHours !== 1 ? 's' : ''}`;
+                          })()}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -606,9 +713,22 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       ? 'Loading...'
                       : depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'
-                        : depotConfig.crawlIncrementalMode
-                          ? 'Incremental'
-                          : 'Full'}
+                        : (() => {
+                            // If Web API is unavailable and user is anonymous, show GitHub mode
+                            const webApiNotAvailable =
+                              !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+
+                            if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
+                              return 'GitHub';
+                            }
+
+                            // Otherwise show backend value
+                            return depotConfig.crawlIncrementalMode === 'github'
+                              ? 'GitHub'
+                              : depotConfig.crawlIncrementalMode
+                                ? 'Incremental'
+                                : 'Full';
+                          })()}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -632,47 +752,137 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               </div>
             </div>
             <div className="flex flex-col gap-2 min-w-[160px]">
-              <EnhancedDropdown
-                options={[
-                  { value: '0', label: 'Disabled' },
-                  { value: '1', label: 'Every hour' },
-                  { value: '6', label: 'Every 6 hours' },
-                  { value: '12', label: 'Every 12 hours' },
-                  { value: '24', label: 'Every 24 hours' },
-                  { value: '48', label: 'Every 2 days' },
-                  { value: '168', label: 'Weekly' }
-                ]}
-                value={depotConfig ? String(depotConfig.crawlIntervalHours) : '1'}
-                onChange={async (value) => {
-                  const newInterval = Number(value);
-                  try {
-                    await fetch('/api/gameinfo/steamkit/interval', {
-                      method: 'POST',
-                      headers: {
-                        ...ApiService.getHeaders(),
-                        'Content-Type': 'application/json'
-                      },
-                      body: JSON.stringify(newInterval)
-                    });
+              {/* GitHub Mode: Fixed 30-minute interval (either actual GitHub mode or forced due to Web API unavailability) */}
+              {(() => {
+                const webApiNotAvailable =
+                  !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+                const isGithubMode =
+                  depotConfig?.crawlIncrementalMode === 'github' ||
+                  (webApiNotAvailable && steamAuthMode !== 'authenticated');
 
-                    // Refresh the progress data after updating the interval
-                    refreshProgress();
-                  } catch (error) {
-                    console.error('Failed to update crawl interval:', error);
-                  }
-                }}
-                disabled={!isAuthenticated || mockMode}
-                className="w-full"
-              />
+                if (isGithubMode) {
+                  return (
+                    <div>
+                      <EnhancedDropdown
+                        options={[{ value: '0.5', label: 'Every 30 minutes' }]}
+                        value="0.5"
+                        onChange={() => {}}
+                        disabled={true}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-themed-muted mt-1">
+                        Interval is fixed at 30 minutes for GitHub mode
+                      </p>
+                    </div>
+                  );
+                }
+
+                // Non-GitHub Modes: User-configurable intervals
+                return (
+                  <EnhancedDropdown
+                    options={[
+                      { value: '0', label: 'Disabled' },
+                      { value: '1', label: 'Every hour' },
+                      { value: '6', label: 'Every 6 hours' },
+                      { value: '12', label: 'Every 12 hours' },
+                      { value: '24', label: 'Every 24 hours' },
+                      { value: '48', label: 'Every 2 days' },
+                      { value: '168', label: 'Weekly' }
+                    ]}
+                    value={depotConfig ? String(depotConfig.crawlIntervalHours) : '1'}
+                    onChange={async (value) => {
+                      const newInterval = Number(value);
+                      try {
+                        await fetch('/api/gameinfo/steamkit/interval', {
+                          method: 'POST',
+                          headers: {
+                            ...ApiService.getHeaders(),
+                            'Content-Type': 'application/json'
+                          },
+                          body: JSON.stringify(newInterval)
+                        });
+
+                        // Refresh the progress data after updating the interval
+                        refreshProgress();
+                      } catch (error) {
+                        console.error('Failed to update crawl interval:', error);
+                      }
+                    }}
+                    disabled={!isAuthenticated || mockMode}
+                    className="w-full"
+                  />
+                );
+              })()}
               <EnhancedDropdown
                 options={[
-                  { value: 'true', label: 'Incremental' },
-                  { value: 'false', label: 'Full scan' }
+                  {
+                    value: 'incremental',
+                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                      ? 'Incremental'
+                      : 'Incremental (Web API required)',
+                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                  },
+                  {
+                    value: 'full',
+                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                      ? 'Full'
+                      : 'Full (Web API required)',
+                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                  },
+                  ...(steamAuthMode !== 'authenticated'
+                    ? [{ value: 'github', label: 'GitHub' }]
+                    : [])
                 ]}
-                value={depotConfig ? String(depotConfig.crawlIncrementalMode) : 'true'}
+                value={(() => {
+                  // If Web API is unavailable and user is anonymous, force GitHub mode
+                  const webApiNotAvailable =
+                    !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational);
+
+                  if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
+                    return 'github';
+                  }
+
+                  // Otherwise use backend value
+                  return depotConfig?.crawlIncrementalMode === 'github'
+                    ? steamAuthMode === 'authenticated'
+                      ? 'incremental'
+                      : 'github'
+                    : depotConfig?.crawlIncrementalMode === false
+                      ? 'full'
+                      : 'incremental';
+                })()}
                 onChange={async (value) => {
-                  const incremental = value === 'true';
                   try {
+                    const wasGithubMode = depotConfig?.crawlIncrementalMode === 'github';
+
+                    // If switching FROM GitHub to another mode, reset interval to 1 hour
+                    if (wasGithubMode && value !== 'github') {
+                      await fetch('/api/gameinfo/steamkit/interval', {
+                        method: 'POST',
+                        headers: {
+                          ...ApiService.getHeaders(),
+                          'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(1)
+                      });
+                    }
+
+                    // If GitHub is selected, force 30-minute interval
+                    if (value === 'github') {
+                      // Set interval to 0.5 hours (30 minutes)
+                      await fetch('/api/gameinfo/steamkit/interval', {
+                        method: 'POST',
+                        headers: {
+                          ...ApiService.getHeaders(),
+                          'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(0.5)
+                      });
+                    }
+
+                    // Set scan mode
+                    const incremental =
+                      value === 'incremental' ? true : value === 'github' ? 'github' : false;
                     await fetch('/api/gameinfo/steamkit/scan-mode', {
                       method: 'POST',
                       headers: {
@@ -707,8 +917,20 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           </label>
           <EnhancedDropdown
             options={[
-              { value: 'incremental', label: 'Steam (Incremental)' },
-              { value: 'full', label: 'Steam (Full Scan)' },
+              {
+                value: 'incremental',
+                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                  ? 'Steam (Incremental Scan)'
+                  : 'Steam (Incremental Scan - Web API required)',
+                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+              },
+              {
+                value: 'full',
+                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                  ? 'Steam (Full Scan)'
+                  : 'Steam (Full Scan - Web API required)',
+                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+              },
               {
                 value: 'github',
                 label:
@@ -771,33 +993,59 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             <br />
             <strong>Apply Now Source:</strong> Choose data source when clicking "Apply Now" button
             <br />
-            <strong>Steam (Incremental):</strong> Scans apps that changed since last run.{' '}
-            {steamAuthMode === 'authenticated'
-              ? 'Uses your authenticated Steam session.'
-              : 'Uses anonymous Steam access (public games only).'}
             <br />
-            <strong>Steam (Full Scan):</strong> Re-scans all Steam apps from scratch.{' '}
-            {steamAuthMode === 'authenticated'
-              ? 'Uses your authenticated Steam session to access all games including playtest and restricted titles.'
-              : 'Uses anonymous Steam access (slower, public games only).'}
+            <strong>Schedule Modes:</strong>
             <br />
-            <strong>GitHub (Download):</strong>{' '}
-            {steamAuthMode === 'authenticated'
-              ? 'Not available when using Steam account login - authenticated scans provide more complete data for your library.'
-              : 'Downloads pre-generated mappings from GitHub (fast, 290k+ depots, anonymous data only).'}
+            • <strong>Incremental:</strong> Uses Web API V2/V1 to get changed apps, then PICS for
+            depot info (fast, recommended)
+            <br />
+            • <strong>Full:</strong> Uses Web API V2/V1 to get all apps, then PICS for depot info
+            (slower, complete)
+            <br />
+            {steamAuthMode !== 'authenticated' && (
+              <>
+                • <strong>GitHub:</strong> Automatically downloads fresh depot data from GitHub
+                every 30 minutes
+                <br />
+              </>
+            )}
+            <br />
+            <strong>Manual Scan Options:</strong>
+            <br />
+            • <strong>Steam (Incremental):</strong> Web API + PICS for changed apps only
+            <br />
+            • <strong>Steam (Full):</strong> Web API + PICS for all Steam apps (~300k apps)
+            <br />
+            {steamAuthMode !== 'authenticated' && (
+              <>
+                • <strong>GitHub:</strong> Download pre-generated depot mappings (290k+ depots,
+                updated daily)
+                <br />
+              </>
+            )}
+            <br />
+            <em className="text-themed-muted">
+              {steamAuthMode === 'authenticated' ? (
+                <>
+                  💡 Recommended: Use Incremental or Full scans with Web API V2/V1 fallback.
+                  Configure API key in Steam Web API Status above for V1 fallback support.
+                </>
+              ) : (
+                <>
+                  💡 Recommended: Download from GitHub to get started, then enable "GitHub"
+                  schedule mode to automatically download fresh depot data every 30 minutes.
+                </>
+              )}
+            </em>
           </p>
         </div>
       </Card>
 
-      {/* Full Scan Required Modal */}
+      {/* Data Update Required Modal */}
       {changeGapWarning?.show && (
         <FullScanRequiredModal
           changeGap={changeGapWarning.changeGap}
           estimatedApps={changeGapWarning.estimatedApps}
-          onConfirm={() => {
-            setChangeGapWarning(null);
-            executeApplyDepotMappings(true); // Force full scan
-          }}
           onCancel={() => setChangeGapWarning(null)}
           onDownloadFromGitHub={() => {
             setChangeGapWarning(null); // Close the modal immediately

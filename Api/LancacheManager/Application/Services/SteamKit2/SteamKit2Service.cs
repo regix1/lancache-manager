@@ -26,6 +26,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly StateRepository _stateService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IHubContext<DownloadHub> _hubContext;
+    private readonly SteamWebApiService _steamWebApiService;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -49,15 +50,11 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;
     private TimeSpan _crawlInterval = TimeSpan.FromHours(1); // Default: Run incremental updates every hour
-    private bool _crawlIncrementalMode = true; // Default: Run incremental scans
+    private object _crawlIncrementalMode = true; // Default: Run incremental scans (true/false/"github")
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
     private bool _lastScanWasForced = false; // Track if the last scan was forced to be full due to Steam requirements
     private bool _automaticScanSkipped = false; // Track if an automatic scan was skipped due to requiring full scan
-
-    // Web API failure tracking to avoid hammering a down endpoint
-    private DateTime? _lastWebApiFailure = null;
-    private TimeSpan _webApiCooldownPeriod = TimeSpan.FromHours(1); // Wait 1 hour after failure before retrying
 
     // depotId -> set of appIds (can be multiple for shared depots)
     private readonly ConcurrentDictionary<uint, HashSet<uint>> _depotToAppMappings = new();
@@ -105,7 +102,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         IPathResolver pathResolver,
         StateRepository stateService,
         IHttpClientFactory httpClientFactory,
-        IHubContext<DownloadHub> hubContext)
+        IHubContext<DownloadHub> hubContext,
+        SteamWebApiService steamWebApiService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -115,6 +113,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _stateService = stateService;
         _httpClientFactory = httpClientFactory;
         _hubContext = hubContext;
+        _steamWebApiService = steamWebApiService;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -139,7 +138,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
             // Load saved crawl mode from state
             _crawlIncrementalMode = _stateService.GetCrawlIncrementalMode();
-            _logger.LogInformation("Loaded crawl mode from state: {Mode}", _crawlIncrementalMode ? "Incremental" : "Full");
+            var modeStr = GetCrawlModeString(_crawlIncrementalMode);
+            _logger.LogInformation("Loaded crawl mode from state: {Mode}", modeStr);
 
             // Load PICS metadata (crawl time and change number) from JSON or state
             await LoadPicsMetadataAsync();
@@ -347,9 +347,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Get or set whether automatic scans should be incremental (true) or full (false)
+    /// Get or set the automatic scan mode: true (incremental), false (full), or "github" (PICS updates only)
     /// </summary>
-    public bool CrawlIncrementalMode
+    public object CrawlIncrementalMode
     {
         get => _crawlIncrementalMode;
         set
@@ -358,8 +358,34 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
             // Save to state for persistence across restarts
             _stateService.SetCrawlIncrementalMode(value);
-            _logger.LogInformation("Saved crawl mode to state: {Mode}", value ? "Incremental" : "Full");
+
+            var modeStr = GetCrawlModeString(value);
+            _logger.LogInformation("Saved crawl mode to state: {Mode}", modeStr);
         }
+    }
+
+    /// <summary>
+    /// Convert crawl mode object to string representation
+    /// </summary>
+    private string GetCrawlModeString(object mode)
+    {
+        return mode is bool b ? (b ? "Incremental" : "Full") : mode?.ToString() == "github" ? "GitHub (PICS Updates)" : "Unknown";
+    }
+
+    /// <summary>
+    /// Check if crawl mode is incremental (true or not github)
+    /// </summary>
+    private bool IsIncrementalMode(object mode)
+    {
+        return mode is bool b ? b : mode?.ToString() != "github";
+    }
+
+    /// <summary>
+    /// Check if crawl mode is GitHub (PICS updates only)
+    /// </summary>
+    private bool IsGithubMode(object mode)
+    {
+        return mode?.ToString() == "github";
     }
 
     /// <summary>
@@ -399,6 +425,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         var authMode = _stateService.GetSteamAuthMode();
         var isAuthenticated = authMode == "authenticated" && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
 
+        // Check if Web API is available (V2 or V1 with key) for Full/Incremental scans
+        var isWebApiAvailable = _steamWebApiService.IsWebApiAvailableCached();
+
         return new SteamPicsProgress
         {
             IsRunning = IsRebuildRunning,
@@ -419,7 +448,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             AutomaticScanSkipped = _automaticScanSkipped,
             IsConnected = _steamClient?.IsConnected == true,
             IsLoggedOn = _isLoggedOn && isAuthenticated, // Only true if both connected AND using authenticated mode
-            ErrorMessage = _lastErrorMessage
+            ErrorMessage = _lastErrorMessage,
+            IsWebApiAvailable = isWebApiAvailable // True if V2 is active OR V1 is configured with API key
         };
     }
 }

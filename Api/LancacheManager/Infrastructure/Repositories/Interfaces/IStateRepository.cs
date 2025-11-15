@@ -41,8 +41,8 @@ public interface IStateRepository
     void SetCrawlIntervalHours(double hours);
 
     // Crawl Mode Methods
-    bool GetCrawlIncrementalMode();
-    void SetCrawlIncrementalMode(bool incremental);
+    object GetCrawlIncrementalMode();
+    void SetCrawlIncrementalMode(object mode);
 
     // Depot Processing Methods
     DepotProcessingState GetDepotProcessingState();

@@ -408,6 +408,26 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   }, [customStartDate, customEndDate, timeRange, mockMode, refreshStats]);
 
+  const updateStats = useCallback((updater: {
+    cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
+    clientStats?: (prev: ClientStat[]) => ClientStat[];
+    serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
+    dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
+  }) => {
+    if (updater.cacheInfo) {
+      setCacheInfo(updater.cacheInfo);
+    }
+    if (updater.clientStats) {
+      setClientStats(updater.clientStats);
+    }
+    if (updater.serviceStats) {
+      setServiceStats(updater.serviceStats);
+    }
+    if (updater.dashboardStats) {
+      setDashboardStats(updater.dashboardStats);
+    }
+  }, []);
+
   const value = {
     cacheInfo,
     clientStats,
@@ -416,7 +436,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     loading,
     error,
     connectionStatus,
-    refreshStats
+    refreshStats,
+    updateStats
   };
 
   return <StatsContext.Provider value={value}>{children}</StatsContext.Provider>;

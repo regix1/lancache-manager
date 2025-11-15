@@ -4,6 +4,7 @@ import PollingRateSelector from '../common/PollingRateSelector';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useMockMode } from '@contexts/MockModeContext';
+import { useAuth } from '@contexts/AuthContext';
 import authService from '@services/auth.service';
 
 interface HeaderProps {
@@ -18,27 +19,21 @@ const Header: React.FC<HeaderProps> = ({
   connectionStatus = 'connected'
 }) => {
   const { mockMode } = useMockMode();
+  const { authMode } = useAuth();
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [isRevoked, setIsRevoked] = useState(false);
   const [deviceId, setDeviceId] = useState('');
 
+  // Event-driven updates from AuthContext - no polling needed
   useEffect(() => {
-    // Check if user is in guest mode or expired
-    const checkGuestMode = () => {
-      const guestMode = authService.authMode === 'guest';
-      const expired = authService.authMode === 'expired';
-      setIsGuestMode(guestMode || expired);
-      setIsRevoked(expired);
-      if (guestMode || expired) {
-        setDeviceId(authService.getGuestSessionId() || '');
-      }
-    };
-
-    checkGuestMode();
-    // Recheck periodically in case auth mode changes
-    const interval = setInterval(checkGuestMode, 1000);
-    return () => clearInterval(interval);
-  }, []);
+    const guestMode = authMode === 'guest';
+    const expired = authMode === 'expired';
+    setIsGuestMode(guestMode || expired);
+    setIsRevoked(expired);
+    if (guestMode || expired) {
+      setDeviceId(authService.getGuestSessionId() || '');
+    }
+  }, [authMode]);
 
   return (
     <>

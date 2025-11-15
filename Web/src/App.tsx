@@ -11,6 +11,7 @@ import { PicsProgressProvider } from '@contexts/PicsProgressContext';
 import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
 import { SteamAuthProvider } from '@contexts/SteamAuthContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
+import { SteamWebApiStatusProvider } from '@contexts/SteamWebApiStatusContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -568,21 +569,23 @@ const App: React.FC = () => {
           <TimeFilterProvider>
             <SignalRProvider>
               <AuthProvider>
-                <GuestConfigProvider>
-                  <SetupStatusProvider>
-                    <SteamAuthProvider>
-                      <PicsProgressProviderWithMockMode>
-                        <NotificationsProvider>
-                          <StatsProviderWithMockMode>
-                            <DownloadsProviderWithMockMode>
-                              <AppContent />
-                            </DownloadsProviderWithMockMode>
-                          </StatsProviderWithMockMode>
-                        </NotificationsProvider>
-                      </PicsProgressProviderWithMockMode>
-                    </SteamAuthProvider>
-                  </SetupStatusProvider>
-                </GuestConfigProvider>
+                <SteamWebApiStatusProvider>
+                  <GuestConfigProvider>
+                    <SetupStatusProvider>
+                      <SteamAuthProvider>
+                        <PicsProgressProviderWithMockMode>
+                          <NotificationsProvider>
+                            <StatsProviderWithMockMode>
+                              <DownloadsProviderWithMockMode>
+                                <AppContent />
+                              </DownloadsProviderWithMockMode>
+                            </StatsProviderWithMockMode>
+                          </NotificationsProvider>
+                        </PicsProgressProviderWithMockMode>
+                      </SteamAuthProvider>
+                    </SetupStatusProvider>
+                  </GuestConfigProvider>
+                </SteamWebApiStatusProvider>
               </AuthProvider>
             </SignalRProvider>
           </TimeFilterProvider>

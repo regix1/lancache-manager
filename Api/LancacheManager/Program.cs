@@ -249,9 +249,15 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamK
 builder.Services.AddSingleton<SteamService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamService>());
 
+// Register SteamWebApiService for V2/V1 fallback
+builder.Services.AddSingleton<SteamWebApiService>();
+
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<PicsDataService>();
+
+// Register depot data initialization service (auto-downloads from GitHub on first run)
+builder.Services.AddHostedService<DepotDataInitializationService>();
 
 // Register metrics service for Prometheus/Grafana as both singleton and hosted service
 builder.Services.AddSingleton<LancacheMetricsService>();

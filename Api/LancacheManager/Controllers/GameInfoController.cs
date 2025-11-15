@@ -227,20 +227,42 @@ public class GameInfoController : ControllerBase
     /// <summary>
     /// Set the crawl mode for automatic scheduled depot mapping updates
     /// </summary>
-    /// <param name="incremental">True for incremental scans, false for full scans</param>
+    /// <param name="mode">Mode value: true (incremental), false (full), or "github" (PICS updates only)</param>
     [HttpPost("steamkit/scan-mode")]
     [RequireAuth]
-    public IActionResult SetCrawlMode([FromBody] bool incremental)
+    public IActionResult SetCrawlMode([FromBody] JsonElement mode)
     {
         try
         {
-            _steamKit2Service.CrawlIncrementalMode = incremental;
-            _logger.LogInformation("Crawl mode updated to {Mode}", incremental ? "Incremental" : "Full");
+            string scanMode;
+
+            // Handle different input types: bool or string "github"
+            if (mode.ValueKind == JsonValueKind.True)
+            {
+                _steamKit2Service.CrawlIncrementalMode = true;
+                scanMode = "Incremental";
+            }
+            else if (mode.ValueKind == JsonValueKind.False)
+            {
+                _steamKit2Service.CrawlIncrementalMode = false;
+                scanMode = "Full";
+            }
+            else if (mode.ValueKind == JsonValueKind.String && mode.GetString() == "github")
+            {
+                _steamKit2Service.CrawlIncrementalMode = "github";
+                scanMode = "GitHub (PICS Updates)";
+            }
+            else
+            {
+                return BadRequest(new { error = "Invalid scan mode. Must be true, false, or \"github\"" });
+            }
+
+            _logger.LogInformation("Crawl mode updated to {Mode}", scanMode);
 
             return Ok(new
             {
                 incrementalMode = _steamKit2Service.CrawlIncrementalMode,
-                message = $"Automatic scan mode set to {(incremental ? "incremental" : "full")} scans"
+                message = $"Automatic scan mode set to {scanMode}"
             });
         }
         catch (Exception ex)
@@ -310,7 +332,7 @@ public class GameInfoController : ControllerBase
         {
             _logger.LogInformation("Starting download of pre-created depot data from GitHub");
 
-            const string githubUrl = "https://raw.githubusercontent.com/regix1/lancache-pics/main/output/pics_depot_mappings.json";
+            const string githubUrl = "https://github.com/regix1/lancache-pics/releases/latest/download/pics_depot_mappings.json";
 
             using var httpClient = _httpClientFactory.CreateClient();
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
@@ -376,61 +398,17 @@ public class GameInfoController : ControllerBase
             _logger.LogInformation("Applying depot mappings to existing downloads");
             await _steamKit2Service.ManuallyApplyDepotMappings();
 
-            // Get current change number from Steam and update JSON metadata
-            // This allows incremental scans to work from the current position going forward
-            bool changeNumberUpdated = false;
-            try
-            {
-                _logger.LogInformation("Getting current Steam change number to update GitHub data metadata");
-                var currentChangeNumber = await _steamKit2Service.GetCurrentChangeNumberAsync(cancellationToken);
-                await _picsDataService.UpdateLastChangeNumberAsync(currentChangeNumber);
-                _logger.LogInformation("Updated JSON metadata with current change number {ChangeNumber} - incremental scans will now work", currentChangeNumber);
-                changeNumberUpdated = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to update change number in JSON metadata - incremental scans may not work until next full scan");
-            }
-
             // Clear the automatic scan skipped flag since user took manual action
             _steamKit2Service.ClearAutomaticScanSkippedFlag();
 
             // Enable periodic crawls now that we have initial data
             _steamKit2Service.EnablePeriodicCrawls();
 
-            // Wait for Steam to fully disconnect before starting the next scan to avoid connection conflicts
-            if (!changeNumberUpdated)
-            {
-                _logger.LogInformation("Waiting for Steam to fully disconnect before starting incremental scan to avoid connection conflicts");
-                var disconnected = await _steamKit2Service.WaitForDisconnectionAsync(5000, cancellationToken);
-                if (!disconnected)
-                {
-                    _logger.LogWarning("Steam did not disconnect cleanly within timeout - proceeding anyway");
-                }
-            }
-
-            // Trigger a simple incremental scan to catch recent updates (no viability check, just do it)
-            // This runs synchronously to avoid connection conflicts
-            var scanStarted = _steamKit2Service.TryStartRebuild(CancellationToken.None, incrementalOnly: true);
-
-            if (scanStarted)
-            {
-                _logger.LogInformation("Started incremental scan after GitHub download to catch recent updates");
-                // Update last crawl time after scan starts successfully
-                _steamKit2Service.UpdateLastCrawlTime();
-            }
-            else
-            {
-                _logger.LogWarning("Could not start incremental scan after GitHub download (another scan may be running)");
-                // Still update last crawl time to prevent immediate retry
-                _steamKit2Service.UpdateLastCrawlTime();
-            }
+            _logger.LogInformation("Pre-created depot data downloaded and imported successfully from GitHub");
 
             return Ok(new
             {
-                message = scanStarted
-                    ? "Pre-created depot data downloaded and imported successfully. Starting incremental scan to catch recent updates..."
-                    : "Pre-created depot data downloaded and imported successfully",
+                message = "Pre-created depot data downloaded and imported successfully",
                 source = "GitHub",
                 url = githubUrl,
                 localPath = localPath,

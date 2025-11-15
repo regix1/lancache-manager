@@ -44,7 +44,7 @@ public class StateRepository : IStateRepository
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0; // Default to 1 hour
-        public bool CrawlIncrementalMode { get; set; } = true; // Default to incremental scans
+        public object CrawlIncrementalMode { get; set; } = true; // Default to incremental scans (true/false/"github")
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false; // Track if logs have been processed at least once
@@ -84,7 +84,7 @@ public class StateRepository : IStateRepository
         public bool SetupCompleted { get; set; } = false;
         public DateTime? LastPicsCrawl { get; set; }
         public double CrawlIntervalHours { get; set; } = 1.0;
-        public bool CrawlIncrementalMode { get; set; } = true;
+        public object CrawlIncrementalMode { get; set; } = true;
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
         public bool HasDataLoaded { get; set; } = false;
         public bool HasProcessedLogs { get; set; } = false;
@@ -376,14 +376,14 @@ public class StateRepository : IStateRepository
     }
 
     // Crawl Mode Methods
-    public bool GetCrawlIncrementalMode()
+    public object GetCrawlIncrementalMode()
     {
         return GetState().CrawlIncrementalMode;
     }
 
-    public void SetCrawlIncrementalMode(bool incremental)
+    public void SetCrawlIncrementalMode(object mode)
     {
-        UpdateState(state => state.CrawlIncrementalMode = incremental);
+        UpdateState(state => state.CrawlIncrementalMode = mode);
     }
 
     // Depot Processing Methods

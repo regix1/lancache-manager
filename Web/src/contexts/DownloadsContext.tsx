@@ -20,6 +20,10 @@ interface DownloadsContextType {
   loading: boolean;
   error: string | null;
   refreshDownloads: () => Promise<void>;
+  updateDownloads: (updater: {
+    activeDownloads?: (prev: Download[]) => Download[];
+    latestDownloads?: (prev: Download[]) => Download[];
+  }) => void;
 }
 
 const DownloadsContext = createContext<DownloadsContextType | undefined>(undefined);
@@ -285,12 +289,25 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     }
   }, [customStartDate, customEndDate, timeRange, mockMode, refreshDownloads]);
 
+  const updateDownloads = useCallback((updater: {
+    activeDownloads?: (prev: Download[]) => Download[];
+    latestDownloads?: (prev: Download[]) => Download[];
+  }) => {
+    if (updater.activeDownloads) {
+      setActiveDownloads(updater.activeDownloads);
+    }
+    if (updater.latestDownloads) {
+      setLatestDownloads(updater.latestDownloads);
+    }
+  }, []);
+
   const value = {
     activeDownloads,
     latestDownloads,
     loading,
     error,
-    refreshDownloads
+    refreshDownloads,
+    updateDownloads
   };
 
   return <DownloadsContext.Provider value={value}>{children}</DownloadsContext.Provider>;

@@ -6,7 +6,7 @@ import { Modal } from '@components/ui/Modal';
 interface FullScanRequiredModalProps {
   changeGap?: number;
   estimatedApps?: number;
-  onConfirm: () => void;
+  onConfirm?: () => void;
   onCancel: () => void;
   onDownloadFromGitHub: () => void;
   showDownloadOption?: boolean;
@@ -17,14 +17,13 @@ interface FullScanRequiredModalProps {
 export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   changeGap,
   estimatedApps,
-  onConfirm,
   onCancel,
   onDownloadFromGitHub,
   showDownloadOption = true,
-  title = 'Full Scan Required',
+  title = 'Data Update Required',
   subtitle
 }) => {
-  const defaultSubtitle = 'Steam requires a full scan - incremental update not possible';
+  const defaultSubtitle = 'Change gap too large - please download latest data from GitHub';
 
   return (
     <Modal
@@ -82,11 +81,11 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               )}
             </p>
             <p>
-              • Steam's PICS API will force a{' '}
+              • Steam's PICS API{' '}
               <span className="font-bold" style={{ color: 'var(--theme-error-text)' }}>
-                FULL SCAN
+                cannot process
               </span>{' '}
-              via Web API
+              incremental updates with this large gap
             </p>
           </div>
         </div>
@@ -94,8 +93,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
         <div className="space-y-3">
           <p className="text-themed-primary">
             <strong>Why this happens:</strong> When depot data becomes too outdated (change gap
-            &gt;20,000), Steam's PICS API refuses incremental updates and requires a full rescan for
-            data integrity.
+            &gt;20,000), Steam's PICS API refuses incremental updates. Full scans are no longer
+            supported - use GitHub downloads to reset your baseline.
           </p>
 
           {showDownloadOption && (
@@ -107,12 +106,13 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               }}
             >
               <p className="font-medium mb-2" style={{ color: 'var(--theme-info-text)' }}>
-                Recommended: Download from GitHub
+                Solution: Download from GitHub
               </p>
               <ul className="space-y-1 text-sm text-themed-secondary">
-                <li>✓ Instant: Get pre-generated depot mappings in 1-2 minutes</li>
+                <li>✓ Fast: Get pre-generated depot mappings in 1-2 minutes</li>
                 <li>✓ Complete: Contains 300,000+ current Steam depot mappings</li>
-                <li>✓ Efficient: Avoids scanning all Steam apps (15-30 min)</li>
+                <li>✓ Up-to-date: Updated daily from Steam's PICS data</li>
+                <li>✓ Resets baseline: Incremental scans will work again after download</li>
               </ul>
             </div>
           )}
@@ -122,13 +122,9 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           {showDownloadOption && (
             <Button onClick={onDownloadFromGitHub} variant="filled" color="blue" className="flex-1">
               <Download className="w-4 h-4 mr-2" />
-              Download from GitHub (Recommended)
+              Download from GitHub
             </Button>
           )}
-
-          <Button onClick={onConfirm} variant="filled" color="red" className="flex-1">
-            Run Full Scan Anyway
-          </Button>
 
           <Button onClick={onCancel} variant="default">
             Cancel

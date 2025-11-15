@@ -7,6 +7,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SteamAuthModal } from '@components/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
+import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
@@ -31,6 +32,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
     setSteamAuthMode: setContextSteamAuthMode,
     setUsername: setContextUsername
   } = useSteamAuth();
+  const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
@@ -44,6 +46,10 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
       onSuccess?.(message);
     }
   });
+
+  // PICS authentication should be disabled when Web API is not operational
+  // (V2 down AND no V1 API key configured)
+  const isPicsDisabled = !!(!webApiLoading && webApiStatus && !webApiStatus.isFullyOperational);
 
   useEffect(() => {
     // Load auto-start preference from localStorage
@@ -134,10 +140,23 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               options={dropdownOptions}
               value={steamAuthMode}
               onChange={handleModeChange}
-              disabled={loading || mockMode || authMode !== 'authenticated'}
+              disabled={loading || mockMode || authMode !== 'authenticated' || isPicsDisabled}
             />
           </div>
         </div>
+
+        {/* Warning when PICS is disabled due to Web API unavailability */}
+        {isPicsDisabled && (
+          <div className="mb-4">
+            <Alert color="yellow">
+              <p className="text-sm">
+                <strong>Steam PICS Authentication Disabled:</strong> Web API V2 is unavailable and
+                no V1 API key is configured. Please configure a Steam Web API key in the Steam Web
+                API Status section below to enable PICS authentication.
+              </p>
+            </Alert>
+          </div>
+        )}
 
         {/* Configuration section with unified background */}
         <div className="p-4 rounded-lg bg-themed-tertiary/30">
@@ -158,7 +177,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={autoStartPics ? 'filled' : 'default'}
                 color={autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(true)}
-                disabled={loading || mockMode}
+                disabled={loading || mockMode || isPicsDisabled}
               >
                 Automatic
               </Button>
@@ -167,7 +186,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={!autoStartPics ? 'filled' : 'default'}
                 color={!autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(false)}
-                disabled={loading || mockMode}
+                disabled={loading || mockMode || isPicsDisabled}
               >
                 Manual
               </Button>
@@ -189,7 +208,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   variant="filled"
                   color="red"
                   onClick={handleSwitchToAnonymous}
-                  disabled={loading || mockMode}
+                  disabled={loading || mockMode || isPicsDisabled}
                 >
                   Logout
                 </Button>

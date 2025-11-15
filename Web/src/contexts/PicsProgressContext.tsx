@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 
 /**
@@ -23,7 +23,7 @@ export interface PicsProgress {
 
   // Scheduling (what the API actually returns)
   crawlIntervalHours: number;
-  crawlIncrementalMode: boolean;
+  crawlIncrementalMode: boolean | string; // true (incremental), false (full), or "github" (PICS only)
   lastCrawlTime?: string; // ISO 8601 datetime string
   nextCrawlIn?: number; // Seconds remaining until next crawl
 
@@ -42,6 +42,9 @@ export interface PicsProgress {
   isConnected?: boolean;
   isLoggedOn?: boolean;
 
+  // Web API availability (for Full/Incremental scans)
+  isWebApiAvailable?: boolean;
+
   // Error handling
   errorMessage?: string | null;
 }
@@ -50,6 +53,7 @@ interface PicsProgressContextType {
   progress: PicsProgress | null;
   isLoading: boolean;
   refreshProgress: () => Promise<void>;
+  updateProgress: (updater: (prev: PicsProgress | null) => PicsProgress | null) => void;
 }
 
 const PicsProgressContext = createContext<PicsProgressContextType | undefined>(undefined);
@@ -98,21 +102,13 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     await fetchProgress();
   };
 
+  const updateProgress = useCallback((updater: (prev: PicsProgress | null) => PicsProgress | null) => {
+    setProgress(updater);
+  }, []);
+
   // Initial fetch
   useEffect(() => {
     fetchProgress();
-  }, [mockMode]);
-
-  // Poll every 30 seconds ONLY for countdown updates (not for scan status)
-  // SignalR handles scan status changes via events
-  useEffect(() => {
-    if (mockMode) return;
-
-    const interval = setInterval(() => {
-      fetchProgress();
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
   }, [mockMode]);
 
   // Monitor SignalR connection state - re-fetch state on reconnection
@@ -204,7 +200,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   }, [signalR, mockMode]);
 
   return (
-    <PicsProgressContext.Provider value={{ progress, isLoading, refreshProgress }}>
+    <PicsProgressContext.Provider value={{ progress, isLoading, refreshProgress, updateProgress }}>
       {children}
     </PicsProgressContext.Provider>
   );

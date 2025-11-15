@@ -14,6 +14,7 @@ import { useNotifications } from '@contexts/NotificationsContext';
 import { useMockMode } from '@contexts/MockModeContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
+import { useSteamAuth } from '@contexts/SteamAuthContext';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import operationStateService from '@services/operationState.service';
@@ -21,6 +22,7 @@ import operationStateService from '@services/operationState.service';
 // Import manager components
 import AuthenticationManager from './AuthenticationManager';
 import SteamLoginManager from './SteamLoginManager';
+import SteamWebApiStatus from './SteamWebApiStatus';
 import CacheManager from './CacheManager';
 import LogProcessingManager from './LogProcessingManager';
 import LogAndCorruptionManager from './LogAndCorruptionManager';
@@ -349,6 +351,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
   const { mockMode, setMockMode } = useMockMode();
   const signalR = useSignalR();
   const { isAuthenticated, authMode } = useAuth();
+  const { steamAuthMode } = useSteamAuth();
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
 
@@ -519,6 +522,8 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 onError={addError}
                 onSuccess={setSuccess}
               />
+
+              <SteamWebApiStatus steamAuthMode={steamAuthMode} />
 
               <GrafanaEndpoints />
             </CollapsibleSection>

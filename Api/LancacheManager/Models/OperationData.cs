@@ -164,7 +164,7 @@ public class SteamPicsProgress
     public double CrawlIntervalHours { get; set; }
 
     [JsonPropertyName("crawlIncrementalMode")]
-    public bool CrawlIncrementalMode { get; set; }
+    public object CrawlIncrementalMode { get; set; } = true;
 
     [JsonPropertyName("lastScanWasForced")]
     public bool LastScanWasForced { get; set; }
@@ -180,6 +180,9 @@ public class SteamPicsProgress
 
     [JsonPropertyName("errorMessage")]
     public string? ErrorMessage { get; set; }
+
+    [JsonPropertyName("isWebApiAvailable")]
+    public bool IsWebApiAvailable { get; set; }
 }
 
 /// <summary>
