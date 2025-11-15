@@ -1193,7 +1193,7 @@ const UserTab: React.FC = () => {
                 </label>
 
                 {/* Only show notification preferences for authenticated users */}
-                {editingSession.type === 'authenticated' && (
+                {editingSession && editingSession.type === 'authenticated' && (
                   <>
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
