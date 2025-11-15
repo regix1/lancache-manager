@@ -533,7 +533,7 @@ public class SteamWebApiService
                 Version = SteamApiVersion.V1NoKey,
                 IsV2Available = false,
                 IsV1Available = false,
-                HasApiKey = false,
+                HasApiKey = hasApiKey,
                 IsFullyOperational = false,
                 Message = "Steam Web API V2 unavailable - V1 requires API key (not configured)",
                 LastChecked = _lastStatusCheck

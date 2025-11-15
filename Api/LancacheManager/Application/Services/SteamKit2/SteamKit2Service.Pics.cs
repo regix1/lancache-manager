@@ -808,8 +808,8 @@ public partial class SteamKit2Service
 
         try
         {
-            // Check if Web API is operational
-            var status = await _steamWebApiService.GetApiStatusAsync();
+            // Check if Web API is operational (force refresh to ensure latest configuration)
+            var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh: true);
 
             if (!status.IsFullyOperational)
             {
