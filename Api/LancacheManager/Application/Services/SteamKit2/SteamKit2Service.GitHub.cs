@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Application.Services;
 
