@@ -44,7 +44,8 @@ export const SIGNALR_EVENTS = [
   'AutomaticScanSkipped',
   'UserPreferencesUpdated',
   'UserPreferencesReset',
-  'UserSessionsCleared'
+  'UserSessionsCleared',
+  'DefaultGuestThemeChanged'
 ] as const;
 
 export type SignalREvent = (typeof SIGNALR_EVENTS)[number];

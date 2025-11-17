@@ -319,6 +319,3 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
   return <SignalRContext.Provider value={value}>{children}</SignalRContext.Provider>;
 };
-
-// Export session sync hook
-export { useSessionSync } from './useSessionSync';

@@ -185,11 +185,11 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             placeholder="Enter your Steam Web API key..."
             className="w-full px-4 py-2 rounded-lg border bg-themed-primary text-themed-primary"
             style={{
-              borderColor: 'var(--theme-border)',
+              borderColor: 'var(--theme-input-border)',
               outline: 'none'
             }}
-            onFocus={(e) => (e.target.style.borderColor = 'var(--theme-info)')}
-            onBlur={(e) => (e.target.style.borderColor = 'var(--theme-border)')}
+            onFocus={(e) => (e.target.style.borderColor = 'var(--theme-input-focus)')}
+            onBlur={(e) => (e.target.style.borderColor = 'var(--theme-input-border)')}
           />
         </div>
 

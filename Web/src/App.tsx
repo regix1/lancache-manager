@@ -4,7 +4,7 @@ import { StatsProvider, useStats } from '@contexts/StatsContext';
 import { DownloadsProvider } from '@contexts/DownloadsContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { PollingRateProvider } from '@contexts/PollingRateContext';
-import { SignalRProvider, useSignalR, useSessionSync } from '@contexts/SignalRContext';
+import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
 import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
 import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import { PicsProgressProvider } from '@contexts/PicsProgressContext';
@@ -25,6 +25,8 @@ import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
 import { storage } from '@utils/storage';
 import themeService from '@services/theme.service';
+import preferencesService from '@services/preferences.service';
+import authService from '@services/auth.service';
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
@@ -82,6 +84,15 @@ const AppContent: React.FC = () => {
       setActiveTab('dashboard');
     }
   }, [authMode, activeTab]);
+
+  // Setup SignalR listeners for preferences and theme
+  useEffect(() => {
+    if (signalR) {
+      console.log('[App] Setting up preferences and theme SignalR listeners');
+      preferencesService.setupSignalRListener(signalR);
+      themeService.setupPreferenceListeners();
+    }
+  }, [signalR]);
 
   // Check if modal was dismissed this session
   const wasModalDismissed = useCallback(() => {
@@ -185,8 +196,27 @@ const AppContent: React.FC = () => {
     };
   }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
 
-  // Setup SignalR listener for user session synchronization
-  useSessionSync();
+  // Handle user sessions cleared event (dispatched by preferences service)
+  useEffect(() => {
+    const handleSessionsCleared = async () => {
+      console.log('[App] User sessions cleared - forcing logout');
+
+      // Clear all authentication data
+      authService.clearAuthAndDevice();
+
+      // Clear theme/preferences cache
+      preferencesService.clearCache();
+
+      // Refresh auth context to trigger authentication modal
+      await refreshAuth();
+    };
+
+    window.addEventListener('user-sessions-cleared', handleSessionsCleared);
+
+    return () => {
+      window.removeEventListener('user-sessions-cleared', handleSessionsCleared);
+    };
+  }, [refreshAuth]);
 
   // Fetch server timezone on mount
   useEffect(() => {

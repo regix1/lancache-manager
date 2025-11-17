@@ -204,7 +204,7 @@ class ThemeService {
 
     console.log('[ThemeService] Setting up preference change listeners');
 
-    window.addEventListener('preference-changed', async (event: any) => {
+    window.addEventListener('preference-changed', (event: any) => {
       const { key, value } = event.detail;
       console.log(`[ThemeService] Preference changed: ${key} = ${value}`);
 
@@ -238,45 +238,76 @@ class ThemeService {
         );
       }
 
-      switch (key) {
-        case 'selectedTheme':
-          if (value && value !== this.getCurrentThemeId()) {
-            console.log(`[ThemeService] Applying new theme: ${value}`);
-            await this.setTheme(value);
-          }
-          break;
+      try {
+        switch (key) {
+          case 'selectedTheme':
+            // Handle null/empty value by fetching default guest theme (async, non-blocking)
+            if (!value) {
+              fetch(`${API_BASE}/theme/preferences/guest`, {
+                headers: authService.getAuthHeaders()
+              })
+                .then(response => {
+                  if (response.ok) {
+                    return response.json();
+                  }
+                  throw new Error('Failed to fetch default guest theme');
+                })
+                .then(data => {
+                  const defaultTheme = data.themeId || 'dark-default';
+                  if (defaultTheme !== this.getCurrentThemeId()) {
+                    console.log(`[ThemeService] Applying default guest theme: ${defaultTheme}`);
+                    return this.setTheme(defaultTheme);
+                  }
+                })
+                .catch(err => {
+                  console.error('[ThemeService] Failed to fetch default guest theme:', err);
+                });
+            } else if (value !== this.getCurrentThemeId()) {
+              console.log(`[ThemeService] Applying new theme: ${value}`);
+              this.setTheme(value);
+            }
+            break;
 
-        case 'sharpCorners':
-          // Re-apply current theme to update border radius
-          if (this.currentTheme) {
-            this.applyTheme(this.currentTheme);
-          } else {
-            this.applyDefaultVariables();
-          }
-          break;
+          case 'sharpCorners':
+            // Re-apply current theme to update border radius
+            if (this.currentTheme) {
+              this.applyTheme(this.currentTheme);
+            } else {
+              this.applyDefaultVariables();
+            }
+            break;
 
-        case 'disableFocusOutlines':
-          document.documentElement.setAttribute('data-disable-focus-outlines', value.toString());
-          window.dispatchEvent(new Event('focusoutlineschange'));
-          break;
+          case 'disableFocusOutlines':
+            if (value !== null && value !== undefined) {
+              document.documentElement.setAttribute('data-disable-focus-outlines', value.toString());
+              window.dispatchEvent(new Event('focusoutlineschange'));
+            }
+            break;
 
-        case 'disableTooltips':
-          document.documentElement.setAttribute('data-disable-tooltips', value.toString());
-          window.dispatchEvent(new Event('tooltipschange'));
-          break;
+          case 'disableTooltips':
+            if (value !== null && value !== undefined) {
+              document.documentElement.setAttribute('data-disable-tooltips', value.toString());
+              window.dispatchEvent(new Event('tooltipschange'));
+            }
+            break;
 
-        case 'picsAlwaysVisible':
-          window.dispatchEvent(new Event('picsvisibilitychange'));
-          break;
+          case 'picsAlwaysVisible':
+            window.dispatchEvent(new Event('picsvisibilitychange'));
+            break;
 
-        case 'hideAboutSections':
-          document.documentElement.setAttribute('data-hide-about-sections', value.toString());
-          window.dispatchEvent(new Event('aboutsectionsvisibilitychange'));
-          break;
+          case 'hideAboutSections':
+            if (value !== null && value !== undefined) {
+              document.documentElement.setAttribute('data-hide-about-sections', value.toString());
+              window.dispatchEvent(new Event('aboutsectionsvisibilitychange'));
+            }
+            break;
 
-        case 'disableStickyNotifications':
-          window.dispatchEvent(new Event('stickynotificationschange'));
-          break;
+          case 'disableStickyNotifications':
+            window.dispatchEvent(new Event('stickynotificationschange'));
+            break;
+        }
+      } catch (err) {
+        console.error(`[ThemeService] Error handling preference change for ${key}:`, err);
       }
     });
 

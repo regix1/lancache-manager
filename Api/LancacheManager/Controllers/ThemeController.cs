@@ -1,10 +1,12 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Repositories.Interfaces;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -15,6 +17,7 @@ public class ThemeController : ControllerBase
     private readonly string _themesPath;
     private readonly ILogger<ThemeController> _logger;
     private readonly IStateRepository _stateRepository;
+    private readonly IHubContext<DownloadHub> _hubContext;
 
     // System theme IDs that cannot be deleted
     private static readonly string[] SYSTEM_THEMES = { "dark-default", "light-default" };
@@ -23,10 +26,12 @@ public class ThemeController : ControllerBase
         IConfiguration configuration,
         ILogger<ThemeController> logger,
         IPathResolver pathResolver,
-        IStateRepository stateRepository)
+        IStateRepository stateRepository,
+        IHubContext<DownloadHub> hubContext)
     {
         _logger = logger;
         _stateRepository = stateRepository;
+        _hubContext = hubContext;
 
         _themesPath = pathResolver.GetThemesDirectory();
 
@@ -541,7 +546,7 @@ public class ThemeController : ControllerBase
 
     [HttpPost("preferences/guest")]
     [RequireAuth]
-    public IActionResult SetDefaultGuestTheme([FromBody] ThemePreferenceRequest request)
+    public async Task<IActionResult> SetDefaultGuestTheme([FromBody] ThemePreferenceRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
         {
@@ -555,6 +560,15 @@ public class ThemeController : ControllerBase
 
             _stateRepository.SetDefaultGuestTheme(themeId);
             _logger.LogInformation($"Updated default guest theme to: {themeId}");
+
+            // Broadcast theme change to all connected clients
+            // Only guest users with selectedTheme=null will apply this change
+            await _hubContext.Clients.All.SendAsync("DefaultGuestThemeChanged", new
+            {
+                newThemeId = themeId
+            });
+
+            _logger.LogInformation($"Broadcasted DefaultGuestThemeChanged event for theme: {themeId}");
 
             return Ok(new
             {

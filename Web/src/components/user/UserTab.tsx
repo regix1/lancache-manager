@@ -309,7 +309,16 @@ const UserTab: React.FC = () => {
 
       if (response.ok) {
         const prefs = await response.json();
-        setEditingPreferences(prefs);
+        // Ensure all boolean fields have proper defaults
+        setEditingPreferences({
+          selectedTheme: prefs.selectedTheme || null,
+          sharpCorners: prefs.sharpCorners ?? false,
+          disableFocusOutlines: prefs.disableFocusOutlines ?? true,
+          disableTooltips: prefs.disableTooltips ?? false,
+          picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
+          hideAboutSections: prefs.hideAboutSections ?? false,
+          disableStickyNotifications: prefs.disableStickyNotifications ?? false
+        });
       } else {
         // Initialize with defaults if no preferences exist
         setEditingPreferences({
@@ -1125,15 +1134,14 @@ const UserTab: React.FC = () => {
                     }))
                   ]}
                   value={
-                    !editingPreferences.selectedTheme ||
-                    editingPreferences.selectedTheme === defaultGuestTheme
+                    !editingPreferences.selectedTheme
                       ? 'default'
                       : editingPreferences.selectedTheme
                   }
                   onChange={(value) =>
                     setEditingPreferences({
                       ...editingPreferences,
-                      selectedTheme: value === 'default' ? defaultGuestTheme : value
+                      selectedTheme: value === 'default' ? null : value
                     })
                   }
                   className="w-full"

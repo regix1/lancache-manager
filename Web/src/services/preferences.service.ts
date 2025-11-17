@@ -15,7 +15,6 @@ class PreferencesService {
   private preferences: UserPreferences | null = null;
   private loading = false;
   private loaded = false;
-  private handlerRegistered = false;
 
   /**
    * Load preferences from the API
@@ -172,119 +171,161 @@ class PreferencesService {
   }
 
   /**
-   * Setup SignalR listener for preference updates (called from App.tsx)
-   * Pass in the SignalR context object
+   * Update the cached preferences directly (used by SignalR updates)
+   */
+  updateCache(preferences: UserPreferences): void {
+    this.preferences = preferences;
+    this.loaded = true;
+    console.log('[PreferencesService] Cache updated directly:', this.preferences);
+  }
+
+  /**
+   * Setup SignalR listener for preference updates
+   * Handles UserPreferencesUpdated, UserPreferencesReset, and UserSessionsCleared
    */
   setupSignalRListener(signalR: { on: (eventName: string, handler: (...args: any[]) => void) => void }): void {
-    // Prevent duplicate registrations
-    if (this.handlerRegistered) {
-      console.log('[PreferencesService] SignalR listeners already registered, skipping');
-      return;
-    }
+    console.log('[PreferencesService] Setting up SignalR listeners');
 
-    this.handlerRegistered = true;
-    console.log('[PreferencesService] Registering SignalR listeners');
-    console.log('[PreferencesService] SignalR object:', signalR);
-    console.log('[PreferencesService] SignalR.on type:', typeof signalR.on);
+    // Track if we're processing to prevent race conditions
+    let isProcessingUpdate = false;
+    let isProcessingReset = false;
 
-    console.log('[PreferencesService] About to register UserPreferencesUpdated handler');
-    signalR.on('UserPreferencesUpdated', (payload: any) => {
-
-      const { sessionId, preferences: newPreferences } = payload;
-
-      // Check if this update is for the current user's session
-      const deviceId = authService.getDeviceId();
-      const guestSessionId = authService.getGuestSessionId();
-      const currentSessionId = deviceId || guestSessionId;
-
-      if (sessionId !== currentSessionId) {
+    // Handle preference updates
+    const handlePreferencesUpdated = (payload: any) => {
+      if (isProcessingUpdate) {
+        console.log('[PreferencesService] Already processing update, skipping duplicate');
         return;
       }
 
-      // Parse preferences
-      const updatedPrefs: UserPreferences = {
-        selectedTheme: newPreferences.selectedTheme || null,
-        sharpCorners: newPreferences.sharpCorners || false,
-        disableFocusOutlines: newPreferences.disableFocusOutlines || false,
-        disableTooltips: newPreferences.disableTooltips || false,
-        picsAlwaysVisible: newPreferences.picsAlwaysVisible || false,
-        hideAboutSections: newPreferences.hideAboutSections || false,
-        disableStickyNotifications: newPreferences.disableStickyNotifications || false
-      };
+      try {
+        isProcessingUpdate = true;
 
-      // Check what changed and dispatch events
-      const oldPrefs = this.preferences;
-      this.preferences = updatedPrefs;
+        const { sessionId, preferences: newPreferences } = payload;
 
-      if (oldPrefs) {
-        if (oldPrefs.selectedTheme !== updatedPrefs.selectedTheme) {
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'selectedTheme', value: updatedPrefs.selectedTheme }
-            })
-          );
+        // Check if this update is for the current user's session
+        const deviceId = authService.getDeviceId();
+        const guestSessionId = authService.getGuestSessionId();
+        const currentSessionId = deviceId || guestSessionId;
+
+        if (sessionId !== currentSessionId) {
+          return;
         }
-        if (oldPrefs.sharpCorners !== updatedPrefs.sharpCorners) {
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'sharpCorners', value: updatedPrefs.sharpCorners }
-            })
-          );
+
+        console.log('[PreferencesService] Preferences updated for current session, applying changes...');
+
+        // Get old preferences before updating
+        const oldPrefs = this.preferences;
+
+        // Parse new preferences from SignalR payload
+        const updatedPrefs: UserPreferences = {
+          selectedTheme: newPreferences.selectedTheme || null,
+          sharpCorners: newPreferences.sharpCorners || false,
+          disableFocusOutlines: newPreferences.disableFocusOutlines || false,
+          disableTooltips: newPreferences.disableTooltips || false,
+          picsAlwaysVisible: newPreferences.picsAlwaysVisible || false,
+          hideAboutSections: newPreferences.hideAboutSections || false,
+          disableStickyNotifications: newPreferences.disableStickyNotifications || false
+        };
+
+        // Update cache directly with SignalR values (don't fetch from API to avoid race conditions)
+        this.updateCache(updatedPrefs);
+
+        // Only dispatch events for preferences that actually changed
+        if (oldPrefs) {
+          Object.keys(updatedPrefs).forEach((key) => {
+            const typedKey = key as keyof UserPreferences;
+            if (oldPrefs[typedKey] !== updatedPrefs[typedKey]) {
+              console.log(`[PreferencesService] Preference changed: ${key} = ${updatedPrefs[typedKey]}`);
+              window.dispatchEvent(
+                new CustomEvent('preference-changed', {
+                  detail: { key, value: updatedPrefs[typedKey] }
+                })
+              );
+            }
+          });
+        } else {
+          // If no old prefs, dispatch all
+          Object.keys(updatedPrefs).forEach((key) => {
+            window.dispatchEvent(
+              new CustomEvent('preference-changed', {
+                detail: { key, value: updatedPrefs[key as keyof UserPreferences] }
+              })
+            );
+          });
         }
-        if (oldPrefs.disableFocusOutlines !== updatedPrefs.disableFocusOutlines) {
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'disableFocusOutlines', value: updatedPrefs.disableFocusOutlines }
-            })
-          );
-        }
-        if (oldPrefs.disableTooltips !== updatedPrefs.disableTooltips) {
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'disableTooltips', value: updatedPrefs.disableTooltips }
-            })
-          );
-        }
-        if (oldPrefs.picsAlwaysVisible !== updatedPrefs.picsAlwaysVisible) {
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'picsAlwaysVisible', value: updatedPrefs.picsAlwaysVisible }
-            })
-          );
-        }
-        if (oldPrefs.hideAboutSections !== updatedPrefs.hideAboutSections) {
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'hideAboutSections', value: updatedPrefs.hideAboutSections }
-            })
-          );
-        }
-        if (oldPrefs.disableStickyNotifications !== updatedPrefs.disableStickyNotifications) {
-          window.dispatchEvent(
-            new CustomEvent('preference-changed', {
-              detail: { key: 'disableStickyNotifications', value: updatedPrefs.disableStickyNotifications }
-            })
-          );
-        }
+      } finally {
+        setTimeout(() => {
+          isProcessingUpdate = false;
+        }, 500);
       }
-    });
-
-    // Listen for UserPreferencesReset (when preferences table is cleared)
-    const handleReset = async (payload: any) => {
-      console.log('[PreferencesService] UserPreferencesReset event received:', payload);
-      console.log('[PreferencesService] UserPreferences table was reset, reloading defaults...');
-
-      // Clear cached preferences
-      this.clearCache();
-
-      // Dispatch a custom event for themeService to handle
-      window.dispatchEvent(new CustomEvent('preferences-reset'));
-      console.log('[PreferencesService] Dispatched preferences-reset event');
     };
 
-    console.log('[PreferencesService] Registering UserPreferencesReset handler');
-    signalR.on('UserPreferencesReset', handleReset);
-    console.log('[PreferencesService] UserPreferencesReset handler registered');
+    // Handle preference reset
+    const handlePreferencesReset = () => {
+      if (isProcessingReset) {
+        console.log('[PreferencesService] Already processing reset, skipping duplicate');
+        return;
+      }
+
+      try {
+        isProcessingReset = true;
+        console.log('[PreferencesService] UserPreferencesReset event received');
+
+        // Clear cached preferences
+        this.clearCache();
+
+        // Dispatch a custom event for themeService to handle
+        window.dispatchEvent(new CustomEvent('preferences-reset'));
+      } finally {
+        setTimeout(() => {
+          isProcessingReset = false;
+        }, 2000);
+      }
+    };
+
+    // Handle session cleared - dispatch event for App.tsx to handle
+    const handleSessionsCleared = () => {
+      console.log('[PreferencesService] UserSessionsCleared event received');
+
+      // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
+      window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
+    };
+
+    // Handle default guest theme changed - auto-update guests using default theme
+    const handleDefaultGuestThemeChanged = (payload: any) => {
+      console.log('[PreferencesService] DefaultGuestThemeChanged event received:', payload);
+
+      const { newThemeId } = payload;
+
+      // Only apply to guest users
+      if (authService.authMode !== 'guest') {
+        console.log('[PreferencesService] Not a guest user, ignoring default theme change');
+        return;
+      }
+
+      // Only apply if user is currently using the default theme (selectedTheme === null)
+      const currentPrefs = this.getPreferencesSync();
+      if (currentPrefs && currentPrefs.selectedTheme !== null) {
+        console.log('[PreferencesService] Guest has custom theme selected, ignoring default theme change');
+        return;
+      }
+
+      console.log(`[PreferencesService] Applying new default guest theme: ${newThemeId}`);
+
+      // Dispatch preference-changed event to trigger theme update
+      window.dispatchEvent(
+        new CustomEvent('preference-changed', {
+          detail: { key: 'selectedTheme', value: newThemeId }
+        })
+      );
+    };
+
+    signalR.on('UserPreferencesUpdated', handlePreferencesUpdated);
+    signalR.on('UserPreferencesReset', handlePreferencesReset);
+    signalR.on('UserSessionsCleared', handleSessionsCleared);
+    signalR.on('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
+
+    console.log('[PreferencesService] SignalR listeners registered');
   }
 
   /**
