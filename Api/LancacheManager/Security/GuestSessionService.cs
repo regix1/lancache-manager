@@ -190,12 +190,12 @@ public class GuestSessionService
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,
                     Browser = session.Browser,
-                    CreatedAt = session.CreatedAt,
-                    LastSeenAt = session.LastSeenAt,
-                    ExpiresAt = session.ExpiresAt,
+                    CreatedAt = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc),
+                    LastSeenAt = session.LastSeenAt.HasValue ? DateTime.SpecifyKind(session.LastSeenAt.Value, DateTimeKind.Utc) : null,
+                    ExpiresAt = DateTime.SpecifyKind(session.ExpiresAt, DateTimeKind.Utc),
                     IsExpired = session.ExpiresAt <= DateTime.UtcNow,
                     IsRevoked = session.IsRevoked,
-                    RevokedAt = session.RevokedAt,
+                    RevokedAt = session.RevokedAt.HasValue ? DateTime.SpecifyKind(session.RevokedAt.Value, DateTimeKind.Utc) : null,
                     RevokedBy = session.RevokedBy
                 });
             }
@@ -227,12 +227,12 @@ public class GuestSessionService
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,
                     Browser = session.Browser,
-                    CreatedAt = session.CreatedAt,
-                    LastSeenAt = session.LastSeenAt,
-                    ExpiresAt = session.ExpiresAt,
+                    CreatedAt = DateTime.SpecifyKind(session.CreatedAt, DateTimeKind.Utc),
+                    LastSeenAt = session.LastSeenAt.HasValue ? DateTime.SpecifyKind(session.LastSeenAt.Value, DateTimeKind.Utc) : null,
+                    ExpiresAt = DateTime.SpecifyKind(session.ExpiresAt, DateTimeKind.Utc),
                     IsExpired = session.ExpiresAt <= DateTime.UtcNow,
                     IsRevoked = session.IsRevoked,
-                    RevokedAt = session.RevokedAt,
+                    RevokedAt = session.RevokedAt.HasValue ? DateTime.SpecifyKind(session.RevokedAt.Value, DateTimeKind.Utc) : null,
                     RevokedBy = session.RevokedBy
                 };
             }
@@ -408,6 +408,7 @@ public class GuestSessionService
 
                 foreach (var userSession in sessions)
                 {
+                    // Ensure DateTime values from EF Core are marked as UTC
                     var session = new GuestSession
                     {
                         SessionId = userSession.SessionId,
@@ -416,11 +417,16 @@ public class GuestSessionService
                         IpAddress = userSession.IpAddress,
                         OperatingSystem = userSession.OperatingSystem,
                         Browser = userSession.Browser,
-                        CreatedAt = userSession.CreatedAtUtc,
-                        ExpiresAt = userSession.ExpiresAtUtc ?? DateTime.UtcNow.AddHours(GetGuestSessionDurationHours()),
-                        LastSeenAt = userSession.LastSeenAtUtc,
+                        CreatedAt = DateTime.SpecifyKind(userSession.CreatedAtUtc, DateTimeKind.Utc),
+                        ExpiresAt = DateTime.SpecifyKind(
+                            userSession.ExpiresAtUtc ?? DateTime.UtcNow.AddHours(GetGuestSessionDurationHours()),
+                            DateTimeKind.Utc
+                        ),
+                        LastSeenAt = DateTime.SpecifyKind(userSession.LastSeenAtUtc, DateTimeKind.Utc),
                         IsRevoked = userSession.IsRevoked,
-                        RevokedAt = userSession.RevokedAtUtc,
+                        RevokedAt = userSession.RevokedAtUtc.HasValue
+                            ? DateTime.SpecifyKind(userSession.RevokedAtUtc.Value, DateTimeKind.Utc)
+                            : (DateTime?)null,
                         RevokedBy = userSession.RevokedBy
                     };
 
