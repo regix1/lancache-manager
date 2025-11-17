@@ -11,7 +11,7 @@ import { PicsProgressProvider } from '@contexts/PicsProgressContext';
 import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
 import { SteamAuthProvider } from '@contexts/SteamAuthContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
-import { SteamWebApiStatusProvider } from '@contexts/SteamWebApiStatusContext';
+import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -62,6 +62,7 @@ const AppContent: React.FC = () => {
   const { connectionStatus } = useStats();
   const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
   const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth } = useAuth();
+  const { status: steamApiStatus } = useSteamWebApiStatus();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
@@ -535,6 +536,7 @@ const AppContent: React.FC = () => {
           onConfirm={handleRunFullScan}
           onDownloadFromGitHub={handleDownloadFromGitHub}
           showDownloadOption={true}
+          hasSteamApiKey={steamApiStatus?.hasApiKey ?? false}
           title="Full Scan Required"
           changeGap={fullScanModalChangeGap}
           estimatedApps={270000}

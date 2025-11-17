@@ -4,6 +4,7 @@ import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
+import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 
 interface DepotMappingStepProps {
   onComplete: () => void;
@@ -12,6 +13,7 @@ interface DepotMappingStepProps {
 
 export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, onSkip }) => {
   const { progress: picsProgress } = usePicsProgress();
+  const { status: steamApiStatus } = useSteamWebApiStatus();
   const [mapping, setMapping] = useState(false);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,6 +316,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           onCancel={() => setChangeGapWarning(null)}
           onDownloadFromGitHub={handleDownloadFromGitHub}
           showDownloadOption={true}
+          hasSteamApiKey={steamApiStatus?.hasApiKey ?? false}
         />
       )}
     </div>

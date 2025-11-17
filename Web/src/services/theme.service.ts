@@ -220,12 +220,18 @@ class ThemeService {
           disableStickyNotifications: 'Sticky Notifications'
         };
 
+        // Different message for guest users vs authenticated users
+        const isGuest = authService.authMode === 'guest';
+        const message = isGuest
+          ? `Your ${preferenceNames[key] || 'setting'} has been updated by an administrator`
+          : `${preferenceNames[key] || 'Setting'} updated`;
+
         // Dispatch a notification event
         window.dispatchEvent(
           new CustomEvent('show-toast', {
             detail: {
               type: 'info',
-              message: `Your ${preferenceNames[key] || 'setting'} has been updated by an administrator`,
+              message,
               duration: 4000
             }
           })
@@ -298,12 +304,17 @@ class ThemeService {
         // Load and apply default theme
         await this.loadSavedTheme();
 
-        // Show notification
+        // Show notification with different message for guest vs authenticated users
+        const isGuest = authService.authMode === 'guest';
+        const message = isGuest
+          ? 'Your preferences have been reset to defaults by an administrator'
+          : 'Preferences reset to defaults';
+
         window.dispatchEvent(
           new CustomEvent('show-toast', {
             detail: {
               type: 'info',
-              message: 'Your preferences have been reset to defaults',
+              message,
               duration: 5000
             }
           })

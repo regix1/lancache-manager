@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Download } from 'lucide-react';
+import { AlertTriangle, Download, Scan } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 
@@ -10,6 +10,7 @@ interface FullScanRequiredModalProps {
   onCancel: () => void;
   onDownloadFromGitHub: () => void;
   showDownloadOption?: boolean;
+  hasSteamApiKey?: boolean;
   title?: string;
   subtitle?: string;
 }
@@ -17,9 +18,11 @@ interface FullScanRequiredModalProps {
 export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   changeGap,
   estimatedApps,
+  onConfirm,
   onCancel,
   onDownloadFromGitHub,
   showDownloadOption = true,
+  hasSteamApiKey = false,
   title = 'Data Update Required',
   subtitle
 }) => {
@@ -124,6 +127,22 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               <Download className="w-4 h-4 mr-2" />
               Download from GitHub
             </Button>
+          )}
+
+          {hasSteamApiKey && onConfirm && (
+            <>
+              {showDownloadOption && (
+                <div className="flex items-center gap-2 sm:mx-2">
+                  <div className="flex-1 h-px bg-themed-border"></div>
+                  <span className="text-xs text-themed-muted">OR</span>
+                  <div className="flex-1 h-px bg-themed-border"></div>
+                </div>
+              )}
+              <Button onClick={onConfirm} variant="filled" color="orange" className="flex-1">
+                <Scan className="w-4 h-4 mr-2" />
+                Full Scan (Slow)
+              </Button>
+            </>
           )}
 
           <Button onClick={onCancel} variant="default">

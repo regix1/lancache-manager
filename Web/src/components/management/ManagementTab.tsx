@@ -16,7 +16,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import ApiService from '@services/api.service';
-import { type AuthMode } from '@services/auth.service';
+import authService, { type AuthMode } from '@services/auth.service';
 import operationStateService from '@services/operationState.service';
 
 // Import manager components
@@ -179,12 +179,29 @@ const DatabaseManager: React.FC<{
     setLoading(true);
     setShowClearModal(false);
 
+    // Check if UserSessions is being cleared
+    const clearingUserSessions = selectedTables.includes('UserSessions');
+
     try {
       const result = await ApiService.resetSelectedTables(selectedTables);
       if (result) {
         onSuccess?.(result.message || `Successfully cleared ${selectedTables.length} table(s)`);
         setSelectedTables([]);
         onDataRefresh?.();
+
+        // If UserSessions was cleared, force logout to clear cached auth data
+        if (clearingUserSessions) {
+          // Clear all auth data and device ID from local storage
+          authService.clearAuthAndDevice();
+
+          // Trigger auth state change to force app to show authentication modal
+          window.dispatchEvent(new CustomEvent('auth-state-changed'));
+
+          // Show user a message that they've been logged out
+          setTimeout(() => {
+            onSuccess?.('User sessions cleared. You have been logged out for security.');
+          }, 100);
+        }
       }
     } catch (err: any) {
       onError?.(err.message || 'Failed to clear selected tables');
@@ -315,6 +332,9 @@ const DatabaseManager: React.FC<{
                 <li>Historical reports may be affected</li>
                 {selectedTables.includes('SteamDepotMappings') && (
                   <li>Games will show as "Unknown" until mappings are rebuilt</li>
+                )}
+                {selectedTables.includes('UserSessions') && (
+                  <li className="font-semibold">You will be logged out and redirected to authentication</li>
                 )}
               </ul>
             </div>

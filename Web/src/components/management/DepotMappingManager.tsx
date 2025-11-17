@@ -1047,11 +1047,40 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           changeGap={changeGapWarning.changeGap}
           estimatedApps={changeGapWarning.estimatedApps}
           onCancel={() => setChangeGapWarning(null)}
+          onConfirm={async () => {
+            setChangeGapWarning(null); // Close the modal immediately
+            // Trigger full scan by setting depotSource to 'full' and executing
+            setDepotSource('full');
+            setActionLoading(true);
+            setOperationType('scanning');
+            try {
+              const response = await ApiService.triggerSteamKitRebuild(false); // false = full scan
+              if (response.rebuildInProgress && !response.started) {
+                onError?.('Depot mapping is already in progress. Please wait for it to complete.');
+                setActionLoading(false);
+                setOperationType(null);
+                return;
+              }
+              onSuccess?.('Full depot scan started - mappings will be applied when complete');
+              setTimeout(() => onDataRefresh?.(), 2000);
+              await depotMappingOp.save({
+                operationType: 'scanning',
+                depotSource: 'full',
+                scanType: 'Full'
+              });
+            } catch (err: any) {
+              onError?.(err.message || 'Failed to start full scan');
+              setOperationType(null);
+            } finally {
+              setActionLoading(false);
+            }
+          }}
           onDownloadFromGitHub={() => {
             setChangeGapWarning(null); // Close the modal immediately
             handleDownloadFromGitHub();
           }}
           showDownloadOption={true}
+          hasSteamApiKey={webApiStatus?.hasApiKey ?? false}
         />
       )}
     </>
