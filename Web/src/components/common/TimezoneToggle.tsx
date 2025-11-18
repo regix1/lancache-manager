@@ -32,6 +32,7 @@ const TimezoneToggle: React.FC = () => {
     const newValue = !useLocalTimezone;
     setUseLocalTimezone(newValue);
     await preferencesService.setPreference('useLocalTimezone', newValue);
+    // Context + SignalR will handle the re-render automatically
   };
 
   const tooltipContent = useLocalTimezone

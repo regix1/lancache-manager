@@ -212,10 +212,10 @@ public class DeviceAuthService
         try
         {
             using var context = _contextFactory.CreateDbContext();
-            var sessionExists = context.UserSessions
-                .Any(s => s.SessionId == deviceId && !s.IsGuest && !s.IsRevoked);
+            var session = context.UserSessions
+                .FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest && !s.IsRevoked);
 
-            if (!sessionExists)
+            if (session == null)
             {
                 _logger.LogWarning("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
 
@@ -227,6 +227,10 @@ public class DeviceAuthService
 
                 return false;
             }
+
+            // Update LastSeenAtUtc to track active sessions
+            session.LastSeenAtUtc = DateTime.UtcNow;
+            context.SaveChanges();
         }
         catch (Exception ex)
         {

@@ -12,6 +12,8 @@ import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContex
 import { SteamAuthProvider } from '@contexts/SteamAuthContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
 import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
+import { TimezoneProvider } from '@contexts/TimezoneContext';
+import { TimezoneAwareWrapper } from '@components/common/TimezoneAwareWrapper';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -558,7 +560,7 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <>
+    <TimezoneAwareWrapper>
       {/* Full Scan Required Modal - Shows globally on all pages */}
       {showFullScanRequiredModal && authMode === 'authenticated' && (
         <FullScanRequiredModal
@@ -589,7 +591,7 @@ const AppContent: React.FC = () => {
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
         <Footer />
       </div>
-    </>
+    </TimezoneAwareWrapper>
   );
 };
 
@@ -601,23 +603,25 @@ const App: React.FC = () => {
           <TimeFilterProvider>
             <SignalRProvider>
               <AuthProvider>
-                <SteamWebApiStatusProvider>
-                  <GuestConfigProvider>
-                    <SetupStatusProvider>
-                      <SteamAuthProvider>
-                        <PicsProgressProviderWithMockMode>
-                          <NotificationsProvider>
-                            <StatsProviderWithMockMode>
-                              <DownloadsProviderWithMockMode>
-                                <AppContent />
-                              </DownloadsProviderWithMockMode>
-                            </StatsProviderWithMockMode>
-                          </NotificationsProvider>
-                        </PicsProgressProviderWithMockMode>
-                      </SteamAuthProvider>
-                    </SetupStatusProvider>
-                  </GuestConfigProvider>
-                </SteamWebApiStatusProvider>
+                <TimezoneProvider>
+                  <SteamWebApiStatusProvider>
+                    <GuestConfigProvider>
+                      <SetupStatusProvider>
+                        <SteamAuthProvider>
+                          <PicsProgressProviderWithMockMode>
+                            <NotificationsProvider>
+                              <StatsProviderWithMockMode>
+                                <DownloadsProviderWithMockMode>
+                                  <AppContent />
+                                </DownloadsProviderWithMockMode>
+                              </StatsProviderWithMockMode>
+                            </NotificationsProvider>
+                          </PicsProgressProviderWithMockMode>
+                        </SteamAuthProvider>
+                      </SetupStatusProvider>
+                    </GuestConfigProvider>
+                  </SteamWebApiStatusProvider>
+                </TimezoneProvider>
               </AuthProvider>
             </SignalRProvider>
           </TimeFilterProvider>

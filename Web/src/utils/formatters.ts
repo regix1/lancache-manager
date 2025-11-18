@@ -1,6 +1,6 @@
 import { FILE_SIZE_UNITS } from './constants';
 import { getServerTimezone } from './timezone';
-import preferencesService from '../services/preferences.service';
+import { getGlobalTimezonePreference } from './timezonePreference';
 
 /**
  * Format bytes to human-readable string
@@ -29,6 +29,8 @@ export function formatPercent(value: number, decimals = 1): string {
 /**
  * Format date/time to locale string using either server timezone or browser's local timezone
  * Respects user's useLocalTimezone preference
+ *
+ * Note: For React components, consider using useFormattedDateTime hook for automatic re-renders
  */
 export function formatDateTime(dateString: string | Date | null | undefined): string {
   if (!dateString) return 'N/A';
@@ -38,9 +40,8 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 
     if (isNaN(date.getTime())) return 'Invalid Date';
 
-    // Check user preference for timezone display
-    const prefs = preferencesService.getPreferencesSync();
-    const useLocalTimezone = prefs?.useLocalTimezone ?? false;
+    // Read timezone preference from global state (managed by TimezoneContext)
+    const useLocalTimezone = getGlobalTimezonePreference();
 
     // Determine which timezone to use
     let targetTimezone: string | undefined;
