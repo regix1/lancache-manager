@@ -46,14 +46,16 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
+  const [horizontalPosition, setHorizontalPosition] = useState<'left' | 'right' | 'center'>('left');
+  const [horizontalOffset, setHorizontalOffset] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
-  // Check if dropdown should open upward
+  // Check if dropdown should open upward and handle horizontal positioning
   useEffect(() => {
-    if (isOpen && buttonRef.current) {
+    if (isOpen && buttonRef.current && dropdownRef.current) {
       const buttonRect = buttonRef.current.getBoundingClientRect();
       const dropdownHeight = 240; // maxHeight from styles
       const spaceBelow = window.innerHeight - buttonRect.bottom;
@@ -65,8 +67,60 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       } else {
         setOpenUpward(false);
       }
+
+      // Calculate horizontal positioning
+      const dropdownElement = dropdownRef.current;
+      const dropdownWidth = dropdownElement.offsetWidth;
+      const viewportWidth = window.innerWidth;
+      const buttonLeft = buttonRect.left;
+      const buttonRight = buttonRect.right;
+      const buttonWidth = buttonRect.width;
+
+      // Calculate space on both sides
+      const spaceOnRight = viewportWidth - buttonLeft;
+      const spaceOnLeft = buttonRight;
+
+      // Determine optimal horizontal position
+      if (alignRight) {
+        // If alignRight is explicitly set, check if it fits
+        const wouldOverflowLeft = buttonRight - dropdownWidth < 0;
+        if (wouldOverflowLeft) {
+          // Not enough space on right alignment, switch to left
+          setHorizontalPosition('left');
+          // Check if it still overflows on the right
+          if (buttonLeft + dropdownWidth > viewportWidth) {
+            // Dropdown is wider than available space, offset it to fit
+            const offset = viewportWidth - (buttonLeft + dropdownWidth) - 16; // 16px padding from edge
+            setHorizontalOffset(offset);
+          } else {
+            setHorizontalOffset(0);
+          }
+        } else {
+          setHorizontalPosition('right');
+          setHorizontalOffset(0);
+        }
+      } else {
+        // Default left alignment, check if it fits
+        const wouldOverflowRight = buttonLeft + dropdownWidth > viewportWidth;
+        if (wouldOverflowRight) {
+          // Not enough space with left alignment
+          // Check if right alignment would be better
+          if (spaceOnLeft >= dropdownWidth) {
+            setHorizontalPosition('right');
+            setHorizontalOffset(0);
+          } else {
+            // Neither side fits perfectly, offset to keep within viewport
+            const offset = viewportWidth - (buttonLeft + dropdownWidth) - 16; // 16px padding from edge
+            setHorizontalPosition('left');
+            setHorizontalOffset(offset);
+          }
+        } else {
+          setHorizontalPosition('left');
+          setHorizontalOffset(0);
+        }
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, alignRight]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -86,15 +140,64 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       }
     };
 
+    const handleResize = () => {
+      // Force repositioning on resize (e.g., mobile orientation change)
+      if (isOpen && buttonRef.current && dropdownRef.current) {
+        const buttonRect = buttonRef.current.getBoundingClientRect();
+        const dropdownElement = dropdownRef.current;
+        const dropdownWidth = dropdownElement.offsetWidth;
+        const viewportWidth = window.innerWidth;
+        const buttonLeft = buttonRect.left;
+        const buttonRight = buttonRect.right;
+
+        const spaceOnLeft = buttonRight;
+        const wouldOverflowRight = buttonLeft + dropdownWidth > viewportWidth;
+
+        if (alignRight) {
+          const wouldOverflowLeft = buttonRight - dropdownWidth < 0;
+          if (wouldOverflowLeft) {
+            setHorizontalPosition('left');
+            if (buttonLeft + dropdownWidth > viewportWidth) {
+              const offset = viewportWidth - (buttonLeft + dropdownWidth) - 16;
+              setHorizontalOffset(offset);
+            } else {
+              setHorizontalOffset(0);
+            }
+          } else {
+            setHorizontalPosition('right');
+            setHorizontalOffset(0);
+          }
+        } else {
+          if (wouldOverflowRight) {
+            if (spaceOnLeft >= dropdownWidth) {
+              setHorizontalPosition('right');
+              setHorizontalOffset(0);
+            } else {
+              const offset = viewportWidth - (buttonLeft + dropdownWidth) - 16;
+              setHorizontalPosition('left');
+              setHorizontalOffset(offset);
+            }
+          } else {
+            setHorizontalPosition('left');
+            setHorizontalOffset(0);
+          }
+        }
+      }
+    };
+
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
       document.addEventListener('keydown', handleEscape);
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleResize, true); // Capture scroll events
       return () => {
         document.removeEventListener('mousedown', handleClickOutside);
         document.removeEventListener('keydown', handleEscape);
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleResize, true);
       };
     }
-  }, [isOpen]);
+  }, [isOpen, alignRight]);
 
   const handleSelect = (optionValue: string) => {
     onChange(optionValue);
@@ -184,7 +287,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className={`absolute ${dropdownWidth || 'w-full'} ${alignRight ? 'right-0' : 'left-0'} rounded-lg border z-[9999] overflow-x-hidden ${
+          className={`absolute ${dropdownWidth || 'w-full'} ${horizontalPosition === 'right' ? 'right-0' : 'left-0'} rounded-lg border z-[9999] overflow-x-hidden ${
             openUpward ? 'bottom-full mb-2' : 'mt-2'
           }`}
           style={{
@@ -192,7 +295,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             borderColor: 'var(--theme-border-primary)',
             maxHeight: cleanStyle ? 'none' : '280px',
             overflowY: cleanStyle ? 'visible' : 'auto',
-            maxWidth: '100vw',
+            maxWidth: 'calc(100vw - 32px)', // Account for 16px padding on each side
+            transform: horizontalOffset !== 0 ? `translateX(${horizontalOffset}px)` : 'none',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)',
             animation: openUpward ? 'dropdownSlideUp 0.15s cubic-bezier(0.16, 1, 0.3, 1)' : 'dropdownSlide 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
           }}

@@ -66,7 +66,8 @@ const Header: React.FC<HeaderProps> = ({
         }}
       >
         <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-16 min-w-0">
+          {/* Desktop: Single row layout */}
+          <div className="hidden md:flex items-center justify-between h-16 min-w-0">
             <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
               <div
                 className="p-1.5 sm:p-2 rounded-lg flex-shrink-0"
@@ -116,7 +117,7 @@ const Header: React.FC<HeaderProps> = ({
                 <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">
                   {title}
                 </h1>
-                <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted hidden sm:flex">
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted">
                   <span className="truncate">{subtitle}</span>
                   {isGuestMode && (
                     <div
@@ -185,6 +186,64 @@ const Header: React.FC<HeaderProps> = ({
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+              <TimezoneSelector />
+              <PollingRateSelector disabled={mockMode} />
+              <TimeFilter disabled={mockMode} />
+            </div>
+          </div>
+
+          {/* Mobile: Centered icon and controls */}
+          <div className="md:hidden py-3">
+            {/* Row 1: Centered Icon */}
+            <div className="flex justify-center mb-3">
+              <div
+                className="p-2 rounded-lg"
+                style={{
+                  backgroundColor: 'var(--theme-bg-tertiary)',
+                  position: 'relative'
+                }}
+              >
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '48px',
+                    height: '48px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  <LancacheIcon
+                    className="flex-shrink-0"
+                    size={48}
+                    style={{
+                      animation: 'float-bounce 2.5s ease-in-out infinite',
+                      position: 'relative',
+                      zIndex: 1
+                    }}
+                  />
+                  {/* Static shadow below the floating icon */}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: '0px',
+                      left: '8px',
+                      width: '32px',
+                      height: '8px',
+                      background:
+                        'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
+                      borderRadius: '50%',
+                      animation: 'shadow-pulse 2.5s ease-in-out infinite',
+                      pointerEvents: 'none',
+                      zIndex: 0
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Controls */}
+            <div className="flex items-center justify-center gap-2">
               <TimezoneSelector />
               <PollingRateSelector disabled={mockMode} />
               <TimeFilter disabled={mockMode} />
