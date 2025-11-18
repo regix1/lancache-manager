@@ -54,6 +54,16 @@ public class DownloadsController : ControllerBase
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
                         .ToListAsync();
+
+                    // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
+                    foreach (var download in downloads)
+                    {
+                        download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+                        if (download.EndTimeUtc != default(DateTime))
+                        {
+                            download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+                        }
+                    }
                 }
 
                 // Return just the array - frontend will use array.length for actual count

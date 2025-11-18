@@ -9,6 +9,7 @@ export interface UserPreferences {
   picsAlwaysVisible: boolean;
   hideAboutSections: boolean;
   disableStickyNotifications: boolean;
+  useLocalTimezone: boolean;
 }
 
 class PreferencesService {
@@ -46,7 +47,8 @@ class PreferencesService {
           disableTooltips: data.disableTooltips || false,
           picsAlwaysVisible: data.picsAlwaysVisible || false,
           hideAboutSections: data.hideAboutSections || false,
-          disableStickyNotifications: data.disableStickyNotifications || false
+          disableStickyNotifications: data.disableStickyNotifications || false,
+          useLocalTimezone: data.useLocalTimezone || false
         };
         this.loaded = true;
         console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
@@ -224,7 +226,8 @@ class PreferencesService {
           disableTooltips: newPreferences.disableTooltips || false,
           picsAlwaysVisible: newPreferences.picsAlwaysVisible || false,
           hideAboutSections: newPreferences.hideAboutSections || false,
-          disableStickyNotifications: newPreferences.disableStickyNotifications || false
+          disableStickyNotifications: newPreferences.disableStickyNotifications || false,
+          useLocalTimezone: newPreferences.useLocalTimezone || false
         };
 
         // Update cache directly with SignalR values (don't fetch from API to avoid race conditions)
@@ -291,6 +294,28 @@ class PreferencesService {
       window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
     };
 
+    // Handle session revoked - check if it's our session and logout immediately
+    const handleSessionRevoked = (payload: any) => {
+      console.log('[PreferencesService] UserSessionRevoked event received:', payload);
+
+      const { sessionId, sessionType } = payload;
+
+      // Check if this is our session
+      const ourDeviceId = authService.getDeviceId();
+      const ourGuestSessionId = authService.getGuestSessionId();
+
+      const isOurSession =
+        (sessionType === 'authenticated' && sessionId === ourDeviceId) ||
+        (sessionType === 'guest' && sessionId === ourGuestSessionId);
+
+      if (isOurSession) {
+        console.warn('[PreferencesService] Our session was revoked - forcing logout');
+
+        // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
+        window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
+      }
+    };
+
     // Handle default guest theme changed - auto-update guests using default theme
     const handleDefaultGuestThemeChanged = (payload: any) => {
       console.log('[PreferencesService] DefaultGuestThemeChanged event received:', payload);
@@ -323,6 +348,7 @@ class PreferencesService {
     signalR.on('UserPreferencesUpdated', handlePreferencesUpdated);
     signalR.on('UserPreferencesReset', handlePreferencesReset);
     signalR.on('UserSessionsCleared', handleSessionsCleared);
+    signalR.on('UserSessionRevoked', handleSessionRevoked);
     signalR.on('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
 
     console.log('[PreferencesService] SignalR listeners registered');
@@ -339,7 +365,8 @@ class PreferencesService {
       disableTooltips: false,
       picsAlwaysVisible: false,
       hideAboutSections: false,
-      disableStickyNotifications: false
+      disableStickyNotifications: false,
+      useLocalTimezone: false // Default to server timezone
     };
   }
 
@@ -361,7 +388,8 @@ class PreferencesService {
           disableTooltips: data.disableTooltips || false,
           picsAlwaysVisible: data.picsAlwaysVisible || false,
           hideAboutSections: data.hideAboutSections || false,
-          disableStickyNotifications: data.disableStickyNotifications || false
+          disableStickyNotifications: data.disableStickyNotifications || false,
+          useLocalTimezone: data.useLocalTimezone || false
         };
       } else {
         console.error(

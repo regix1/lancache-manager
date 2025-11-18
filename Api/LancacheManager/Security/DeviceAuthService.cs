@@ -207,6 +207,33 @@ public class DeviceAuthService
             return false;
         }
 
+        // CRITICAL: Check database first to ensure session still exists
+        // This prevents zombie sessions where file cache exists but database session was deleted
+        try
+        {
+            using var context = _contextFactory.CreateDbContext();
+            var sessionExists = context.UserSessions
+                .Any(s => s.SessionId == deviceId && !s.IsGuest && !s.IsRevoked);
+
+            if (!sessionExists)
+            {
+                _logger.LogWarning("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
+
+                // Remove from cache if it exists
+                lock (_cacheLock)
+                {
+                    _deviceCache.Remove(deviceId);
+                }
+
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DeviceAuth] Failed to check database for device {DeviceId}, denying access", deviceId);
+            return false;
+        }
+
         lock (_cacheLock)
         {
             if (_deviceCache.TryGetValue(deviceId, out var registration))
@@ -490,6 +517,7 @@ public class DeviceAuthService
 
             foreach (var session in sessions)
             {
+                // Ensure DateTime values from EF Core are marked as UTC for proper JSON serialization
                 devices.Add(new DeviceInfo
                 {
                     DeviceId = session.SessionId,
@@ -499,9 +527,12 @@ public class DeviceAuthService
                     Hostname = null,
                     OperatingSystem = session.OperatingSystem ?? string.Empty,
                     Browser = session.Browser ?? string.Empty,
-                    RegisteredAt = session.CreatedAtUtc,
-                    LastSeenAt = session.LastSeenAtUtc,
-                    ExpiresAt = session.ExpiresAtUtc ?? DateTime.MaxValue,
+                    RegisteredAt = DateTime.SpecifyKind(session.CreatedAtUtc, DateTimeKind.Utc),
+                    LastSeenAt = DateTime.SpecifyKind(session.LastSeenAtUtc, DateTimeKind.Utc),
+                    ExpiresAt = DateTime.SpecifyKind(
+                        session.ExpiresAtUtc ?? DateTime.MaxValue,
+                        DateTimeKind.Utc
+                    ),
                     IsExpired = session.ExpiresAtUtc.HasValue && session.ExpiresAtUtc <= DateTime.UtcNow
                 });
             }

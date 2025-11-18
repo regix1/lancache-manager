@@ -192,7 +192,6 @@ class ThemeService {
   private styleElement: HTMLStyleElement | null = null;
   private preferenceListenersSetup = false;
   private isProcessingReset = false;
-  private suppressNotifications = false;
 
   /**
    * Setup listeners for live preference updates
@@ -208,36 +207,7 @@ class ThemeService {
       const { key, value } = event.detail;
       console.log(`[ThemeService] Preference changed: ${key} = ${value}`);
 
-      // Show a notification to inform the user (unless notifications are suppressed)
-      if (!this.suppressNotifications) {
-        const preferenceNames: Record<string, string> = {
-          selectedTheme: 'Theme',
-          sharpCorners: 'Sharp Corners',
-          disableFocusOutlines: 'Focus Outlines',
-          disableTooltips: 'Tooltips',
-          picsAlwaysVisible: 'Universal Notifications',
-          hideAboutSections: 'Info Sections',
-          disableStickyNotifications: 'Sticky Notifications'
-        };
-
-        // Different message for guest users vs authenticated users
-        const isGuest = authService.authMode === 'guest';
-        const message = isGuest
-          ? `Your ${preferenceNames[key] || 'setting'} has been updated by an administrator`
-          : `${preferenceNames[key] || 'Setting'} updated`;
-
-        // Dispatch a notification event
-        window.dispatchEvent(
-          new CustomEvent('show-toast', {
-            detail: {
-              type: 'info',
-              message,
-              duration: 4000
-            }
-          })
-        );
-      }
-
+      // Apply preference changes without showing notifications
       try {
         switch (key) {
           case 'selectedTheme':
@@ -320,7 +290,6 @@ class ThemeService {
       }
 
       this.isProcessingReset = true;
-      this.suppressNotifications = true; // Suppress individual preference notifications during reset
       console.log('[ThemeService] Preferences reset, applying defaults...');
 
       try {
@@ -351,10 +320,9 @@ class ThemeService {
           })
         );
       } finally {
-        // Reset flags after a delay to allow event to complete
+        // Reset flag after a delay to allow event to complete
         setTimeout(() => {
           this.isProcessingReset = false;
-          this.suppressNotifications = false;
         }, 1000);
       }
     });

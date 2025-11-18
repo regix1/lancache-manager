@@ -66,7 +66,7 @@ public class StatsCache
                         Id = first.Id,
                         Service = first.Service,
                         ClientIp = first.ClientIp,
-                        StartTimeUtc = group.Min(d => d.StartTimeUtc),
+                        StartTimeUtc = DateTime.SpecifyKind(group.Min(d => d.StartTimeUtc), DateTimeKind.Utc),
                         EndTimeUtc = default(DateTime),
                         StartTimeLocal = group.Min(d => d.StartTimeLocal),
                         EndTimeLocal = default(DateTime),
@@ -99,10 +99,18 @@ public class StatsCache
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
 
-            return await context.ClientStats
+            var stats = await context.ClientStats
                 .AsNoTracking()
                 .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                 .ToListAsync();
+
+            // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
+            foreach (var stat in stats)
+            {
+                stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+            }
+
+            return stats;
         }) ?? new List<ClientStats>();
     }
 
@@ -112,22 +120,42 @@ public class StatsCache
         {
             entry.AbsoluteExpirationRelativeToNow = _cacheExpiration;
 
-            return await context.ServiceStats
+            var stats = await context.ServiceStats
                 .AsNoTracking()
                 .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
                 .ToListAsync();
+
+            // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
+            foreach (var stat in stats)
+            {
+                stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+            }
+
+            return stats;
         }) ?? new List<ServiceStats>();
     }
 
     public async Task<List<Download>> GetRecentDownloadsAsync(AppDbContext context, int count = int.MaxValue)
     {
         // No cache - always query DB for fresh data with requested count
-        return await context.Downloads
+        var downloads = await context.Downloads
             .AsNoTracking()
             .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
             .OrderByDescending(d => d.StartTimeUtc)
             .Take(count)
             .ToListAsync();
+
+        // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
+        foreach (var download in downloads)
+        {
+            download.StartTimeUtc = DateTime.SpecifyKind(download.StartTimeUtc, DateTimeKind.Utc);
+            if (download.EndTimeUtc != default(DateTime))
+            {
+                download.EndTimeUtc = DateTime.SpecifyKind(download.EndTimeUtc, DateTimeKind.Utc);
+            }
+        }
+
+        return downloads;
     }
 
     public async Task<List<Download>> GetActiveDownloadsAsync(AppDbContext context)
@@ -164,7 +192,7 @@ public class StatsCache
                         Id = first.Id,
                         Service = first.Service,
                         ClientIp = first.ClientIp,
-                        StartTimeUtc = group.Min(d => d.StartTimeUtc),
+                        StartTimeUtc = DateTime.SpecifyKind(group.Min(d => d.StartTimeUtc), DateTimeKind.Utc),
                         EndTimeUtc = default(DateTime),
                         StartTimeLocal = group.Min(d => d.StartTimeLocal),
                         EndTimeLocal = default(DateTime),

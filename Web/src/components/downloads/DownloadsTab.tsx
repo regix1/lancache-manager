@@ -371,8 +371,8 @@ const DownloadsTab: React.FC = () => {
           cacheHitBytes: 0,
           cacheMissBytes: 0,
           clientsSet: new Set<string>(),
-          firstSeen: download.startTimeLocal,
-          lastSeen: download.startTimeLocal,
+          firstSeen: download.startTimeUtc,
+          lastSeen: download.startTimeUtc,
           count: 0
         };
       }
@@ -386,11 +386,11 @@ const DownloadsTab: React.FC = () => {
       groups[groupKey].clientsSet.add(download.clientIp);
       groups[groupKey].count++;
 
-      if (download.startTimeLocal < groups[groupKey].firstSeen) {
-        groups[groupKey].firstSeen = download.startTimeLocal;
+      if (download.startTimeUtc < groups[groupKey].firstSeen) {
+        groups[groupKey].firstSeen = download.startTimeUtc;
       }
-      if (download.startTimeLocal > groups[groupKey].lastSeen) {
-        groups[groupKey].lastSeen = download.startTimeLocal;
+      if (download.startTimeUtc > groups[groupKey].lastSeen) {
+        groups[groupKey].lastSeen = download.startTimeUtc;
       }
     });
 
@@ -437,12 +437,12 @@ const DownloadsTab: React.FC = () => {
       // Then sort by time within each category (or just by time if groupByFrequency is off)
       const aTime =
         'downloads' in a
-          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-          : new Date(a.startTimeLocal).getTime();
+          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+          : new Date(a.startTimeUtc).getTime();
       const bTime =
         'downloads' in b
-          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-          : new Date(b.startTimeLocal).getTime();
+          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+          : new Date(b.startTimeUtc).getTime();
       return bTime - aTime;
     });
   }, [
@@ -493,12 +493,12 @@ const DownloadsTab: React.FC = () => {
       // Then sort by time within each category (or just by time if groupByFrequency is off)
       const aTime =
         'downloads' in a
-          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-          : new Date(a.startTimeLocal).getTime();
+          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+          : new Date(a.startTimeUtc).getTime();
       const bTime =
         'downloads' in b
-          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-          : new Date(b.startTimeLocal).getTime();
+          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+          : new Date(b.startTimeUtc).getTime();
       return bTime - aTime;
     });
   }, [
@@ -536,12 +536,12 @@ const DownloadsTab: React.FC = () => {
           case 'oldest':
             const aTime =
               'downloads' in a
-                ? Math.min(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-                : new Date(a.startTimeLocal).getTime();
+                ? Math.min(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+                : new Date(a.startTimeUtc).getTime();
             const bTime =
               'downloads' in b
-                ? Math.min(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-                : new Date(b.startTimeLocal).getTime();
+                ? Math.min(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+                : new Date(b.startTimeUtc).getTime();
             return aTime - bTime;
           case 'largest':
             const aBytes = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
@@ -556,23 +556,23 @@ const DownloadsTab: React.FC = () => {
             if (serviceCompare !== 0) return serviceCompare;
             const aLatest =
               'downloads' in a
-                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-                : new Date(a.startTimeLocal).getTime();
+                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+                : new Date(a.startTimeUtc).getTime();
             const bLatest =
               'downloads' in b
-                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-                : new Date(b.startTimeLocal).getTime();
+                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+                : new Date(b.startTimeUtc).getTime();
             return bLatest - aLatest;
           case 'latest':
           default:
             const aLatestDefault =
               'downloads' in a
-                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-                : new Date(a.startTimeLocal).getTime();
+                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+                : new Date(a.startTimeUtc).getTime();
             const bLatestDefault =
               'downloads' in b
-                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeLocal).getTime()))
-                : new Date(b.startTimeLocal).getTime();
+                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+                : new Date(b.startTimeUtc).getTime();
             return bLatestDefault - aLatestDefault;
         }
       };

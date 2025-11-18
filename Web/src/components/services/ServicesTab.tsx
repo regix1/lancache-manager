@@ -63,7 +63,7 @@ const ServicesTab: React.FC = () => {
                     </div>
                   </td>
                   <td className="py-3 text-themed-muted text-xs hidden lg:table-cell">
-                    {formatDateTime(service.lastActivityLocal)}
+                    {formatDateTime(service.lastActivityUtc)}
                   </td>
                 </tr>
               ))

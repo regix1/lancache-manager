@@ -279,7 +279,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
               const currentPage = groupPages[group.id] || 1;
               const sortedDownloads = group.downloads.sort(
                 (a, b) =>
-                  new Date(b.startTimeLocal).getTime() - new Date(a.startTimeLocal).getTime()
+                  new Date(b.startTimeUtc).getTime() - new Date(a.startTimeUtc).getTime()
               );
               const totalPages = Math.ceil(sortedDownloads.length / SESSIONS_PER_PAGE);
               const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
@@ -345,7 +345,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                               {download.clientIp}
                             </span>
                             <span className="text-themed-muted">
-                              {formatRelativeTime(download.startTimeLocal)}
+                              {formatRelativeTime(download.startTimeUtc)}
                             </span>
                           </div>
                           <div className="flex items-center gap-4">
@@ -507,8 +507,8 @@ const CompactView: React.FC<CompactViewProps> = ({
       cacheHitBytes: download.cacheHitBytes || 0,
       cacheMissBytes: download.cacheMissBytes || 0,
       clientsSet: new Set([download.clientIp]),
-      firstSeen: download.startTimeLocal,
-      lastSeen: download.startTimeLocal,
+      firstSeen: download.startTimeUtc,
+      lastSeen: download.startTimeUtc,
       count: 1
     };
 

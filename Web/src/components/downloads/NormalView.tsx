@@ -661,12 +661,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                       <div className="flex flex-col gap-1 text-xs">
                                         <span className="flex items-center gap-1.5 text-[var(--theme-text-secondary)]">
                                           <Clock size={12} />
-                                          Started {formatRelativeTime(download.startTimeLocal)}
+                                          Started {formatRelativeTime(download.startTimeUtc)}
                                         </span>
-                                        {download.endTimeLocal ? (
+                                        {download.endTimeUtc ? (
                                           <span className="flex items-center gap-1.5 text-[var(--theme-success-text)]">
                                             <CheckCircle size={12} />
-                                            Completed {formatRelativeTime(download.endTimeLocal)}
+                                            Completed {formatRelativeTime(download.endTimeUtc)}
                                           </span>
                                         ) : (
                                           <span className="flex items-center gap-1.5 text-[var(--theme-info-text)]">
@@ -858,8 +858,8 @@ const NormalView: React.FC<NormalViewProps> = ({
       cacheHitBytes: download.cacheHitBytes || 0,
       cacheMissBytes: download.cacheMissBytes || 0,
       clientsSet: new Set([download.clientIp]),
-      firstSeen: download.startTimeLocal,
-      lastSeen: download.startTimeLocal,
+      firstSeen: download.startTimeUtc,
+      lastSeen: download.startTimeUtc,
       count: 1
     };
 

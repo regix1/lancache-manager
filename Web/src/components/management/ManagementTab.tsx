@@ -185,27 +185,23 @@ const DatabaseManager: React.FC<{
     try {
       const result = await ApiService.resetSelectedTables(selectedTables);
       if (result) {
-        onSuccess?.(result.message || `Successfully cleared ${selectedTables.length} table(s)`);
-        setSelectedTables([]);
-        onDataRefresh?.();
-
-        // If UserSessions was cleared, force logout to clear cached auth data
+        // If UserSessions was cleared, clear all auth and reload
         if (clearingUserSessions) {
-          // Clear all auth data and device ID from local storage
+          // Clear all auth data (this removes API key, device ID, guest session, etc.)
           authService.clearAuthAndDevice();
 
-          // Trigger auth state change to force app to show authentication modal
-          window.dispatchEvent(new CustomEvent('auth-state-changed'));
-
-          // Show user a message that they've been logged out
-          setTimeout(() => {
-            onSuccess?.('User sessions cleared. You have been logged out for security.');
-          }, 100);
+          // Reload immediately - the authentication modal will show automatically
+          window.location.reload();
+        } else {
+          // For non-UserSessions clears, just show success and refresh data
+          onSuccess?.(result.message || `Successfully cleared ${selectedTables.length} table(s)`);
+          setSelectedTables([]);
+          onDataRefresh?.();
+          setLoading(false);
         }
       }
     } catch (err: any) {
       onError?.(err.message || 'Failed to clear selected tables');
-    } finally {
       setLoading(false);
     }
   };
@@ -334,7 +330,10 @@ const DatabaseManager: React.FC<{
                   <li>Games will show as "Unknown" until mappings are rebuilt</li>
                 )}
                 {selectedTables.includes('UserSessions') && (
-                  <li className="font-semibold">You will be logged out and redirected to authentication</li>
+                  <li className="font-semibold">All devices will be logged out and the application will reload</li>
+                )}
+                {selectedTables.includes('UserSessions') && (
+                  <li className="font-semibold">All registered devices will be cleared - you will need to re-authenticate</li>
                 )}
               </ul>
             </div>

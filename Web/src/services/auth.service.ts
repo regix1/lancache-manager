@@ -627,9 +627,13 @@ class AuthService {
       return;
     }
 
-    console.warn(
-      '[Auth] Unauthorized access detected - device was likely revoked.'
-    );
+    // Only clear auth if we actually had an API key (to prevent loops on unauthenticated state)
+    if (!this.apiKey) {
+      console.log('[Auth] No API key found - skipping unauthorized handler');
+      return;
+    }
+
+    console.warn('[Auth] Unauthorized access detected - device was likely revoked');
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     storage.removeItem('lancache_auth_registered');
@@ -667,8 +671,12 @@ class AuthService {
     storage.removeItem('lancache_device_id');
     BrowserFingerprint.clearDeviceId();
 
-    this.deviceId = this.getOrCreateDeviceId(); // Re-generate with fingerprint (synchronous)
-    this.exitGuestMode(); // Also clear guest mode
+    // Clear guest mode data
+    storage.removeItem('lancache_guest_session_start');
+    storage.removeItem('lancache_guest_expires');
+    storage.removeItem('lancache_guest_session_id');
+
+    // Note: Device ID will be regenerated on next page load via constructor
   }
 
   cleanup(): void {

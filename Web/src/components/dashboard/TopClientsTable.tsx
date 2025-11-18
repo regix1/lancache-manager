@@ -127,7 +127,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
                       </span>
                     </td>
                     <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">
-                      {formatDateTime(client.lastActivityLocal)}
+                      {formatDateTime(client.lastActivityUtc)}
                     </td>
                   </tr>
                 ))}

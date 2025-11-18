@@ -1,5 +1,6 @@
 import { FILE_SIZE_UNITS } from './constants';
 import { getServerTimezone } from './timezone';
+import preferencesService from '../services/preferences.service';
 
 /**
  * Format bytes to human-readable string
@@ -26,8 +27,8 @@ export function formatPercent(value: number, decimals = 1): string {
 }
 
 /**
- * Format date/time to locale string using server timezone
- * Handles both UTC timestamps (converted to server TZ) and Local timestamps (displayed as-is)
+ * Format date/time to locale string using either server timezone or browser's local timezone
+ * Respects user's useLocalTimezone preference
  */
 export function formatDateTime(dateString: string | Date | null | undefined): string {
   if (!dateString) return 'N/A';
@@ -37,16 +38,27 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
 
     if (isNaN(date.getTime())) return 'Invalid Date';
 
-    // Get server timezone from config (set on app startup from docker-compose TZ)
-    const serverTimezone = getServerTimezone();
+    // Check user preference for timezone display
+    const prefs = preferencesService.getPreferencesSync();
+    const useLocalTimezone = prefs?.useLocalTimezone ?? false;
 
-    // Use 24-hour format for UTC, otherwise let locale decide
-    const isUTC = serverTimezone === 'UTC';
+    // Determine which timezone to use
+    let targetTimezone: string | undefined;
+    let isUTC = false;
 
-    // Convert to server's timezone for display
+    if (useLocalTimezone) {
+      // Use browser's local timezone (undefined = automatic)
+      targetTimezone = undefined;
+    } else {
+      // Use server timezone from config (set on app startup from docker-compose TZ)
+      targetTimezone = getServerTimezone();
+      isUTC = targetTimezone === 'UTC';
+    }
+
+    // Convert to target timezone for display
     try {
       return date.toLocaleString(undefined, {
-        timeZone: serverTimezone,
+        timeZone: targetTimezone,
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
@@ -56,7 +68,7 @@ export function formatDateTime(dateString: string | Date | null | undefined): st
       });
     } catch (tzError) {
       // Timezone invalid (e.g., Windows timezone name), fall back to UTC
-      console.warn(`Invalid timezone "${serverTimezone}", falling back to UTC`);
+      console.warn(`Invalid timezone "${targetTimezone}", falling back to UTC`);
       return date.toLocaleString(undefined, {
         timeZone: 'UTC',
         month: 'short',

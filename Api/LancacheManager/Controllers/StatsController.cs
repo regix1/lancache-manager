@@ -52,6 +52,12 @@ public class StatsController : ControllerBase
                     .OrderByDescending(c => c.TotalCacheHitBytes + c.TotalCacheMissBytes)
                     .Take(100)
                     .ToListAsync();
+
+                // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
+                foreach (var stat in stats)
+                {
+                    stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+                }
             }
 
             return Ok(stats);
@@ -120,6 +126,12 @@ public class StatsController : ControllerBase
                 })
                 .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
                 .ToListAsync();
+
+            // Fix timezone: Ensure UTC DateTime values are marked as UTC for proper JSON serialization
+            foreach (var stat in serviceStats)
+            {
+                stat.LastActivityUtc = DateTime.SpecifyKind(stat.LastActivityUtc, DateTimeKind.Utc);
+            }
 
             return Ok(serviceStats);
         }

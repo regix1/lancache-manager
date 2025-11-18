@@ -65,7 +65,7 @@ const ClientsTab: React.FC = () => {
                       </div>
                     </td>
                     <td className="py-3 text-themed-muted text-xs hidden lg:table-cell whitespace-nowrap">
-                      {formatDateTime(client.lastActivityLocal)}
+                      {formatDateTime(client.lastActivityUtc)}
                     </td>
                   </tr>
                 ))
