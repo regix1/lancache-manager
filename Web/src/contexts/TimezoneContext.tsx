@@ -31,11 +31,17 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const handlePreferenceChange = (event: any) => {
       const { key, value } = event.detail;
       if (key === 'useLocalTimezone') {
-        console.log('[TimezoneContext] Timezone preference changed, forcing re-render');
-        setUseLocalTimezone(value);
-        setGlobalTimezonePreference(value); // Update global state
-        // Increment refreshKey to force all components using timestamps to re-render
-        setRefreshKey((prev) => prev + 1);
+        // Only update if value actually changed
+        setUseLocalTimezone((prev) => {
+          if (prev !== value) {
+            console.log('[TimezoneContext] Timezone preference changed, forcing re-render');
+            setGlobalTimezonePreference(value); // Update global state
+            // Increment refreshKey to force all components using timestamps to re-render
+            setRefreshKey((prevKey) => prevKey + 1);
+            return value;
+          }
+          return prev;
+        });
       }
     };
 

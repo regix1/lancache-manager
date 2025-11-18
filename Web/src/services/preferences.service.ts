@@ -129,6 +129,14 @@ class PreferencesService {
             this.preferences[key] = value;
           }
           console.log(`[PreferencesService] Updated preference ${key}:`, value);
+
+          // Dispatch immediate local update (SignalR will also broadcast, but this gives instant feedback)
+          window.dispatchEvent(
+            new CustomEvent('preference-changed', {
+              detail: { key: key as string, value }
+            })
+          );
+
           return true;
         } else {
           console.error(`[PreferencesService] Failed to update preference ${key}:`, response.status);
