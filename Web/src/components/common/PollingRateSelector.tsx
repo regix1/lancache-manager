@@ -1,5 +1,5 @@
 import React from 'react';
-import { Gauge } from 'lucide-react';
+import { Lightbulb, Gauge } from 'lucide-react';
 import { usePollingRate } from '@contexts/PollingRateContext';
 import { type PollingRate } from '@utils/constants';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -13,38 +13,43 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
 
   const pollingOptions = [
     {
-      value: 'STANDARD',
-      label: 'Standard (10s)',
-      shortLabel: '10s',
-      description: 'Updates every 10 seconds (recommended)',
+      value: 'ULTRA',
+      label: 'Ultra-fast',
+      shortLabel: '1s',
+      description: 'Updates every 1 second (very high load, unstable)',
+      rightLabel: '1s',
       icon: Gauge
     },
     {
       value: 'REALTIME',
-      label: 'Real-time (5s)',
+      label: 'Real-time',
       shortLabel: '5s',
       description: 'Updates every 5 seconds (high server load)',
+      rightLabel: '5s',
+      icon: Gauge
+    },
+    {
+      value: 'STANDARD',
+      label: 'Standard',
+      shortLabel: '10s',
+      description: 'Updates every 10 seconds (recommended)',
+      rightLabel: '10s',
       icon: Gauge
     },
     {
       value: 'RELAXED',
-      label: 'Relaxed (30s)',
+      label: 'Relaxed',
       shortLabel: '30s',
       description: 'Updates every 30 seconds (low server load)',
+      rightLabel: '30s',
       icon: Gauge
     },
     {
       value: 'SLOW',
-      label: 'Slow (60s)',
+      label: 'Slow',
       shortLabel: '60s',
       description: 'Updates every 60 seconds (minimal server impact)',
-      icon: Gauge
-    },
-    {
-      value: 'ULTRA',
-      label: 'Ultra-fast (1s)',
-      shortLabel: '1s',
-      description: 'Updates every 1 second (very high load, unstable)',
+      rightLabel: '60s',
       icon: Gauge
     }
   ];
@@ -63,6 +68,10 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
       compactMode={true}
       dropdownWidth="w-64"
       alignRight={true}
+      dropdownTitle="Polling Rate"
+      footerNote="Lower rates reduce server load but data may be less current"
+      footerIcon={Lightbulb}
+      cleanStyle={true}
     />
   );
 };

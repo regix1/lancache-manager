@@ -8,6 +8,7 @@ export interface DropdownOption {
   description?: string;
   icon?: React.ComponentType<any>;
   disabled?: boolean;
+  rightLabel?: string; // Right-aligned badge/label (e.g., "10s", "1m")
 }
 
 interface EnhancedDropdownProps {
@@ -21,6 +22,10 @@ interface EnhancedDropdownProps {
   customTriggerLabel?: string; // Optional custom label to override button display
   dropdownWidth?: string; // Custom width for dropdown menu (e.g., 'w-64', '16rem')
   alignRight?: boolean; // When true, dropdown aligns to the right of the button
+  dropdownTitle?: string; // Optional title/subtitle at the top of the dropdown
+  footerNote?: string; // Optional footer note/warning at the bottom
+  footerIcon?: React.ComponentType<any>; // Optional icon for footer note
+  cleanStyle?: boolean; // When true, uses the clean style without icons in options
 }
 
 export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
@@ -33,7 +38,11 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   compactMode = false,
   customTriggerLabel,
   dropdownWidth,
-  alignRight = false
+  alignRight = false,
+  dropdownTitle,
+  footerNote,
+  footerIcon: FooterIcon,
+  cleanStyle = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [openUpward, setOpenUpward] = useState(false);
@@ -181,13 +190,25 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
           style={{
             backgroundColor: 'var(--theme-bg-secondary)',
             borderColor: 'var(--theme-border-primary)',
-            maxHeight: '280px',
-            overflowY: 'auto',
+            maxHeight: cleanStyle ? 'none' : '280px',
+            overflowY: cleanStyle ? 'visible' : 'auto',
             maxWidth: '100vw',
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05)',
             animation: openUpward ? 'dropdownSlideUp 0.15s cubic-bezier(0.16, 1, 0.3, 1)' : 'dropdownSlide 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
           }}
         >
+          {dropdownTitle && (
+            <div
+              className="px-3 py-2 text-sm font-medium border-b"
+              style={{
+                color: 'var(--theme-text-secondary)',
+                borderColor: 'var(--theme-border-primary)',
+                backgroundColor: 'var(--theme-bg-secondary)'
+              }}
+            >
+              {dropdownTitle}
+            </div>
+          )}
           <div className="py-1">
             {options.map((option) =>
               option.value === 'divider' ? (
@@ -226,7 +247,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                   title={option.description || option.label}
                 >
                   <div className="flex items-start gap-3">
-                    {option.icon && (
+                    {!cleanStyle && option.icon && (
                       <option.icon
                         className="flex-shrink-0 mt-0.5"
                         size={16}
@@ -234,16 +255,24 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                       />
                     )}
                     <div className="flex flex-col flex-1 min-w-0">
-                      <span className={`font-medium truncate ${option.value === value ? 'text-[var(--theme-text-primary)]' : 'text-[var(--theme-text-secondary)]'}`}>
+                      <span className={`font-medium truncate ${option.value === value ? 'text-[var(--theme-primary)]' : 'text-[var(--theme-text-primary)]'}`}>
                         {option.label}
                       </span>
                       {option.description && (
-                        <span className="text-xs text-[var(--theme-text-secondary)] mt-0.5 leading-relaxed">
+                        <span className="text-xs mt-0.5 leading-relaxed" style={{ color: 'var(--theme-text-secondary)' }}>
                           {option.description}
                         </span>
                       )}
                     </div>
-                    {option.value === value && (
+                    {option.rightLabel && (
+                      <span
+                        className="flex-shrink-0 text-xs font-medium"
+                        style={{ color: option.value === value ? 'var(--theme-primary)' : 'var(--theme-text-secondary)' }}
+                      >
+                        {option.rightLabel}
+                      </span>
+                    )}
+                    {!cleanStyle && option.value === value && (
                       <Check
                         size={16}
                         className="flex-shrink-0 mt-0.5"
@@ -255,6 +284,25 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
               )
             )}
           </div>
+          {footerNote && (
+            <div
+              className="px-3 py-2.5 text-xs border-t flex items-start gap-2"
+              style={{
+                color: 'var(--theme-text-secondary)',
+                borderColor: 'var(--theme-border-primary)',
+                backgroundColor: 'var(--theme-bg-tertiary)'
+              }}
+            >
+              {FooterIcon && (
+                <FooterIcon
+                  className="flex-shrink-0 mt-0.5"
+                  size={14}
+                  style={{ color: 'var(--theme-warning)' }}
+                />
+              )}
+              <span className="leading-relaxed">{footerNote}</span>
+            </div>
+          )}
         </div>
       )}
       </div>
