@@ -26,6 +26,7 @@ public class UserPreferencesService
         public bool PicsAlwaysVisible { get; set; }
         public bool HideAboutSections { get; set; }
         public bool DisableStickyNotifications { get; set; }
+        public bool UseLocalTimezone { get; set; }
     }
 
     /// <summary>
@@ -49,7 +50,8 @@ public class UserPreferencesService
                     DisableTooltips = preferences.DisableTooltips,
                     PicsAlwaysVisible = preferences.PicsAlwaysVisible,
                     HideAboutSections = preferences.HideAboutSections,
-                    DisableStickyNotifications = preferences.DisableStickyNotifications
+                    DisableStickyNotifications = preferences.DisableStickyNotifications,
+                    UseLocalTimezone = preferences.UseLocalTimezone
                 };
             }
 
@@ -92,6 +94,7 @@ public class UserPreferencesService
                 existingPreferences.PicsAlwaysVisible = preferencesDto.PicsAlwaysVisible;
                 existingPreferences.HideAboutSections = preferencesDto.HideAboutSections;
                 existingPreferences.DisableStickyNotifications = preferencesDto.DisableStickyNotifications;
+                existingPreferences.UseLocalTimezone = preferencesDto.UseLocalTimezone;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
             else
@@ -107,6 +110,7 @@ public class UserPreferencesService
                     PicsAlwaysVisible = preferencesDto.PicsAlwaysVisible,
                     HideAboutSections = preferencesDto.HideAboutSections,
                     DisableStickyNotifications = preferencesDto.DisableStickyNotifications,
+                    UseLocalTimezone = preferencesDto.UseLocalTimezone,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(newPreferences);
@@ -169,6 +173,9 @@ public class UserPreferencesService
                     break;
                 case "disablestickynotifications":
                     preferences.DisableStickyNotifications = GetValueAsBoolean(value);
+                    break;
+                case "uselocaltimezone":
+                    preferences.UseLocalTimezone = GetValueAsBoolean(value);
                     break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
