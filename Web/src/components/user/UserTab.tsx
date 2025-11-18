@@ -21,6 +21,7 @@ import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/AuthContext';
+import { formatDateTime } from '@utils/formatters';
 
 interface Session {
   id: string;
@@ -386,12 +387,6 @@ const UserTab: React.FC = () => {
     }
   };
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Never';
-    const date = new Date(dateString);
-    return date.toLocaleString();
-  };
-
   const formatTimeRemaining = (expiresAt: string) => {
     const now = new Date();
     const expiry = new Date(expiresAt);
@@ -713,9 +708,9 @@ const UserTab: React.FC = () => {
                               <Clock className="w-4 h-4 flex-shrink-0" />
                               <span
                                 className="truncate"
-                                title={`Created: ${formatDate(session.createdAt)}`}
+                                title={`Created: ${formatDateTime(session.createdAt)}`}
                               >
-                                Created: {formatDate(session.createdAt)}
+                                Created: {formatDateTime(session.createdAt)}
                               </span>
                             </div>
 
@@ -728,9 +723,9 @@ const UserTab: React.FC = () => {
                                 <Clock className="w-4 h-4 flex-shrink-0" />
                                 <span
                                   className="truncate"
-                                  title={`Last seen: ${formatDate(session.lastSeenAt)}`}
+                                  title={`Last seen: ${formatDateTime(session.lastSeenAt)}`}
                                 >
-                                  Last seen: {formatDate(session.lastSeenAt)}
+                                  Last seen: {formatDateTime(session.lastSeenAt)}
                                 </span>
                               </div>
                             )}
@@ -744,9 +739,9 @@ const UserTab: React.FC = () => {
                                 <Clock className="w-4 h-4 flex-shrink-0" />
                                 <span
                                   className="truncate"
-                                  title={`Revoked: ${formatDate(session.revokedAt)}`}
+                                  title={`Revoked: ${formatDateTime(session.revokedAt)}`}
                                 >
-                                  Revoked: {formatDate(session.revokedAt)}
+                                  Revoked: {formatDateTime(session.revokedAt)}
                                 </span>
                               </div>
                             )}
