@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Clock, Calendar, ChevronDown, Loader2, Radio } from 'lucide-react';
+import React, { useState } from 'react';
+import { Clock, Calendar, Radio } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
 import DateRangePicker from './DateRangePicker';
-import { Tooltip } from '@components/ui/Tooltip';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -18,57 +18,29 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
     setCustomEndDate
   } = useTimeFilter();
 
-  const [showDropdown, setShowDropdown] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [timeFilterLoading, setTimeFilterLoading] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const timeOptions: { value: TimeRange; label: string; shortLabel?: string }[] = [
-    { value: '1h', label: 'Last Hour', shortLabel: '1H' },
-    { value: '6h', label: 'Last 6 Hours', shortLabel: '6H' },
-    { value: '12h', label: 'Last 12 Hours', shortLabel: '12H' },
-    { value: '24h', label: 'Last 24 Hours', shortLabel: '24H' },
-    { value: '7d', label: 'Last 7 Days', shortLabel: '7D' },
-    { value: '30d', label: 'Last 30 Days', shortLabel: '30D' },
-    { value: 'live', label: 'Live Data', shortLabel: 'Live' },
-    { value: 'custom', label: 'Custom Range', shortLabel: 'Custom' }
+  const timeOptions = [
+    { value: 'live', label: 'Live Data', shortLabel: 'Live', description: 'Show real-time data updates', icon: Radio },
+    { value: '24h', label: 'Last 24 Hours', shortLabel: '24H', description: 'Show data from the last 24 hours', icon: Clock },
+    { value: '12h', label: 'Last 12 Hours', shortLabel: '12H', description: 'Show data from the last 12 hours', icon: Clock },
+    { value: '6h', label: 'Last 6 Hours', shortLabel: '6H', description: 'Show data from the last 6 hours', icon: Clock },
+    { value: '1h', label: 'Last Hour', shortLabel: '1H', description: 'Show data from the last 1 hour', icon: Clock },
+    { value: '7d', label: 'Last 7 Days', shortLabel: '7D', description: 'Show data from the last 7 days', icon: Calendar },
+    { value: '30d', label: 'Last 30 Days', shortLabel: '30D', description: 'Show data from the last 30 days', icon: Calendar },
+    { value: 'custom', label: 'Custom Range', shortLabel: 'Custom', description: 'Select a custom date range', icon: Calendar }
   ];
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
-
-    if (showDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showDropdown]);
-
-  const handleTimeRangeChange = (value: TimeRange) => {
-    setTimeRange(value);
-    if (value === 'custom') {
+  const handleTimeRangeChange = (value: string) => {
+    const timeValue = value as TimeRange;
+    setTimeRange(timeValue);
+    if (timeValue === 'custom') {
       setShowDatePicker(true);
-      setShowDropdown(false);
-    } else {
-      setShowDropdown(false);
-      // Show loading for non-custom filters
-      setTimeFilterLoading(true);
-      setTimeout(() => setTimeFilterLoading(false), 1000);
     }
   };
 
-  // Show loading for custom date changes
-  useEffect(() => {
-    if (timeRange === 'custom' && customStartDate && customEndDate) {
-      setTimeFilterLoading(true);
-      setTimeout(() => setTimeFilterLoading(false), 1000);
-    }
-  }, [customStartDate, customEndDate, timeRange]);
-
-  const getCurrentLabel = () => {
+  // Generate custom label for date ranges
+  const getCustomTriggerLabel = () => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
       const start = customStartDate.toLocaleDateString('en-US', {
         month: 'short',
@@ -80,136 +52,23 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false }) => {
       });
       return `${start} - ${end}`;
     }
-    const option = timeOptions.find((opt) => opt.value === timeRange);
-    return option?.shortLabel || option?.label || 'Last 24H';
+    return undefined;
   };
 
   return (
     <>
       <div className="flex items-center gap-2">
-        <div className="relative" ref={dropdownRef}>
-          {disabled ? (
-            <Tooltip content="Time filter is disabled in mock mode">
-              <button
-                onClick={() => !disabled && setShowDropdown(!showDropdown)}
-                disabled={disabled}
-                className={`flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-lg border text-sm transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                style={{
-                  backgroundColor: 'var(--theme-bg-secondary)',
-                  borderColor: showDropdown
-                    ? 'var(--theme-border-focus)'
-                    : 'var(--theme-border-primary)',
-                  cursor: disabled ? 'not-allowed' : 'pointer'
-                }}
-                onMouseEnter={(e) =>
-                  !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
-                }
-                onMouseLeave={(e) =>
-                  !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
-                }
-              >
-                {timeFilterLoading ? (
-                  <Loader2 className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
-                ) : (
-                  <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
-                )}
-                <span className="font-medium text-[var(--theme-text-primary)]">
-                  {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
-                </span>
-                <ChevronDown
-                  className={`w-4 h-4 transition-transform duration-200 ${
-                    showDropdown ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-            </Tooltip>
-          ) : (
-            <button
-              onClick={() => !disabled && setShowDropdown(!showDropdown)}
-              disabled={disabled}
-              className={`flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-lg border text-sm transition-all ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-              style={{
-                backgroundColor: 'var(--theme-bg-secondary)',
-                borderColor: showDropdown
-                  ? 'var(--theme-border-focus)'
-                  : 'var(--theme-border-primary)',
-                cursor: disabled ? 'not-allowed' : 'pointer'
-              }}
-              onMouseEnter={(e) =>
-                !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)')
-              }
-              onMouseLeave={(e) =>
-                !disabled && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)')
-              }
-            >
-              {timeFilterLoading ? (
-                <Loader2 className="w-4 h-4 text-[var(--theme-primary)] animate-spin" />
-              ) : (
-                <Clock className="w-4 h-4 text-[var(--theme-primary)]" />
-              )}
-              <span className="font-medium text-[var(--theme-text-primary)]">
-                {timeFilterLoading ? 'Loading...' : getCurrentLabel()}
-              </span>
-              <ChevronDown
-                className={`w-4 h-4 transition-transform duration-200 ${
-                  showDropdown ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-          )}
-
-          {showDropdown && (
-            <div
-              className="absolute right-0 top-full mt-2 w-48 rounded-lg shadow-xl z-[99999]"
-              style={{
-                backgroundColor: 'var(--theme-bg-secondary)',
-                border: '1px solid var(--theme-border-primary)'
-              }}
-            >
-              <div className="p-1">
-                <div className="px-2 py-1.5 text-xs font-semibold text-[var(--theme-text-secondary)]">
-                  Time Range
-                </div>
-                {timeOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => handleTimeRangeChange(option.value)}
-                    className={`
-                    w-full flex items-center justify-between px-3 py-2 rounded text-sm transition-colors
-                    ${
-                      timeRange === option.value
-                        ? 'bg-[var(--theme-primary)]/10 text-[var(--theme-primary)]'
-                        : 'text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)]'
-                    }
-                  `}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      {option.value === 'custom' && <Calendar className="w-3.5 h-3.5" />}
-                      {option.label}
-                    </span>
-                    {timeRange === option.value && (
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                        <path
-                          fillRule="evenodd"
-                          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {timeRange === 'live' && !timeFilterLoading && !disabled && (
-          <Tooltip content="Live Mode: Data updates automatically every few seconds">
-            <div className="flex items-center">
-              <Radio className="w-3 h-3 animate-pulse" style={{ color: 'var(--theme-success)' }} />
-            </div>
-          </Tooltip>
-        )}
+        <EnhancedDropdown
+          options={timeOptions}
+          value={timeRange}
+          onChange={handleTimeRangeChange}
+          disabled={disabled}
+          placeholder="Select time range"
+          compactMode={true}
+          customTriggerLabel={getCustomTriggerLabel()}
+          dropdownWidth="w-56"
+          alignRight={true}
+        />
       </div>
 
       {showDatePicker && (

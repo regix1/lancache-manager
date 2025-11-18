@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TimeFilter from '../common/TimeFilter';
 import PollingRateSelector from '../common/PollingRateSelector';
-import TimezoneToggle from '../common/TimezoneToggle';
+import TimezoneSelector from '../common/TimezoneSelector';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useMockMode } from '@contexts/MockModeContext';
@@ -185,7 +185,7 @@ const Header: React.FC<HeaderProps> = ({
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-              <TimezoneToggle />
+              <TimezoneSelector />
               <PollingRateSelector disabled={mockMode} />
               <TimeFilter disabled={mockMode} />
             </div>

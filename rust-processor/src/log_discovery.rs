@@ -114,17 +114,44 @@ pub fn discover_log_files<P: AsRef<Path>>(log_directory: P, base_name: &str) -> 
             .unwrap_or("");
 
         // Match files like:
-        // - access.log
-        // - access.log.1
-        // - access.log.2.gz
-        // - access.log.10.zst
-        // But exclude .bak files (access.log.bak, access.log.1.bak, access.log.3.gz.bak, etc.)
-        // And exclude temp files (access.log.corruption_tmp.*, access.log.tmp.*, etc.)
+        // - access.log (current file)
+        // - access.log.1, access.log.2 (numbered rotations)
+        // - access.log.2.gz, access.log.10.zst (numbered rotations with compression)
+        // But exclude:
+        // - .bak files (access.log.bak, access.log.1.bak, etc.)
+        // - .tmp files (access.log.tmp, access.log.corruption_tmp, etc.)
+        // - .old files (access.log.old)
+        // - .backup files (access.log.backup)
+        // - Any non-numeric suffixes
         if file_name.starts_with(base_name) && !file_name.ends_with(".bak") && !file_name.contains(".tmp") {
             // Ensure it's either exact match or followed by '.' (to avoid matching "access.logfoo")
             let suffix = &file_name[base_name.len()..];
-            if suffix.is_empty() || suffix.starts_with('.') {
+            if suffix.is_empty() {
+                // Exact match: access.log
                 log_files.push(LogFile::from_path(path));
+            } else if suffix.starts_with('.') {
+                // Has a suffix like .1, .2.gz, .10.zst
+                // Strip compression extensions first
+                let name_without_compression = if file_name.ends_with(".gz") || file_name.ends_with(".zst") {
+                    if let Some(pos) = file_name.rfind('.') {
+                        &file_name[..pos]
+                    } else {
+                        file_name
+                    }
+                } else {
+                    file_name
+                };
+
+                // Now check if the suffix after base_name is a valid rotation number
+                let rotation_suffix = &name_without_compression[base_name.len()..];
+                if rotation_suffix.starts_with('.') {
+                    let number_part = &rotation_suffix[1..]; // Skip the '.'
+                    // Only accept if it's a valid number (e.g., "1", "2", "10")
+                    // This excludes .old, .backup, etc.
+                    if !number_part.is_empty() && number_part.chars().all(|c| c.is_ascii_digit()) {
+                        log_files.push(LogFile::from_path(path));
+                    }
+                }
             }
         }
     }

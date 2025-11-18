@@ -140,13 +140,13 @@ public class UserPreferencesController : ControllerBase
                 return Unauthorized(new { message = "No valid session found" });
             }
 
-            var success = _preferencesService.UpdatePreference(sessionId, key, value);
-            if (success)
-            {
-                // Get full preferences to broadcast
-                var preferences = _preferencesService.GetPreferences(sessionId);
+            // Use UpdatePreferenceAndGet to get updated preferences in the same transaction
+            // This prevents race conditions where GetPreferences reads stale data
+            var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId, key, value);
 
-                _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (single pref: {Key})", sessionId, key);
+            if (preferences != null)
+            {
+                _logger.LogInformation("Broadcasting UserPreferencesUpdated for session {SessionId} (single pref: {Key}={Value})", sessionId, key, value);
 
                 // Broadcast preference update via SignalR
                 await _hubContext.Clients.All.SendAsync("UserPreferencesUpdated", new

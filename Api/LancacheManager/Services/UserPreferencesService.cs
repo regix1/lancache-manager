@@ -195,6 +195,85 @@ public class UserPreferencesService
     }
 
     /// <summary>
+    /// Update a specific preference field and return the updated full preferences
+    /// This prevents race conditions by reading from the same transaction
+    /// </summary>
+    public UserPreferencesDto? UpdatePreferenceAndGet<T>(string sessionId, string preferenceKey, T value)
+    {
+        try
+        {
+            using var context = _contextFactory.CreateDbContext();
+
+            var preferences = context.UserPreferences
+                .FirstOrDefault(p => p.SessionId == sessionId);
+
+            if (preferences == null)
+            {
+                // Create new preferences if they don't exist
+                preferences = new UserPreferences
+                {
+                    SessionId = sessionId,
+                    UpdatedAtUtc = DateTime.UtcNow
+                };
+                context.UserPreferences.Add(preferences);
+            }
+
+            // Update the specific preference
+            switch (preferenceKey.ToLowerInvariant())
+            {
+                case "selectedtheme":
+                    preferences.SelectedTheme = GetValueAsString(value);
+                    break;
+                case "sharpcorners":
+                    preferences.SharpCorners = GetValueAsBoolean(value);
+                    break;
+                case "disablefocusoutlines":
+                    preferences.DisableFocusOutlines = GetValueAsBoolean(value);
+                    break;
+                case "disabletooltips":
+                    preferences.DisableTooltips = GetValueAsBoolean(value);
+                    break;
+                case "picsalwaysvisible":
+                    preferences.PicsAlwaysVisible = GetValueAsBoolean(value);
+                    break;
+                case "hideaboutsections":
+                    preferences.HideAboutSections = GetValueAsBoolean(value);
+                    break;
+                case "disablestickynotifications":
+                    preferences.DisableStickyNotifications = GetValueAsBoolean(value);
+                    break;
+                case "uselocaltimezone":
+                    preferences.UseLocalTimezone = GetValueAsBoolean(value);
+                    break;
+                default:
+                    _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
+                    return null;
+            }
+
+            preferences.UpdatedAtUtc = DateTime.UtcNow;
+            context.SaveChanges();
+
+            // Return the updated preferences from the same context to avoid race conditions
+            return new UserPreferencesDto
+            {
+                SelectedTheme = preferences.SelectedTheme,
+                SharpCorners = preferences.SharpCorners,
+                DisableFocusOutlines = preferences.DisableFocusOutlines,
+                DisableTooltips = preferences.DisableTooltips,
+                PicsAlwaysVisible = preferences.PicsAlwaysVisible,
+                HideAboutSections = preferences.HideAboutSections,
+                DisableStickyNotifications = preferences.DisableStickyNotifications,
+                UseLocalTimezone = preferences.UseLocalTimezone
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating preference {Key} for session: {SessionId}", preferenceKey, sessionId);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Delete user preferences
     /// </summary>
     public bool DeletePreferences(string sessionId)

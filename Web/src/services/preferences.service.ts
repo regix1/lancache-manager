@@ -16,6 +16,7 @@ class PreferencesService {
   private preferences: UserPreferences | null = null;
   private loading = false;
   private loaded = false;
+  private pendingUpdates: Map<string, Promise<boolean>> = new Map(); // Track in-flight updates
 
   /**
    * Load preferences from the API
@@ -103,30 +104,48 @@ class PreferencesService {
     key: K,
     value: UserPreferences[K]
   ): Promise<boolean> {
-    try {
-      const response = await fetch(`${API_BASE}/userpreferences/${key}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...authService.getAuthHeaders()
-        },
-        body: JSON.stringify(value)
-      });
+    const keyStr = key as string;
 
-      if (response.ok) {
-        if (this.preferences) {
-          this.preferences[key] = value;
-        }
-        console.log(`[PreferencesService] Updated preference ${key}:`, value);
-        return true;
-      } else {
-        console.error(`[PreferencesService] Failed to update preference ${key}:`, response.status);
-        return false;
-      }
-    } catch (error) {
-      console.error(`[PreferencesService] Error updating preference ${key}:`, error);
-      return false;
+    // CRITICAL: If there's already an update in-flight for this key, return that promise
+    if (this.pendingUpdates.has(keyStr)) {
+      console.log(`[PreferencesService] Update already in-flight for ${keyStr}, waiting...`);
+      return this.pendingUpdates.get(keyStr)!;
     }
+
+    // Create the update promise
+    const updatePromise = (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/userpreferences/${key}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authService.getAuthHeaders()
+          },
+          body: JSON.stringify(value)
+        });
+
+        if (response.ok) {
+          if (this.preferences) {
+            this.preferences[key] = value;
+          }
+          console.log(`[PreferencesService] Updated preference ${key}:`, value);
+          return true;
+        } else {
+          console.error(`[PreferencesService] Failed to update preference ${key}:`, response.status);
+          return false;
+        }
+      } catch (error) {
+        console.error(`[PreferencesService] Error updating preference ${key}:`, error);
+        return false;
+      } finally {
+        // Always remove from pending updates when done
+        this.pendingUpdates.delete(keyStr);
+      }
+    })();
+
+    // Store the promise
+    this.pendingUpdates.set(keyStr, updatePromise);
+    return updatePromise;
   }
 
   /**
