@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Globe, MapPin } from 'lucide-react';
+import { Globe, MapPin, Loader2 } from 'lucide-react';
 import { Tooltip } from '@components/ui/Tooltip';
 import preferencesService from '@services/preferences.service';
 
 const TimezoneToggle: React.FC = () => {
   const [useLocalTimezone, setUseLocalTimezone] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Load initial preference
   useEffect(() => {
@@ -29,10 +30,16 @@ const TimezoneToggle: React.FC = () => {
   }, []);
 
   const handleToggle = async () => {
+    if (isLoading) return; // Prevent spam clicking
+
+    setIsLoading(true);
     const newValue = !useLocalTimezone;
     setUseLocalTimezone(newValue);
     await preferencesService.setPreference('useLocalTimezone', newValue);
     // Context + SignalR will handle the re-render automatically
+
+    // Keep loading state for a brief moment to ensure updates propagate
+    setTimeout(() => setIsLoading(false), 500);
   };
 
   const tooltipContent = useLocalTimezone
@@ -43,22 +50,32 @@ const TimezoneToggle: React.FC = () => {
     <Tooltip content={tooltipContent}>
       <button
         onClick={handleToggle}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-sm font-medium"
+        disabled={isLoading}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
           border: '1px solid var(--theme-border)',
           color: 'var(--theme-text-primary)'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
-          e.currentTarget.style.borderColor = 'var(--theme-action)';
+          if (!isLoading) {
+            e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
+            e.currentTarget.style.borderColor = 'var(--theme-action)';
+          }
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
-          e.currentTarget.style.borderColor = 'var(--theme-border)';
+          if (!isLoading) {
+            e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
+            e.currentTarget.style.borderColor = 'var(--theme-border)';
+          }
         }}
       >
-        {useLocalTimezone ? (
+        {isLoading ? (
+          <>
+            <Loader2 size={16} className="animate-spin" />
+            <span className="hidden sm:inline">Loading...</span>
+          </>
+        ) : useLocalTimezone ? (
           <>
             <MapPin size={16} />
             <span className="hidden sm:inline">Local</span>
