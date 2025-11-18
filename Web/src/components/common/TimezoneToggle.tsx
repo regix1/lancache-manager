@@ -1,17 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Globe, MapPin, Loader2 } from 'lucide-react';
 import { Tooltip } from '@components/ui/Tooltip';
 import preferencesService from '@services/preferences.service';
+import { storage } from '@utils/storage';
+
+// Storage key for persistence
+const STORAGE_KEY = 'lancache_timezone_preference';
 
 const TimezoneToggle: React.FC = () => {
-  const [useLocalTimezone, setUseLocalTimezone] = useState(false);
+  // Default to server timezone (false), but check localStorage first
+  const [useLocalTimezone, setUseLocalTimezone] = useState(() => {
+    const saved = storage.getItem(STORAGE_KEY);
+    return saved === 'true'; // Defaults to false (server timezone) if not set
+  });
   const [isLoading, setIsLoading] = useState(false);
+  const isTogglingRef = useRef(false); // Ref-based lock for extra protection
 
-  // Load initial preference
+  // Load initial preference from server
   useEffect(() => {
     const loadPreference = async () => {
       const prefs = await preferencesService.getPreferences();
       setUseLocalTimezone(prefs.useLocalTimezone);
+      // Save to localStorage for faster subsequent loads
+      storage.setItem(STORAGE_KEY, prefs.useLocalTimezone.toString());
     };
     loadPreference();
   }, []);
@@ -22,6 +33,8 @@ const TimezoneToggle: React.FC = () => {
       const { key, value } = event.detail;
       if (key === 'useLocalTimezone') {
         setUseLocalTimezone(value);
+        // Also update localStorage when changes come from other sources
+        storage.setItem(STORAGE_KEY, value.toString());
       }
     };
 
@@ -30,16 +43,35 @@ const TimezoneToggle: React.FC = () => {
   }, []);
 
   const handleToggle = async () => {
-    if (isLoading) return; // Prevent spam clicking
+    // Double protection against spam clicking
+    if (isLoading || isTogglingRef.current) return;
 
+    isTogglingRef.current = true;
     setIsLoading(true);
     const newValue = !useLocalTimezone;
-    setUseLocalTimezone(newValue);
-    await preferencesService.setPreference('useLocalTimezone', newValue);
-    // Context + SignalR will handle the re-render automatically
 
-    // Keep loading state for a brief moment to ensure updates propagate
-    setTimeout(() => setIsLoading(false), 500);
+    try {
+      // Save to localStorage immediately for instant persistence
+      storage.setItem(STORAGE_KEY, newValue.toString());
+
+      // Update state
+      setUseLocalTimezone(newValue);
+
+      // Save to server and wait for completion
+      await preferencesService.setPreference('useLocalTimezone', newValue);
+
+      // Ensure minimum loading time for visual feedback (300ms)
+      // This prevents rapid toggling and ensures updates propagate
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch (error) {
+      console.error('Failed to update timezone preference:', error);
+      // Revert on error
+      setUseLocalTimezone(!newValue);
+      storage.setItem(STORAGE_KEY, (!newValue).toString());
+    } finally {
+      setIsLoading(false);
+      isTogglingRef.current = false;
+    }
   };
 
   const tooltipContent = useLocalTimezone
