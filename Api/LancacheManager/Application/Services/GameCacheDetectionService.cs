@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Application.Services;
@@ -583,9 +584,23 @@ public class GameCacheDetectionService
             await dbContext.CachedGameDetections.ExecuteDeleteAsync();
         }
 
+        // Deduplicate games by GameAppId (keep last occurrence in case of duplicates)
+        var uniqueGames = games
+            .GroupBy(g => g.GameAppId)
+            .Select(group => group.Last())
+            .ToList();
+
+        if (uniqueGames.Count < games.Count)
+        {
+            _logger.LogWarning(
+                "[GameDetection] Removed {DuplicateCount} duplicate GameAppIds from detection results",
+                games.Count - uniqueGames.Count
+            );
+        }
+
         var now = DateTime.UtcNow;
 
-        foreach (var game in games)
+        foreach (var game in uniqueGames)
         {
             var cachedGame = new CachedGameDetection
             {
@@ -620,7 +635,19 @@ public class GameCacheDetectionService
             }
         }
 
-        await dbContext.SaveChangesAsync();
+        try
+        {
+            await dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
+        {
+            // UNIQUE constraint violation - log warning and continue
+            // This can happen in rare race conditions
+            _logger.LogWarning(
+                ex,
+                "[GameDetection] UNIQUE constraint error when saving games - some records may already exist. Continuing..."
+            );
+        }
     }
 
     private async Task SaveServicesToDatabaseAsync(List<ServiceCacheInfo> services)
