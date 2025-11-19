@@ -231,10 +231,9 @@ const Header: React.FC<HeaderProps> = ({
               <div></div>
               <div style={{ position: 'relative' }}>
                 <div
-                  className="px-3 py-2 rounded-lg border flex items-center justify-center"
+                  className="px-3 py-2 rounded-lg flex items-center justify-center"
                   style={{
-                    backgroundColor: 'var(--theme-bg-secondary)',
-                    borderColor: 'var(--theme-border-primary)',
+                    backgroundColor: 'var(--theme-bg-tertiary)',
                     width: pollingButtonWidth ? `${pollingButtonWidth}px` : '64px'
                   }}
                 >

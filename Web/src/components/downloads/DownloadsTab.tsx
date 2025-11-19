@@ -14,6 +14,7 @@ import {
 import { useDownloads } from '../../contexts/DownloadsContext';
 import { useTimeFilter } from '../../contexts/TimeFilterContext';
 import { storage } from '@utils/storage';
+import { formatDateTime } from '@utils/formatters';
 import { Alert } from '../ui/Alert'; // Fixed import path
 import { Card } from '../ui/Card'; // Fixed import path
 import { Checkbox } from '../ui/Checkbox';
@@ -50,6 +51,9 @@ type ViewMode = 'compact' | 'normal';
 const convertDownloadsToCSV = (downloads: Download[]): string => {
   if (!downloads || downloads.length === 0) return '';
 
+  // UTF-8 BOM for proper special character encoding (™, ®, etc.)
+  const BOM = '\uFEFF';
+
   const headers = [
     'id',
     'service',
@@ -66,20 +70,37 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
   ];
   const csvHeaders = headers.join(',');
 
+  // Helper to escape CSV values
+  const escapeCSV = (value: any): string => {
+    if (value === null || value === undefined) return '';
+    const str = String(value);
+    // Escape if contains comma, quote, or newline
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+
   const csvRows = downloads.map((download) => {
-    return headers
-      .map((header) => {
-        const value = download[header as keyof Download];
-        if (value === null || value === undefined) return '';
-        if (typeof value === 'string' && value.includes(',')) {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
-      })
-      .join(',');
+    const row = [
+      download.id,
+      download.service,
+      download.clientIp,
+      // Format timestamps using the formatDateTime utility (respects timezone preference)
+      download.startTimeUtc ? formatDateTime(download.startTimeUtc) : '',
+      download.endTimeUtc ? formatDateTime(download.endTimeUtc) : '',
+      download.cacheHitBytes,
+      download.cacheMissBytes,
+      download.totalBytes,
+      download.cacheHitPercent.toFixed(2),
+      download.isActive ? 'TRUE' : 'FALSE',
+      download.gameName || '',
+      download.gameAppId || ''
+    ];
+    return row.map(escapeCSV).join(',');
   });
 
-  return [csvHeaders, ...csvRows].join('\n');
+  return BOM + [csvHeaders, ...csvRows].join('\n');
 };
 
 // Main Downloads Tab Component
@@ -683,7 +704,7 @@ const DownloadsTab: React.FC = () => {
 
         content = convertDownloadsToCSV(downloadsForExport);
         filename = `${baseFilename}.csv`;
-        mimeType = 'text/csv';
+        mimeType = 'text/csv;charset=utf-8';
       } else {
         const jsonReplacer = (_key: string, value: unknown) => {
           if (value instanceof Set) {

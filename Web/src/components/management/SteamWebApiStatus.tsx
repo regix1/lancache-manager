@@ -6,6 +6,7 @@ import SteamWebApiKeyModal from '@components/shared/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
 import ApiService from '@services/api.service';
+import { formatDateTime } from '@utils/formatters';
 
 interface SteamWebApiStatusProps {
   steamAuthMode?: 'anonymous' | 'authenticated';
@@ -260,7 +261,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
         {/* Last Checked */}
         {!loading && status && (
           <p className="text-xs text-themed-muted mt-3 text-center">
-            Last checked: {new Date(status.lastChecked).toLocaleString()}
+            Last checked: {formatDateTime(status.lastChecked)}
           </p>
         )}
       </Card>

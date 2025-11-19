@@ -15,6 +15,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import ApiService from '@services/api.service';
+import { formatDateTime } from '@utils/formatters';
 import type { ClientStat, ServiceStat, CacheInfo, DashboardStats } from '../../types';
 
 interface DataExportManagerProps {
@@ -97,23 +98,70 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
   const convertToCSV = (data: any[]): string => {
     if (!data || data.length === 0) return '';
 
+    // UTF-8 BOM for proper special character encoding (™, ®, etc.)
+    const BOM = '\uFEFF';
+
     const headers = Object.keys(data[0]);
     const csvHeaders = headers.join(',');
+
+    // Helper to escape CSV values
+    const escapeCSV = (value: any): string => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      // Escape if contains comma, quote, or newline
+      if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    // Helper to format value for CSV
+    const formatValue = (header: string, value: any): string => {
+      if (value === null || value === undefined) return '';
+
+      // Format timestamps (UTC or Local variants)
+      if (
+        header === 'startTimeUtc' ||
+        header === 'endTimeUtc' ||
+        header === 'startTimeLocal' ||
+        header === 'endTimeLocal' ||
+        header.toLowerCase().includes('time') ||
+        header.toLowerCase().includes('date')
+      ) {
+        // Check if it's a valid date string or Date object
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          return formatDateTime(value);
+        }
+      }
+
+      // Format booleans
+      if (typeof value === 'boolean') {
+        return value ? 'TRUE' : 'FALSE';
+      }
+
+      // Format numbers with precision
+      if (typeof value === 'number') {
+        // If it's a percentage field, format to 2 decimals
+        if (header.toLowerCase().includes('percent')) {
+          return value.toFixed(2);
+        }
+        return String(value);
+      }
+
+      return String(value);
+    };
 
     const csvRows = data.map((row) => {
       return headers
         .map((header) => {
-          const value = row[header];
-          if (value === null || value === undefined) return '';
-          if (typeof value === 'string' && value.includes(',')) {
-            return `"${value.replace(/"/g, '""')}"`;
-          }
-          return value;
+          const formattedValue = formatValue(header, row[header]);
+          return escapeCSV(formattedValue);
         })
         .join(',');
     });
 
-    return [csvHeaders, ...csvRows].join('\n');
+    return BOM + [csvHeaders, ...csvRows].join('\n');
   };
 
   const convertToPrometheus = (data: any, type: DataType): string => {
@@ -272,7 +320,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
       switch (selectedFormat) {
         case 'csv':
           content = convertToCSV(Array.isArray(data) ? data : [data]);
-          mimeType = 'text/csv';
+          mimeType = 'text/csv;charset=utf-8';
           filename = `lancache_${selectedType}_${new Date().toISOString().split('T')[0]}.csv`;
           break;
 
