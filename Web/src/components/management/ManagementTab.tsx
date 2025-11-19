@@ -16,7 +16,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import ApiService from '@services/api.service';
-import authService, { type AuthMode } from '@services/auth.service';
+import { type AuthMode } from '@services/auth.service';
 import operationStateService from '@services/operationState.service';
 
 // Import manager components
