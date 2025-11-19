@@ -846,9 +846,34 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       // Use setNotifications to get current state (avoid stale closure)
       setNotifications((prev) => {
         const existing = prev.find((n) => n.id === notificationId);
+
+        // If no notification exists, create it (handles missed DepotMappingStarted event)
         if (!existing) {
-          console.warn('[NotificationsContext] No existing notification found for:', notificationId);
-          return prev;
+          console.log('[NotificationsContext] Creating depot_mapping notification from progress event');
+          return [
+            ...prev,
+            {
+              id: notificationId,
+              type: 'depot_mapping',
+              status: 'running',
+              message: payload.message || payload.status || 'Processing depot mappings...',
+              startedAt: new Date(),
+              progress: payload.percentComplete || 0,
+              details: {
+                isLoggedOn: payload.isLoggedOn
+              },
+              detailMessage: (() => {
+                if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
+                  return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
+                    payload.depotMappingsFound !== undefined
+                      ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
+                      : ''
+                  }`;
+                }
+                return undefined;
+              })()
+            }
+          ];
         }
 
         return prev.map((n) => {
