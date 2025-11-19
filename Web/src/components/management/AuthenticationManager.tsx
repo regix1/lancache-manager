@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Key, Lock, Unlock, AlertCircle, AlertTriangle, Clock, Eye, LogOut } from 'lucide-react';
 import authService from '../../services/auth.service';
 import { Button } from '../ui/Button';
@@ -29,6 +29,11 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
   const [authLoading, setAuthLoading] = useState(false);
   const [hasData, setHasData] = useState(false);
   const [hasBeenInitialized, setHasBeenInitialized] = useState(false);
+
+  // Track previous auth mode to detect unexpected logouts
+  const prevAuthMode = useRef<typeof authMode>(authMode);
+  // Track if we've already shown the revocation modal (to prevent repeated triggers)
+  const hasShownRevocationModal = useRef(false);
 
   useEffect(() => {
     checkAuth();
@@ -65,21 +70,53 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
   // Auto-show auth modal when unexpectedly logged out
   useEffect(() => {
-    // Track the previous auth mode to detect unexpected logouts
-    const prevAuthMode = React.useRef(authMode);
+    // Skip during initial auth check
+    if (authChecking) {
+      prevAuthMode.current = authMode;
+      return;
+    }
 
-    // If user was authenticated or in guest mode, and now they're unauthenticated,
-    // it means they got logged out unexpectedly (device revoked, session expired, etc.)
-    if (
+    // Don't show modal repeatedly - only once per logout
+    if (hasShownRevocationModal.current && authMode === 'unauthenticated') {
+      prevAuthMode.current = authMode;
+      return;
+    }
+
+    // Reset flag when user becomes authenticated again
+    if (authMode === 'authenticated' || authMode === 'guest') {
+      hasShownRevocationModal.current = false;
+      prevAuthMode.current = authMode;
+      return;
+    }
+
+    // Case 1: Transition from authenticated/guest to unauthenticated (live logout)
+    const wasLoggedOut =
       (prevAuthMode.current === 'authenticated' || prevAuthMode.current === 'guest') &&
+      authMode === 'unauthenticated';
+
+    // Case 2: Page loaded/refreshed while unauthenticated but has stored credentials
+    // This happens when device is revoked and user refreshes - they have an API key
+    // in localStorage but backend rejects it, so they end up unauthenticated on load
+    const hasStoredCredentials = authService.isRegistered(); // Checks if API key exists
+    const stuckInLimbo =
       authMode === 'unauthenticated' &&
-      !authChecking // Don't show during initial auth check
-    ) {
-      console.log('[AuthenticationManager] Unexpected logout detected, showing auth modal');
+      hasStoredCredentials &&
+      prevAuthMode.current === 'unauthenticated'; // No transition detected
+
+    if (wasLoggedOut || stuckInLimbo) {
+      console.log('[AuthenticationManager] Unexpected logout detected, showing auth modal', {
+        wasLoggedOut,
+        stuckInLimbo,
+        authMode,
+        prevAuthMode: prevAuthMode.current,
+        hasStoredCredentials
+      });
       setShowAuthModal(true);
+      hasShownRevocationModal.current = true; // Mark as shown
       onError?.('Your session has expired or been revoked. Please authenticate again.');
     }
 
+    // Update ref for next check
     prevAuthMode.current = authMode;
   }, [authMode, authChecking, onError]);
 
