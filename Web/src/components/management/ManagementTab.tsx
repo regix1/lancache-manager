@@ -179,26 +179,27 @@ const DatabaseManager: React.FC<{
     setLoading(true);
     setShowClearModal(false);
 
-    // Check if UserSessions is being cleared
-    const clearingUserSessions = selectedTables.includes('UserSessions');
-
     try {
+      // Start the background reset operation (returns 202 Accepted immediately)
       const result = await ApiService.resetSelectedTables(selectedTables);
       if (result) {
-        // If UserSessions was cleared, clear all auth and reload
-        if (clearingUserSessions) {
-          // Clear all auth data (this removes API key, device ID, guest session, etc.)
-          authService.clearAuthAndDevice();
+        // Show success message
+        onSuccess?.(result.message || `Database reset started for ${selectedTables.length} table(s)`);
+        setSelectedTables([]);
 
-          // Reload immediately - the authentication modal will show automatically
-          window.location.reload();
-        } else {
-          // For non-UserSessions clears, just show success and refresh data
-          onSuccess?.(result.message || `Successfully cleared ${selectedTables.length} table(s)`);
-          setSelectedTables([]);
+        // Note: If UserSessions is being cleared, the SignalR 'UserSessionsCleared' event
+        // will be broadcast immediately after deletion (not at the end).
+        // App.tsx will handle the logout via the 'user-sessions-cleared' custom event.
+        // This ensures users are logged out as soon as their sessions are invalidated,
+        // while other table deletions continue in the background.
+
+        // For non-UserSessions operations, refresh data
+        // For UserSessions operations, the page will reload automatically via SignalR event
+        if (!selectedTables.includes('UserSessions')) {
           onDataRefresh?.();
-          setLoading(false);
         }
+
+        setLoading(false);
       }
     } catch (err: any) {
       onError?.(err.message || 'Failed to clear selected tables');

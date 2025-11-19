@@ -291,10 +291,8 @@ public class DatabaseRepository : IDatabaseRepository
             double progressPerTable = 85.0 / tablesToClear.Count;
             double currentProgress = 0;
 
-            // Track which session-related events need to be broadcast AFTER operation completes
-            // This prevents race conditions with page reloads during database operations
+            // Track which preference reset event needs to be broadcast AFTER operation completes
             bool shouldBroadcastPreferencesReset = false;
-            bool shouldBroadcastSessionsCleared = false;
 
             // Temporarily disable foreign key constraints for bulk deletion (SQLite)
             // This prevents FK constraint errors during table deletions
@@ -304,13 +302,17 @@ public class DatabaseRepository : IDatabaseRepository
             try
             {
                 // Delete tables based on selection
-                // Note: LogEntries must be deleted before Downloads (foreign key constraint)
-                // Note: UserPreferences must be deleted before UserSessions (foreign key constraint)
+                // PRIORITY ORDER:
+                // 1. UserSessions - ALWAYS FIRST to immediately invalidate all sessions
+                // 2. UserPreferences - Must be deleted before UserSessions FK cascade
+                // 3. LogEntries - Must be deleted before Downloads FK
+                // 4. Downloads - Has FK dependency on LogEntries
+                // 5. All others - No dependencies
                 var orderedTables = tablesToClear.OrderBy(t =>
-                    t == "LogEntries" ? 0 :
-                    t == "UserPreferences" ? 1 :
-                    t == "Downloads" ? 2 :
-                    t == "UserSessions" ? 3 :
+                    t == "UserSessions" ? 0 :      // HIGHEST PRIORITY - invalidate sessions first
+                    t == "UserPreferences" ? 1 :   // Second - FK dependency on UserSessions
+                    t == "LogEntries" ? 2 :        // Third - FK dependency from Downloads
+                    t == "Downloads" ? 3 :         // Fourth - depends on LogEntries
                     4).ToList();
 
                 // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
@@ -443,7 +445,10 @@ public class DatabaseRepository : IDatabaseRepository
                         break;
 
                     case "UserSessions":
-                        // Use ExecuteDeleteAsync for direct deletion
+                        // CRITICAL: UserSessions is always processed FIRST (priority 0)
+                        // This ensures all users are logged out immediately before any other tables are cleared
+
+                        _logger.LogInformation($"[PRIORITY] Clearing UserSessions table to invalidate all active sessions");
                         var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync();
                         _logger.LogInformation($"Cleared {userSessionsCount:N0} user sessions");
                         deletedRows += userSessionsCount;
@@ -457,8 +462,16 @@ public class DatabaseRepository : IDatabaseRepository
                             timestamp = DateTime.UtcNow
                         });
 
-                        // Mark that we need to broadcast sessions cleared event after operation completes
-                        shouldBroadcastSessionsCleared = true;
+                        // IMMEDIATELY broadcast UserSessionsCleared event to log out all connected users
+                        // This happens RIGHT AFTER deletion, not at the end of the operation
+                        _logger.LogInformation("Broadcasting UserSessionsCleared event to all clients (immediate logout)");
+                        await _hubContext.Clients.All.SendAsync("UserSessionsCleared", new
+                        {
+                            message = "All user sessions have been cleared - logging out immediately",
+                            timestamp = DateTime.UtcNow
+                        });
+
+                        _logger.LogInformation("All users have been logged out. Continuing with remaining table deletions in background...");
                         break;
                 }
 
@@ -525,24 +538,14 @@ public class DatabaseRepository : IDatabaseRepository
                 await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON;");
             }
 
-            // Broadcast session-related events AFTER all database operations complete
-            // This prevents race conditions where clients reload during the operation
+            // Broadcast preference reset event AFTER all database operations complete
+            // Note: UserSessionsCleared is now broadcast IMMEDIATELY after UserSessions deletion (not here)
             if (shouldBroadcastPreferencesReset)
             {
                 _logger.LogInformation("Broadcasting UserPreferencesReset event to all clients");
                 await _hubContext.Clients.All.SendAsync("UserPreferencesReset", new
                 {
                     message = "User preferences have been reset to defaults",
-                    timestamp = DateTime.UtcNow
-                });
-            }
-
-            if (shouldBroadcastSessionsCleared)
-            {
-                _logger.LogInformation("Broadcasting UserSessionsCleared event to all clients");
-                await _hubContext.Clients.All.SendAsync("UserSessionsCleared", new
-                {
-                    message = "All user sessions have been cleared",
                     timestamp = DateTime.UtcNow
                 });
             }
