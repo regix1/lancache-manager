@@ -114,10 +114,12 @@ class AuthService {
           (session: any) => session.type === 'authenticated' && session.id === this.deviceId
         );
 
-        // If our device was deleted, force logout
+        // If our device was deleted, clear local auth state
         if (!ourDeviceExists) {
-          console.warn('[Auth] Device session was deleted - forcing logout');
-          this.logout();
+          console.warn('[Auth] Device session was deleted - clearing local auth');
+          // Don't call logout() because that tries to hit the backend which will fail
+          // with 400 since the device is already revoked. Just clear local state.
+          this.handleUnauthorized();
           window.dispatchEvent(new CustomEvent('auth-session-revoked', {
             detail: { reason: 'Your device session was deleted by an administrator' }
           }));
