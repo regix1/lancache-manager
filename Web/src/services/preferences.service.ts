@@ -39,6 +39,14 @@ class PreferencesService {
         headers: authService.getAuthHeaders()
       });
 
+      // Handle 401 Unauthorized - device was revoked or session expired
+      if (response.status === 401) {
+        console.warn('[PreferencesService] Unauthorized - triggering logout');
+        authService.handleUnauthorized();
+        this.preferences = this.getDefaultPreferences();
+        return this.preferences;
+      }
+
       if (response.ok) {
         const data = await response.json();
         this.preferences = {
@@ -83,6 +91,13 @@ class PreferencesService {
         body: JSON.stringify(preferences)
       });
 
+      // Handle 401 Unauthorized - device was revoked or session expired
+      if (response.status === 401) {
+        console.warn('[PreferencesService] Unauthorized while saving preferences - triggering logout');
+        authService.handleUnauthorized();
+        return false;
+      }
+
       if (response.ok) {
         this.preferences = preferences;
         console.log('[PreferencesService] Saved preferences to API');
@@ -123,6 +138,13 @@ class PreferencesService {
           },
           body: JSON.stringify(value)
         });
+
+        // Handle 401 Unauthorized - device was revoked or session expired
+        if (response.status === 401) {
+          console.warn(`[PreferencesService] Unauthorized while updating ${key} - triggering logout`);
+          authService.handleUnauthorized();
+          return false;
+        }
 
         if (response.ok) {
           if (this.preferences) {

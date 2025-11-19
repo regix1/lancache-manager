@@ -82,14 +82,15 @@ class AuthService {
   }
 
   private startGuestModeTimer(): void {
-    // Check guest mode status every minute
+    // Check guest mode status and device validity frequently
     this.guestCheckInterval = setInterval(() => {
       this.checkGuestModeExpiry();
       this.checkDeviceStillValid();
-    }, 60000); // Check every minute
+    }, 15000); // Check every 15 seconds for faster device revocation detection
 
     // Initial check
     this.checkGuestModeExpiry();
+    this.checkDeviceStillValid();
   }
 
   private async checkDeviceStillValid(): Promise<void> {
