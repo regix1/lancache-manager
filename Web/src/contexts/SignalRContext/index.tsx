@@ -47,14 +47,14 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
   // Subscribe to an event
   const on = useCallback((eventName: string, handler: EventHandler) => {
-    console.log(`[SignalR] Registering handler for event: ${eventName}`);
+    // console.log(`[SignalR] Registering handler for event: ${eventName}`);
 
     if (!eventHandlersRef.current.has(eventName)) {
       eventHandlersRef.current.set(eventName, new Set());
     }
     eventHandlersRef.current.get(eventName)!.add(handler);
 
-    console.log(`[SignalR] Handler registered. Total handlers for ${eventName}: ${eventHandlersRef.current.get(eventName)?.size || 0}`);
+    // console.log(`[SignalR] Handler registered. Total handlers for ${eventName}: ${eventHandlersRef.current.get(eventName)?.size || 0}`);
 
     // If connection exists and is connected, add the handler to SignalR
     if (
@@ -81,13 +81,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   const setupConnection = useCallback(async () => {
     // Don't connect in mock mode
     if (mockModeRef.current) {
-      console.log('[SignalR] Skipping connection in mock mode');
+      // console.log('[SignalR] Skipping connection in mock mode');
       return;
     }
 
     // Prevent concurrent setup attempts (happens during React Strict Mode double mount)
     if (isSettingUpRef.current) {
-      console.log('[SignalR] Setup already in progress, skipping');
+      // console.log('[SignalR] Setup already in progress, skipping');
       return;
     }
 
@@ -97,11 +97,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       (connectionRef.current.state === signalR.HubConnectionState.Connected ||
         connectionRef.current.state === signalR.HubConnectionState.Connecting)
     ) {
-      console.log(
-        '[SignalR] Connection already exists (state:',
-        connectionRef.current.state,
-        '), skipping setup'
-      );
+      // console.log('[SignalR] Connection already exists (state:', connectionRef.current.state, '), skipping setup');
       return;
     }
 
@@ -109,8 +105,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Stop any existing connection first
     if (connectionRef.current) {
-      const existingState = connectionRef.current.state;
-      console.log('[SignalR] Stopping existing connection (state:', existingState, ')');
+      // const existingState = connectionRef.current.state;
+      // console.log('[SignalR] Stopping existing connection (state:', existingState, ')');
       try {
         await connectionRef.current.stop();
       } catch (err) {
@@ -139,7 +135,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Set up connection lifecycle handlers
       connection.onreconnecting((error) => {
-        console.log('[SignalR] Reconnecting...', error);
+        // console.log('[SignalR] Reconnecting...', error);
         if (isMountedRef.current) {
           setConnectionState('reconnecting');
           setIsConnected(false);
@@ -147,7 +143,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       });
 
       connection.onreconnected((connectionId) => {
-        console.log('[SignalR] Reconnected successfully, ID:', connectionId);
+        // console.log('[SignalR] Reconnected successfully, ID:', connectionId);
         if (isMountedRef.current) {
           setConnectionState('connected');
           setIsConnected(true);
@@ -156,7 +152,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       });
 
       connection.onclose((error) => {
-        console.log('[SignalR] Connection closed', error);
+        // console.log('[SignalR] Connection closed', error);
         if (isMountedRef.current) {
           setConnectionState('disconnected');
           setIsConnected(false);
@@ -174,7 +170,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
           reconnectTimeoutRef.current = setTimeout(() => {
             if (isMountedRef.current && !mockModeRef.current) {
-              console.log('[SignalR] Attempting manual reconnection...');
+              // console.log('[SignalR] Attempting manual reconnection...');
               setupConnection();
             }
           }, 5000);
@@ -185,11 +181,11 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       const setupEventDispatchers = () => {
         SIGNALR_EVENTS.forEach((eventName) => {
           connection.on(eventName, (...args: any[]) => {
-            console.log(`[SignalR] Received event: ${eventName}`, args);
+            // console.log(`[SignalR] Received event: ${eventName}`, args);
 
             // Dispatch to all registered handlers for this event
             const handlers = eventHandlersRef.current.get(eventName);
-            console.log(`[SignalR] Handlers for ${eventName}:`, handlers?.size || 0);
+            // console.log(`[SignalR] Handlers for ${eventName}:`, handlers?.size || 0);
 
             if (handlers && handlers.size > 0) {
               handlers.forEach((handler) => {
@@ -199,9 +195,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
                   console.error(`[SignalR] Error in handler for ${eventName}:`, error);
                 }
               });
-            } else {
-              console.warn(`[SignalR] No handlers registered for event: ${eventName}`);
             }
+            // Removed: No need to warn about unregistered handlers - it's normal
           });
         });
       };
@@ -211,7 +206,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       // Start the connection
       await connection.start();
 
-      console.log('[SignalR] Connected successfully, ID:', connection.connectionId);
+      // console.log('[SignalR] Connected successfully, ID:', connection.connectionId);
 
       if (isMountedRef.current) {
         connectionRef.current = connection;
@@ -245,7 +240,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
         reconnectTimeoutRef.current = setTimeout(() => {
           if (isMountedRef.current && !mockModeRef.current) {
-            console.log('[SignalR] Retrying connection...');
+            // console.log('[SignalR] Retrying connection...');
             setupConnection();
           }
         }, 5000);
@@ -261,7 +256,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Don't connect in mock mode
     if (mockMode) {
-      console.log('[SignalR] Mock mode enabled, not connecting');
+      // console.log('[SignalR] Mock mode enabled, not connecting');
       setConnectionState('disconnected');
       setIsConnected(false);
       return;
@@ -269,7 +264,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Prevent duplicate connections during React Strict Mode double-mount
     if (hasInitializedRef.current) {
-      console.log('[SignalR] Already initialized, skipping duplicate connection attempt');
+      // console.log('[SignalR] Already initialized, skipping duplicate connection attempt');
       return;
     }
 
@@ -289,7 +284,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       // Stop the connection if it exists
       if (connectionRef.current) {
-        console.log('[SignalR] Stopping connection on unmount');
+        // console.log('[SignalR] Stopping connection on unmount');
         const connToStop = connectionRef.current;
         connectionRef.current = null;
         connToStop.stop().catch((err) => {

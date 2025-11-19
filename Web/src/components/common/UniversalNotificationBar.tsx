@@ -440,7 +440,7 @@ const UniversalNotificationBar: React.FC = () => {
           : {
               position: 'sticky',
               top: 0,
-              zIndex: 40
+              zIndex: 50
             })
       }}
     >

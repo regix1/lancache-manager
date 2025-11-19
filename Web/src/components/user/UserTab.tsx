@@ -1166,33 +1166,33 @@ const UserTab: React.FC = () => {
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={editingPreferences.disableTooltips}
+                    checked={!editingPreferences.disableTooltips}
                     onChange={(e) =>
                       setEditingPreferences({
                         ...editingPreferences,
-                        disableTooltips: e.target.checked
+                        disableTooltips: !e.target.checked
                       })
                     }
                     className="w-4 h-4 rounded"
                     style={{ accentColor: 'var(--theme-primary)' }}
                   />
-                  <span className="text-sm text-themed-secondary">Disable Tooltips</span>
+                  <span className="text-sm text-themed-secondary">Tooltips</span>
                 </label>
 
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={editingPreferences.hideAboutSections}
+                    checked={!editingPreferences.hideAboutSections}
                     onChange={(e) =>
                       setEditingPreferences({
                         ...editingPreferences,
-                        hideAboutSections: e.target.checked
+                        hideAboutSections: !e.target.checked
                       })
                     }
                     className="w-4 h-4 rounded"
                     style={{ accentColor: 'var(--theme-primary)' }}
                   />
-                  <span className="text-sm text-themed-secondary">Hide Info Sections</span>
+                  <span className="text-sm text-themed-secondary">Info Sections</span>
                 </label>
 
                 {/* Only show notification preferences for authenticated users */}
@@ -1201,18 +1201,18 @@ const UserTab: React.FC = () => {
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={editingPreferences.disableStickyNotifications}
+                        checked={!editingPreferences.disableStickyNotifications}
                         onChange={(e) =>
                           setEditingPreferences({
                             ...editingPreferences,
-                            disableStickyNotifications: e.target.checked
+                            disableStickyNotifications: !e.target.checked
                           })
                         }
                         className="w-4 h-4 rounded"
                         style={{ accentColor: 'var(--theme-primary)' }}
                       />
                       <span className="text-sm text-themed-secondary">
-                        Disable Sticky Notifications
+                        Sticky Notifications
                       </span>
                     </label>
 

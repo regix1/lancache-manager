@@ -100,7 +100,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     // Listen for live preference changes from admin
     const handlePreferenceChange = (event: any) => {
       const { key, value } = event.detail;
-      console.log(`[ThemeManager] Received preference change: ${key} = ${value}`);
+      // console.log(`[ThemeManager] Received preference change: ${key} = ${value}`);
 
       switch (key) {
         case 'selectedTheme':
@@ -709,22 +709,22 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   label="Sharp Corners"
                 />
                 <Checkbox
-                  checked={tooltipsDisabled}
-                  onChange={(e) => handleTooltipsToggle(e.target.checked)}
+                  checked={!tooltipsDisabled}
+                  onChange={(e) => handleTooltipsToggle(!e.target.checked)}
                   variant="rounded"
-                  label="Disable Tooltips"
+                  label="Tooltips"
                 />
                 <Checkbox
-                  checked={hideAboutSections}
-                  onChange={(e) => handleHideAboutSectionsToggle(e.target.checked)}
+                  checked={!hideAboutSections}
+                  onChange={(e) => handleHideAboutSectionsToggle(!e.target.checked)}
                   variant="rounded"
-                  label="Hide Info Sections"
+                  label="Info Sections"
                 />
                 <Checkbox
-                  checked={disableStickyNotifications}
-                  onChange={(e) => handleDisableStickyNotificationsToggle(e.target.checked)}
+                  checked={!disableStickyNotifications}
+                  onChange={(e) => handleDisableStickyNotificationsToggle(!e.target.checked)}
                   variant="rounded"
-                  label="Disable Sticky Notifications"
+                  label="Sticky Notifications"
                 />
                 <Checkbox
                   checked={picsAlwaysVisible}

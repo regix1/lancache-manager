@@ -270,7 +270,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
     signalR.on('FastProcessingComplete', handleFastProcessingComplete);
     signalR.on('DownloadsRefresh', handleDownloadsRefresh);
 
-    console.log('[LogProcessingManager] Subscribed to SignalR events');
+    // console.log('[LogProcessingManager] Subscribed to SignalR events');
 
     // If SignalR disconnects and we're processing, fall back to polling
     // Note: This is handled by monitoring signalR.isConnected in another effect
@@ -292,12 +292,12 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
     // If SignalR is not connected and we're processing, use polling
     if (!signalR.isConnected) {
-      console.log('[LogProcessingManager] SignalR disconnected, starting polling fallback');
+      // console.log('[LogProcessingManager] SignalR disconnected, starting polling fallback');
       startProcessingPolling();
     } else {
       // SignalR is connected, stop polling if active
       if (pollingInterval.current) {
-        console.log('[LogProcessingManager] SignalR connected, stopping polling fallback');
+        // console.log('[LogProcessingManager] SignalR connected, stopping polling fallback');
         clearInterval(pollingInterval.current);
         pollingInterval.current = null;
       }

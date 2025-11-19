@@ -60,7 +60,7 @@ class PreferencesService {
           useLocalTimezone: data.useLocalTimezone || false
         };
         this.loaded = true;
-        console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
+        // console.log('[PreferencesService] Loaded preferences from API:', this.preferences);
         return this.preferences;
       } else {
         // Return defaults if API call fails
@@ -100,7 +100,7 @@ class PreferencesService {
 
       if (response.ok) {
         this.preferences = preferences;
-        console.log('[PreferencesService] Saved preferences to API');
+        // console.log('[PreferencesService] Saved preferences to API');
         return true;
       } else {
         console.error('[PreferencesService] Failed to save preferences:', response.status);
@@ -123,7 +123,7 @@ class PreferencesService {
 
     // CRITICAL: If there's already an update in-flight for this key, return that promise
     if (this.pendingUpdates.has(keyStr)) {
-      console.log(`[PreferencesService] Update already in-flight for ${keyStr}, waiting...`);
+      // console.log(`[PreferencesService] Update already in-flight for ${keyStr}, waiting...`);
       return this.pendingUpdates.get(keyStr)!;
     }
 
@@ -150,7 +150,7 @@ class PreferencesService {
           if (this.preferences) {
             this.preferences[key] = value;
           }
-          console.log(`[PreferencesService] Updated preference ${key}:`, value);
+          // console.log(`[PreferencesService] Updated preference ${key}:`, value);
 
           // Dispatch immediate local update (SignalR will also broadcast, but this gives instant feedback)
           window.dispatchEvent(
@@ -227,7 +227,7 @@ class PreferencesService {
   updateCache(preferences: UserPreferences): void {
     this.preferences = preferences;
     this.loaded = true;
-    console.log('[PreferencesService] Cache updated directly:', this.preferences);
+    // console.log('[PreferencesService] Cache updated directly:', this.preferences);
   }
 
   /**
@@ -235,7 +235,7 @@ class PreferencesService {
    * Handles UserPreferencesUpdated, UserPreferencesReset, and UserSessionsCleared
    */
   setupSignalRListener(signalR: { on: (eventName: string, handler: (...args: any[]) => void) => void }): void {
-    console.log('[PreferencesService] Setting up SignalR listeners');
+    // console.log('[PreferencesService] Setting up SignalR listeners');
 
     // Track if we're processing to prevent race conditions
     let isProcessingUpdate = false;
@@ -244,7 +244,7 @@ class PreferencesService {
     // Handle preference updates
     const handlePreferencesUpdated = (payload: any) => {
       if (isProcessingUpdate) {
-        console.log('[PreferencesService] Already processing update, skipping duplicate');
+        // console.log('[PreferencesService] Already processing update, skipping duplicate');
         return;
       }
 
@@ -262,7 +262,7 @@ class PreferencesService {
           return;
         }
 
-        console.log('[PreferencesService] Preferences updated for current session, applying changes...');
+        // console.log('[PreferencesService] Preferences updated for current session, applying changes...');
 
         // Get old preferences before updating
         const oldPrefs = this.preferences;
@@ -287,7 +287,7 @@ class PreferencesService {
           Object.keys(updatedPrefs).forEach((key) => {
             const typedKey = key as keyof UserPreferences;
             if (oldPrefs[typedKey] !== updatedPrefs[typedKey]) {
-              console.log(`[PreferencesService] Preference changed: ${key} = ${updatedPrefs[typedKey]}`);
+              // console.log(`[PreferencesService] Preference changed: ${key} = ${updatedPrefs[typedKey]}`);
               window.dispatchEvent(
                 new CustomEvent('preference-changed', {
                   detail: { key, value: updatedPrefs[typedKey] }
@@ -315,13 +315,13 @@ class PreferencesService {
     // Handle preference reset
     const handlePreferencesReset = () => {
       if (isProcessingReset) {
-        console.log('[PreferencesService] Already processing reset, skipping duplicate');
+        // console.log('[PreferencesService] Already processing reset, skipping duplicate');
         return;
       }
 
       try {
         isProcessingReset = true;
-        console.log('[PreferencesService] UserPreferencesReset event received');
+        // console.log('[PreferencesService] UserPreferencesReset event received');
 
         // Clear cached preferences
         this.clearCache();
@@ -337,7 +337,7 @@ class PreferencesService {
 
     // Handle session cleared - dispatch event for App.tsx to handle
     const handleSessionsCleared = () => {
-      console.log('[PreferencesService] UserSessionsCleared event received');
+      // console.log('[PreferencesService] UserSessionsCleared event received');
 
       // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
       window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
@@ -367,24 +367,24 @@ class PreferencesService {
 
     // Handle default guest theme changed - auto-update guests using default theme
     const handleDefaultGuestThemeChanged = (payload: any) => {
-      console.log('[PreferencesService] DefaultGuestThemeChanged event received:', payload);
+      // console.log('[PreferencesService] DefaultGuestThemeChanged event received:', payload);
 
       const { newThemeId } = payload;
 
       // Only apply to guest users
       if (authService.authMode !== 'guest') {
-        console.log('[PreferencesService] Not a guest user, ignoring default theme change');
+        // console.log('[PreferencesService] Not a guest user, ignoring default theme change');
         return;
       }
 
       // Only apply if user is currently using the default theme (selectedTheme === null)
       const currentPrefs = this.getPreferencesSync();
       if (currentPrefs && currentPrefs.selectedTheme !== null) {
-        console.log('[PreferencesService] Guest has custom theme selected, ignoring default theme change');
+        // console.log('[PreferencesService] Guest has custom theme selected, ignoring default theme change');
         return;
       }
 
-      console.log(`[PreferencesService] Applying new default guest theme: ${newThemeId}`);
+      // console.log(`[PreferencesService] Applying new default guest theme: ${newThemeId}`);
 
       // Dispatch preference-changed event to trigger theme update
       window.dispatchEvent(
@@ -400,7 +400,7 @@ class PreferencesService {
     signalR.on('UserSessionRevoked', handleSessionRevoked);
     signalR.on('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
 
-    console.log('[PreferencesService] SignalR listeners registered');
+    // console.log('[PreferencesService] SignalR listeners registered');
   }
 
   /**

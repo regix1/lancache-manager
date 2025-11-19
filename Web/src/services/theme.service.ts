@@ -201,7 +201,7 @@ class ThemeService {
       return; // Already setup
     }
 
-    console.log('[ThemeService] Setting up preference change listeners');
+    // console.log('[ThemeService] Setting up preference change listeners');
 
     window.addEventListener('preference-changed', (event: any) => {
       const { key, value } = event.detail;
@@ -285,12 +285,12 @@ class ThemeService {
     window.addEventListener('preferences-reset', async () => {
       // Prevent duplicate processing
       if (this.isProcessingReset) {
-        console.log('[ThemeService] Already processing reset, skipping duplicate');
+        // console.log('[ThemeService] Already processing reset, skipping duplicate');
         return;
       }
 
       this.isProcessingReset = true;
-      console.log('[ThemeService] Preferences reset, applying defaults...');
+      // console.log('[ThemeService] Preferences reset, applying defaults...');
 
       try {
         // Clear localStorage theme cache

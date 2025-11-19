@@ -30,11 +30,11 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
   // Log when component mounts and check for active PICS scan
   useEffect(() => {
-    console.log('[DepotMapping] Component mounted - Step 5 is now active');
+    // console.log('[DepotMapping] Component mounted - Step 5 is now active');
 
     // Check if PICS scan is already running (page reload restoration)
     if (picsProgress?.isRunning) {
-      console.log('[DepotMapping] Detected active PICS scan on mount, restoring...');
+      // console.log('[DepotMapping] Detected active PICS scan on mount, restoring...');
       setMapping(true);
     }
   }, []);
@@ -46,31 +46,31 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       setTimeout(() => {
         setComplete(true);
         setMapping(false);
-        console.log('[DepotMapping] Complete!');
+        // console.log('[DepotMapping] Complete!');
       }, 2000);
     }
   }, [mapping, isRunning, progress]);
 
   const startDepotMapping = async () => {
-    console.log('[DepotMapping] Starting depot mapping process...');
+    // console.log('[DepotMapping] Starting depot mapping process...');
     setError(null);
     await proceedWithScan(false);
   };
 
   const proceedWithScan = async (forceFull = false) => {
-    console.log('[DepotMapping] Starting PICS scan...');
+    // console.log('[DepotMapping] Starting PICS scan...');
     setMapping(true);
 
     try {
       // Use incremental scan by default for initialization (faster), unless forcing full
       const useIncremental = !forceFull;
-      console.log('[DepotMapping] Triggering PICS crawl (incremental:', useIncremental, ')...');
+      // console.log('[DepotMapping] Triggering PICS crawl (incremental:', useIncremental, ')...');
       const response = await ApiService.triggerSteamKitRebuild(useIncremental);
-      console.log('[DepotMapping] Backend response:', response);
+      // console.log('[DepotMapping] Backend response:', response);
 
       // Check if backend says full scan is required (for incremental requests)
       if (response.requiresFullScan) {
-        console.log('[DepotMapping] Backend requires full scan - showing modal');
+        // console.log('[DepotMapping] Backend requires full scan - showing modal');
         setChangeGapWarning({
           show: true,
           changeGap: response.changeGap || 25000,
@@ -80,7 +80,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         return;
       }
 
-      console.log('[DepotMapping] PICS crawl started successfully');
+      // console.log('[DepotMapping] PICS crawl started successfully');
     } catch (err: any) {
       console.error('[DepotMapping] Error:', err);
       setError(err.message || 'Failed to start depot scan');

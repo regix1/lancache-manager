@@ -93,12 +93,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         if (operation?.data) {
           const data = operation.data as any;
           if (data.operationType) {
-            console.log('[DepotMapping] Restoring interrupted depot mapping operation');
+            // console.log('[DepotMapping] Restoring interrupted depot mapping operation');
 
             // Clear any old stuck depot_mapping notifications from before page refresh
             const oldNotifications = notifications.filter((n) => n.type === 'depot_mapping');
             oldNotifications.forEach((n) => {
-              console.log('[DepotMapping] Clearing old notification:', n.id);
+              // console.log('[DepotMapping] Clearing old notification:', n.id);
               updateNotification(n.id, { status: 'completed', message: 'Loading...' });
             });
 
@@ -178,7 +178,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
       // Don't override if user already selected GitHub
       if (depotSource !== 'github') {
-        console.log('[DepotMapping] Web API unavailable - defaulting Apply Now Source to GitHub mode');
+        // console.log('[DepotMapping] Web API unavailable - defaulting Apply Now Source to GitHub mode');
         setDepotSource('github');
       }
     }
@@ -241,7 +241,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           }
         })
         .then(() => {
-          console.log('[DepotMapping] Successfully switched to GitHub mode with 30-minute interval');
+          // console.log('[DepotMapping] Successfully switched to GitHub mode with 30-minute interval');
           refreshProgress();
         })
         .catch((error) => {
@@ -251,7 +251,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
     // Reset the flag when Web API becomes available again
     if (webApiAvailable && autoSwitchAttemptedRef.current) {
-      console.log('[DepotMapping] Web API is now available - resetting auto-switch flag');
+      // console.log('[DepotMapping] Web API is now available - resetting auto-switch flag');
       autoSwitchAttemptedRef.current = false;
     }
   }, [isAuthenticated, picsProgress?.isWebApiAvailable, webApiStatus?.hasApiKey, webApiStatus?.isFullyOperational, webApiLoading, steamAuthMode, depotConfig?.crawlIncrementalMode, refreshProgress]);
@@ -497,7 +497,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       // Import JSON to database if needed (JSON exists but database is empty)
       if (hasJsonFile && !hasDatabaseMappings) {
-        console.log('[DepotMapping] Importing JSON file to database before scan');
+        // console.log('[DepotMapping] Importing JSON file to database before scan');
         await fetch('/api/gameinfo/import-pics-data', {
           method: 'POST',
           headers: ApiService.getHeaders()
@@ -517,11 +517,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         depotSource
       );
       const response = await ApiService.triggerSteamKitRebuild(useIncrementalScan);
-      console.log('[DepotMapping] Backend response:', response);
+      // console.log('[DepotMapping] Backend response:', response);
 
       // Check if depot mapping is already running
       if (response.rebuildInProgress && !response.started) {
-        console.log('[DepotMapping] Depot mapping already in progress');
+        // console.log('[DepotMapping] Depot mapping already in progress');
         onError?.('Depot mapping is already in progress. Please wait for it to complete.');
         setActionLoading(false);
         setOperationType(null);
@@ -530,7 +530,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       // Check if backend says full scan is required (for incremental requests)
       if (response.requiresFullScan) {
-        console.log('[DepotMapping] Backend requires full scan - showing modal');
+        // console.log('[DepotMapping] Backend requires full scan - showing modal');
         setChangeGapWarning({
           show: true,
           changeGap: response.changeGap || 25000,

@@ -576,8 +576,9 @@ const AppContent: React.FC = () => {
       )}
 
       <div
-        className="min-h-screen flex flex-col"
+        className="flex flex-col"
         style={{
+          minHeight: '100vh',
           backgroundColor: 'var(--theme-bg-primary)',
           color: 'var(--theme-text-primary)'
         }}

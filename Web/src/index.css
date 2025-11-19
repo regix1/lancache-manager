@@ -4,7 +4,7 @@
 
 @layer base {
   html {
-    overflow-x: hidden;
+    /* Removed overflow-x: hidden to allow position: sticky to work properly */
   }
 
   body {
