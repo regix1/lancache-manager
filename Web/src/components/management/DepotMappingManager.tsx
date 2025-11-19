@@ -577,7 +577,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     <>
       <Card>
         <div className="flex items-center space-x-2 mb-4">
-          <Database className="w-5 h-5 text-themed-primary" />
+          <Database className="w-5 h-5 icon-indigo" />
           <h3 className="text-lg font-semibold text-themed-primary">Depot Mapping</h3>
         </div>
 
@@ -672,17 +672,17 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
         {/* Schedule Status */}
         <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2 mb-3">
                 <Clock className="w-4 h-4 text-themed-primary" />
                 <span className="text-sm font-medium text-themed-secondary">
                   Automatic Schedule
                 </span>
               </div>
-              <div className="text-xs text-themed-muted space-y-1">
-                <div className="flex items-center gap-2">
-                  <span style={{ opacity: 0.6 }}>Runs every:</span>
+              <div className="text-xs text-themed-muted space-y-2 sm:space-y-1.5">
+                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
+                  <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Runs every:</span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig
                       ? 'Loading...'
@@ -706,8 +706,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                           })()}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ opacity: 0.6 }}>Scan mode:</span>
+                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
+                  <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Scan mode:</span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig
                       ? 'Loading...'
@@ -731,8 +731,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                           })()}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span style={{ opacity: 0.6 }}>Next run:</span>
+                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
+                  <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Next run:</span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig || depotConfig.crawlIntervalHours === 0
                       ? 'Disabled'
@@ -740,8 +740,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   </span>
                 </div>
                 {depotConfig?.lastCrawlTime && (
-                  <div className="flex items-center gap-2">
-                    <span style={{ opacity: 0.6 }}>Last run:</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
+                    <span style={{ opacity: 0.6 }} className="text-left whitespace-nowrap">Last run:</span>
                     <span className="font-medium text-themed-primary">
                       {depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'
@@ -751,7 +751,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 )}
               </div>
             </div>
-            <div className="flex flex-col gap-2 min-w-[160px]">
+            <div className="flex flex-col gap-2 w-full lg:w-auto lg:min-w-[200px]">
               {/* GitHub Mode: Fixed 30-minute interval (either actual GitHub mode or forced due to Web API unavailability) */}
               {(() => {
                 const webApiNotAvailable =

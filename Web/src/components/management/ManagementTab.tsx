@@ -282,7 +282,8 @@ const DatabaseManager: React.FC<{
             color="red"
             leftSection={<Database className="w-4 h-4" />}
           >
-            Clear Selected Tables
+            <span className="hidden sm:inline">Clear Selected Tables</span>
+            <span className="sm:hidden">Clear Selected</span>
           </Button>
         </div>
       </Card>

@@ -117,7 +117,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
     <>
       <Card>
         <div className="flex items-center space-x-2 mb-4">
-          <Globe className="w-5 h-5 text-themed-primary" />
+          <Globe className="w-5 h-5 icon-cyan" />
           <h3 className="text-lg font-semibold text-themed-primary">Steam Web API Status</h3>
         </div>
 

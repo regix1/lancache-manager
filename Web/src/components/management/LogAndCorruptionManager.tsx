@@ -6,7 +6,8 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  Lock
+  Lock,
+  Search
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -527,15 +528,18 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
             </div>
           ) : (
             <div className="flex items-start gap-2 mb-4">
-              <AlertTriangle className="w-5 h-5 text-themed-warning flex-shrink-0 mt-0.5" />
+              <Search className="w-5 h-5 icon-red flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-themed-primary text-sm font-medium mb-1">
                   Corrupted Cache Detection & Removal
                 </p>
-                <p className="text-themed-muted text-sm">
+                <p className="text-themed-muted text-sm hidden sm:block">
                   Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+
                   occurrences) in access logs. Removal will <strong>delete cache files</strong> from
                   disk, <strong>remove log entries</strong>, AND <strong>delete database records</strong> for entire download sessions with corrupted chunks.
+                </p>
+                <p className="text-themed-muted text-sm sm:hidden">
+                  Detects corrupted chunks via repeated MISS/UNKNOWN requests (3+). Removal <strong>deletes cache files, log entries, and database records</strong>.
                 </p>
               </div>
             </div>

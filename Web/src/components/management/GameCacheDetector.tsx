@@ -576,7 +576,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           {cacheReadOnly ? (
             <div className="flex items-center gap-2">
               <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
-                <HardDrive className="w-5 h-5" />
+                <HardDrive className="w-5 h-5 icon-purple" />
                 Game Cache Detection
               </h3>
               <span
@@ -592,17 +592,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               </span>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div className="flex-1">
                 <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
-                  <HardDrive className="w-5 h-5" />
+                  <HardDrive className="w-5 h-5 icon-purple" />
                   Game Cache Detection
                 </h3>
                 <p className="text-sm text-themed-secondary mt-1">
                   Scan cache directory to find which games have stored files
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full lg:w-auto">
                 {/* Load Data Button */}
                 <Tooltip content="Load previous detection results from database">
                   <Button
@@ -611,6 +611,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     variant="default"
                     size="sm"
                     leftSection={loading && scanType === 'load' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                    className="flex-1 lg:flex-initial"
                   >
                     {loading && scanType === 'load' ? 'Loading...' : 'Load Data'}
                   </Button>
@@ -632,6 +633,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       variant="default"
                       size="sm"
                       leftSection={loading && scanType === 'incremental' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                      className="flex-1 lg:flex-initial"
                     >
                       {loading && scanType === 'incremental' ? 'Scanning...' : 'Quick Scan'}
                     </Button>
@@ -665,6 +667,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       color="blue"
                       size="sm"
                       leftSection={loading && scanType === 'full' ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
+                      className="flex-1 lg:flex-initial"
                     >
                       {loading && scanType === 'full' ? 'Scanning...' : 'Full Scan'}
                     </Button>

@@ -196,7 +196,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     <Card>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Cpu className="w-6 h-6 text-themed-primary" />
+          <Cpu className="w-6 h-6 icon-emerald" />
           <h3 className="text-lg font-semibold text-themed-primary">Garbage Collection Settings</h3>
         </div>
         <button

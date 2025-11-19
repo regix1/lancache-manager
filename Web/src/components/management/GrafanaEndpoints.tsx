@@ -57,19 +57,19 @@ const GrafanaEndpoints: React.FC = () => {
         </div>
         {metricsSecured !== null && (
           <div
-            className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-medium border ${
+            className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-medium border ${
               metricsSecured ? 'access-indicator-secured' : 'access-indicator-public'
             }`}
           >
             {metricsSecured ? (
               <>
-                <Lock className="w-3 h-3" />
-                <span>API Key Required</span>
+                <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span className="whitespace-nowrap">API Key Required</span>
               </>
             ) : (
               <>
-                <Unlock className="w-3 h-3" />
-                <span>Public Access</span>
+                <Unlock className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span className="whitespace-nowrap">Public Access</span>
               </>
             )}
           </div>

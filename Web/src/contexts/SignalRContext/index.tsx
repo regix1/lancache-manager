@@ -134,7 +134,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         .build();
 
       // Set up connection lifecycle handlers
-      connection.onreconnecting((error) => {
+      connection.onreconnecting((_error) => {
         // console.log('[SignalR] Reconnecting...', error);
         if (isMountedRef.current) {
           setConnectionState('reconnecting');
@@ -151,7 +151,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         }
       });
 
-      connection.onclose((error) => {
+      connection.onclose((_error) => {
         // console.log('[SignalR] Connection closed', error);
         if (isMountedRef.current) {
           setConnectionState('disconnected');
