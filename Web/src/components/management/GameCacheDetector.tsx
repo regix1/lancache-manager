@@ -129,19 +129,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         if (data.operationId && data.scanType) {
           console.log('[GameCacheDetector] Restoring interrupted game detection operation');
 
-          // Clear any old stuck game_detection notifications from before page refresh
-          const oldNotifications = notifications.filter((n) => n.type === 'game_detection');
-          oldNotifications.forEach((n) => {
-            console.log('[GameCacheDetector] Clearing old game_detection notification:', n.id);
-            updateNotification(n.id, { status: 'completed', message: 'Loading...' });
-          });
-
-          // Check if detection is actually still running on backend
+          // Check if detection is actually still running on backend FIRST
           try {
             const status = await ApiService.getGameDetectionStatus(data.operationId);
             if (status.status === 'complete' || status.status === 'failed') {
               // Operation already completed, clear state and load results
               console.log('[GameCacheDetector] Restored operation already completed');
+
+              // Clear any old game_detection notifications since scan is done
+              const oldNotifications = notifications.filter((n) => n.type === 'game_detection');
+              oldNotifications.forEach((n) => {
+                console.log('[GameCacheDetector] Clearing completed game_detection notification:', n.id);
+                updateNotification(n.id, { status: 'completed', message: 'Detection complete' });
+              });
+
               await gameDetectionOp.clear();
               setLoading(false);
               setScanType(null);
@@ -159,8 +160,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               }
             } else {
               // Still running, restore loading state
+              console.log('[GameCacheDetector] Restored operation still running, keeping loading state');
               setLoading(true);
               setScanType(data.scanType);
+              // Leave notifications as-is - they should show 'running' status
               // SignalR will handle the completion when it arrives
             }
           } catch (err) {
@@ -168,6 +171,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             console.warn('[GameCacheDetector] Could not check operation status, assuming still running');
             setLoading(true);
             setScanType(data.scanType);
+            // Leave notifications as-is
           }
         }
       }
