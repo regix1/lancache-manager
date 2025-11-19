@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import TimeFilter from '../common/TimeFilter';
 import PollingRateSelector from '../common/PollingRateSelector';
 import TimezoneSelector from '../common/TimezoneSelector';
@@ -24,6 +24,8 @@ const Header: React.FC<HeaderProps> = ({
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [isRevoked, setIsRevoked] = useState(false);
   const [deviceId, setDeviceId] = useState('');
+  const [pollingButtonWidth, setPollingButtonWidth] = useState<number | null>(null);
+  const pollingButtonRef = useRef<HTMLDivElement>(null);
 
   // Event-driven updates from AuthContext - no polling needed
   useEffect(() => {
@@ -35,6 +37,36 @@ const Header: React.FC<HeaderProps> = ({
       setDeviceId(authService.getGuestSessionId() || '');
     }
   }, [authMode]);
+
+  // Measure polling button width with resize observer
+  useEffect(() => {
+    if (!pollingButtonRef.current) return;
+
+    const measureWidth = () => {
+      if (pollingButtonRef.current) {
+        const width = pollingButtonRef.current.offsetWidth;
+        setPollingButtonWidth(width);
+      }
+    };
+
+    // Initial measurement
+    measureWidth();
+
+    // Create resize observer to re-measure on layout changes
+    const resizeObserver = new ResizeObserver(() => {
+      measureWidth();
+    });
+
+    resizeObserver.observe(pollingButtonRef.current);
+
+    // Also listen for window resize
+    window.addEventListener('resize', measureWidth);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', measureWidth);
+    };
+  }, []);
 
   return (
     <>
@@ -192,60 +224,86 @@ const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Mobile: Centered icon and controls */}
+          {/* Mobile: Grid layout to align icon with polling button */}
           <div className="md:hidden py-3">
-            {/* Row 1: Centered Icon */}
-            <div className="flex justify-center mb-3">
-              <div
-                className="p-2 rounded-lg"
-                style={{
-                  backgroundColor: 'var(--theme-bg-tertiary)',
-                  position: 'relative'
-                }}
-              >
+            <div className="grid items-start justify-center" style={{ gridTemplateColumns: 'auto auto auto', gap: '0.5rem' }}>
+              {/* Row 1 - Icon in middle column */}
+              <div></div>
+              <div style={{ position: 'relative' }}>
                 <div
+                  className="px-3 py-2 rounded-lg border flex items-center justify-center"
                   style={{
-                    position: 'relative',
-                    width: '48px',
-                    height: '48px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    borderColor: 'var(--theme-border-primary)',
+                    width: pollingButtonWidth ? `${pollingButtonWidth}px` : '64px'
                   }}
                 >
-                  <LancacheIcon
-                    className="flex-shrink-0"
-                    size={48}
-                    style={{
-                      animation: 'float-bounce 2.5s ease-in-out infinite',
-                      position: 'relative',
-                      zIndex: 1
-                    }}
-                  />
-                  {/* Static shadow below the floating icon */}
                   <div
                     style={{
-                      position: 'absolute',
-                      bottom: '0px',
-                      left: '8px',
-                      width: '32px',
-                      height: '8px',
-                      background:
-                        'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
-                      borderRadius: '50%',
-                      animation: 'shadow-pulse 2.5s ease-in-out infinite',
-                      pointerEvents: 'none',
-                      zIndex: 0
+                      position: 'relative',
+                      width: '48px',
+                      height: '48px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
-                  />
+                  >
+                    <LancacheIcon
+                      className="flex-shrink-0"
+                      size={48}
+                      style={{
+                        animation: 'float-bounce 2.5s ease-in-out infinite',
+                        position: 'relative',
+                        zIndex: 1
+                      }}
+                    />
+                    {/* Static shadow below the floating icon */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: '2px',
+                        left: '8px',
+                        width: '32px',
+                        height: '8px',
+                        background:
+                          'radial-gradient(ellipse at center, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.3) 40%, rgba(0, 0, 0, 0) 70%)',
+                        borderRadius: '50%',
+                        animation: 'shadow-pulse 2.5s ease-in-out infinite',
+                        pointerEvents: 'none',
+                        zIndex: 0
+                      }}
+                    />
+                  </div>
                 </div>
+                {/* Status indicator outside bottom right */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '-4px',
+                    right: '-4px',
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    backgroundColor: connectionStatus === 'connected'
+                      ? 'var(--theme-success)'
+                      : connectionStatus === 'disconnected'
+                      ? 'var(--theme-error)'
+                      : 'var(--theme-warning)',
+                    border: '2px solid var(--theme-border-primary)',
+                    zIndex: 10,
+                    ...(connectionStatus === 'reconnecting' && {
+                      animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                    })
+                  }}
+                />
               </div>
-            </div>
+              <div></div>
 
-            {/* Row 2: Controls */}
-            <div className="flex items-center justify-center gap-2">
+              {/* Row 2 - Controls */}
               <TimezoneSelector />
-              <PollingRateSelector disabled={mockMode} />
+              <div ref={pollingButtonRef}>
+                <PollingRateSelector disabled={mockMode} />
+              </div>
               <TimeFilter disabled={mockMode} />
             </div>
           </div>

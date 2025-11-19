@@ -4,11 +4,13 @@
 
 @layer base {
   html {
-    scrollbar-gutter: stable;
+    overflow-x: hidden;
   }
 
   body {
     @apply bg-gray-900 text-gray-100;
+    overflow-x: hidden;
+    width: 100%;
   }
 
   /* Remove ALL default browser focus styles globally */

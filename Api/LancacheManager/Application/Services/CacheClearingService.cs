@@ -22,7 +22,6 @@ public class CacheClearingService : IHostedService
     private readonly ConcurrentDictionary<string, CacheClearOperation> _operations = new();
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
-    private int _threadCount;
     private string _deleteMode;
 
     public CacheClearingService(
@@ -42,8 +41,7 @@ public class CacheClearingService : IHostedService
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
 
-        // Read thread count from configuration (default to 4)
-        _threadCount = configuration.GetValue<int>("CacheClear:ThreadCount", 4);
+        // Read delete mode from configuration
         _deleteMode = configuration.GetValue<string>("CacheClear:DeleteMode", "preserve") ?? "preserve";
 
         // Determine cache path - check most likely locations first
@@ -248,7 +246,7 @@ public class CacheClearingService : IHostedService
 
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustBinaryPath,
-                $"\"{_cachePath}\" \"{progressFile}\" {_threadCount} {_deleteMode}");
+                $"\"{_cachePath}\" \"{progressFile}\" {_deleteMode}");
 
             using (var process = Process.Start(startInfo))
             {
@@ -637,21 +635,6 @@ public class CacheClearingService : IHostedService
         return false;
     }
 
-    public void SetThreadCount(int threadCount)
-    {
-        if (threadCount < 1 || threadCount > 16)
-        {
-            throw new ArgumentException("Thread count must be between 1 and 16", nameof(threadCount));
-        }
-
-        _threadCount = threadCount;
-        _logger.LogInformation($"Cache clear thread count updated to {threadCount}");
-    }
-
-    public int GetThreadCount()
-    {
-        return _threadCount;
-    }
 
     public void SetDeleteMode(string deleteMode)
     {
@@ -667,11 +650,6 @@ public class CacheClearingService : IHostedService
     public string GetDeleteMode()
     {
         return _deleteMode;
-    }
-
-    public int GetSystemCpuCount()
-    {
-        return Environment.ProcessorCount;
     }
 
     public bool IsRsyncAvailable()

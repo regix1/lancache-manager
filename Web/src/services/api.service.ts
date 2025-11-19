@@ -496,36 +496,6 @@ class ApiService {
     }
   }
 
-  // Get cache clearing thread count
-  static async getCacheThreadCount(): Promise<{ threadCount: number }> {
-    try {
-      const res = await fetch(`${API_BASE}/management/cache/thread-count`, {
-        headers: this.getHeaders()
-      });
-      return await this.handleResponse<{ threadCount: number }>(res);
-    } catch (error) {
-      console.error('getCacheThreadCount error:', error);
-      throw error;
-    }
-  }
-
-  // Set cache clearing thread count (requires auth)
-  static async setCacheThreadCount(
-    threadCount: number
-  ): Promise<{ message: string; threadCount: number }> {
-    try {
-      const res = await fetch(`${API_BASE}/management/cache/thread-count`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ threadCount })
-      });
-      return await this.handleResponse<{ message: string; threadCount: number }>(res);
-    } catch (error) {
-      console.error('setCacheThreadCount error:', error);
-      throw error;
-    }
-  }
-
   // Get cache clearing delete mode
   static async getCacheDeleteMode(): Promise<{ deleteMode: string }> {
     try {
@@ -552,19 +522,6 @@ class ApiService {
       return await this.handleResponse<{ message: string; deleteMode: string }>(res);
     } catch (error) {
       console.error('setCacheDeleteMode error:', error);
-      throw error;
-    }
-  }
-
-  // Get system CPU count
-  static async getSystemCpuCount(): Promise<{ cpuCount: number }> {
-    try {
-      const res = await fetch(`${API_BASE}/management/system/cpu-count`, {
-        headers: this.getHeaders()
-      });
-      return await this.handleResponse<{ cpuCount: number }>(res);
-    } catch (error) {
-      console.error('getSystemCpuCount error:', error);
       throw error;
     }
   }

@@ -16,7 +16,7 @@ const PollingRateSelector: React.FC<PollingRateSelectorProps> = ({ disabled = fa
       value: 'ULTRA',
       label: 'Ultra-fast',
       shortLabel: '1s',
-      description: 'Updates every 1 second (very high load, unstable)',
+      description: 'Updates every 1 second (very high load)',
       rightLabel: '1s',
       icon: Gauge
     },

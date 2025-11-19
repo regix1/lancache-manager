@@ -378,22 +378,11 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     );
     write_progress(progress_path, &progress)?;
 
-    // Use configured thread count
-    // For network-bound operations (NAS), allow more threads than CPUs
-    // For local operations, cap at CPU count for efficiency
-    let cpu_count = num_cpus::get();
-    let max_threads = if thread_count > cpu_count * 2 {
-        // If user specified way more than CPUs, they're probably on network storage
-        thread_count
-    } else {
-        // Otherwise cap at 2x CPU count for safety
-        std::cmp::min(thread_count, cpu_count * 2)
-    };
-    let num_threads = std::cmp::max(1, max_threads);
-    eprintln!("Using {} threads for parallel processing (CPUs: {})", num_threads, cpu_count);
+    // Use 4 threads for optimal I/O performance
+    eprintln!("Using {} threads for parallel I/O operations", thread_count);
 
     let pool = ThreadPoolBuilder::new()
-        .num_threads(num_threads)
+        .num_threads(thread_count)
         .build()
         .expect("Failed to build thread pool");
 
@@ -555,32 +544,26 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 3 || args.len() > 5 {
+    if args.len() < 3 || args.len() > 4 {
         eprintln!("Usage:");
-        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [thread_count] [delete_mode]");
+        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [delete_mode]");
         eprintln!("\nExample:");
-        eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json 4 preserve");
-        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json 16 full  # For NAS");
+        eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json preserve");
+        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json full");
         eprintln!("\nOptions:");
-        eprintln!("  thread_count: Number of threads (default: 4)");
-        eprintln!("                For NAS/network storage, use 8-16 threads to saturate network");
-        eprintln!("                For local storage, use 4-8 threads");
         eprintln!("  delete_mode: Deletion method (default: preserve)");
-        eprintln!("    - 'preserve': Delete files individually, preserve directory structure, shows file count");
-        eprintln!("    - 'full': Fast Mode directory removal, removes entire directories at once");
-        eprintln!("    - 'rsync': Use rsync --delete method, optimized for network storage (Linux only)");
+        eprintln!("    - 'preserve': Safe Mode - Individual file deletion (slower, keeps structure)");
+        eprintln!("    - 'full': Fast Mode - Directory removal (faster)");
+        eprintln!("    - 'rsync': Rsync - With empty directory (network storage, Linux only)");
+        eprintln!("\nNote: Uses 4 threads for optimal I/O performance");
         std::process::exit(1);
     }
 
     let cache_path = &args[1];
     let progress_path = Path::new(&args[2]);
-    let thread_count = if args.len() >= 4 {
-        args[3].parse::<usize>().unwrap_or(4)
-    } else {
-        4
-    };
-    let delete_mode = if args.len() >= 5 {
-        &args[4]
+    let thread_count = 4; // Hardcoded to 4 threads for I/O operations
+    let delete_mode = if args.len() >= 4 {
+        &args[3]
     } else {
         "preserve"
     };

@@ -306,7 +306,7 @@ const DatabaseManager: React.FC<{
             You are about to permanently delete data from the following table(s):
           </p>
 
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-[40vh] overflow-y-auto custom-scrollbar pr-2">
             {getSelectedTableInfo().map((table) => (
               <div
                 key={table.name}
