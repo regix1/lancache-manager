@@ -63,6 +63,26 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     return () => clearInterval(interval);
   }, [authMode]);
 
+  // Auto-show auth modal when unexpectedly logged out
+  useEffect(() => {
+    // Track the previous auth mode to detect unexpected logouts
+    const prevAuthMode = React.useRef(authMode);
+
+    // If user was authenticated or in guest mode, and now they're unauthenticated,
+    // it means they got logged out unexpectedly (device revoked, session expired, etc.)
+    if (
+      (prevAuthMode.current === 'authenticated' || prevAuthMode.current === 'guest') &&
+      authMode === 'unauthenticated' &&
+      !authChecking // Don't show during initial auth check
+    ) {
+      console.log('[AuthenticationManager] Unexpected logout detected, showing auth modal');
+      setShowAuthModal(true);
+      onError?.('Your session has expired or been revoked. Please authenticate again.');
+    }
+
+    prevAuthMode.current = authMode;
+  }, [authMode, authChecking, onError]);
+
   const checkAuth = async () => {
     setAuthChecking(true);
     try {
