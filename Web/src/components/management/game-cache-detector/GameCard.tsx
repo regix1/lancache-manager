@@ -73,8 +73,8 @@ const GameCard: React.FC<GameCardProps> = ({
           )}
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <h4 className="text-themed-primary font-semibold truncate">{game.game_name}</h4>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h4 className="text-themed-primary font-semibold break-words">{game.game_name}</h4>
             <span className="text-xs text-themed-muted bg-themed-elevated px-2 py-0.5 rounded flex-shrink-0">
               AppID: {game.game_app_id}
             </span>

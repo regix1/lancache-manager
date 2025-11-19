@@ -293,17 +293,42 @@ public class DeviceAuthService
     {
         try
         {
+            // Validate input
+            if (string.IsNullOrEmpty(encryptedKey))
+            {
+                _logger.LogWarning("Encrypted key is null or empty");
+                return string.Empty;
+            }
+
             var buffer = Convert.FromBase64String(encryptedKey);
 
             using var aes = Aes.Create();
             var key = DeriveKeyFromDeviceId(deviceId);
             aes.Key = key;
 
-            var iv = new byte[aes.IV.Length];
-            var encrypted = new byte[buffer.Length - iv.Length];
+            var ivLength = aes.IV.Length;
 
-            Array.Copy(buffer, 0, iv, 0, iv.Length);
-            Array.Copy(buffer, iv.Length, encrypted, 0, encrypted.Length);
+            // Validate buffer length to prevent overflow
+            if (buffer.Length < ivLength)
+            {
+                _logger.LogWarning("Encrypted key buffer is too short (expected at least {Expected} bytes, got {Actual} bytes)", ivLength, buffer.Length);
+                return string.Empty;
+            }
+
+            var iv = new byte[ivLength];
+            var encryptedDataLength = buffer.Length - ivLength;
+
+            // Additional safety check
+            if (encryptedDataLength < 0)
+            {
+                _logger.LogWarning("Invalid encrypted data length: {Length}", encryptedDataLength);
+                return string.Empty;
+            }
+
+            var encrypted = new byte[encryptedDataLength];
+
+            Array.Copy(buffer, 0, iv, 0, ivLength);
+            Array.Copy(buffer, ivLength, encrypted, 0, encrypted.Length);
 
             aes.IV = iv;
 
