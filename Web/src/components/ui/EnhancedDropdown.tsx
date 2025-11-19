@@ -74,10 +74,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       const viewportWidth = window.innerWidth;
       const buttonLeft = buttonRect.left;
       const buttonRight = buttonRect.right;
-      const buttonWidth = buttonRect.width;
 
       // Calculate space on both sides
-      const spaceOnRight = viewportWidth - buttonLeft;
       const spaceOnLeft = buttonRight;
 
       // Determine optimal horizontal position
