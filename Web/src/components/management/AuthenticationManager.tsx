@@ -89,27 +89,15 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       return;
     }
 
-    // Case 1: Transition from authenticated/guest to unauthenticated (live logout)
+    // Detect transition from authenticated/guest to unauthenticated (logout/revocation)
     const wasLoggedOut =
       (prevAuthMode.current === 'authenticated' || prevAuthMode.current === 'guest') &&
       authMode === 'unauthenticated';
 
-    // Case 2: Page loaded/refreshed while unauthenticated but has stored credentials
-    // This happens when device is revoked and user refreshes - they have an API key
-    // in localStorage but backend rejects it, so they end up unauthenticated on load
-    const hasStoredCredentials = authService.isRegistered(); // Checks if API key exists
-    const stuckInLimbo =
-      authMode === 'unauthenticated' &&
-      hasStoredCredentials &&
-      prevAuthMode.current === 'unauthenticated'; // No transition detected
-
-    if (wasLoggedOut || stuckInLimbo) {
+    if (wasLoggedOut) {
       console.log('[AuthenticationManager] Unexpected logout detected, showing auth modal', {
-        wasLoggedOut,
-        stuckInLimbo,
         authMode,
-        prevAuthMode: prevAuthMode.current,
-        hasStoredCredentials
+        prevAuthMode: prevAuthMode.current
       });
       setShowAuthModal(true);
       hasShownRevocationModal.current = true; // Mark as shown
@@ -357,20 +345,18 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
                   <span className="hidden sm:inline">Logout</span>
                   <span className="sm:hidden">Logout</span>
                 </Button>
-                {authMode === 'authenticated' && (
-                  <Button
-                    variant="filled"
-                    color="red"
-                    size="sm"
-                    leftSection={<AlertCircle className="w-3 h-3" />}
-                    onClick={handleRegenerateKey}
-                    loading={authLoading}
-                    className="flex-1 sm:flex-none"
-                  >
-                    <span className="hidden sm:inline">Regenerate Key</span>
-                    <span className="sm:hidden">Regenerate</span>
-                  </Button>
-                )}
+                <Button
+                  variant="filled"
+                  color="red"
+                  size="sm"
+                  leftSection={<AlertCircle className="w-3 h-3" />}
+                  onClick={handleRegenerateKey}
+                  loading={authLoading}
+                  className="flex-1 sm:flex-none"
+                >
+                  <span className="hidden sm:inline">Regenerate Key</span>
+                  <span className="sm:hidden">Regenerate</span>
+                </Button>
               </>
             )}
 

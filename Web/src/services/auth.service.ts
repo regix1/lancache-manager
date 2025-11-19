@@ -327,6 +327,23 @@ class AuthService {
         headers: this.getAuthHeaders()
       });
 
+      // Handle 401 Unauthorized - device was revoked or removed from database
+      if (response.status === 401) {
+        console.warn('[Auth] Device not found or revoked during auth check - clearing credentials');
+        // Clear stored credentials since the device is no longer valid on backend
+        this.handleUnauthorized();
+        this.authChecked = true;
+        return {
+          requiresAuth: true,
+          isAuthenticated: false,
+          authMode: 'unauthenticated',
+          hasData: false,
+          hasEverBeenSetup: false,
+          hasBeenInitialized: false,
+          hasDataLoaded: false
+        };
+      }
+
       if (response.ok) {
         const result = await response.json();
         this.isAuthenticated = result.isAuthenticated;
