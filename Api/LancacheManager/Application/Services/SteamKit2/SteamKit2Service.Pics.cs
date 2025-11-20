@@ -938,7 +938,8 @@ public partial class SteamKit2Service
         }
 
         linkedCts.Token.ThrowIfCancellationRequested();
-        return callbacks.AsReadOnly();
+        // Return a new list to avoid collection modification exceptions if late callbacks arrive
+        return callbacks.ToList().AsReadOnly();
     }
 
     private static uint? AsUInt(KeyValue kv)
