@@ -47,9 +47,12 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
     }
   });
 
-  // PICS authentication should be disabled when Web API is not operational
-  // (V2 down AND no V1 API key configured)
-  const isPicsDisabled = !!(!webApiLoading && webApiStatus && !webApiStatus.isFullyOperational);
+  // PICS authentication logic:
+  // - V2 available → PICS auth enabled (need Steam login to access all games)
+  // - V2 unavailable, V1 key exists → PICS auth disabled (V1 API key can fetch all games)
+  // - V2 unavailable, no V1 key → PICS auth disabled (no way to authenticate)
+  const isPicsDisabled = !!(!webApiLoading && webApiStatus && !webApiStatus.isV2Available);
+  const hasV1Fallback = !webApiLoading && webApiStatus && !webApiStatus.isV2Available && webApiStatus.hasApiKey;
 
   useEffect(() => {
     // Load auto-start preference from localStorage
@@ -145,14 +148,24 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           </div>
         </div>
 
-        {/* Warning when PICS is disabled due to Web API unavailability */}
+        {/* Warning when PICS is disabled */}
         {isPicsDisabled && (
           <div className="mb-4">
-            <Alert color="yellow">
+            <Alert color={hasV1Fallback ? 'blue' : 'yellow'}>
               <p className="text-sm">
-                <strong>Steam PICS Authentication Disabled:</strong> Web API V2 is unavailable and
-                no V1 API key is configured. Please configure a Steam Web API key in the Steam Web
-                API Status section below to enable PICS authentication.
+                <strong>Steam PICS Authentication Disabled:</strong>{' '}
+                {hasV1Fallback ? (
+                  <>
+                    You have a Steam Web API V1 key configured. Steam PICS Authentication is not
+                    needed - we can fetch all games using your API key without requiring a Steam
+                    account login.
+                  </>
+                ) : (
+                  <>
+                    Web API V2 is unavailable and no V1 API key is configured. Please configure a
+                    Steam Web API key in the Steam Web API Status section below to fetch game data.
+                  </>
+                )}
               </p>
             </Alert>
           </div>

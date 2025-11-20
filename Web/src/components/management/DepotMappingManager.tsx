@@ -169,10 +169,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   useEffect(() => {
     // Web API is not available when:
     // 1. picsProgress says it's not available, OR
-    // 2. Steam Web API status shows it's not fully operational (V2 down AND no V1 key)
+    // 2. Steam Web API V2 is down AND no V1 API key exists
+    // Note: V1 API key alone is sufficient to fetch all games without Steam authentication
     const webApiNotAvailable =
       picsProgress?.isWebApiAvailable === false ||
-      (!webApiLoading && webApiStatus && !webApiStatus.isFullyOperational);
+      (!webApiLoading && webApiStatus && !webApiStatus.isV2Available && !webApiStatus.hasApiKey);
 
     // Only auto-switch if Web API is not available and user is not authenticated (GitHub mode available)
     if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
@@ -191,14 +192,15 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
     // Web API is not available when:
     // 1. picsProgress says it's not available, OR
-    // 2. Steam Web API status shows it's not fully operational (V2 down AND no V1 key)
+    // 2. Steam Web API V2 is down AND no V1 API key exists
+    // Note: V1 API key alone is sufficient to fetch all games without Steam authentication
     const webApiNotAvailable =
       picsProgress?.isWebApiAvailable === false ||
-      (!webApiLoading && webApiStatus && !webApiStatus.isFullyOperational);
+      (!webApiLoading && webApiStatus && !webApiStatus.isV2Available && !webApiStatus.hasApiKey);
 
     const webApiAvailable =
       picsProgress?.isWebApiAvailable === true ||
-      (!webApiLoading && webApiStatus && webApiStatus.isFullyOperational);
+      (!webApiLoading && webApiStatus && (webApiStatus.isV2Available || webApiStatus.hasApiKey));
 
     // Only auto-switch if:
     // 1. User is authenticated (to avoid 401 errors)
