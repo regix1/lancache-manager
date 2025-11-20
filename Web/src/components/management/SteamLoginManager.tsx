@@ -208,7 +208,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   variant="filled"
                   color="red"
                   onClick={handleSwitchToAnonymous}
-                  disabled={loading || mockMode || isPicsDisabled}
+                  disabled={loading || mockMode}
                 >
                   Logout
                 </Button>
