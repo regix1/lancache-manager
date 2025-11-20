@@ -647,6 +647,12 @@ class AuthService {
       return;
     }
 
+    // Check if we're already unauthenticated (prevent interference during re-authentication)
+    if (this.authMode === 'unauthenticated' && !this.isAuthenticated && !this.apiKey) {
+      console.log('[Auth] Already unauthenticated - skipping unauthorized handler');
+      return;
+    }
+
     // Only clear auth if we actually had an API key (to prevent loops on unauthenticated state)
     if (!this.apiKey) {
       console.log('[Auth] No API key found - skipping unauthorized handler');

@@ -26,6 +26,14 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
 
+  // Clear auth state immediately when modal opens to prevent race conditions
+  useEffect(() => {
+    console.log('[AuthModal] Clearing stale auth state on mount');
+    // Clear local auth state to ensure a clean slate
+    // This prevents periodic checks from interfering while user is typing
+    authService.clearAuth();
+  }, []); // Run once on mount
+
   useEffect(() => {
     if (allowGuestMode) {
       checkDataAvailability();
