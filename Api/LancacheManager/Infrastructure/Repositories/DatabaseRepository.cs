@@ -399,12 +399,21 @@ public class DatabaseRepository : IDatabaseRepository
                         _logger.LogInformation($"Cleared {mappingCount:N0} depot mappings");
                         deletedRows += mappingCount;
 
+                        // Also clear game information from Downloads table (since depot mappings are gone)
+                        _logger.LogInformation("Clearing game information from Downloads table (GameName, GameImageUrl, GameAppId)");
+                        await context.Downloads
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(d => d.GameName, (string?)null)
+                                .SetProperty(d => d.GameImageUrl, (string?)null)
+                                .SetProperty(d => d.GameAppId, (uint?)null));
+                        _logger.LogInformation("Cleared game information from all downloads");
+
                         await _hubContext.Clients.All.SendAsync("DatabaseResetProgress", new
                         {
                             isProcessing = true,
                             percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                             status = "deleting",
-                            message = $"Cleared depot mappings ({mappingCount:N0} rows)",
+                            message = $"Cleared depot mappings ({mappingCount:N0} rows) and unmapped all downloads",
                             timestamp = DateTime.UtcNow
                         });
                         break;

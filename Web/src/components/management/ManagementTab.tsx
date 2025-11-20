@@ -120,7 +120,7 @@ const DatabaseManager: React.FC<{
       name: 'SteamDepotMappings',
       label: 'Steam Depot Mappings',
       description: 'Depot ID to game name associations from SteamKit',
-      details: 'Mappings used to identify which game a depot belongs to'
+      details: 'Mappings used to identify which game a depot belongs to. Also clears game names from existing downloads.'
     },
     {
       name: 'CachedGameDetections',
