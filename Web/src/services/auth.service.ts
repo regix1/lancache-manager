@@ -105,6 +105,16 @@ class AuthService {
         headers: this.getAuthHeaders()
       });
 
+      // Handle 401 Unauthorized - device/API key is invalid
+      if (response.status === 401) {
+        console.warn('[Auth] Received 401 during device validation - authentication is invalid');
+        this.handleUnauthorized();
+        window.dispatchEvent(new CustomEvent('auth-session-revoked', {
+          detail: { reason: 'Your session is no longer valid. Please authenticate again.' }
+        }));
+        return;
+      }
+
       if (response.ok) {
         const result = await response.json();
         const sessions = result.sessions || [];
