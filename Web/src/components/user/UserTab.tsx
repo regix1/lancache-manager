@@ -403,6 +403,20 @@ const UserTab: React.FC = () => {
     return `${minutes}m remaining`;
   };
 
+  const isSessionActive = (session: Session) => {
+    // Don't show active for revoked or expired sessions
+    if (session.isRevoked || session.isExpired) return false;
+
+    // Check if lastSeenAt is within the last 60 seconds (1 minute)
+    if (!session.lastSeenAt) return false;
+
+    const now = new Date();
+    const lastSeen = new Date(session.lastSeenAt);
+    const diffSeconds = (now.getTime() - lastSeen.getTime()) / 1000;
+
+    return diffSeconds <= 60;
+  };
+
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
       {/* Header */}
@@ -609,6 +623,17 @@ const UserTab: React.FC = () => {
                                 }}
                               >
                                 GUEST
+                              </span>
+                            )}
+                            {isSessionActive(session) && (
+                              <span
+                                className="px-2 py-0.5 text-xs rounded font-medium"
+                                style={{
+                                  backgroundColor: 'var(--theme-active-session-bg)',
+                                  color: 'var(--theme-active-session)'
+                                }}
+                              >
+                                Active
                               </span>
                             )}
                             {session.type === 'guest' &&

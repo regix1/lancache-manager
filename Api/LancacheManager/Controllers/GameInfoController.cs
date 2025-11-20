@@ -332,88 +332,30 @@ public class GameInfoController : ControllerBase
         {
             _logger.LogInformation("Starting download of pre-created depot data from GitHub");
 
-            const string githubUrl = "https://github.com/regix1/lancache-pics/releases/latest/download/pics_depot_mappings.json";
+            // Use the service method which handles SignalR notifications properly
+            var success = await _steamKit2Service.DownloadAndImportGitHubDataAsync(cancellationToken);
 
-            using var httpClient = _httpClientFactory.CreateClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
-            httpClient.Timeout = TimeSpan.FromMinutes(5); // 5 minute timeout for large file
-
-            _logger.LogInformation($"Downloading from: {githubUrl}");
-
-            var response = await httpClient.GetAsync(githubUrl, cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
+            if (success)
             {
-                _logger.LogWarning($"Failed to download pre-created data: HTTP {response.StatusCode}");
-                return BadRequest(new
+                // Clear the automatic scan skipped flag since user took manual action
+                _steamKit2Service.ClearAutomaticScanSkippedFlag();
+
+                // Enable periodic crawls now that we have initial data
+                _steamKit2Service.EnablePeriodicCrawls();
+
+                _logger.LogInformation("Pre-created depot data downloaded and imported successfully from GitHub");
+
+                return Ok(new
                 {
-                    error = "Failed to download pre-created depot data from GitHub",
-                    statusCode = response.StatusCode,
-                    url = githubUrl
+                    message = "Pre-created depot data downloaded and imported successfully",
+                    source = "GitHub",
+                    timestamp = DateTime.UtcNow
                 });
             }
-
-            var jsonContent = await response.Content.ReadAsStringAsync(cancellationToken);
-
-            if (string.IsNullOrWhiteSpace(jsonContent))
+            else
             {
-                return BadRequest(new { error = "Downloaded file is empty" });
+                return StatusCode(500, new { error = "Failed to download and import pre-created depot data from GitHub" });
             }
-
-            // Validate JSON structure
-            try
-            {
-                var testData = JsonSerializer.Deserialize<PicsJsonData>(jsonContent, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (testData?.DepotMappings == null || !testData.DepotMappings.Any())
-                {
-                    return BadRequest(new { error = "Downloaded file does not contain valid depot mappings" });
-                }
-
-                _logger.LogInformation($"Downloaded {testData.Metadata?.TotalMappings ?? 0} depot mappings");
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogError(ex, "Downloaded file is not valid JSON");
-                return BadRequest(new { error = "Downloaded file is not valid JSON format" });
-            }
-
-            // Save to local file
-            var localPath = _picsDataService.GetPicsJsonFilePath();
-            await System.IO.File.WriteAllTextAsync(localPath, jsonContent, cancellationToken);
-
-            _logger.LogInformation($"Saved pre-created depot data to: {localPath}");
-
-            // Clear existing depot mappings before importing (GitHub download is a full replacement)
-            _logger.LogInformation("Clearing existing depot mappings for full replacement");
-            await _picsDataService.ClearDepotMappingsAsync(cancellationToken);
-
-            // Import to database
-            await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
-
-            // Apply depot mappings to existing downloads
-            _logger.LogInformation("Applying depot mappings to existing downloads");
-            await _steamKit2Service.ManuallyApplyDepotMappings();
-
-            // Clear the automatic scan skipped flag since user took manual action
-            _steamKit2Service.ClearAutomaticScanSkippedFlag();
-
-            // Enable periodic crawls now that we have initial data
-            _steamKit2Service.EnablePeriodicCrawls();
-
-            _logger.LogInformation("Pre-created depot data downloaded and imported successfully from GitHub");
-
-            return Ok(new
-            {
-                message = "Pre-created depot data downloaded and imported successfully",
-                source = "GitHub",
-                url = githubUrl,
-                localPath = localPath,
-                timestamp = DateTime.UtcNow
-            });
         }
         catch (HttpRequestException ex)
         {

@@ -172,6 +172,43 @@ public class GuestSessionService
     }
 
     /// <summary>
+    /// Update the LastSeenAt timestamp for a guest session
+    /// </summary>
+    public void UpdateLastSeen(string sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId))
+        {
+            return;
+        }
+
+        try
+        {
+            using var context = _contextFactory.CreateDbContext();
+            var session = context.UserSessions
+                .FirstOrDefault(s => s.SessionId == sessionId && s.IsGuest && !s.IsRevoked);
+
+            if (session != null)
+            {
+                session.LastSeenAtUtc = DateTime.UtcNow;
+                context.SaveChanges();
+
+                // Update cache
+                lock (_cacheLock)
+                {
+                    if (_sessionCache.TryGetValue(sessionId, out var cachedSession))
+                    {
+                        cachedSession.LastSeenAt = DateTime.UtcNow;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[GuestSession] Failed to update LastSeen for session {SessionId}", sessionId);
+        }
+    }
+
+    /// <summary>
     /// Get all guest sessions
     /// </summary>
     public List<GuestSessionInfo> GetAllSessions()

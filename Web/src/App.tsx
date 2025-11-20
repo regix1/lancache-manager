@@ -29,6 +29,7 @@ import { storage } from '@utils/storage';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
+import { useActivityTracker } from '@hooks/useActivityTracker';
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
@@ -74,6 +75,9 @@ const AppContent: React.FC = () => {
   const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
   const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
   const signalR = useSignalR();
+
+  // Track user activity and send heartbeats to keep session alive
+  useActivityTracker();
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;

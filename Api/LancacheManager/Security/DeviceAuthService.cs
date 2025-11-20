@@ -269,6 +269,31 @@ public class DeviceAuthService
         return false;
     }
 
+    public void UpdateLastSeen(string deviceId)
+    {
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            return;
+        }
+
+        try
+        {
+            using var context = _contextFactory.CreateDbContext();
+            var session = context.UserSessions
+                .FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest && !s.IsRevoked);
+
+            if (session != null)
+            {
+                session.LastSeenAtUtc = DateTime.UtcNow;
+                context.SaveChanges();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[DeviceAuth] Failed to update LastSeen for device {DeviceId}", deviceId);
+        }
+    }
+
     private string EncryptApiKey(string apiKey, string deviceId)
     {
         // Simple encryption using device ID as part of the key

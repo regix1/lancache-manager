@@ -149,6 +149,8 @@ interface ThemeColors {
   userSessionBg?: string;
   guestSessionColor?: string;
   guestSessionBg?: string;
+  activeSessionColor?: string;
+  activeSessionBg?: string;
 }
 
 interface ThemeMeta {
@@ -549,7 +551,9 @@ class ThemeService {
           userSessionColor: '#3b82f6', // Primary blue for authenticated users
           userSessionBg: 'rgba(59, 130, 246, 0.15)', // Primary blue with 15% opacity
           guestSessionColor: '#06b6d4', // Cyan for guest users
-          guestSessionBg: 'rgba(6, 182, 212, 0.15)' // Cyan with 15% opacity
+          guestSessionBg: 'rgba(6, 182, 212, 0.15)', // Cyan with 15% opacity
+          activeSessionColor: '#f97316', // Orange for active sessions
+          activeSessionBg: 'rgba(249, 115, 22, 0.15)' // Orange with 15% opacity
         }
       },
       // In theme.service.ts, update the light-default theme:
@@ -710,7 +714,9 @@ class ThemeService {
           userSessionColor: '#3b82f6', // Primary blue for authenticated users
           userSessionBg: '#dbeafe', // Blue-100 for light theme
           guestSessionColor: '#06b6d4', // Cyan for guest users
-          guestSessionBg: '#cffafe' // Cyan-100 for light theme
+          guestSessionBg: '#cffafe', // Cyan-100 for light theme
+          activeSessionColor: '#ea580c', // Darker orange for active sessions (better contrast on light)
+          activeSessionBg: '#fed7aa' // Orange-200 for light theme
         }
       }
     ];
@@ -1140,6 +1146,8 @@ class ThemeService {
       --theme-user-session-bg: ${colors.userSessionBg || 'rgba(59, 130, 246, 0.15)'};
       --theme-guest-session: ${colors.guestSessionColor || colors.info};
       --theme-guest-session-bg: ${colors.guestSessionBg || colors.infoBg};
+      --theme-active-session: ${colors.activeSessionColor || colors.iconBgOrange};
+      --theme-active-session-bg: ${colors.activeSessionBg || 'rgba(249, 115, 22, 0.15)'};
     }
 
     /* Global Transitions */

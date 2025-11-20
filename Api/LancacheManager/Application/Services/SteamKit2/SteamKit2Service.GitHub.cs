@@ -106,11 +106,14 @@ public partial class SteamKit2Service
                 await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
                 {
                     success = true,
+                    scanMode = "github",
                     message = "GitHub depot data downloaded and imported successfully",
                     totalMappings,
                     isLoggedOn = IsSteamAuthenticated,
                     timestamp = DateTime.UtcNow
                 });
+
+                _logger.LogInformation("[GitHub Mode] DepotMappingComplete notification sent successfully");
             }
             catch (Exception ex)
             {
@@ -152,6 +155,7 @@ public partial class SteamKit2Service
             await _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
             {
                 success = false,
+                scanMode = "github",
                 message = $"[GitHub Mode] {errorMessage}",
                 error = errorMessage,
                 isLoggedOn = IsSteamAuthenticated,

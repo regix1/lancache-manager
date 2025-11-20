@@ -736,6 +736,40 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
+    /// Heartbeat endpoint to update lastSeenAt for active sessions
+    /// </summary>
+    [HttpPost("heartbeat")]
+    public IActionResult Heartbeat()
+    {
+        try
+        {
+            // Check for authenticated device
+            var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(deviceId))
+            {
+                _deviceAuthService.UpdateLastSeen(deviceId);
+                return Ok(new { success = true, type = "device" });
+            }
+
+            // Check for guest session
+            var guestSessionId = Request.Headers["X-Guest-Session-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(guestSessionId))
+            {
+                _guestSessionService.UpdateLastSeen(guestSessionId);
+                return Ok(new { success = true, type = "guest" });
+            }
+
+            // No valid session found
+            return Unauthorized(new { error = "No valid session found" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing heartbeat");
+            return StatusCode(500, new { error = "Failed to process heartbeat" });
+        }
+    }
+
+    /// <summary>
     /// Parse user agent string to extract OS and browser information
     /// </summary>
     private (string? os, string? browser) ParseUserAgent(string? userAgent)
