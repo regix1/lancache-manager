@@ -217,6 +217,10 @@ public partial class SteamKit2Service
                 _appNames.Clear();
                 _scannedApps.Clear(); // Clear scanned apps list so all apps are rescanned
                 _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
+
+                // Clear game data from Downloads table so all downloads get fresh mappings
+                _logger.LogInformation("Full scan detected - clearing existing game data from downloads for fresh mapping");
+                await ClearDownloadGameDataAsync();
             }
             else if (incrementalOnly)
             {

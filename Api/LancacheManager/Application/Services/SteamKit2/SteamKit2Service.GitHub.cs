@@ -6,7 +6,7 @@ namespace LancacheManager.Application.Services;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Download pre-created depot mappings from GitHub and import them
+    /// Download pre-created depot mappings from GitHub and import them incrementally
     /// This is used for the "GitHub mode" in periodic scans
     /// </summary>
     public async Task<bool> DownloadAndImportGitHubDataAsync(CancellationToken cancellationToken = default)
@@ -58,21 +58,24 @@ public partial class SteamKit2Service
                 return false;
             }
 
-            // Validate JSON structure
+            // Validate JSON structure and parse GitHub data
+            PicsJsonData? downloadedData;
             try
             {
-                var testData = JsonSerializer.Deserialize<PicsJsonData>(jsonContent, new JsonSerializerOptions
+                downloadedData = JsonSerializer.Deserialize<PicsJsonData>(jsonContent, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
                 });
 
-                if (testData?.DepotMappings == null || !testData.DepotMappings.Any())
+                if (downloadedData?.DepotMappings == null || !downloadedData.DepotMappings.Any())
                 {
                     _logger.LogWarning("[GitHub Mode] Downloaded file does not contain valid depot mappings");
                     return false;
                 }
 
-                _logger.LogInformation("[GitHub Mode] Downloaded {Count} depot mappings", testData.Metadata?.TotalMappings ?? 0);
+                _logger.LogInformation("[GitHub Mode] Downloaded {Count} depot mappings (change number: {ChangeNumber})",
+                    downloadedData.Metadata?.TotalMappings ?? 0,
+                    downloadedData.Metadata?.LastChangeNumber ?? 0);
             }
             catch (JsonException ex)
             {
@@ -80,21 +83,37 @@ public partial class SteamKit2Service
                 return false;
             }
 
-            // Save to local file
+            // Load existing data to check if incremental update is possible
+            var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            bool isIncremental = existingData?.Metadata != null && existingData.DepotMappings != null;
+
+            if (isIncremental)
+            {
+                _logger.LogInformation("[GitHub Mode] Existing data found - performing incremental update (existing change number: {ExistingChange}, new: {NewChange})",
+                    existingData?.Metadata?.LastChangeNumber ?? 0,
+                    downloadedData.Metadata?.LastChangeNumber ?? 0);
+            }
+            else
+            {
+                _logger.LogInformation("[GitHub Mode] No existing data found - performing full import");
+            }
+
+            // Save to local file (overwrites existing)
             var localPath = _picsDataService.GetPicsJsonFilePath();
             await System.IO.File.WriteAllTextAsync(localPath, jsonContent, cancellationToken);
-
             _logger.LogInformation("[GitHub Mode] Saved pre-created depot data to: {Path}", localPath);
 
-            // Clear existing depot mappings before importing (GitHub download is a full replacement)
-            _logger.LogInformation("[GitHub Mode] Clearing existing depot mappings for full replacement");
-            await _picsDataService.ClearDepotMappingsAsync(cancellationToken);
+            // Clear cache so next load reads the new file
+            _picsDataService.ClearCache();
 
-            // Import to database
+            // Import to database - the ImportJsonDataToDatabaseAsync method already handles incremental updates intelligently
+            // It will update existing mappings if JSON data is newer, or insert new ones
+            _logger.LogInformation("[GitHub Mode] Importing depot mappings to database (incremental mode: updates existing, adds new)");
             await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
 
             // Apply depot mappings to existing downloads
-            _logger.LogInformation("[GitHub Mode] Applying depot mappings to existing downloads");
+            // This only updates downloads that don't have game info yet (or missing image)
+            _logger.LogInformation("[GitHub Mode] Applying depot mappings to downloads without game info");
             await ManuallyApplyDepotMappings();
 
             _logger.LogInformation("[GitHub Mode] Pre-created depot data downloaded and imported successfully");
@@ -107,7 +126,9 @@ public partial class SteamKit2Service
                 {
                     success = true,
                     scanMode = "github",
-                    message = "GitHub depot data downloaded and imported successfully",
+                    message = isIncremental
+                        ? "GitHub depot data updated incrementally"
+                        : "GitHub depot data imported successfully",
                     totalMappings,
                     isLoggedOn = IsSteamAuthenticated,
                     timestamp = DateTime.UtcNow

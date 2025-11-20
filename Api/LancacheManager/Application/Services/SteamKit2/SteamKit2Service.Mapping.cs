@@ -7,6 +7,33 @@ namespace LancacheManager.Application.Services;
 public partial class SteamKit2Service
 {
     /// <summary>
+    /// Clear game information from all downloads (used before full scans/GitHub imports)
+    /// </summary>
+    private async Task ClearDownloadGameDataAsync()
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            _logger.LogInformation("Clearing game information from Downloads table (GameName, GameImageUrl, GameAppId)");
+
+            await context.Downloads
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(d => d.GameName, (string?)null)
+                    .SetProperty(d => d.GameImageUrl, (string?)null)
+                    .SetProperty(d => d.GameAppId, (uint?)null));
+
+            _logger.LogInformation("Cleared game information from all downloads - ready for fresh mapping");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to clear download game data");
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Manually apply depot mappings to existing downloads (called from UI)
     /// </summary>
     public async Task ManuallyApplyDepotMappings()
