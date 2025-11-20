@@ -7,7 +7,6 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SteamAuthModal } from '@components/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
-import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';
@@ -32,7 +31,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
     setSteamAuthMode: setContextSteamAuthMode,
     setUsername: setContextUsername
   } = useSteamAuth();
-  const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [autoStartPics, setAutoStartPics] = useState<boolean>(false);
@@ -46,13 +44,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
       onSuccess?.(message);
     }
   });
-
-  // PICS authentication logic:
-  // - V2 available → PICS auth enabled (need Steam login to access all games)
-  // - V2 unavailable, V1 key exists → PICS auth disabled (V1 API key can fetch all games)
-  // - V2 unavailable, no V1 key → PICS auth disabled (no way to authenticate)
-  const isPicsDisabled = !!(!webApiLoading && webApiStatus && !webApiStatus.isV2Available);
-  const hasV1Fallback = !webApiLoading && webApiStatus && !webApiStatus.isV2Available && webApiStatus.hasApiKey;
 
   useEffect(() => {
     // Load auto-start preference from localStorage
@@ -143,33 +134,10 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
               options={dropdownOptions}
               value={steamAuthMode}
               onChange={handleModeChange}
-              disabled={loading || mockMode || authMode !== 'authenticated' || isPicsDisabled}
+              disabled={loading || mockMode || authMode !== 'authenticated'}
             />
           </div>
         </div>
-
-        {/* Warning when PICS is disabled */}
-        {isPicsDisabled && (
-          <div className="mb-4">
-            <Alert color={hasV1Fallback ? 'blue' : 'yellow'}>
-              <p className="text-sm">
-                <strong>Steam PICS Authentication Disabled:</strong>{' '}
-                {hasV1Fallback ? (
-                  <>
-                    You have a Steam Web API V1 key configured. Steam PICS Authentication is not
-                    needed - we can fetch all games using your API key without requiring a Steam
-                    account login.
-                  </>
-                ) : (
-                  <>
-                    Web API V2 is unavailable and no V1 API key is configured. Please configure a
-                    Steam Web API key in the Steam Web API Status section below to fetch game data.
-                  </>
-                )}
-              </p>
-            </Alert>
-          </div>
-        )}
 
         {/* Configuration section with unified background */}
         <div className="p-4 rounded-lg bg-themed-tertiary/30">
@@ -190,7 +158,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={autoStartPics ? 'filled' : 'default'}
                 color={autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(true)}
-                disabled={loading || mockMode || isPicsDisabled}
+                disabled={loading || mockMode}
               >
                 Automatic
               </Button>
@@ -199,7 +167,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={!autoStartPics ? 'filled' : 'default'}
                 color={!autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(false)}
-                disabled={loading || mockMode || isPicsDisabled}
+                disabled={loading || mockMode}
               >
                 Manual
               </Button>
