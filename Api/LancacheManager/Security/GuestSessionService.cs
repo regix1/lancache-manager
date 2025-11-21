@@ -400,6 +400,7 @@ public class GuestSessionService
                 existingSession.IsRevoked = session.IsRevoked;
                 existingSession.RevokedAtUtc = session.RevokedAt;
                 existingSession.RevokedBy = session.RevokedBy;
+                existingSession.IsGuest = true; // Ensure session is marked as guest (handles downgrade from authenticated)
             }
             else
             {
