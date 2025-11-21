@@ -3,7 +3,7 @@ import ApiService from '@services/api.service';
 
 /**
  * Hook to track user activity and send heartbeat to server
- * Detects mouse movement, clicks, keyboard input, and scrolling
+ * Detects mouse movement, clicks, keyboard input, scrolling, and touch gestures (mobile)
  * Sends heartbeat every 3 seconds when user is active
  * Marks user inactive after 1 minute of no activity
  */
@@ -20,7 +20,9 @@ export const useActivityTracker = () => {
     };
 
     // Listen for various user interactions
-    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    // Desktop: mousemove, mousedown, keydown, scroll, click
+    // Mobile: touchstart, touchmove, touchend, scroll
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'touchmove', 'touchend', 'click'];
 
     events.forEach((event) => {
       window.addEventListener(event, updateActivity, { passive: true });
