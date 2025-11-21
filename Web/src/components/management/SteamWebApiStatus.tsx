@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Globe, AlertCircle, CheckCircle, Key, Loader2, Info, Trash2 } from 'lucide-react';
+import { Globe, AlertCircle, CheckCircle, Key, Loader2, Info, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { Modal } from '@components/ui/Modal';
+import { Alert } from '@components/ui/Alert';
 import SteamWebApiKeyModal from '@components/shared/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -16,18 +18,16 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
   const { status, loading, refresh, updateStatus } = useSteamWebApiStatus();
   const { updateProgress } = usePicsProgress();
   const [showConfigModal, setShowConfigModal] = useState(false);
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removing, setRemoving] = useState(false);
 
   const needsApiKey =
     status?.version === 'V1NoKey' || (status?.version === 'BothFailed' && !status?.hasApiKey);
   const showWarning = !status?.isFullyOperational && !loading;
 
-  const handleRemoveApiKey = async () => {
-    if (!confirm('Are you sure you want to remove the Steam Web API key?')) {
-      return;
-    }
-
+  const confirmRemoveApiKey = async () => {
     setRemoving(true);
+    setShowRemoveModal(false);
 
     try {
       const response = await fetch('/api/steamwebapi/remove-key', {
@@ -245,12 +245,11 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
             </Button>
             {status?.hasApiKey && (
               <Button
-                variant="outline"
+                variant="filled"
                 color="red"
                 leftSection={<Trash2 className="w-4 h-4" />}
-                onClick={handleRemoveApiKey}
+                onClick={() => setShowRemoveModal(true)}
                 disabled={removing || loading}
-                loading={removing}
               >
                 Remove
               </Button>
@@ -297,6 +296,48 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
           });
         }}
       />
+
+      {/* Remove Confirmation Modal */}
+      <Modal
+        opened={showRemoveModal}
+        onClose={() => {
+          if (!removing) {
+            setShowRemoveModal(false);
+          }
+        }}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>Remove Steam Web API Key</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Are you sure you want to remove the Steam Web API key? If V2 becomes unavailable,
+            you will need to reconfigure the key to use V1 fallback.
+          </p>
+
+          <Alert color="yellow">
+            <p className="text-sm">This action will remove the stored API key from the server.</p>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setShowRemoveModal(false)} disabled={removing}>
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              leftSection={<Trash2 className="w-4 h-4" />}
+              onClick={confirmRemoveApiKey}
+              loading={removing}
+            >
+              Remove API Key
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 };

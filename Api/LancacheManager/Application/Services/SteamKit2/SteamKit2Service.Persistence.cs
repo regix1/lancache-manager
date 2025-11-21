@@ -155,33 +155,40 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Load PICS metadata (crawl time and change number) from JSON or state
+    /// Load PICS metadata (crawl time and change number) from state and JSON
+    /// Crawl time is loaded from state.json (for accurate scheduling), change number from JSON (for PICS scans)
     /// </summary>
     private async Task LoadPicsMetadataAsync()
     {
         try
         {
-            // Try to load from JSON file first (contains both crawl time and change number)
-            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
-            if (picsData?.Metadata != null)
-            {
-                _lastCrawlTime = picsData.Metadata.LastUpdated;
-                _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
-                _logger.LogInformation("Loaded PICS metadata from JSON: crawl time {LastCrawl}, change number {ChangeNumber}",
-                    _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"), _lastChangeNumberSeen);
-                return;
-            }
-
-            // Fallback to state service for crawl time only
+            // Load crawl time from state.json FIRST (for scheduling accuracy)
+            // This ensures we track "when did WE last refresh" not "when was the JSON file generated"
             var lastCrawl = _stateService.GetLastPicsCrawl();
             if (lastCrawl.HasValue)
             {
                 _lastCrawlTime = lastCrawl.Value;
-                _logger.LogInformation("Loaded last PICS crawl time from state: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                _logger.LogInformation("Loaded last crawl time from state: {LastCrawl}", _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
             }
-            else
+
+            // Load change number from JSON file (still needed for PICS scans)
+            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            if (picsData?.Metadata != null)
             {
-                _logger.LogInformation("No previous PICS metadata found");
+                _lastChangeNumberSeen = picsData.Metadata.LastChangeNumber;
+                _logger.LogInformation("Loaded change number from JSON: {ChangeNumber}", _lastChangeNumberSeen);
+
+                // Only use JSON timestamp if state.json doesn't have one (first-time setup)
+                if (!lastCrawl.HasValue)
+                {
+                    _lastCrawlTime = picsData.Metadata.LastUpdated;
+                    _logger.LogInformation("No state crawl time found, using JSON metadata timestamp: {LastCrawl}",
+                        _lastCrawlTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                }
+            }
+            else if (!lastCrawl.HasValue)
+            {
+                _logger.LogInformation("No previous PICS metadata found in state or JSON");
             }
         }
         catch (Exception ex)

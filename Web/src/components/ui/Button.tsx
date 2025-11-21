@@ -1,4 +1,5 @@
 import React from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'filled' | 'subtle' | 'outline' | 'default';
@@ -79,8 +80,7 @@ export const Button: React.FC<ButtonProps> = ({
       disabled={disabled || loading}
       {...props}
     >
-      {loading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />}
-      {leftSection}
+      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : leftSection}
       {children}
       {rightSection}
     </button>

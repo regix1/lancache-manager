@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Cpu, Save, RefreshCw, Info, Play, Loader2 } from 'lucide-react';
+import React, { useState, use } from 'react';
+import { Cpu, Save, RefreshCw, Info, Play } from 'lucide-react';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -49,12 +49,43 @@ const memoryThresholdOptions: DropdownOption[] = [
   { value: '16384', label: '16 GB' }
 ];
 
+// Fetch GC settings
+const fetchGcSettings = async (): Promise<GcSettings> => {
+  try {
+    const response = await fetch(`${API_BASE}/gc/settings`, {
+      headers: authService.getAuthHeaders()
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data;
+    } else {
+      throw new Error('Failed to load GC settings');
+    }
+  } catch (err) {
+    console.error('[GcManager] Failed to load settings:', err);
+    // Return default settings on error
+    return {
+      aggressiveness: 'disabled',
+      memoryThresholdMB: 4096
+    };
+  }
+};
+
+// Cache promise to avoid refetching on every render
+let settingsPromise: Promise<GcSettings> | null = null;
+
+const getSettingsPromise = () => {
+  if (!settingsPromise) {
+    settingsPromise = fetchGcSettings();
+  }
+  return settingsPromise;
+};
+
 const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
-  const [settings, setSettings] = useState<GcSettings>({
-    aggressiveness: 'disabled',
-    memoryThresholdMB: 4096
-  });
-  const [loading, setLoading] = useState(false);
+  // Use the 'use' hook to load initial settings
+  const initialSettings = use(getSettingsPromise());
+
+  const [settings, setSettings] = useState<GcSettings>(initialSettings);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -62,28 +93,16 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
   const [triggering, setTriggering] = useState(false);
   const [triggerResult, setTriggerResult] = useState<GcTriggerResult | null>(null);
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
   const loadSettings = async () => {
-    setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/gc/settings`, {
-        headers: authService.getAuthHeaders()
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSettings(data);
-        setHasChanges(false);
-      } else {
-        throw new Error('Failed to load GC settings');
-      }
+      // Clear cache and refetch
+      settingsPromise = null;
+      const data = await fetchGcSettings();
+      setSettings(data);
+      setHasChanges(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load GC settings');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -180,17 +199,6 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     const thresholdGB = (thresholdMB / 1024).toFixed(1);
     return `Garbage collection will trigger when process memory exceeds ${thresholdGB} GB`;
   };
-
-  if (loading) {
-    return (
-      <Card>
-        <div className="flex items-center justify-center p-8">
-          <Loader2 className="w-6 h-6 animate-spin text-themed-primary" />
-          <span className="ml-2 text-themed-secondary">Loading GC settings...</span>
-        </div>
-      </Card>
-    );
-  }
 
   return (
     <Card>

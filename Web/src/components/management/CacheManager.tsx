@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Server, Trash2, AlertTriangle, Loader2, Lock } from 'lucide-react';
+import React, { useState, useEffect, use } from 'react';
+import { Server, Trash2, AlertTriangle, Lock } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -8,6 +8,85 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import type { Config } from '../../types';
+
+// Fetch initial cache configuration data
+const fetchCacheConfig = async (): Promise<Config> => {
+  try {
+    return await ApiService.getConfig();
+  } catch (err) {
+    console.error('Failed to load config:', err);
+    return {
+      cachePath: 'Error loading...',
+      logPath: 'Error loading...',
+      services: [],
+      timezone: 'UTC'
+    };
+  }
+};
+
+const fetchDeleteMode = async (): Promise<'preserve' | 'full' | 'rsync'> => {
+  try {
+    const data = await ApiService.getCacheDeleteMode();
+    return data.deleteMode as 'preserve' | 'full' | 'rsync';
+  } catch (err) {
+    console.error('Failed to load delete mode:', err);
+    return 'preserve';
+  }
+};
+
+const fetchRsyncAvailability = async (): Promise<boolean> => {
+  try {
+    const data = await ApiService.isRsyncAvailable();
+    return data.available;
+  } catch (err) {
+    console.error('Failed to check rsync availability:', err);
+    return false;
+  }
+};
+
+const fetchDirectoryPermissions = async (): Promise<boolean> => {
+  try {
+    const data = await ApiService.getDirectoryPermissions();
+    return data.cache.readOnly;
+  } catch (err) {
+    console.error('Failed to check directory permissions:', err);
+    return false; // Assume writable on error
+  }
+};
+
+// Cache promises to avoid refetching on every render
+let configPromise: Promise<Config> | null = null;
+let deleteModePromise: Promise<'preserve' | 'full' | 'rsync'> | null = null;
+let rsyncPromise: Promise<boolean> | null = null;
+let permissionsPromise: Promise<boolean> | null = null;
+
+const getCacheConfigPromise = () => {
+  if (!configPromise) {
+    configPromise = fetchCacheConfig();
+  }
+  return configPromise;
+};
+
+const getDeleteModePromise = () => {
+  if (!deleteModePromise) {
+    deleteModePromise = fetchDeleteMode();
+  }
+  return deleteModePromise;
+};
+
+const getRsyncPromise = () => {
+  if (!rsyncPromise) {
+    rsyncPromise = fetchRsyncAvailability();
+  }
+  return rsyncPromise;
+};
+
+const getPermissionsPromise = () => {
+  if (!permissionsPromise) {
+    permissionsPromise = fetchDirectoryPermissions();
+  }
+  return permissionsPromise;
+};
 
 interface CacheManagerProps {
   isAuthenticated: boolean;
@@ -24,30 +103,18 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   onSuccess
 }) => {
   const signalR = useSignalR();
+
+  // Use the 'use' hook to load data
+  const config = use(getCacheConfigPromise());
+  const initialDeleteMode = use(getDeleteModePromise());
+  const rsyncAvailable = use(getRsyncPromise());
+  const cacheReadOnly = use(getPermissionsPromise());
+
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
-  const [config, setConfig] = useState<Config>({
-    cachePath: 'Loading...',
-    logPath: 'Loading...',
-    services: [],
-    timezone: 'UTC'
-  });
-  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>('preserve');
+  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(initialDeleteMode);
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
-  const [rsyncAvailable, setRsyncAvailable] = useState(false);
-  const [cacheReadOnly, setCacheReadOnly] = useState(false);
-  const [checkingPermissions, setCheckingPermissions] = useState(true);
   const [isCacheClearing, setIsCacheClearing] = useState(false);
-
-  // Report cache clearing status to parent
-
-  useEffect(() => {
-    loadConfig();
-    loadDeleteMode();
-    loadRsyncAvailability();
-    loadDirectoryPermissions();
-  }, []);
 
   // Listen for cache clear completion (via SignalR for UI state only)
   useEffect(() => {
@@ -63,50 +130,6 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       signalR.off('CacheClearComplete', handleCacheClearComplete);
     };
   }, [mockMode, signalR]);
-
-  const loadConfig = async () => {
-    try {
-      setIsLoadingConfig(true);
-      const configData = await ApiService.getConfig();
-      setConfig(configData);
-    } catch (err) {
-      console.error('Failed to load config:', err);
-    } finally {
-      setIsLoadingConfig(false);
-    }
-  };
-
-  const loadDeleteMode = async () => {
-    try {
-      const data = await ApiService.getCacheDeleteMode();
-      setDeleteMode(data.deleteMode as 'preserve' | 'full');
-    } catch (err) {
-      console.error('Failed to load delete mode:', err);
-    }
-  };
-
-  const loadRsyncAvailability = async () => {
-    try {
-      const data = await ApiService.isRsyncAvailable();
-      setRsyncAvailable(data.available);
-    } catch (err) {
-      console.error('Failed to check rsync availability:', err);
-      setRsyncAvailable(false);
-    }
-  };
-
-  const loadDirectoryPermissions = async () => {
-    try {
-      setCheckingPermissions(true);
-      const data = await ApiService.getDirectoryPermissions();
-      setCacheReadOnly(data.cache.readOnly);
-    } catch (err) {
-      console.error('Failed to check directory permissions:', err);
-      setCacheReadOnly(false); // Assume writable on error
-    } finally {
-      setCheckingPermissions(false);
-    }
-  };
 
   const handleDeleteModeChange = async (newMode: 'preserve' | 'full' | 'rsync') => {
     setDeleteModeLoading(true);
@@ -183,25 +206,16 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             {/* Main Cache Path and Clear Button */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
               <div className="flex-1">
-                {isLoadingConfig ? (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                    <p className="text-sm text-themed-secondary">Loading cache configuration...</p>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-themed-secondary">
-                      Manage cached game files in{' '}
-                      <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">
-                        {config.cachePath}
-                      </code>
-                    </p>
-                    <p className="text-xs text-themed-muted mt-1 flex items-center gap-1.5">
-                      <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
-                      <span>This deletes ALL cached game files from disk</span>
-                    </p>
-                  </>
-                )}
+                <p className="text-themed-secondary">
+                  Manage cached game files in{' '}
+                  <code className="bg-themed-tertiary px-2 py-1 rounded text-xs">
+                    {config.cachePath}
+                  </code>
+                </p>
+                <p className="text-xs text-themed-muted mt-1 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-themed-accent flex-shrink-0" />
+                  <span>This deletes ALL cached game files from disk</span>
+                </p>
               </div>
               <Button
                 variant="filled"
@@ -213,10 +227,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   mockMode ||
                   isCacheClearing ||
                   authMode !== 'authenticated' ||
-                  cacheReadOnly ||
-                  checkingPermissions
+                  cacheReadOnly
                 }
-                loading={actionLoading || checkingPermissions}
+                loading={actionLoading}
                 className="w-full sm:w-48"
                 title={cacheReadOnly ? 'Cache directory is mounted read-only' : undefined}
               >

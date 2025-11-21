@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Download, Scan } from 'lucide-react';
+import { AlertTriangle, Download, Scan, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 
@@ -13,6 +13,7 @@ interface FullScanRequiredModalProps {
   hasSteamApiKey?: boolean;
   title?: string;
   subtitle?: string;
+  isDownloading?: boolean;
 }
 
 export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
@@ -24,7 +25,8 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   showDownloadOption = true,
   hasSteamApiKey = false,
   title = 'Data Update Required',
-  subtitle
+  subtitle,
+  isDownloading = false
 }) => {
   const defaultSubtitle = 'Change gap too large - please download latest data from GitHub';
 
@@ -123,9 +125,24 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
 
         <div className="flex flex-col sm:flex-row gap-3 pt-2">
           {showDownloadOption && (
-            <Button onClick={onDownloadFromGitHub} variant="filled" color="blue" className="flex-1">
-              <Download className="w-4 h-4 mr-2" />
-              Download from GitHub
+            <Button
+              onClick={onDownloadFromGitHub}
+              variant="filled"
+              color="blue"
+              className="flex-1"
+              disabled={isDownloading}
+            >
+              {isDownloading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Downloading...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download from GitHub
+                </>
+              )}
             </Button>
           )}
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import {
   ToggleLeft,
   ToggleRight,
@@ -546,7 +546,15 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
 
               <SteamWebApiStatus steamAuthMode={steamAuthMode} />
 
-              <GrafanaEndpoints />
+              <Suspense fallback={
+                <Card>
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-themed-muted">Loading endpoints...</div>
+                  </div>
+                </Card>
+              }>
+                <GrafanaEndpoints />
+              </Suspense>
             </CollapsibleSection>
 
             {/* Data Management Section - Default Open */}
@@ -560,13 +568,21 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 onDataRefresh={refreshStatsAndGameCache}
               />
 
-              <CacheManager
-                isAuthenticated={isAuthenticated}
-                authMode={authMode}
-                mockMode={mockMode}
-                onError={addError}
-                onSuccess={setSuccess}
-              />
+              <Suspense fallback={
+                <Card>
+                  <div className="flex items-center justify-center py-8">
+                    <div className="text-themed-muted">Loading cache configuration...</div>
+                  </div>
+                </Card>
+              }>
+                <CacheManager
+                  isAuthenticated={isAuthenticated}
+                  authMode={authMode}
+                  mockMode={mockMode}
+                  onError={addError}
+                  onSuccess={setSuccess}
+                />
+              </Suspense>
 
               <LogProcessingManager
                 isAuthenticated={isAuthenticated}
@@ -603,7 +619,15 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
             {/* Optimizations Section - Only show if enabled via environment variable */}
             {optimizationsEnabled && (
               <CollapsibleSection title="Optimizations" icon={Settings}>
-                <GcManager isAuthenticated={isAuthenticated} />
+                <Suspense fallback={
+                  <Card>
+                    <div className="flex items-center justify-center py-8">
+                      <div className="text-themed-muted">Loading GC settings...</div>
+                    </div>
+                  </Card>
+                }>
+                  <GcManager isAuthenticated={isAuthenticated} />
+                </Suspense>
               </CollapsibleSection>
             )}
           </>

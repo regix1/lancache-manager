@@ -663,9 +663,20 @@ class AuthService {
       return;
     }
 
-    // Only clear auth if we actually had an API key (to prevent loops on unauthenticated state)
+    // If no API key but still marked as authenticated, we're in a zombie state - clear it
     if (!this.apiKey) {
-      console.log('[Auth] No API key found - skipping unauthorized handler');
+      if (this.isAuthenticated || this.authMode !== 'unauthenticated') {
+        console.warn('[Auth] Zombie state detected - no API key but still authenticated. Clearing auth state.');
+        this.isAuthenticated = false;
+        this.authMode = 'unauthenticated';
+        storage.removeItem('lancache_auth_registered');
+        storage.removeItem('lancache_device_id');
+        BrowserFingerprint.clearDeviceId();
+        this.deviceId = this.getOrCreateDeviceId();
+        window.dispatchEvent(new CustomEvent('auth-state-changed'));
+      } else {
+        console.log('[Auth] No API key found and already unauthenticated - skipping unauthorized handler');
+      }
       return;
     }
 

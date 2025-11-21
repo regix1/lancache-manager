@@ -594,7 +594,22 @@ const AppContent: React.FC = () => {
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
-        <Footer />
+        <Suspense fallback={
+          <footer
+            className="py-4 text-center text-sm border-t"
+            style={{
+              backgroundColor: 'var(--theme-nav-bg)',
+              borderColor: 'var(--theme-nav-border)',
+              color: 'var(--theme-text-secondary)'
+            }}
+          >
+            <div className="container mx-auto px-4">
+              <p>LANCache Manager v...</p>
+            </div>
+          </footer>
+        }>
+          <Footer />
+        </Suspense>
       </div>
     </TimezoneAwareWrapper>
   );

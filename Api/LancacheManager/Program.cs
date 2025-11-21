@@ -256,8 +256,8 @@ builder.Services.AddSingleton<SteamWebApiService>();
 builder.Services.AddSingleton<CacheManagementService>();
 builder.Services.AddSingleton<PicsDataService>();
 
-// Register depot data initialization service (auto-downloads from GitHub on first run)
-builder.Services.AddHostedService<DepotDataInitializationService>();
+// Depot data initialization service disabled - user must manually download depot data
+// builder.Services.AddHostedService<DepotDataInitializationService>();
 
 // Register metrics service for Prometheus/Grafana as both singleton and hosted service
 builder.Services.AddSingleton<LancacheMetricsService>();
@@ -287,7 +287,6 @@ builder.Services.AddSingleton<OperationStateService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<OperationStateService>());
 
 // Register background services
-builder.Services.AddHostedService<DownloadCleanupService>();
 builder.Services.AddHostedService<LiveLogMonitorService>();
 
 // Add memory cache for storing stats - use expiration times to control memory

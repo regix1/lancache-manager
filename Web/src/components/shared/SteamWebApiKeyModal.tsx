@@ -246,14 +246,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             loading={testing}
             className="flex-1"
           >
-            {testing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Testing...
-              </>
-            ) : (
-              'Test Connection'
-            )}
+            {testing ? 'Testing...' : 'Test Connection'}
           </Button>
 
           <Button
@@ -264,14 +257,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             loading={saving}
             className="flex-1"
           >
-            {saving ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              'Save API Key'
-            )}
+            {saving ? 'Saving...' : 'Save API Key'}
           </Button>
 
           <Button onClick={handleClose} variant="default" disabled={testing || saving}>

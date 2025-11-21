@@ -1,20 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, use } from 'react';
 import { Link, Copy, CheckCircle, Lock, Unlock } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 
+// Fetch metrics security status
+const fetchMetricsStatus = async (): Promise<boolean> => {
+  try {
+    const res = await fetch('/api/metrics/status');
+    const data = await res.json();
+    return data.requiresAuthentication;
+  } catch {
+    return false;
+  }
+};
+
+// Cache the promise to avoid refetching on every render
+let metricsStatusPromise: Promise<boolean> | null = null;
+
+const getMetricsStatusPromise = () => {
+  if (!metricsStatusPromise) {
+    metricsStatusPromise = fetchMetricsStatus();
+  }
+  return metricsStatusPromise;
+};
+
 const GrafanaEndpoints: React.FC = () => {
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
-  const [metricsSecured, setMetricsSecured] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    // Check metrics security status
-    fetch('/api/metrics/status')
-      .then((res) => res.json())
-      .then((data) => setMetricsSecured(data.requiresAuthentication))
-      .catch(() => setMetricsSecured(false));
-  }, []);
+  const metricsSecured = use(getMetricsStatusPromise());
 
   const copyToClipboard = async (text: string, endpoint: string) => {
     try {
@@ -55,25 +68,23 @@ const GrafanaEndpoints: React.FC = () => {
             Live API Endpoints for Grafana
           </h3>
         </div>
-        {metricsSecured !== null && (
-          <div
-            className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-medium border ${
-              metricsSecured ? 'access-indicator-secured' : 'access-indicator-public'
-            }`}
-          >
-            {metricsSecured ? (
-              <>
-                <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-                <span className="whitespace-nowrap">API Key Required</span>
-              </>
-            ) : (
-              <>
-                <Unlock className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
-                <span className="whitespace-nowrap">Public Access</span>
-              </>
-            )}
-          </div>
-        )}
+        <div
+          className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1 rounded-full text-xs font-medium border ${
+            metricsSecured ? 'access-indicator-secured' : 'access-indicator-public'
+          }`}
+        >
+          {metricsSecured ? (
+            <>
+              <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+              <span className="whitespace-nowrap">API Key Required</span>
+            </>
+          ) : (
+            <>
+              <Unlock className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+              <span className="whitespace-nowrap">Public Access</span>
+            </>
+          )}
+        </div>
       </div>
 
       <p className="text-themed-muted text-sm mb-4">

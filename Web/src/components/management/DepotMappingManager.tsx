@@ -46,11 +46,16 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     minutes: number;
     seconds: number;
   } | null>(null);
-  const [depotSource, setDepotSource] = useState<DepotSource>('incremental');
+  const [depotSource, setDepotSource] = useState<DepotSource>(() => {
+    // Load last selected source from localStorage
+    const savedSource = storage.getItem('depotSource');
+    return (savedSource as DepotSource) || 'incremental';
+  });
   const [changeGapWarning, setChangeGapWarning] = useState<{
     show: boolean;
-    changeGap: number;
-    estimatedApps: number;
+    changeGap?: number;
+    estimatedApps?: number;
+    message?: string;
   } | null>(null);
   const [operationType, setOperationType] = useState<'downloading' | 'scanning' | null>(null);
   const [fullScanRequired, setFullScanRequired] = useState(false);
@@ -107,6 +112,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             setOperationType(data.operationType);
             if (data.depotSource) {
               setDepotSource(data.depotSource);
+              storage.setItem('depotSource', data.depotSource);
             }
             // SignalR will handle the completion when it arrives
           }
@@ -165,25 +171,31 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     return () => clearInterval(timer);
   }, [localNextCrawlIn, depotConfig?.isRunning, depotConfig?.crawlIntervalHours]);
 
-  // Auto-select GitHub when Web API is not available (for Apply Now Source)
+  // Auto-select GitHub when Web API is not available (for Apply Now Source) - only on first load
+  const hasAutoSwitched = useRef(false);
   useEffect(() => {
+    // Only run this once on mount or when Web API status first loads
+    if (hasAutoSwitched.current || webApiLoading || !webApiStatus) return;
+
     // Web API is not available when:
     // 1. picsProgress says it's not available, OR
     // 2. Steam Web API V2 is down AND no V1 API key exists
     // Note: V1 API key alone is sufficient to fetch all games without Steam authentication
     const webApiNotAvailable =
       picsProgress?.isWebApiAvailable === false ||
-      (!webApiLoading && webApiStatus && !webApiStatus.isV2Available && !webApiStatus.hasApiKey);
+      (!webApiStatus.isV2Available && !webApiStatus.hasApiKey);
 
     // Only auto-switch if Web API is not available and user is not authenticated (GitHub mode available)
-    if (webApiNotAvailable && steamAuthMode !== 'authenticated') {
-      // Don't override if user already selected GitHub
-      if (depotSource !== 'github') {
-        // console.log('[DepotMapping] Web API unavailable - defaulting Apply Now Source to GitHub mode');
-        setDepotSource('github');
-      }
+    // And only if user hasn't manually selected something from localStorage
+    const savedSource = storage.getItem('depotSource');
+    if (webApiNotAvailable && steamAuthMode !== 'authenticated' && !savedSource) {
+      // console.log('[DepotMapping] Web API unavailable - defaulting Apply Now Source to GitHub mode');
+      setDepotSource('github');
+      storage.setItem('depotSource', 'github');
     }
-  }, [picsProgress?.isWebApiAvailable, webApiStatus, webApiLoading, steamAuthMode, depotSource]);
+
+    hasAutoSwitched.current = true;
+  }, [picsProgress?.isWebApiAvailable, webApiStatus, webApiLoading, steamAuthMode]);
 
   // Auto-switch automatic scan schedule to GitHub when Web API is not available
   useEffect(() => {
@@ -232,6 +244,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       })
         .then((response) => {
           if (response.ok) {
+            console.log('[DepotMapping] Successfully set scan mode to GitHub');
             // Also set interval to 30 minutes (0.5 hours) for GitHub mode
             return fetch('/api/gameinfo/steamkit/interval', {
               method: 'POST',
@@ -240,14 +253,31 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             });
           } else if (response.status === 401) {
             console.warn('[DepotMapping] Not authorized to switch scan mode - skipping auto-switch');
+            // Reset flag so it can be retried when user authenticates
+            autoSwitchAttemptedRef.current = false;
+            return Promise.reject('Not authorized');
+          } else {
+            console.error('[DepotMapping] Failed to set scan mode:', response.status, response.statusText);
+            // Reset flag so it can be retried
+            autoSwitchAttemptedRef.current = false;
+            return Promise.reject(`Failed with status ${response.status}`);
           }
         })
-        .then(() => {
-          // console.log('[DepotMapping] Successfully switched to GitHub mode with 30-minute interval');
-          refreshProgress();
+        .then((intervalResponse) => {
+          if (intervalResponse && intervalResponse.ok) {
+            console.log('[DepotMapping] Successfully set interval to 30 minutes for GitHub mode');
+            // Force a refresh to update the UI with persisted values
+            setTimeout(() => refreshProgress(), 1000);
+          } else if (intervalResponse && !intervalResponse.ok) {
+            console.error('[DepotMapping] Failed to set interval:', intervalResponse.status);
+            // Reset flag so interval can be retried
+            autoSwitchAttemptedRef.current = false;
+          }
         })
         .catch((error) => {
-          console.error('[DepotMapping] Failed to switch to GitHub mode:', error);
+          if (error !== 'Not authorized') {
+            console.error('[DepotMapping] Error during auto-switch to GitHub mode:', error);
+          }
         });
     }
 
@@ -272,6 +302,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         setGithubDownloadComplete(true);
         // Automatically switch to incremental mode to guide user
         setDepotSource('incremental');
+        storage.setItem('depotSource', 'incremental');
       } else {
         // Clear old download status
         storage.removeItem('githubDownloadComplete');
@@ -295,6 +326,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   useEffect(() => {
     if (steamAuthMode === 'authenticated' && depotSource === 'github') {
       setDepotSource('incremental');
+      storage.setItem('depotSource', 'incremental');
     }
   }, [steamAuthMode, depotSource]);
 
@@ -307,8 +339,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
     const { isRunning, crawlIntervalHours, crawlIncrementalMode } = depotConfig;
 
-    // Skip if not incremental mode or scheduling is disabled
-    if (crawlIntervalHours === 0 || !crawlIncrementalMode) {
+    // Skip if scheduling is disabled, not incremental mode, or GitHub mode (GitHub doesn't need viability checks)
+    if (crawlIntervalHours === 0 || !crawlIncrementalMode || crawlIncrementalMode === 'github') {
       setFullScanRequired(false);
       return;
     }
@@ -424,12 +456,34 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   }, [operationType, depotConfig?.isRunning, depotConfig?.progressPercent]);
 
+  // Listen for "change gap too large" errors from automatic scans
+  useEffect(() => {
+    const handleShowFullScanModal = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      console.log('[DepotMappingManager] Received show-full-scan-modal event:', customEvent.detail);
+
+      // Show the modal with the error message
+      setChangeGapWarning({
+        show: true,
+        changeGap: undefined, // We don't have the exact gap from the error
+        estimatedApps: undefined,
+        message: customEvent.detail?.error || 'Change gap too large - please download data from GitHub'
+      });
+    };
+
+    window.addEventListener('show-full-scan-modal', handleShowFullScanModal);
+    return () => window.removeEventListener('show-full-scan-modal', handleShowFullScanModal);
+  }, []);
+
   const handleDownloadFromGitHub = async () => {
-    setChangeGapWarning(null);
+    // Set loading states FIRST to prevent double-clicking
     setActionLoading(true);
     setOperationType('downloading');
     setGithubDownloadComplete(false);
     setGithubDownloading(true);
+
+    // Close modal AFTER setting loading states
+    setChangeGapWarning(null);
 
     // Set downloading flag in localStorage for UniversalNotificationBar
     storage.setItem('githubDownloading', 'true');
@@ -819,17 +873,17 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 options={[
                   {
                     value: 'incremental',
-                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
                       ? 'Incremental'
                       : 'Incremental (Web API required)',
-                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
                   },
                   {
                     value: 'full',
-                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
                       ? 'Full'
                       : 'Full (Web API required)',
-                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
                   },
                   ...(steamAuthMode !== 'authenticated'
                     ? [{ value: 'github', label: 'GitHub' }]
@@ -921,17 +975,17 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             options={[
               {
                 value: 'incremental',
-                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
                   ? 'Steam (Incremental Scan)'
                   : 'Steam (Incremental Scan - Web API required)',
-                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
               },
               {
                 value: 'full',
-                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
                   ? 'Steam (Full Scan)'
                   : 'Steam (Full Scan - Web API required)',
-                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational)
+                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
               },
               {
                 value: 'github',
@@ -945,7 +999,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               }
             ]}
             value={depotSource}
-            onChange={(value) => setDepotSource(value as DepotSource)}
+            onChange={(value) => {
+              const newSource = value as DepotSource;
+              setDepotSource(newSource);
+              // Save to localStorage for persistence
+              storage.setItem('depotSource', newSource);
+            }}
             disabled={!isAuthenticated || mockMode}
             className="w-full"
           />
@@ -1048,11 +1107,13 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         <FullScanRequiredModal
           changeGap={changeGapWarning.changeGap}
           estimatedApps={changeGapWarning.estimatedApps}
+          subtitle={changeGapWarning.message}
           onCancel={() => setChangeGapWarning(null)}
           onConfirm={async () => {
             setChangeGapWarning(null); // Close the modal immediately
             // Trigger full scan by setting depotSource to 'full' and executing
             setDepotSource('full');
+            storage.setItem('depotSource', 'full');
             setActionLoading(true);
             setOperationType('scanning');
             try {
@@ -1077,12 +1138,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               setActionLoading(false);
             }
           }}
-          onDownloadFromGitHub={() => {
-            setChangeGapWarning(null); // Close the modal immediately
-            handleDownloadFromGitHub();
-          }}
+          onDownloadFromGitHub={handleDownloadFromGitHub}
           showDownloadOption={true}
           hasSteamApiKey={webApiStatus?.hasApiKey ?? false}
+          isDownloading={githubDownloading}
         />
       )}
     </>

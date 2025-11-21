@@ -1048,9 +1048,30 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           scheduleAutoDismiss(notificationId);
         }
       } else {
+        // Check if this is a "change gap too large" error that requires showing the modal
+        const errorMessage = payload.error || payload.message || 'Depot mapping failed';
+        const requiresFullScan =
+          errorMessage.includes('change gap is too large') ||
+          errorMessage.includes('requires full scan') ||
+          errorMessage.includes('requires a full scan');
+
+        if (requiresFullScan) {
+          console.log(
+            '[NotificationsContext] Depot mapping failed due to change gap - showing modal prompt'
+          );
+          // Dispatch custom event to trigger the modal in DepotMappingManager
+          window.dispatchEvent(
+            new CustomEvent('show-full-scan-modal', {
+              detail: {
+                error: errorMessage
+              }
+            })
+          );
+        }
+
         updateNotification(notificationId, {
           status: 'failed',
-          error: payload.error || payload.message || 'Depot mapping failed'
+          error: errorMessage
         });
       }
     };

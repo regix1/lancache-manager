@@ -369,7 +369,19 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     /// </summary>
     private string GetCrawlModeString(object mode)
     {
-        return mode is bool b ? (b ? "Incremental" : "Full") : mode?.ToString() == "github" ? "GitHub (PICS Updates)" : "Unknown";
+        if (mode is bool b)
+        {
+            return b ? "Incremental" : "Full";
+        }
+
+        if (mode?.ToString() == "github")
+        {
+            return "GitHub";
+        }
+
+        // Default to Incremental if mode is not recognized
+        _logger.LogWarning("Unrecognized crawl mode: {Mode}, defaulting to Incremental", mode);
+        return "Incremental";
     }
 
     /// <summary>

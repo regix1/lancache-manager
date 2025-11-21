@@ -308,16 +308,6 @@ const UnifiedNotificationItem = ({
               <X className="w-4 h-4 text-themed-secondary" />
             </button>
           )}
-        {notification.type === 'depot_mapping' && notification.status === 'running' && onCancel && (
-          <button
-            onClick={onCancel}
-            className="p-1 rounded hover:bg-themed-hover transition-colors"
-            aria-label="Cancel operation"
-            title="Cancel depot mapping scan"
-          >
-            <X className="w-4 h-4 text-themed-secondary" />
-          </button>
-        )}
         {(notification.status === 'completed' || notification.status === 'failed') && (
           <button
             onClick={onDismiss}
@@ -430,16 +420,6 @@ const UniversalNotificationBar: React.FC = () => {
     }
   };
 
-  const handleCancelDepotMapping = async () => {
-    try {
-      await ApiService.cancelSteamKitRebuild();
-      // Notification will be updated via SignalR DepotMappingComplete event with cancelled flag
-      console.log('[UniversalNotificationBar] Depot mapping scan cancellation requested');
-    } catch (error) {
-      console.error('[UniversalNotificationBar] Failed to cancel depot mapping scan:', error);
-    }
-  };
-
   // Don't render if no notifications and not animating
   if (!shouldRender) {
     return null;
@@ -473,9 +453,7 @@ const UniversalNotificationBar: React.FC = () => {
             onCancel={
               notification.type === 'cache_clearing'
                 ? () => handleCancelCacheClearing(notification.id)
-                : notification.type === 'depot_mapping'
-                  ? handleCancelDepotMapping
-                  : undefined
+                : undefined
             }
             isAnimatingOut={dismissingIds.has(notification.id)}
           />
