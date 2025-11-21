@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Key, Lock, ExternalLink, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Key, Lock, ExternalLink, CheckCircle, XCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import ApiService from '@services/api.service';
