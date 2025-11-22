@@ -238,7 +238,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       // Call API to switch to GitHub mode
       fetch('/api/depots/rebuild/config/mode', {
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify('github')
       })
@@ -247,7 +247,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             console.log('[DepotMapping] Successfully set scan mode to GitHub');
             // Also set interval to 30 minutes (0.5 hours) for GitHub mode
             return fetch('/api/depots/rebuild/config/interval', {
-              method: 'POST',
+              method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(0.5)
             });
@@ -329,6 +329,48 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       storage.setItem('depotSource', 'incremental');
     }
   }, [steamAuthMode, depotSource]);
+
+  // Auto-switch automatic schedule from GitHub to Incremental when Steam authenticates
+  useEffect(() => {
+    if (steamAuthMode === 'authenticated' && depotConfig?.crawlIncrementalMode === 'github' && isAuthenticated) {
+      console.log('[DepotMapping] Authenticated with Steam - switching automatic schedule from GitHub to Incremental');
+
+      // Update backend to incremental mode
+      fetch('/api/depots/rebuild/config/mode', {
+        method: 'PUT',
+        headers: {
+          ...ApiService.getHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(true) // true = incremental mode
+      })
+        .then((response) => {
+          if (response.ok) {
+            console.log('[DepotMapping] Successfully switched automatic schedule to Incremental mode');
+            // Set interval to 1 hour (default for non-GitHub modes)
+            return fetch('/api/depots/rebuild/config/interval', {
+              method: 'PUT',
+              headers: {
+                ...ApiService.getHeaders(),
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(1)
+            });
+          }
+          return null;
+        })
+        .then((intervalResponse) => {
+          if (intervalResponse && intervalResponse.ok) {
+            console.log('[DepotMapping] Successfully set interval to 1 hour for Incremental mode');
+            // Refresh progress to show updated values
+            setTimeout(() => refreshProgress(), 1000);
+          }
+        })
+        .catch((error) => {
+          console.error('[DepotMapping] Error switching schedule mode:', error);
+        });
+    }
+  }, [steamAuthMode, depotConfig?.crawlIncrementalMode, isAuthenticated, refreshProgress]);
 
   // Check if full scan is required (for incremental mode) - for UI display only
   useEffect(() => {
@@ -850,7 +892,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                       const newInterval = Number(value);
                       try {
                         await fetch('/api/depots/rebuild/config/interval', {
-                          method: 'POST',
+                          method: 'PUT',
                           headers: {
                             ...ApiService.getHeaders(),
                             'Content-Type': 'application/json'
@@ -914,7 +956,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     // If switching FROM GitHub to another mode, reset interval to 1 hour
                     if (wasGithubMode && value !== 'github') {
                       await fetch('/api/depots/rebuild/config/interval', {
-                        method: 'POST',
+                        method: 'PUT',
                         headers: {
                           ...ApiService.getHeaders(),
                           'Content-Type': 'application/json'
@@ -927,7 +969,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     if (value === 'github') {
                       // Set interval to 0.5 hours (30 minutes)
                       await fetch('/api/depots/rebuild/config/interval', {
-                        method: 'POST',
+                        method: 'PUT',
                         headers: {
                           ...ApiService.getHeaders(),
                           'Content-Type': 'application/json'
@@ -940,7 +982,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     const incremental =
                       value === 'incremental' ? true : value === 'github' ? 'github' : false;
                     await fetch('/api/depots/rebuild/config/mode', {
-                      method: 'POST',
+                      method: 'PUT',
                       headers: {
                         ...ApiService.getHeaders(),
                         'Content-Type': 'application/json'
