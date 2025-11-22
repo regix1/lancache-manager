@@ -45,8 +45,8 @@ public class GuestSessionService
 
     public class GuestSession
     {
-        public string SessionId { get; set; } = string.Empty;
-        public string? DeviceId { get; set; } // Browser fingerprint device ID
+        public string DeviceId { get; set; } = string.Empty; // Browser fingerprint - primary key
+        public string? SessionId { get; set; } // ASP.NET Core session ID (temporary)
         public string? DeviceName { get; set; }
         public string? IpAddress { get; set; }
         public string? OperatingSystem { get; set; }
@@ -61,7 +61,7 @@ public class GuestSessionService
 
     public class CreateGuestSessionRequest
     {
-        public string SessionId { get; set; } = string.Empty;
+        public string DeviceId { get; set; } = string.Empty; // Browser fingerprint
         public string? DeviceName { get; set; }
         public string? OperatingSystem { get; set; }
         public string? Browser { get; set; }
@@ -69,8 +69,8 @@ public class GuestSessionService
 
     public class GuestSessionInfo
     {
-        public string SessionId { get; set; } = string.Empty;
-        public string? DeviceId { get; set; } // Browser fingerprint device ID
+        public string DeviceId { get; set; } = string.Empty; // Browser fingerprint - primary key
+        public string? SessionId { get; set; } // ASP.NET Core session ID (temporary)
         public string? DeviceName { get; set; }
         public string? IpAddress { get; set; }
         public string? OperatingSystem { get; set; }
@@ -91,11 +91,10 @@ public class GuestSessionService
     {
         try
         {
-            // SessionId IS the device ID now (unified approach)
             var session = new GuestSession
             {
-                SessionId = request.SessionId,
-                DeviceId = request.SessionId, // Now they're the same
+                DeviceId = request.DeviceId,
+                SessionId = null, // Will be populated from HttpContext when needed
                 DeviceName = request.DeviceName,
                 IpAddress = ipAddress,
                 OperatingSystem = request.OperatingSystem,
@@ -110,11 +109,11 @@ public class GuestSessionService
 
             lock (_cacheLock)
             {
-                _sessionCache[session.SessionId] = session;
+                _sessionCache[session.DeviceId] = session;
             }
 
-            _logger.LogInformation("Guest session created: {SessionId}, Device: {DeviceName}",
-                session.SessionId, session.DeviceName ?? "Unknown");
+            _logger.LogInformation("Guest session created: {DeviceId}, Device: {DeviceName}",
+                session.DeviceId, session.DeviceName ?? "Unknown");
 
             return session;
         }
@@ -129,16 +128,16 @@ public class GuestSessionService
     /// Validate a guest session (check if expired or revoked)
     /// Returns: (isValid, reason) - reason is only set when session exists but is invalid
     /// </summary>
-    public (bool isValid, string? reason) ValidateSessionWithReason(string sessionId)
+    public (bool isValid, string? reason) ValidateSessionWithReason(string deviceId)
     {
-        if (string.IsNullOrEmpty(sessionId))
+        if (string.IsNullOrEmpty(deviceId))
         {
             return (false, null);
         }
 
         lock (_cacheLock)
         {
-            if (_sessionCache.TryGetValue(sessionId, out var session))
+            if (_sessionCache.TryGetValue(deviceId, out var session))
             {
                 // Update last seen
                 session.LastSeenAt = DateTime.UtcNow;
@@ -166,17 +165,17 @@ public class GuestSessionService
     /// <summary>
     /// Validate a guest session (check if expired or revoked)
     /// </summary>
-    public bool ValidateSession(string sessionId)
+    public bool ValidateSession(string deviceId)
     {
-        return ValidateSessionWithReason(sessionId).isValid;
+        return ValidateSessionWithReason(deviceId).isValid;
     }
 
     /// <summary>
     /// Update the LastSeenAt timestamp for a guest session
     /// </summary>
-    public void UpdateLastSeen(string sessionId)
+    public void UpdateLastSeen(string deviceId)
     {
-        if (string.IsNullOrEmpty(sessionId))
+        if (string.IsNullOrEmpty(deviceId))
         {
             return;
         }
@@ -185,7 +184,7 @@ public class GuestSessionService
         {
             using var context = _contextFactory.CreateDbContext();
             var session = context.UserSessions
-                .FirstOrDefault(s => s.SessionId == sessionId && s.IsGuest && !s.IsRevoked);
+                .FirstOrDefault(s => s.DeviceId == deviceId && s.IsGuest && !s.IsRevoked);
 
             if (session != null)
             {
@@ -195,7 +194,7 @@ public class GuestSessionService
                 // Update cache
                 lock (_cacheLock)
                 {
-                    if (_sessionCache.TryGetValue(sessionId, out var cachedSession))
+                    if (_sessionCache.TryGetValue(deviceId, out var cachedSession))
                     {
                         cachedSession.LastSeenAt = DateTime.UtcNow;
                     }
@@ -204,7 +203,7 @@ public class GuestSessionService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[GuestSession] Failed to update LastSeen for session {SessionId}", sessionId);
+            _logger.LogError(ex, "[GuestSession] Failed to update LastSeen for device {DeviceId}", deviceId);
         }
     }
 
@@ -221,8 +220,8 @@ public class GuestSessionService
             {
                 sessions.Add(new GuestSessionInfo
                 {
-                    SessionId = session.SessionId,
-                    DeviceId = session.DeviceId, // Now always set (same as SessionId)
+                    DeviceId = session.DeviceId,
+                    SessionId = session.SessionId, // ASP.NET Core session ID (may be null)
                     DeviceName = session.DeviceName,
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,
@@ -253,13 +252,12 @@ public class GuestSessionService
 
         lock (_cacheLock)
         {
-            // DeviceId equals SessionId for guest sessions
             if (_sessionCache.TryGetValue(deviceId, out var session))
             {
                 return new GuestSessionInfo
                 {
-                    SessionId = session.SessionId,
                     DeviceId = session.DeviceId,
+                    SessionId = session.SessionId,
                     DeviceName = session.DeviceName,
                     IpAddress = session.IpAddress,
                     OperatingSystem = session.OperatingSystem,
@@ -281,19 +279,19 @@ public class GuestSessionService
     /// <summary>
     /// Revoke a guest session
     /// </summary>
-    public bool RevokeSession(string sessionId, string? revokedBy = null)
+    public bool RevokeSession(string deviceId, string? revokedBy = null)
     {
         try
         {
             lock (_cacheLock)
             {
-                if (_sessionCache.TryGetValue(sessionId, out var session))
+                if (_sessionCache.TryGetValue(deviceId, out var session))
                 {
                     session.IsRevoked = true;
                     session.RevokedAt = DateTime.UtcNow;
                     session.RevokedBy = revokedBy;
                     SaveGuestSession(session);
-                    _logger.LogWarning("Revoked guest session: {SessionId} by {RevokedBy}", sessionId, revokedBy ?? "Unknown");
+                    _logger.LogWarning("Revoked guest session: {DeviceId} by {RevokedBy}", deviceId, revokedBy ?? "Unknown");
                     return true;
                 }
             }
@@ -302,7 +300,7 @@ public class GuestSessionService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error revoking guest session: {SessionId}", sessionId);
+            _logger.LogError(ex, "Error revoking guest session: {DeviceId}", deviceId);
             return false;
         }
     }
@@ -310,12 +308,12 @@ public class GuestSessionService
     /// <summary>
     /// Permanently delete a guest session
     /// </summary>
-    public bool DeleteSession(string sessionId)
+    public bool DeleteSession(string deviceId)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
-            var userSession = context.UserSessions.FirstOrDefault(s => s.SessionId == sessionId && s.IsGuest);
+            var userSession = context.UserSessions.FirstOrDefault(s => s.DeviceId == deviceId && s.IsGuest);
 
             if (userSession != null)
             {
@@ -324,10 +322,10 @@ public class GuestSessionService
 
                 lock (_cacheLock)
                 {
-                    _sessionCache.Remove(sessionId);
+                    _sessionCache.Remove(deviceId);
                 }
 
-                _logger.LogInformation("Deleted guest session: {SessionId}", sessionId);
+                _logger.LogInformation("Deleted guest session: {DeviceId}", deviceId);
                 return true;
             }
 
@@ -335,7 +333,7 @@ public class GuestSessionService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting guest session: {SessionId}", sessionId);
+            _logger.LogError(ex, "Error deleting guest session: {DeviceId}", deviceId);
             return false;
         }
     }
@@ -360,7 +358,7 @@ public class GuestSessionService
                 context.UserSessions.Remove(session);
                 lock (_cacheLock)
                 {
-                    _sessionCache.Remove(session.SessionId);
+                    _sessionCache.Remove(session.DeviceId);
                 }
                 count++;
             }
@@ -386,7 +384,7 @@ public class GuestSessionService
             using var context = _contextFactory.CreateDbContext();
 
             // Check if session exists
-            var existingSession = context.UserSessions.FirstOrDefault(s => s.SessionId == session.SessionId);
+            var existingSession = context.UserSessions.FirstOrDefault(s => s.DeviceId == session.DeviceId);
 
             if (existingSession != null)
             {
@@ -407,7 +405,7 @@ public class GuestSessionService
                 // Create new session
                 var userSession = new UserSession
                 {
-                    SessionId = session.SessionId,
+                    DeviceId = session.DeviceId,
                     DeviceName = session.DeviceName ?? string.Empty,
                     IpAddress = session.IpAddress ?? string.Empty,
                     OperatingSystem = session.OperatingSystem ?? string.Empty,
@@ -427,7 +425,7 @@ public class GuestSessionService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving guest session: {SessionId}", session.SessionId);
+            _logger.LogError(ex, "Error saving guest session: {DeviceId}", session.DeviceId);
         }
     }
 
@@ -449,8 +447,7 @@ public class GuestSessionService
                     // Ensure DateTime values from EF Core are marked as UTC
                     var session = new GuestSession
                     {
-                        SessionId = userSession.SessionId,
-                        DeviceId = userSession.SessionId, // Now unified
+                        DeviceId = userSession.DeviceId,
                         DeviceName = userSession.DeviceName,
                         IpAddress = userSession.IpAddress,
                         OperatingSystem = userSession.OperatingSystem,
@@ -468,7 +465,7 @@ public class GuestSessionService
                         RevokedBy = userSession.RevokedBy
                     };
 
-                    _sessionCache[session.SessionId] = session;
+                    _sessionCache[session.DeviceId] = session;
                 }
             }
 

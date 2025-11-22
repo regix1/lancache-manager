@@ -213,7 +213,7 @@ public class DeviceAuthService
         {
             using var context = _contextFactory.CreateDbContext();
             var session = context.UserSessions
-                .FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest && !s.IsRevoked);
+                .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
 
             if (session == null)
             {
@@ -281,7 +281,7 @@ public class DeviceAuthService
         {
             using var context = _contextFactory.CreateDbContext();
             var session = context.UserSessions
-                .FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest && !s.IsRevoked);
+                .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
 
             if (session != null)
             {
@@ -385,7 +385,7 @@ public class DeviceAuthService
             using var context = _contextFactory.CreateDbContext();
 
             // Check if device exists
-            var existingSession = context.UserSessions.FirstOrDefault(s => s.SessionId == registration.DeviceId);
+            var existingSession = context.UserSessions.FirstOrDefault(s => s.DeviceId == registration.DeviceId);
 
             if (existingSession != null)
             {
@@ -402,7 +402,7 @@ public class DeviceAuthService
                 // Create new device session
                 var userSession = new UserSession
                 {
-                    SessionId = registration.DeviceId,
+                    DeviceId = registration.DeviceId,
                     DeviceName = registration.DeviceName ?? string.Empty,
                     IpAddress = registration.IpAddress ?? string.Empty,
                     OperatingSystem = registration.OperatingSystem ?? string.Empty,
@@ -430,13 +430,13 @@ public class DeviceAuthService
         try
         {
             using var context = _contextFactory.CreateDbContext();
-            var userSession = context.UserSessions.FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest);
+            var userSession = context.UserSessions.FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest);
 
             if (userSession != null)
             {
                 return new DeviceRegistration
                 {
-                    DeviceId = userSession.SessionId,
+                    DeviceId = userSession.DeviceId,
                     EncryptedApiKey = userSession.ApiKey ?? string.Empty,
                     RegisteredAt = userSession.CreatedAtUtc,
                     ExpiresAt = DateTime.UtcNow.AddYears(100), // Effectively never expires
@@ -472,7 +472,7 @@ public class DeviceAuthService
                 {
                     var registration = new DeviceRegistration
                     {
-                        DeviceId = userSession.SessionId,
+                        DeviceId = userSession.DeviceId,
                         EncryptedApiKey = userSession.ApiKey ?? string.Empty,
                         RegisteredAt = userSession.CreatedAtUtc,
                         ExpiresAt = DateTime.UtcNow.AddYears(100), // Effectively never expires
@@ -575,7 +575,7 @@ public class DeviceAuthService
                 // Ensure DateTime values from EF Core are marked as UTC for proper JSON serialization
                 devices.Add(new DeviceInfo
                 {
-                    DeviceId = session.SessionId,
+                    DeviceId = session.DeviceId,
                     DeviceName = session.DeviceName ?? "Unknown Device",
                     IpAddress = session.IpAddress ?? string.Empty,
                     LocalIp = null,
@@ -609,7 +609,7 @@ public class DeviceAuthService
         try
         {
             using var context = _contextFactory.CreateDbContext();
-            var userSession = context.UserSessions.FirstOrDefault(s => s.SessionId == deviceId && !s.IsGuest);
+            var userSession = context.UserSessions.FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest);
 
             if (userSession != null)
             {

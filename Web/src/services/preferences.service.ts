@@ -36,6 +36,7 @@ class PreferencesService {
 
     try {
       const response = await fetch(`${API_BASE}/user-preferences`, {
+        credentials: 'include', // Important: include HttpOnly session cookies
         headers: authService.getAuthHeaders()
       });
 
@@ -84,6 +85,7 @@ class PreferencesService {
     try {
       const response = await fetch(`${API_BASE}/user-preferences`, {
         method: 'PUT',
+        credentials: 'include', // Important: include HttpOnly session cookies
         headers: {
           'Content-Type': 'application/json',
           ...authService.getAuthHeaders()
@@ -132,6 +134,7 @@ class PreferencesService {
       try {
         const response = await fetch(`${API_BASE}/user-preferences/${key}`, {
           method: 'PATCH',
+          credentials: 'include', // Important: include HttpOnly session cookies
           headers: {
             'Content-Type': 'application/json',
             ...authService.getAuthHeaders()
@@ -439,6 +442,7 @@ class PreferencesService {
   async getPreferencesForSession(sessionId: string): Promise<UserPreferences | null> {
     try {
       const response = await fetch(`${API_BASE}/user-preferences/session/${sessionId}`, {
+        credentials: 'include', // Important: include HttpOnly session cookies
         headers: authService.getAuthHeaders()
       });
 
@@ -477,6 +481,7 @@ class PreferencesService {
     try {
       const response = await fetch(`${API_BASE}/user-preferences/session/${sessionId}`, {
         method: 'PUT',
+        credentials: 'include', // Important: include HttpOnly session cookies
         headers: {
           'Content-Type': 'application/json',
           ...authService.getAuthHeaders()

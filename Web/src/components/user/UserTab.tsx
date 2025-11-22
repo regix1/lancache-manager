@@ -73,7 +73,17 @@ const UserTab: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setSessions(data.sessions || []);
+
+        // Debug: Check for duplicate sessions
+        const sessions = data.sessions || [];
+        const deviceIds = sessions.map((s: Session) => s.deviceId || s.id);
+        const uniqueDeviceIds = new Set(deviceIds);
+        if (deviceIds.length !== uniqueDeviceIds.size) {
+          console.warn('[UserTab] Duplicate sessions detected in API response:', sessions);
+          console.warn('[UserTab] Device IDs:', deviceIds);
+        }
+
+        setSessions(sessions);
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to load sessions');
@@ -204,8 +214,10 @@ const UserTab: React.FC = () => {
 
     try {
       setRevokingSession(pendingRevokeSession.id);
-      // RESTful endpoint: DELETE /api/sessions/{id} handles both authenticated and guest sessions
-      const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}`;
+      // RESTful endpoint: DELETE /api/sessions/{id}?action=revoke
+      // For guests: revokes (marks as revoked but keeps in history)
+      // For authenticated: always deletes (no revoke-only option)
+      const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}?action=revoke`;
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
@@ -256,8 +268,9 @@ const UserTab: React.FC = () => {
 
     try {
       setDeletingSession(pendingDeleteSession.id);
-      // RESTful endpoint: DELETE /api/sessions/{id} handles both authenticated and guest sessions
-      const endpoint = `/api/sessions/${encodeURIComponent(pendingDeleteSession.id)}`;
+      // RESTful endpoint: DELETE /api/sessions/{id}?action=delete
+      // Permanently removes the session from the database
+      const endpoint = `/api/sessions/${encodeURIComponent(pendingDeleteSession.id)}?action=delete`;
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
@@ -428,7 +441,7 @@ const UserTab: React.FC = () => {
               User Management
             </h1>
             <p className="text-xs sm:text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
-              Manage all users and sessions • Live refresh
+              Manage all users and devices • Live refresh
             </p>
           </div>
         </div>
@@ -444,7 +457,7 @@ const UserTab: React.FC = () => {
             !loading && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
           }
           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-          title="Refresh sessions"
+          title="Refresh devices"
         >
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -793,13 +806,13 @@ const UserTab: React.FC = () => {
                             )}
                           </div>
 
-                          {/* ID Display - Combined for authenticated users, separate for guests */}
+                          {/* Device ID Display */}
                           <div
                             className="text-xs font-mono truncate overflow-x-auto"
                             style={{ color: 'var(--theme-text-muted)' }}
-                            title={`Device/Session ID: ${session.id}`}
+                            title={`Device ID: ${session.deviceId || session.id}`}
                           >
-                            Device/Session ID: {session.id}
+                            Device ID: {session.deviceId || session.id}
                           </div>
                         </div>
                       </div>
@@ -853,16 +866,16 @@ const UserTab: React.FC = () => {
         </div>
       </Card>
 
-      {/* Guest Session Configuration */}
+      {/* Guest Device Configuration */}
       <Card>
         <h3 className="text-lg font-semibold text-themed-primary mb-4 flex items-center gap-2">
           <Clock className="w-5 h-5" />
-          Guest Session Configuration
+          Guest Device Configuration
         </h3>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-themed-primary mb-2">
-              Guest Session Duration
+              Guest Device Duration
             </label>
             <div className="flex items-center gap-3">
               <EnhancedDropdown
@@ -875,7 +888,7 @@ const UserTab: React.FC = () => {
               {updatingDuration && <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />}
             </div>
             <p className="text-xs text-themed-muted mt-2">
-              How long guest sessions remain valid before expiring
+              How long guest devices remain valid before expiring
             </p>
           </div>
 
@@ -934,7 +947,7 @@ const UserTab: React.FC = () => {
                   expire
                 </li>
                 <li className="pl-1">
-                  <strong>Guest</strong> sessions have temporary {guestDurationHours}-hour access
+                  <strong>Guest</strong> devices have temporary {guestDurationHours}-hour access
                   with read-only permissions
                 </li>
                 <li className="pl-1">
@@ -942,7 +955,7 @@ const UserTab: React.FC = () => {
                   revoked)
                 </li>
                 <li className="pl-1">
-                  <strong>Delete</strong> - Permanently removes the session record from history
+                  <strong>Delete</strong> - Permanently removes the device record from history
                 </li>
                 <li className="pl-1">
                   Revoked guests will see an "expired" message on their next request
@@ -953,7 +966,7 @@ const UserTab: React.FC = () => {
         </div>
       </Card>
 
-      {/* Revoke Session Modal */}
+      {/* Revoke Device Modal */}
       <Modal
         opened={!!pendingRevokeSession}
         onClose={() => {
@@ -964,7 +977,7 @@ const UserTab: React.FC = () => {
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>Revoke Session</span>
+            <span>Revoke Device</span>
           </div>
         }
         size="md"
@@ -981,7 +994,7 @@ const UserTab: React.FC = () => {
                 {pendingRevokeSession.deviceName || 'Unknown Device'}
               </p>
               <p className="text-xs text-themed-muted font-mono">
-                Device/Session ID: {pendingRevokeSession.id}
+                Device ID: {pendingRevokeSession.id}
               </p>
             </div>
           )}
@@ -990,9 +1003,9 @@ const UserTab: React.FC = () => {
             <div>
               <p className="text-sm font-medium mb-2">What happens when you revoke:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>The session is marked as revoked but not deleted</li>
+                <li>The device is marked as revoked but not deleted</li>
                 <li>The user will be logged out immediately</li>
-                <li>The session record remains in history</li>
+                <li>The device record remains in history</li>
               </ul>
             </div>
           </Alert>
@@ -1011,13 +1024,13 @@ const UserTab: React.FC = () => {
               onClick={confirmRevokeSession}
               loading={!!revokingSession}
             >
-              Revoke Session
+              Revoke Device
             </Button>
           </div>
         </div>
       </Modal>
 
-      {/* Delete Session Modal */}
+      {/* Delete Device Modal */}
       <Modal
         opened={!!pendingDeleteSession}
         onClose={() => {
@@ -1028,7 +1041,7 @@ const UserTab: React.FC = () => {
         title={
           <div className="flex items-center space-x-3">
             <Trash2 className="w-6 h-6 text-themed-error" />
-            <span>Delete Session</span>
+            <span>Delete Device</span>
           </div>
         }
         size="md"
@@ -1038,7 +1051,7 @@ const UserTab: React.FC = () => {
             Are you sure you want to permanently delete this{' '}
             {pendingDeleteSession?.type === 'authenticated'
               ? 'authenticated device'
-              : 'guest session'}
+              : 'guest device'}
             ?
           </p>
 
@@ -1048,7 +1061,7 @@ const UserTab: React.FC = () => {
                 {pendingDeleteSession.deviceName || 'Unknown Device'}
               </p>
               <p className="text-xs text-themed-muted font-mono">
-                Device/Session ID: {pendingDeleteSession.id}
+                Device ID: {pendingDeleteSession.id}
               </p>
             </div>
           )}
@@ -1058,7 +1071,7 @@ const UserTab: React.FC = () => {
               <p className="text-sm font-medium mb-2">Warning:</p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>This action cannot be undone</li>
-                <li>The session will be permanently removed from history</li>
+                <li>The device will be permanently removed from history</li>
                 <li>The user will be logged out immediately</li>
               </ul>
             </div>

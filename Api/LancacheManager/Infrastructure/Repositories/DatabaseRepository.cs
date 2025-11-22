@@ -503,10 +503,12 @@ public class DatabaseRepository : IDatabaseRepository
 
                         // IMMEDIATELY broadcast UserSessionsCleared event to log out all connected users
                         // This happens RIGHT AFTER deletion, not at the end of the operation
+                        // Note: This SignalR event will trigger the frontend to clear cookies and redirect to login
                         _logger.LogInformation("Broadcasting UserSessionsCleared event to all clients (immediate logout)");
                         await _hubContext.Clients.All.SendAsync("UserSessionsCleared", new
                         {
                             message = "All user sessions have been cleared - logging out immediately",
+                            clearCookies = true, // Signal frontend to clear all auth cookies
                             timestamp = DateTime.UtcNow
                         });
 

@@ -58,24 +58,25 @@ class HeartbeatService {
    */
   private async sendHeartbeat(): Promise<void> {
     try {
-      const sessionId = authService.getDeviceId();
+      const deviceId = authService.getDeviceId();
 
-      if (!sessionId) {
-        console.warn('[Heartbeat] No session ID available, skipping heartbeat');
+      if (!deviceId) {
+        console.warn('[Heartbeat] No device ID available, skipping heartbeat');
         return;
       }
 
-      const response = await fetch(`${API_BASE}/sessions/${sessionId}/last-seen`, {
+      // Use the new "current" endpoint that reads device ID from headers
+      // This prevents 404 errors when sessions are cleared on app restart
+      const response = await fetch(`${API_BASE}/sessions/current/last-seen`, {
         method: 'PATCH',
         credentials: 'include',
         headers: authService.getAuthHeaders()
       });
 
-      if (!response.ok) {
-        // Don't log 404s - session might not exist yet or was revoked
-        if (response.status !== 404) {
-          console.warn(`[Heartbeat] Failed to send heartbeat: ${response.status}`);
-        }
+      if (!response.ok && response.status !== 404) {
+        // Only log non-404 errors (404 is expected after app restart)
+        // Heartbeats are non-critical - session will be auto-restored on next auth check
+        console.warn(`[Heartbeat] Failed to send heartbeat: ${response.status}`);
       }
     } catch (error) {
       // Silently fail - heartbeats are non-critical

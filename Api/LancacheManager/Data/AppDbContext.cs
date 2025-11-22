@@ -122,15 +122,15 @@ public class AppDbContext : DbContext
 
         // UserPreferences configuration
         modelBuilder.Entity<UserPreferences>()
-            .HasIndex(p => p.SessionId)
-            .HasDatabaseName("IX_UserPreferences_SessionId")
+            .HasIndex(p => p.DeviceId)
+            .HasDatabaseName("IX_UserPreferences_DeviceId")
             .IsUnique();
 
         // Configure one-to-one relationship between UserSession and UserPreferences
         modelBuilder.Entity<UserSession>()
             .HasOne(s => s.Preferences)
             .WithOne(p => p.Session)
-            .HasForeignKey<UserPreferences>(p => p.SessionId)
+            .HasForeignKey<UserPreferences>(p => p.DeviceId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }

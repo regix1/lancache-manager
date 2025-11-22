@@ -79,9 +79,7 @@ public class AuthenticationMiddleware
         "/api/management/database",
         "/api/management/reset-logs",
         "/api/management/process-all-logs",
-        "/api/management/logs/remove-service",
-        "/api/auth/devices", // GET and DELETE require auth
-        "/api/auth/revoke"
+        "/api/management/logs/remove-service"
     };
 
     // Patterns for protected paths (contains check)
@@ -94,10 +92,12 @@ public class AuthenticationMiddleware
     // Public endpoints that don't require any authentication
     private readonly HashSet<string> _publicPaths = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/api/auth/check",
-        "/api/auth/register",
-        "/api/auth/key",
-        "/api/auth/guest/register"
+        "/api/auth/status",
+        "/api/auth/clear-session", // Allow clearing session cookies without auth
+        "/api/themes", // Allow getting theme list and preferences
+        "/api/user-preferences", // Allow getting default preferences for unauthenticated users
+        "/api/devices", // Allow device registration (POST)
+        "/api/config" // Allow getting server config (timezone, etc.)
     };
 
     public AuthenticationMiddleware(
@@ -143,6 +143,13 @@ public class AuthenticationMiddleware
             return;
         }
 
+        // Allow POST /api/sessions (guest registration endpoint)
+        if (path == "/api/sessions" && context.Request.Method == "POST")
+        {
+            await _next(context);
+            return;
+        }
+
         // Priority 1: Check session cookie
         var sessionDeviceId = context.Session.GetString("DeviceId");
         var sessionApiKey = context.Session.GetString("ApiKey");
@@ -165,41 +172,57 @@ public class AuthenticationMiddleware
             isApiKeyValid = true;
         }
 
-        // Priority 3: Validate guest sessions (if using guest session ID)
-        var guestSessionId = context.Request.Headers["X-Guest-Session-Id"].FirstOrDefault();
+        // Priority 3: Validate guest sessions
+        // Check device ID header - for guests, device ID = session ID
+        var deviceId = context.Request.Headers["X-Device-Id"].FirstOrDefault();
         bool isGuestValid = false;
 
-        if (!isSessionValid && !isApiKeyValid && !string.IsNullOrEmpty(guestSessionId))
+        if (!isSessionValid && !isApiKeyValid && !string.IsNullOrEmpty(deviceId))
         {
-            var (isValid, reason) = guestSessionService.ValidateSessionWithReason(guestSessionId);
-            if (!isValid)
+            // For guests, the device ID IS the session ID (we use device fingerprint as session ID)
+            var (isValid, reason) = guestSessionService.ValidateSessionWithReason(deviceId);
+            if (isValid)
             {
-                // Only log warning if session exists but is revoked/expired (not if it doesn't exist)
+                // Valid guest session
+                isGuestValid = true;
+            }
+            else if (!string.IsNullOrEmpty(reason))
+            {
+                // Only block if session exists but is revoked/expired (not if it doesn't exist)
                 if (reason == "revoked")
                 {
                     _logger.LogWarning("Revoked guest session attempt: {SessionId} from {IP}",
-                        guestSessionId, context.Connection.RemoteIpAddress);
+                        deviceId, context.Connection.RemoteIpAddress);
+
+                    context.Response.StatusCode = 401;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(
+                        System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            error = "Session revoked",
+                            message = "Your guest session has been revoked.",
+                            code = "GUEST_SESSION_REVOKED"
+                        }));
+                    return;
                 }
                 else if (reason == "expired")
                 {
                     _logger.LogWarning("Expired guest session attempt: {SessionId} from {IP}",
-                        guestSessionId, context.Connection.RemoteIpAddress);
-                }
+                        deviceId, context.Connection.RemoteIpAddress);
 
-                context.Response.StatusCode = 401;
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsync(
-                    System.Text.Json.JsonSerializer.Serialize(new
-                    {
-                        error = "Session revoked",
-                        message = reason == "revoked"
-                            ? "Your guest session has been revoked."
-                            : "Your guest session has expired. Please restart guest mode.",
-                        code = "GUEST_SESSION_REVOKED"
-                    }));
-                return;
+                    context.Response.StatusCode = 401;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsync(
+                        System.Text.Json.JsonSerializer.Serialize(new
+                        {
+                            error = "Session expired",
+                            message = "Your guest session has expired. Please restart guest mode.",
+                            code = "GUEST_SESSION_EXPIRED"
+                        }));
+                    return;
+                }
+                // If reason is "not_found", allow through - user hasn't registered as guest yet
             }
-            isGuestValid = isValid;
         }
 
         // Check if this is a protected endpoint

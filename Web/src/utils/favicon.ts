@@ -78,14 +78,18 @@ export function updateFavicon(): void {
     document.head.appendChild(faviconLink);
   }
 
-  // Revoke the old URL if it exists to prevent memory leaks
-  if (faviconLink.href && faviconLink.href.startsWith('blob:')) {
-    URL.revokeObjectURL(faviconLink.href);
-  }
+  // Store the old URL to revoke later
+  const oldUrl = faviconLink.href && faviconLink.href.startsWith('blob:') ? faviconLink.href : null;
 
   // Set the new favicon
   faviconLink.type = 'image/svg+xml';
   faviconLink.href = svgUrl;
+
+  // Revoke the old URL after a delay to prevent loading errors
+  // This gives the browser time to load the new favicon first
+  if (oldUrl) {
+    setTimeout(() => URL.revokeObjectURL(oldUrl), 100);
+  }
 }
 
 /**

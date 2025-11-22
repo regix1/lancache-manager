@@ -4,12 +4,12 @@ namespace LancacheManager.Models;
 
 public class UserSession
 {
+    /// <summary>
+    /// Primary key - Device ID (browser fingerprint)
+    /// This is the persistent identifier that survives app restarts
+    /// </summary>
     [Key]
-    public string SessionId { get; set; } = string.Empty;
-
-    // For guests, SessionId and DeviceId are now the same (no more guest_{deviceId}_{timestamp})
-    // For authenticated users, they were already the same
-    public string DeviceId => SessionId; // Computed property for backward compatibility
+    public string DeviceId { get; set; } = string.Empty;
 
     public string DeviceName { get; set; } = string.Empty;
     public string IpAddress { get; set; } = string.Empty;

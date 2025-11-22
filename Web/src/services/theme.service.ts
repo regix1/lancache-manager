@@ -782,6 +782,7 @@ class ThemeService {
     try {
       const response = await fetch(`${API_BASE}/themes/upload`, {
         method: 'POST',
+        credentials: 'include', // Important: include HttpOnly session cookies
         headers: authService.getAuthHeaders(),
         body: formData
       });
@@ -805,6 +806,7 @@ class ThemeService {
   async deleteTheme(themeId: string): Promise<void> {
     const response = await fetch(`${API_BASE}/themes/${themeId}`, {
       method: 'DELETE',
+      credentials: 'include', // Important: include HttpOnly session cookies
       headers: authService.getAuthHeaders()
     });
 

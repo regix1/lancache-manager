@@ -3,6 +3,7 @@ using System;
 using LancacheManager.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LancacheManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251122215212_SeparateSessionIdFromDeviceId")]
+    partial class SeparateSessionIdFromDeviceId
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
@@ -345,10 +348,6 @@ namespace LancacheManager.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("DeviceId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<bool>("DisableFocusOutlines")
                         .HasColumnType("INTEGER");
 
@@ -367,6 +366,10 @@ namespace LancacheManager.Migrations
                     b.Property<string>("SelectedTheme")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("SharpCorners")
                         .HasColumnType("INTEGER");
 
@@ -378,9 +381,9 @@ namespace LancacheManager.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("DeviceId")
+                    b.HasIndex("SessionId")
                         .IsUnique()
-                        .HasDatabaseName("IX_UserPreferences_DeviceId");
+                        .HasDatabaseName("IX_UserPreferences_SessionId");
 
                     b.ToTable("UserPreferences");
                 });
@@ -430,6 +433,9 @@ namespace LancacheManager.Migrations
                     b.Property<string>("RevokedBy")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SessionId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("DeviceId");
 
                     b.HasIndex("ExpiresAtUtc")
@@ -460,7 +466,7 @@ namespace LancacheManager.Migrations
                 {
                     b.HasOne("LancacheManager.Models.UserSession", "Session")
                         .WithOne("Preferences")
-                        .HasForeignKey("LancacheManager.Models.UserPreferences", "DeviceId")
+                        .HasForeignKey("LancacheManager.Models.UserPreferences", "SessionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

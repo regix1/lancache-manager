@@ -94,13 +94,13 @@ public class DevicesController : ControllerBase
                 try
                 {
                     // Check if UserSession already exists for this device
-                    var existingUserSession = _dbContext.UserSessions.FirstOrDefault(s => s.SessionId == request.DeviceId);
+                    var existingUserSession = _dbContext.UserSessions.FirstOrDefault(s => s.DeviceId == request.DeviceId);
 
                     if (existingGuestSession != null && existingUserSession != null)
                     {
                         // Upgrade existing guest session to authenticated
-                        _logger.LogInformation("Upgrading guest session {SessionId} to authenticated device {DeviceId}",
-                            existingGuestSession.SessionId, request.DeviceId);
+                        _logger.LogInformation("Upgrading guest session {DeviceId} to authenticated device {DeviceId}",
+                            existingGuestSession.DeviceId, request.DeviceId);
 
                         existingUserSession.IsGuest = false;
                         existingUserSession.IsRevoked = false;
@@ -111,8 +111,8 @@ public class DevicesController : ControllerBase
                         _dbContext.SaveChanges();
 
                         // Revoke the in-memory guest session
-                        _guestSessionService.RevokeSession(existingGuestSession.SessionId, "System (Upgraded to authenticated)");
-                        _logger.LogInformation("Upgraded UserSession {SessionId} from guest to authenticated", existingUserSession.SessionId);
+                        _guestSessionService.RevokeSession(existingGuestSession.DeviceId, "System (Upgraded to authenticated)");
+                        _logger.LogInformation("Upgraded UserSession {DeviceId} from guest to authenticated", existingUserSession.DeviceId);
                     }
                     else if (existingUserSession == null)
                     {
@@ -123,7 +123,7 @@ public class DevicesController : ControllerBase
 
                         var newUserSession = new UserSession
                         {
-                            SessionId = request.DeviceId,
+                            DeviceId = request.DeviceId,
                             IsGuest = false,
                             CreatedAtUtc = DateTime.UtcNow,
                             LastSeenAtUtc = DateTime.UtcNow,

@@ -224,13 +224,26 @@ const AppContent: React.FC = () => {
   // Handle user sessions cleared event (dispatched by preferences service)
   useEffect(() => {
     const handleSessionsCleared = async () => {
-      console.log('[App] User sessions cleared - forcing logout');
+      console.log('[App] User sessions cleared - forcing logout and clearing cookies');
 
-      // Clear all authentication data
+      // Clear local authentication data
       authService.clearAuthAndDevice();
 
       // Clear theme/preferences cache
       preferencesService.clearCache();
+
+      // IMPORTANT: Clear HttpOnly session cookies by making a request to backend
+      // Since cookies are HttpOnly, JavaScript can't clear them directly
+      // The backend must send Set-Cookie with expired date
+      try {
+        await fetch('/api/auth/clear-session', {
+          method: 'POST',
+          credentials: 'include' // Include cookies in request so backend can clear them
+        });
+        console.log('[App] Session cookies cleared via backend');
+      } catch (error) {
+        console.error('[App] Failed to clear session cookies:', error);
+      }
 
       // Refresh auth context to trigger authentication modal
       await refreshAuth();

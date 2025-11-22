@@ -8,8 +8,8 @@ public class UserPreferences
     [Key]
     public int Id { get; set; }
 
-    // Foreign key to UserSession
-    public string SessionId { get; set; } = string.Empty;
+    // Foreign key to UserSession (using DeviceId, the persistent identifier)
+    public string DeviceId { get; set; } = string.Empty;
 
     // Theme preferences
     public string? SelectedTheme { get; set; }
@@ -27,6 +27,6 @@ public class UserPreferences
     public DateTime UpdatedAtUtc { get; set; }
 
     // Navigation property
-    [ForeignKey(nameof(SessionId))]
+    [ForeignKey(nameof(DeviceId))]
     public UserSession? Session { get; set; }
 }

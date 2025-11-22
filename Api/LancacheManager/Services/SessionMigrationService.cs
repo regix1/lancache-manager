@@ -51,12 +51,12 @@ public class SessionMigrationService
                         if (oldDevice != null)
                         {
                             // Check if already migrated
-                            var exists = await context.UserSessions.AnyAsync(s => s.SessionId == oldDevice.DeviceId);
+                            var exists = await context.UserSessions.AnyAsync(s => s.DeviceId == oldDevice.DeviceId);
                             if (!exists)
                             {
                                 var userSession = new UserSession
                                 {
-                                    SessionId = oldDevice.DeviceId,
+                                    DeviceId = oldDevice.DeviceId,
                                     DeviceName = oldDevice.DeviceName ?? "Unknown Device",
                                     IpAddress = oldDevice.IpAddress ?? string.Empty,
                                     OperatingSystem = oldDevice.OperatingSystem ?? string.Empty,
@@ -115,12 +115,12 @@ public class SessionMigrationService
                             }
 
                             // Check if already migrated
-                            var exists = await context.UserSessions.AnyAsync(s => s.SessionId == sessionId);
+                            var exists = await context.UserSessions.AnyAsync(s => s.DeviceId == sessionId);
                             if (!exists)
                             {
                                 var userSession = new UserSession
                                 {
-                                    SessionId = sessionId, // Use device ID directly (new format)
+                                    DeviceId = sessionId, // Use device ID directly (new format)
                                     DeviceName = oldGuestSession.DeviceName ?? "Guest Device",
                                     IpAddress = oldGuestSession.IpAddress ?? string.Empty,
                                     OperatingSystem = oldGuestSession.OperatingSystem ?? string.Empty,

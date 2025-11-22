@@ -243,24 +243,29 @@ public class UserPreferencesController : ControllerBase
     }
 
     /// <summary>
-    /// Helper method to get the current session ID from either device ID or guest session ID
+    /// Helper method to get the current session ID from device ID (works for both authenticated and guest users)
     /// </summary>
     private string? GetSessionId()
     {
-        // Try device ID from headers (for authenticated users)
         var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(deviceId) && _deviceAuthService.ValidateDevice(deviceId))
+        if (string.IsNullOrEmpty(deviceId))
+        {
+            return null;
+        }
+
+        // Check if this is an authenticated device (not guest)
+        if (_deviceAuthService.ValidateDevice(deviceId))
         {
             return deviceId;
         }
 
-        // Try guest session ID from headers
-        var guestSessionId = Request.Headers["X-Guest-Session-Id"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(guestSessionId) && _guestSessionService.ValidateSession(guestSessionId))
+        // Check if this is a guest session (for guests, device ID = session ID)
+        if (_guestSessionService.ValidateSession(deviceId))
         {
-            return guestSessionId;
+            return deviceId;
         }
 
+        // No valid session found (user hasn't registered as guest or authenticated yet)
         return null;
     }
 

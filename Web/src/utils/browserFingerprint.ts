@@ -118,16 +118,26 @@ export class BrowserFingerprint {
   }
 
   /**
-   * Get device ID (generates fresh fingerprint on each call)
+   * Get device ID (persisted in localStorage for stability)
    *
-   * IMPORTANT: With session-based auth, we no longer persist device IDs client-side.
-   * The server tracks sessions via HttpOnly cookies. The fingerprint is only used
-   * during initial device registration to identify the browser.
+   * Browser fingerprinting alone is not stable enough (especially in WSL/VM environments).
+   * We persist the device ID in localStorage to maintain consistency across page refreshes.
    *
-   * This prevents XSS attacks from stealing device IDs stored in localStorage.
+   * Security: The device ID is only used for identification, not authentication.
+   * Actual authentication uses HttpOnly cookies managed by the server.
    */
   static getDeviceId(): string {
-    // Always generate fresh fingerprint (synchronous, consistent for same browser)
-    return this.generate();
+    const STORAGE_KEY = 'deviceId';
+
+    // Check if we have a persisted device ID
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      return stored;
+    }
+
+    // Generate new fingerprint and persist it
+    const deviceId = this.generate();
+    localStorage.setItem(STORAGE_KEY, deviceId);
+    return deviceId;
   }
 }

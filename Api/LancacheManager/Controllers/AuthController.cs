@@ -179,4 +179,36 @@ public class AuthController : ControllerBase
             hasDataLoaded
         });
     }
+
+    /// <summary>
+    /// POST /api/auth/clear-session - Clear session cookies
+    /// Used when all sessions are cleared from database management
+    /// This endpoint clears HttpOnly session cookies that can't be cleared by JavaScript
+    /// No authentication required since session is already invalid in database
+    /// </summary>
+    [HttpPost("clear-session")]
+    public IActionResult ClearSession()
+    {
+        try
+        {
+            // Clear ASP.NET session (this clears the HttpOnly session cookie)
+            HttpContext.Session.Clear();
+
+            _logger.LogInformation("Session cookies cleared for current request");
+
+            return Ok(new {
+                success = true,
+                message = "Session cookies cleared successfully"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error clearing session cookies");
+            return StatusCode(500, new {
+                success = false,
+                error = "Failed to clear session cookies",
+                details = ex.Message
+            });
+        }
+    }
 }
