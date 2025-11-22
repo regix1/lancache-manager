@@ -217,7 +217,8 @@ public class DeviceAuthService
 
             if (session == null)
             {
-                _logger.LogWarning("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
+                // Log at Debug level - this is expected when sessions are cleared or devices revoked
+                _logger.LogDebug("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
 
                 // Remove from cache if it exists
                 lock (_cacheLock)

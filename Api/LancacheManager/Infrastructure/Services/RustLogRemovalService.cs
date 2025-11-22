@@ -26,6 +26,22 @@ public class RustLogRemovalService
     public bool IsProcessing { get; private set; }
     public string? CurrentService { get; private set; }
 
+    /// <summary>
+    /// Starts service removal operation (wrapper for StartRemovalAsync)
+    /// </summary>
+    public Task<bool> StartServiceRemovalAsync(string service)
+    {
+        return StartRemovalAsync(service);
+    }
+
+    /// <summary>
+    /// Gets the removal status (wrapper for GetProgressAsync)
+    /// </summary>
+    public Task<ProgressData?> GetRemovalStatus()
+    {
+        return GetProgressAsync();
+    }
+
     public RustLogRemovalService(
         ILogger<RustLogRemovalService> logger,
         IPathResolver pathResolver,

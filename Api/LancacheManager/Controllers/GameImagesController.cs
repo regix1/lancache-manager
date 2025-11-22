@@ -6,8 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for game image proxying
+/// Handles Steam game header image retrieval with CORS workaround and caching
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/game-images")]
 public class GameImagesController : ControllerBase
 {
     private readonly ILogger<GameImagesController> _logger;

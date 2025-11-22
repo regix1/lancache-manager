@@ -600,6 +600,30 @@ public class CacheClearingService : IHostedService
         return null;
     }
 
+    /// <summary>
+    /// Gets all active cache clear operations (wrapper for GetAllOperations)
+    /// </summary>
+    public List<CacheClearProgress> GetActiveOperations()
+    {
+        return GetAllOperations();
+    }
+
+    /// <summary>
+    /// Gets cache clear status for a specific operation (wrapper for GetOperationStatus)
+    /// </summary>
+    public CacheClearProgress? GetCacheClearStatus(string operationId)
+    {
+        return GetOperationStatus(operationId);
+    }
+
+    /// <summary>
+    /// Cancels a cache clear operation (wrapper for CancelOperation)
+    /// </summary>
+    public bool CancelCacheClear(string operationId)
+    {
+        return CancelOperation(operationId);
+    }
+
     public List<CacheClearProgress> GetAllOperations()
     {
         return _operations.Values.Select(op => new CacheClearProgress

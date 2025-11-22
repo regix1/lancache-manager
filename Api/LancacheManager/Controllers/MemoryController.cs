@@ -4,8 +4,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for memory diagnostics
+/// Handles memory usage statistics and garbage collection information
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/memory")]
 public class MemoryController : ControllerBase
 {
     private readonly IMemoryManager _memoryManager;

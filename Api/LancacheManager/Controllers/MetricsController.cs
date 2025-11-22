@@ -2,8 +2,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for metrics endpoint configuration
+/// Handles metrics security status and configuration
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/metrics")]
 public class MetricsController : ControllerBase
 {
     private readonly IConfiguration _configuration;

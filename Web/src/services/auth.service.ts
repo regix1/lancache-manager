@@ -101,7 +101,7 @@ class AuthService {
 
     try {
       // Check if our device ID still exists in the sessions list
-      const response = await fetch(`${API_URL}/api/auth/sessions`, {
+      const response = await fetch(`${API_URL}/api/sessions`, {
         headers: this.getAuthHeaders()
       });
 
@@ -184,8 +184,9 @@ class AuthService {
     this.authChecked = true;
 
     // Register guest session with backend
+    // RESTful endpoint: POST /api/sessions?type=guest
     try {
-      await fetch(`${API_URL}/api/auth/guest/register`, {
+      await fetch(`${API_URL}/api/sessions?type=guest`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -267,7 +268,7 @@ class AuthService {
 
         // Still need to fetch hasData and hasEverBeenSetup for guest mode eligibility
         try {
-          const response = await fetch(`${API_URL}/api/auth/check`, {
+          const response = await fetch(`${API_URL}/api/auth/status`, {
             headers: this.getAuthHeaders()
           });
           const result = response.ok ? await response.json() : {};
@@ -305,7 +306,7 @@ class AuthService {
 
         // Fetch hasData and hasEverBeenSetup
         try {
-          const response = await fetch(`${API_URL}/api/auth/check`, {
+          const response = await fetch(`${API_URL}/api/auth/status`, {
             headers: this.getAuthHeaders()
           });
           const result = response.ok ? await response.json() : {};
@@ -333,7 +334,7 @@ class AuthService {
       }
 
       // Standard authentication check
-      const response = await fetch(`${API_URL}/api/auth/check`, {
+      const response = await fetch(`${API_URL}/api/auth/status`, {
         headers: this.getAuthHeaders()
       });
 
@@ -422,7 +423,7 @@ class AuthService {
 
   async register(apiKey: string, deviceName: string | null = null): Promise<RegisterResponse> {
     try {
-      const response = await fetch(`${API_URL}/api/auth/register`, {
+      const response = await fetch(`${API_URL}/api/devices`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -468,12 +469,10 @@ class AuthService {
       // Set flag to prevent handleUnauthorized from interfering during logout
       storage.setItem('lancache_logging_out', 'true');
 
-      const response = await fetch(`${API_URL}/api/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...this.getAuthHeaders()
-        }
+      // RESTful endpoint: DELETE /api/sessions/{id} revokes the current session
+      const response = await fetch(`${API_URL}/api/sessions/${this.deviceId}`, {
+        method: 'DELETE',
+        headers: this.getAuthHeaders()
       });
 
       const result = await response.json();
@@ -512,7 +511,8 @@ class AuthService {
 
   async regenerateApiKey(): Promise<RegenerateKeyResponse> {
     try {
-      const response = await fetch(`${API_URL}/api/auth/regenerate-key`, {
+      // RESTful endpoint: POST /api/api-keys/regenerate
+      const response = await fetch(`${API_URL}/api/api-keys/regenerate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

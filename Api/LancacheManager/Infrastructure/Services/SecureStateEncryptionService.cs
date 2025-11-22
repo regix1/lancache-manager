@@ -74,6 +74,7 @@ public class SecureStateEncryptionService
     /// Decrypts a sensitive string value
     /// Handles plaintext, v1 (without API key), and v2 (with API key) encryption
     /// Automatically migrates from older formats to v2 on next save
+    /// Returns null if decryption fails (data will be cleared, user must re-authenticate)
     /// </summary>
     public string? Decrypt(string? ciphertext)
     {
@@ -93,7 +94,8 @@ public class SecureStateEncryptionService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to decrypt v2 sensitive data - may be corrupted, from different machine, or API key changed");
+                // Expected after API key regeneration - silently clear data, user will re-authenticate
+                _logger.LogDebug("Unable to decrypt sensitive data (likely due to API key change) - clearing data. Error: {Error}", ex.Message);
                 return null;
             }
         }
@@ -107,18 +109,19 @@ public class SecureStateEncryptionService
                 var legacyProtector = GetLegacyProtector();
                 var plaintext = legacyProtector.Unprotect(encryptedData);
 
-                _logger.LogWarning("Found v1 encrypted data (without API key protection) - will be upgraded to v2 on next save");
+                _logger.LogDebug("Migrating v1 encrypted data to v2 format with API key protection");
                 return plaintext;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to decrypt v1 sensitive data - data may be corrupted or from a different machine");
+                // Unable to decrypt legacy data - silently clear it
+                _logger.LogDebug("Unable to decrypt legacy v1 sensitive data - clearing data. Error: {Error}", ex.Message);
                 return null;
             }
         }
 
         // Case 3: Plaintext (no prefix) - oldest legacy format
-        _logger.LogWarning("Found unencrypted sensitive data in state - will be encrypted with API key protection on next save");
+        _logger.LogDebug("Migrating plaintext sensitive data to encrypted format");
         return ciphertext;
     }
 }

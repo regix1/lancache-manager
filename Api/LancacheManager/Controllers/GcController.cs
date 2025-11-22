@@ -6,8 +6,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for garbage collection management
+/// Handles GC settings, manual triggering, and memory optimization
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/gc")]
 public class GcController : ControllerBase
 {
     private readonly SettingsRepository _gcSettingsService;
@@ -54,7 +58,7 @@ public class GcController : ControllerBase
         }
     }
 
-    [HttpPost("settings")]
+    [HttpPut("settings")]
     [RequireAuth]
     public async Task<IActionResult> UpdateSettings([FromBody] UpdateGcSettingsRequest request)
     {

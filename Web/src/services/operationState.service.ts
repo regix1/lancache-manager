@@ -39,7 +39,7 @@ class OperationStateService {
   private readonly UPDATE_DEBOUNCE_MS = 500;
   async getState(key: string): Promise<OperationState | null> {
     try {
-      const response = await fetch(`${API_URL}/api/operationstate/${key}`, {
+      const response = await fetch(`${API_URL}/api/operation-state/${key}`, {
         signal: AbortSignal.timeout(5000)
       });
 
@@ -62,7 +62,7 @@ class OperationStateService {
   ): Promise<OperationState> {
     return this.queueRequest(async () => {
       try {
-        const response = await this.fetchWithRetry(`${API_URL}/api/operationstate`, {
+        const response = await this.fetchWithRetry(`${API_URL}/api/operation-state`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -100,7 +100,7 @@ class OperationStateService {
         this.updateDebounceTimers.delete(key);
         this.queueRequest(async () => {
           try {
-            const url = `${API_URL}/api/operationstate/${encodeURIComponent(key)}`;
+            const url = `${API_URL}/api/operation-state/${encodeURIComponent(key)}`;
 
             const response = await fetch(url, {
               method: 'PATCH',
@@ -135,7 +135,7 @@ class OperationStateService {
     return this.queueRequest(async () => {
       try {
         const response = await this.fetchWithRetry(
-          `${API_URL}/api/operationstate/${encodeURIComponent(key)}`,
+          `${API_URL}/api/operation-state/${encodeURIComponent(key)}`,
           {
             method: 'DELETE',
             headers: authService.getAuthHeaders()
@@ -157,8 +157,8 @@ class OperationStateService {
   async getAllStates(type: string | null = null): Promise<OperationState[]> {
     try {
       const url = type
-        ? `${API_URL}/api/operationstate?type=${type}`
-        : `${API_URL}/api/operationstate`;
+        ? `${API_URL}/api/operation-state?type=${type}`
+        : `${API_URL}/api/operation-state`;
 
       const response = await fetch(url, {
         headers: authService.getAuthHeaders()

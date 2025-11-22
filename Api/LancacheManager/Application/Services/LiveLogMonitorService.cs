@@ -13,6 +13,7 @@ public class LiveLogMonitorService : BackgroundService
     private readonly ILogger<LiveLogMonitorService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly RustLogProcessorService _rustLogProcessorService;
+    private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly StateRepository _stateService;
     private readonly string _logFilePath;
     private long _lastFileSize = 0;
@@ -28,11 +29,13 @@ public class LiveLogMonitorService : BackgroundService
         ILogger<LiveLogMonitorService> logger,
         IPathResolver pathResolver,
         RustLogProcessorService rustLogProcessorService,
+        RustLogRemovalService rustLogRemovalService,
         StateRepository stateService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _rustLogProcessorService = rustLogProcessorService;
+        _rustLogRemovalService = rustLogRemovalService;
         _stateService = stateService;
         _logFilePath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
     }
@@ -185,6 +188,13 @@ public class LiveLogMonitorService : BackgroundService
                 if (_rustLogProcessorService.IsProcessing)
                 {
                     _logger.LogInformation("Manual processing is already running, skipping live update");
+                    return;
+                }
+
+                // Check if log removal is in progress
+                if (_rustLogRemovalService.IsProcessing)
+                {
+                    _logger.LogDebug("Log removal is in progress for {Service}, skipping live update", _rustLogRemovalService.CurrentService);
                     return;
                 }
 

@@ -29,6 +29,45 @@ public class RustLogProcessorService
 
     public bool IsProcessing { get; private set; }
 
+    /// <summary>
+    /// Resets the log position to 0 to reprocess all logs
+    /// </summary>
+    public void ResetLogPosition()
+    {
+        _stateService.SetLogPosition(0);
+        _logger.LogInformation("Log position reset to 0");
+    }
+
+    /// <summary>
+    /// Starts log processing with default log directory (parameterless overload)
+    /// </summary>
+    public Task<bool> StartProcessing()
+    {
+        var logsPath = _pathResolver.GetLogsDirectory();
+        var logPosition = _stateService.GetLogPosition();
+        return StartProcessingAsync(logsPath, logPosition, silentMode: false);
+    }
+
+    /// <summary>
+    /// Starts log processing (wrapper for StartProcessingAsync)
+    /// </summary>
+    public Task<bool> StartProcessing(string logFilePath, long startPosition = 0, bool silentMode = false)
+    {
+        return StartProcessingAsync(logFilePath, startPosition, silentMode);
+    }
+
+    /// <summary>
+    /// Gets the current processing status
+    /// </summary>
+    public object GetStatus()
+    {
+        return new
+        {
+            isProcessing = IsProcessing,
+            status = IsProcessing ? "running" : "idle"
+        };
+    }
+
     public RustLogProcessorService(
         ILogger<RustLogProcessorService> logger,
         IPathResolver pathResolver,

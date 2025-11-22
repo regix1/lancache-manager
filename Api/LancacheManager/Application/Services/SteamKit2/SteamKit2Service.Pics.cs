@@ -527,6 +527,9 @@ public partial class SteamKit2Service
             {
                 _logger.LogWarning(signalREx, "Failed to send depot mapping error via SignalR");
             }
+
+            // Re-throw the exception so calling code knows the operation failed
+            throw;
         }
     }
 
@@ -823,15 +826,16 @@ public partial class SteamKit2Service
                 if (status.Version == SteamWebApiService.SteamApiVersion.V1NoKey)
                 {
                     throw new InvalidOperationException(
-                        "Full scan required but Steam Web API V2 is unavailable. " +
-                        "Please configure a Steam Web API key in Management → Integration & Services → Steam Web API Status, " +
-                        "OR download pre-created depot mappings from GitHub using the 'Download Pre-created Data' button.");
+                        "Cannot perform full PICS scan: Steam Web API V2 is currently unavailable and no V1 API key is configured. " +
+                        "To resolve this issue, either: " +
+                        "(1) Configure a Steam Web API key in the Management tab under 'Steam Web API Status', OR " +
+                        "(2) Download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
                 }
                 else
                 {
                     throw new InvalidOperationException(
-                        "Full scan required but Steam Web API is unavailable. " +
-                        "Please download pre-created depot mappings from GitHub using the 'Download Pre-created Data' button.");
+                        "Cannot perform full PICS scan: Steam Web API is currently unavailable. " +
+                        "To resolve this issue, download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
                 }
             }
 

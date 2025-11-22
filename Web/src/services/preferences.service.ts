@@ -35,7 +35,7 @@ class PreferencesService {
     this.loading = true;
 
     try {
-      const response = await fetch(`${API_BASE}/userpreferences`, {
+      const response = await fetch(`${API_BASE}/user-preferences`, {
         headers: authService.getAuthHeaders()
       });
 
@@ -82,8 +82,8 @@ class PreferencesService {
    */
   async savePreferences(preferences: UserPreferences): Promise<boolean> {
     try {
-      const response = await fetch(`${API_BASE}/userpreferences`, {
-        method: 'POST',
+      const response = await fetch(`${API_BASE}/user-preferences`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           ...authService.getAuthHeaders()
@@ -130,7 +130,7 @@ class PreferencesService {
     // Create the update promise
     const updatePromise = (async () => {
       try {
-        const response = await fetch(`${API_BASE}/userpreferences/${key}`, {
+        const response = await fetch(`${API_BASE}/user-preferences/${key}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
@@ -240,6 +240,7 @@ class PreferencesService {
     // Track if we're processing to prevent race conditions
     let isProcessingUpdate = false;
     let isProcessingReset = false;
+    let isProcessingSessionRevocation = false;
 
     // Handle preference updates
     const handlePreferencesUpdated = (payload: any) => {
@@ -345,23 +346,36 @@ class PreferencesService {
 
     // Handle session revoked - check if it's our session and logout immediately
     const handleSessionRevoked = (payload: any) => {
-      console.log('[PreferencesService] UserSessionRevoked event received:', payload);
+      if (isProcessingSessionRevocation) {
+        console.log('[PreferencesService] Already processing session revocation, skipping duplicate');
+        return;
+      }
 
-      const { sessionId, sessionType } = payload;
+      try {
+        isProcessingSessionRevocation = true;
+        console.log('[PreferencesService] UserSessionRevoked event received:', payload);
 
-      // Check if this is our session
-      const ourDeviceId = authService.getDeviceId();
-      const ourGuestSessionId = authService.getGuestSessionId();
+        const { sessionId, sessionType } = payload;
 
-      const isOurSession =
-        (sessionType === 'authenticated' && sessionId === ourDeviceId) ||
-        (sessionType === 'guest' && sessionId === ourGuestSessionId);
+        // Check if this is our session
+        const ourDeviceId = authService.getDeviceId();
+        const ourGuestSessionId = authService.getGuestSessionId();
 
-      if (isOurSession) {
-        console.warn('[PreferencesService] Our session was revoked - forcing logout');
+        const isOurSession =
+          (sessionType === 'authenticated' && sessionId === ourDeviceId) ||
+          (sessionType === 'guest' && sessionId === ourGuestSessionId);
 
-        // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
-        window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
+        if (isOurSession) {
+          console.warn('[PreferencesService] Our session was revoked - forcing logout');
+
+          // Dispatch custom event for App.tsx to handle (needs React context for refreshAuth)
+          window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
+        }
+      } finally {
+        // Keep the flag set for longer to prevent rapid re-triggering
+        setTimeout(() => {
+          isProcessingSessionRevocation = false;
+        }, 5000);
       }
     };
 
@@ -424,7 +438,7 @@ class PreferencesService {
    */
   async getPreferencesForSession(sessionId: string): Promise<UserPreferences | null> {
     try {
-      const response = await fetch(`${API_BASE}/userpreferences/session/${sessionId}`, {
+      const response = await fetch(`${API_BASE}/user-preferences/session/${sessionId}`, {
         headers: authService.getAuthHeaders()
       });
 
@@ -461,8 +475,8 @@ class PreferencesService {
     preferences: UserPreferences
   ): Promise<boolean> {
     try {
-      const response = await fetch(`${API_BASE}/userpreferences/session/${sessionId}`, {
-        method: 'POST',
+      const response = await fetch(`${API_BASE}/user-preferences/session/${sessionId}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           ...authService.getAuthHeaders()

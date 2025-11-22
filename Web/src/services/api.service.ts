@@ -348,10 +348,9 @@ class ApiService {
   // Remove specific service entries from log file (requires auth)
   static async removeServiceFromLogs(service: string): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/logs/remove-service`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ service })
+      const res = await fetch(`${API_BASE}/logs/services/${encodeURIComponent(service)}`, {
+        method: 'DELETE',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
         // No timeout - Rust log filtering handles large files efficiently
       });
       return await this.handleResponse(res);
@@ -423,10 +422,10 @@ class ApiService {
     return await this.handleResponse(res);
   }
 
-  // PICS/GameInfo related endpoints
+  // PICS/Depot related endpoints (consolidated from GameInfoController)
   static async getPicsStatus(signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/gameinfo/pics-status`, {
+      const res = await fetch(`${API_BASE}/depots/status`, {
         signal,
         headers: this.getHeaders()
       });
@@ -440,7 +439,7 @@ class ApiService {
 
   static async triggerSteamKitRebuild(incremental = false, signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/gameinfo/steamkit/rebuild?incremental=${incremental}`, {
+      const res = await fetch(`${API_BASE}/depots/rebuild?incremental=${incremental}`, {
         method: 'POST',
         signal,
         headers: this.getHeaders({ 'Content-Type': 'application/json' })
@@ -454,8 +453,8 @@ class ApiService {
 
   static async cancelSteamKitRebuild(signal?: AbortSignal): Promise<void> {
     try {
-      const res = await fetch(`${API_BASE}/gameinfo/steamkit/cancel`, {
-        method: 'POST',
+      const res = await fetch(`${API_BASE}/depots/rebuild`, {
+        method: 'DELETE',
         signal,
         headers: this.getHeaders({ 'Content-Type': 'application/json' })
       });
@@ -470,7 +469,7 @@ class ApiService {
 
   static async checkIncrementalViability(signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/gameinfo/steamkit/check-incremental`, {
+      const res = await fetch(`${API_BASE}/depots/rebuild/check-incremental`, {
         method: 'GET',
         signal,
         headers: this.getHeaders()
@@ -484,7 +483,7 @@ class ApiService {
 
   static async downloadPrecreatedDepotData(signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/gameinfo/download-precreated-data`, {
+      const res = await fetch(`${API_BASE}/depots/import?source=github`, {
         method: 'POST',
         signal,
         headers: this.getHeaders()

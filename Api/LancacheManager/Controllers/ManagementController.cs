@@ -10,8 +10,20 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// LEGACY CONTROLLER - Consider using specialized controllers instead:
+/// - /api/cache for cache operations
+/// - /api/database for database operations
+/// - /api/logs for log processing
+/// - /api/steam-auth for Steam authentication
+/// - /api/depots for depot mapping operations
+/// - /api/games for game detection
+///
+/// This controller is maintained for backward compatibility but contains
+/// duplicate functionality that exists in the specialized controllers above.
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/management")]
 public class ManagementController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
@@ -980,7 +992,23 @@ public class ManagementController : ControllerBase
                 // Conditionally trigger full PICS rebuild based on user preference
                 if (request.AutoStartPicsRebuild)
                 {
-                    _logger.LogInformation("[AUTO-START] request.AutoStartPicsRebuild = TRUE - triggering automatic full PICS rebuild");
+                    _logger.LogInformation("[AUTO-START] request.AutoStartPicsRebuild = TRUE - checking if full PICS rebuild is possible");
+
+                    // Check if Web API is available for full scan
+                    var isWebApiAvailable = _steamKit2Service.IsWebApiAvailable();
+                    if (!isWebApiAvailable)
+                    {
+                        _logger.LogWarning("[AUTO-START] Cannot auto-start full PICS rebuild - Steam Web API is unavailable");
+                        return Ok(new
+                        {
+                            success = true,
+                            message = "Authentication successful, but cannot start full PICS rebuild because Steam Web API V2 is unavailable and no V1 API key is configured. Please configure a Steam Web API key or download pre-created depot mappings from GitHub.",
+                            autoStarted = false,
+                            webApiUnavailable = true
+                        });
+                    }
+
+                    _logger.LogInformation("[AUTO-START] Web API is available - triggering automatic full PICS rebuild");
                     var started = _steamKit2Service.TryStartRebuild(default, incrementalOnly: false);
                     _logger.LogInformation("[AUTO-START] TryStartRebuild returned: {Started}", started);
 

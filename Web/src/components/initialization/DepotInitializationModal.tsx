@@ -483,7 +483,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         console.log('[DepotInit] Importing JSON file to database before rebuild');
 
         // Import JSON to database first
-        await fetch('/api/gameinfo/import-pics-data', {
+        await fetch('/api/depots/import?source=github', {
           method: 'POST',
           headers: ApiService.getHeaders()
         });

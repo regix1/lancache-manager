@@ -30,7 +30,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     setTestResult(null);
 
     try {
-      const response = await fetch('/api/steamwebapi/test-key', {
+      const response = await fetch('/api/steam-api-keys/test', {
         method: 'POST',
         headers: {
           ...ApiService.getHeaders(),
@@ -71,7 +71,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     setSaving(true);
 
     try {
-      const response = await fetch('/api/steamwebapi/save-key', {
+      const response = await fetch('/api/steam-api-keys', {
         method: 'POST',
         headers: {
           ...ApiService.getHeaders(),

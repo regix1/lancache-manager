@@ -464,4 +464,13 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             IsWebApiAvailable = isWebApiAvailable // True if V2 is active OR V1 is configured with API key
         };
     }
+
+    /// <summary>
+    /// Check if Steam Web API is available (V2 or V1 with key configured)
+    /// Required for full PICS scans to enumerate all app IDs
+    /// </summary>
+    public bool IsWebApiAvailable()
+    {
+        return _steamWebApiService.IsWebApiAvailableCached();
+    }
 }

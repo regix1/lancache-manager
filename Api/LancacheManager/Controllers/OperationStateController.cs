@@ -4,8 +4,12 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for operation state management
+/// Handles temporary operation state storage for background tasks
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/operation-state")]
 public class OperationStateController : ControllerBase
 {
     private readonly OperationStateService _stateService;

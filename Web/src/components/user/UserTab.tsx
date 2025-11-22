@@ -67,7 +67,7 @@ const UserTab: React.FC = () => {
         setLoading(true);
       }
       setError(null);
-      const response = await fetch('/api/auth/sessions', {
+      const response = await fetch('/api/sessions', {
         headers: ApiService.getHeaders()
       });
 
@@ -88,13 +88,9 @@ const UserTab: React.FC = () => {
   };
 
   const loadGuestDuration = async () => {
-    try {
-      const result = await ApiService.getGuestSessionDuration();
-      setGuestDurationHours(result.durationHours);
-    } catch (err) {
-      console.error('Failed to load guest session duration:', err);
-      // Use default value on error
-    }
+    // Guest session duration endpoint was removed during REST API refactoring
+    // Using default value of 6 hours (can be updated via SignalR if backend sends updates)
+    setGuestDurationHours(6);
   };
 
   const handleUpdateDuration = async (newDuration: number) => {
@@ -125,7 +121,7 @@ const UserTab: React.FC = () => {
 
   const loadDefaultGuestTheme = async () => {
     try {
-      const response = await fetch('/api/theme/preferences/guest', {
+      const response = await fetch('/api/themes/preferences/guest', {
         headers: ApiService.getHeaders()
       });
       if (response.ok) {
@@ -140,7 +136,7 @@ const UserTab: React.FC = () => {
   const handleUpdateGuestTheme = async (newThemeId: string) => {
     try {
       setUpdatingGuestTheme(true);
-      const response = await fetch('/api/theme/preferences/guest', {
+      const response = await fetch('/api/themes/preferences/guest', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -208,13 +204,11 @@ const UserTab: React.FC = () => {
 
     try {
       setRevokingSession(pendingRevokeSession.id);
-      const endpoint =
-        pendingRevokeSession.type === 'authenticated'
-          ? `/api/auth/devices/${encodeURIComponent(pendingRevokeSession.id)}`
-          : `/api/auth/guest/${encodeURIComponent(pendingRevokeSession.id)}/revoke`;
+      // RESTful endpoint: DELETE /api/sessions/{id} handles both authenticated and guest sessions
+      const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}`;
 
       const response = await fetch(endpoint, {
-        method: pendingRevokeSession.type === 'authenticated' ? 'DELETE' : 'POST',
+        method: 'DELETE',
         headers: ApiService.getHeaders()
       });
 
@@ -262,10 +256,8 @@ const UserTab: React.FC = () => {
 
     try {
       setDeletingSession(pendingDeleteSession.id);
-      const endpoint =
-        pendingDeleteSession.type === 'authenticated'
-          ? `/api/auth/devices/${encodeURIComponent(pendingDeleteSession.id)}`
-          : `/api/auth/guest/${encodeURIComponent(pendingDeleteSession.id)}`;
+      // RESTful endpoint: DELETE /api/sessions/{id} handles both authenticated and guest sessions
+      const endpoint = `/api/sessions/${encodeURIComponent(pendingDeleteSession.id)}`;
 
       const response = await fetch(endpoint, {
         method: 'DELETE',
@@ -304,7 +296,7 @@ const UserTab: React.FC = () => {
     setEditingSession(session);
     setLoadingPreferences(true);
     try {
-      const response = await fetch(`/api/userpreferences/session/${encodeURIComponent(session.id)}`, {
+      const response = await fetch(`/api/user-preferences/session/${encodeURIComponent(session.id)}`, {
         headers: ApiService.getHeaders()
       });
 
@@ -345,8 +337,8 @@ const UserTab: React.FC = () => {
 
     try {
       setSavingPreferences(true);
-      const response = await fetch(`/api/userpreferences/session/${encodeURIComponent(editingSession.id)}`, {
-        method: 'POST',
+      const response = await fetch(`/api/user-preferences/session/${encodeURIComponent(editingSession.id)}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           ...ApiService.getHeaders()

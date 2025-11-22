@@ -3,7 +3,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 
 /**
  * PICS Progress Interface
- * Matches the structure returned by /api/gameinfo/steamkit/progress
+ * Matches the structure returned by /api/depots/rebuild/progress
  */
 export interface PicsProgress {
   // Core status
@@ -86,7 +86,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     }
 
     try {
-      const response = await fetch('/api/gameinfo/steamkit/progress');
+      const response = await fetch('/api/depots/rebuild/progress');
       if (response.ok) {
         const data: PicsProgress = await response.json();
         setProgress(data);

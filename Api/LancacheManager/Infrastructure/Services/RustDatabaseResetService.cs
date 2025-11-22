@@ -68,6 +68,26 @@ public class RustDatabaseResetService
         public DateTime Timestamp { get; set; }
     }
 
+    /// <summary>
+    /// Starts database reset operation (wrapper for StartResetAsync)
+    /// </summary>
+    public Task<bool> StartDatabaseResetAsync()
+    {
+        return StartResetAsync();
+    }
+
+    /// <summary>
+    /// Gets the current database reset status
+    /// </summary>
+    public object GetDatabaseResetStatus()
+    {
+        return new
+        {
+            isProcessing = IsProcessing,
+            status = IsProcessing ? "running" : "idle"
+        };
+    }
+
     public async Task<bool> StartResetAsync()
     {
         if (IsProcessing)

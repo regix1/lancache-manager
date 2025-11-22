@@ -215,7 +215,7 @@ class ThemeService {
           case 'selectedTheme':
             // Handle null/empty value by fetching default guest theme (async, non-blocking)
             if (!value) {
-              fetch(`${API_BASE}/theme/preferences/guest`, {
+              fetch(`${API_BASE}/themes/preferences/guest`, {
                 headers: authService.getAuthHeaders()
               })
                 .then(response => {
@@ -339,14 +339,14 @@ class ThemeService {
     const deletedThemeIds: string[] = [];
 
     try {
-      const response = await fetch(`${API_BASE}/theme`);
+      const response = await fetch(`${API_BASE}/themes`);
       if (response.ok) {
         const themeList = await response.json();
 
         for (const themeInfo of themeList) {
           if (themeInfo.format === 'toml') {
             try {
-              const themeResponse = await fetch(`${API_BASE}/theme/${themeInfo.id}`);
+              const themeResponse = await fetch(`${API_BASE}/themes/${themeInfo.id}`);
 
               if (themeResponse.status === 404) {
                 deletedThemeIds.push(themeInfo.id);
@@ -727,7 +727,7 @@ class ThemeService {
     if (builtIn) return builtIn;
 
     try {
-      const response = await fetch(`${API_BASE}/theme/${themeId}`);
+      const response = await fetch(`${API_BASE}/themes/${themeId}`);
       if (!response.ok) return null;
 
       const tomlText = await response.text();
@@ -780,7 +780,7 @@ class ThemeService {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`${API_BASE}/theme/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, {
         method: 'POST',
         headers: authService.getAuthHeaders(),
         body: formData
@@ -803,7 +803,7 @@ class ThemeService {
   }
 
   async deleteTheme(themeId: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/theme/${themeId}`, {
+    const response = await fetch(`${API_BASE}/themes/${themeId}`, {
       method: 'DELETE',
       headers: authService.getAuthHeaders()
     });

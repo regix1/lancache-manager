@@ -4,23 +4,29 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for Steam Web API key management
+/// Handles Steam Web API key storage, testing, and status checking
+/// Note: Renamed from SteamWebApiController for proper resource-based naming
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
-public class SteamWebApiController : ControllerBase
+[Route("api/steam-api-keys")]
+public class SteamApiKeysController : ControllerBase
 {
     private readonly SteamWebApiService _steamWebApiService;
-    private readonly ILogger<SteamWebApiController> _logger;
+    private readonly ILogger<SteamApiKeysController> _logger;
 
-    public SteamWebApiController(
+    public SteamApiKeysController(
         SteamWebApiService steamWebApiService,
-        ILogger<SteamWebApiController> logger)
+        ILogger<SteamApiKeysController> logger)
     {
         _steamWebApiService = steamWebApiService;
         _logger = logger;
     }
 
     /// <summary>
-    /// Get current Steam Web API status (V2/V1 availability)
+    /// GET /api/steam-api-keys/status - Get Steam Web API status (V2/V1 availability)
+    /// RESTful: Status endpoint for the API keys resource
     /// </summary>
     [HttpGet("status")]
     public async Task<IActionResult> GetStatus([FromQuery] bool forceRefresh = false)
@@ -48,9 +54,11 @@ public class SteamWebApiController : ControllerBase
     }
 
     /// <summary>
-    /// Test a Steam Web API key without saving it
+    /// POST /api/steam-api-keys/test - Test a Steam Web API key without saving
+    /// RESTful: POST is acceptable for testing/validation operations
+    /// Request body: { "apiKey": "..." }
     /// </summary>
-    [HttpPost("test-key")]
+    [HttpPost("test")]
     [RequireAuth]
     public async Task<IActionResult> TestApiKey([FromBody] TestApiKeyRequest request)
     {
@@ -88,9 +96,11 @@ public class SteamWebApiController : ControllerBase
     }
 
     /// <summary>
-    /// Save Steam Web API key (encrypted storage)
+    /// POST /api/steam-api-keys - Save Steam Web API key (encrypted storage)
+    /// RESTful: POST is proper method for creating/saving resources
+    /// Request body: { "apiKey": "..." }
     /// </summary>
-    [HttpPost("save-key")]
+    [HttpPost]
     [RequireAuth]
     public async Task<IActionResult> SaveApiKey([FromBody] SaveApiKeyRequest request)
     {
@@ -118,7 +128,7 @@ public class SteamWebApiController : ControllerBase
 
             _logger.LogInformation("Steam Web API key saved successfully");
 
-            return Ok(new
+            return Created("/api/steam-api-keys/status", new
             {
                 message = "Steam Web API key saved successfully",
                 encrypted = true
@@ -132,9 +142,10 @@ public class SteamWebApiController : ControllerBase
     }
 
     /// <summary>
-    /// Remove the configured Steam Web API key
+    /// DELETE /api/steam-api-keys/current - Remove the configured Steam Web API key
+    /// RESTful: DELETE is proper method for removing resources
     /// </summary>
-    [HttpPost("remove-key")]
+    [HttpDelete("current")]
     [RequireAuth]
     public IActionResult RemoveApiKey()
     {
@@ -157,7 +168,8 @@ public class SteamWebApiController : ControllerBase
     }
 
     /// <summary>
-    /// Get app list from Steam Web API (for testing/debugging)
+    /// GET /api/steam-api-keys/app-list - Get app list from Steam Web API (proxy/testing)
+    /// RESTful: This is a proxy endpoint for testing purposes
     /// </summary>
     [HttpGet("app-list")]
     [RequireAuth]

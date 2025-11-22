@@ -23,7 +23,7 @@ export const useSteamWebApiStatus = () => {
       }
       setError(null);
 
-      const response = await fetch(`/api/steamwebapi/status?forceRefresh=${forceRefresh}`, {
+      const response = await fetch(`/api/steam-api-keys/status?forceRefresh=${forceRefresh}`, {
         headers: ApiService.getHeaders()
       });
 

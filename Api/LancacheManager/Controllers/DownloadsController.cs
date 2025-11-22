@@ -6,8 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for download history
+/// Handles retrieval of latest and active downloads
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/downloads")]
 public class DownloadsController : ControllerBase
 {
     private readonly AppDbContext _context;

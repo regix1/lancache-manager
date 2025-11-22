@@ -11,7 +11,12 @@ import {
   Brush,
   Info,
   Edit,
-  Loader2
+  Loader2,
+  Square,
+  HelpCircle,
+  AlertCircle,
+  Bell,
+  Pin
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import authService from '../../services/auth.service';
@@ -235,7 +240,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/theme/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, {
         method: 'POST',
         headers: authService.getAuthHeaders(),
         body: formData
@@ -298,7 +303,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/theme/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, {
         method: 'POST',
         headers: authService.getAuthHeaders(),
         body: formData
@@ -332,12 +337,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/theme/${themePendingDeletion.id}`, {
+      const response = await fetch(`${API_BASE}/themes/${themePendingDeletion.id}`, {
         method: 'DELETE',
         headers: authService.getAuthHeaders()
       });
 
-      if (!response.ok) throw new Error('Failed to delete theme');
+      // Handle 404 gracefully - theme might already be deleted
+      if (!response.ok && response.status !== 404) {
+        throw new Error('Failed to delete theme');
+      }
 
       if (currentTheme === themePendingDeletion.id) {
         await themeService.setTheme('dark-default');
@@ -353,6 +361,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       setThemePendingDeletion(null);
     } catch (error) {
       console.error('Error deleting theme:', error);
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: 'Failed to delete theme',
+        details: { notificationType: 'error' }
+      });
     } finally {
       setLoading(false);
     }
@@ -368,7 +382,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const customThemes = themes.filter((t) => !isSystemTheme(t.meta.id));
 
       for (const theme of customThemes) {
-        await fetch(`${API_BASE}/theme/${theme.meta.id}`, {
+        await fetch(`${API_BASE}/themes/${theme.meta.id}`, {
           method: 'DELETE',
           headers: authService.getAuthHeaders()
         });
@@ -435,7 +449,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/theme/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, {
         method: 'POST',
         headers: authService.getAuthHeaders(),
         body: formData
@@ -697,41 +711,99 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             </div>
 
             {/* Options */}
-            <div className="mb-6 p-4 rounded-lg bg-themed-tertiary">
-              <label className="block text-sm font-medium mb-3 text-themed-secondary">
-                Options
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Checkbox
-                  checked={sharpCornersEnabled}
-                  onChange={(e) => handleSharpCornersToggle(e.target.checked)}
-                  variant="rounded"
-                  label="Sharp Corners"
-                />
-                <Checkbox
-                  checked={!tooltipsDisabled}
-                  onChange={(e) => handleTooltipsToggle(!e.target.checked)}
-                  variant="rounded"
-                  label="Tooltips"
-                />
-                <Checkbox
-                  checked={!hideAboutSections}
-                  onChange={(e) => handleHideAboutSectionsToggle(!e.target.checked)}
-                  variant="rounded"
-                  label="Info Sections"
-                />
-                <Checkbox
-                  checked={!disableStickyNotifications}
-                  onChange={(e) => handleDisableStickyNotificationsToggle(!e.target.checked)}
-                  variant="rounded"
-                  label="Sticky Notifications"
-                />
-                <Checkbox
-                  checked={picsAlwaysVisible}
-                  onChange={(e) => handlePicsAlwaysVisibleToggle(e.target.checked)}
-                  variant="rounded"
-                  label="Universal Notifications Always Visible"
-                />
+            <div className="mb-6 space-y-4">
+              {/* Visual Options */}
+              <div className="p-4 rounded-lg bg-themed-tertiary">
+                <div className="flex items-center gap-2 mb-4">
+                  <Brush className="w-4 h-4 text-themed-accent" />
+                  <label className="text-sm font-medium text-themed-secondary">
+                    Visual Preferences
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
+                    <Square className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <Checkbox
+                        checked={sharpCornersEnabled}
+                        onChange={(e) => handleSharpCornersToggle(e.target.checked)}
+                        variant="rounded"
+                        label="Sharp Corners"
+                      />
+                      <p className="text-xs text-themed-muted mt-1 ml-6">
+                        Use square corners instead of rounded
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
+                    <HelpCircle className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <Checkbox
+                        checked={!tooltipsDisabled}
+                        onChange={(e) => handleTooltipsToggle(!e.target.checked)}
+                        variant="rounded"
+                        label="Tooltips"
+                      />
+                      <p className="text-xs text-themed-muted mt-1 ml-6">
+                        Show helpful hints on hover
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
+                    <AlertCircle className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <Checkbox
+                        checked={!hideAboutSections}
+                        onChange={(e) => handleHideAboutSectionsToggle(!e.target.checked)}
+                        variant="rounded"
+                        label="Info Sections"
+                      />
+                      <p className="text-xs text-themed-muted mt-1 ml-6">
+                        Display informational panels
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notification Options */}
+              <div className="p-4 rounded-lg bg-themed-tertiary">
+                <div className="flex items-center gap-2 mb-4">
+                  <Bell className="w-4 h-4 text-themed-accent" />
+                  <label className="text-sm font-medium text-themed-secondary">
+                    Notification Behavior
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
+                    <Pin className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <Checkbox
+                        checked={!disableStickyNotifications}
+                        onChange={(e) => handleDisableStickyNotificationsToggle(!e.target.checked)}
+                        variant="rounded"
+                        label="Sticky Notifications"
+                      />
+                      <p className="text-xs text-themed-muted mt-1 ml-6">
+                        Keep notification bar fixed at top when scrolling
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
+                    <Bell className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <Checkbox
+                        checked={picsAlwaysVisible}
+                        onChange={(e) => handlePicsAlwaysVisibleToggle(e.target.checked)}
+                        variant="rounded"
+                        label="Static Notifications"
+                      />
+                      <p className="text-xs text-themed-muted mt-1 ml-6">
+                        Require manual dismissal - won't auto-clear
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 

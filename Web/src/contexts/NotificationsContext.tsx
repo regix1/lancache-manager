@@ -106,7 +106,12 @@ interface NotificationsProviderProps {
 
 // Helper function to check if notifications should auto-dismiss
 const shouldAutoDismiss = (): boolean => {
-  return !themeService.getPicsAlwaysVisibleSync();
+  // Only check if "Static Notifications" is enabled
+  // If static notifications are enabled, they must be manually dismissed (don't auto-dismiss)
+  const staticNotifications = themeService.getPicsAlwaysVisibleSync();
+
+  // Auto-dismiss only when static notifications is disabled
+  return !staticNotifications;
 };
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
@@ -1122,25 +1127,29 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     removeNotificationAnimated
   ]);
 
-  // Listen for changes to the "Always Visible" setting
+  // Listen for changes to the "Static Notifications" setting
   React.useEffect(() => {
-    const handlePicsVisibilityChange = () => {
-      // When setting is disabled (auto-dismiss is now enabled), start timers for existing completed/failed notifications
-      notifications.forEach((notification) => {
-        if (notification.status === 'completed' || notification.status === 'failed') {
-          // Use shorter delay for cancelled depot mapping operations
-          const timeout =
-            notification.type === 'depot_mapping' && notification.details?.cancelled
-              ? CANCELLED_NOTIFICATION_DELAY_MS
-              : AUTO_DISMISS_DELAY_MS;
+    const handleStaticNotificationsChange = () => {
+      // When setting changes to allow auto-dismiss, start timers for existing completed/failed notifications
+      if (shouldAutoDismiss()) {
+        notifications.forEach((notification) => {
+          if (notification.status === 'completed' || notification.status === 'failed') {
+            // Use shorter delay for cancelled depot mapping operations
+            const timeout =
+              notification.type === 'depot_mapping' && notification.details?.cancelled
+                ? CANCELLED_NOTIFICATION_DELAY_MS
+                : AUTO_DISMISS_DELAY_MS;
 
-          scheduleAutoDismiss(notification.id, timeout);
-        }
-      });
+            scheduleAutoDismiss(notification.id, timeout);
+          }
+        });
+      }
     };
 
-    window.addEventListener('picsvisibilitychange', handlePicsVisibilityChange);
-    return () => window.removeEventListener('picsvisibilitychange', handlePicsVisibilityChange);
+    window.addEventListener('picsvisibilitychange', handleStaticNotificationsChange);
+    return () => {
+      window.removeEventListener('picsvisibilitychange', handleStaticNotificationsChange);
+    };
   }, [notifications, scheduleAutoDismiss]);
 
   // Listen for custom toast notifications (e.g., preference changes)
@@ -1272,7 +1281,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverDepotMapping = async () => {
       try {
-        const response = await fetch('/api/gameinfo/steamkit/progress');
+        const response = await fetch('/api/depots/rebuild/progress');
         if (response.ok) {
           const data = await response.json();
 

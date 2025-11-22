@@ -112,7 +112,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
     setSuccess(null);
     try {
       const response = await fetch(`${API_BASE}/gc/settings`, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           ...authService.getAuthHeaders(),
           'Content-Type': 'application/json'

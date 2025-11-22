@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import ApiService from '@services/api.service';
+import authService from '@services/auth.service';
 
 /**
  * Hook to track user activity and send heartbeat to server
@@ -35,11 +36,40 @@ export const useActivityTracker = () => {
       // Only send heartbeat if user was active in the last 60 seconds (1 minute)
       if (timeSinceLastActivity <= 60000) {
         try {
+          // Skip heartbeat for unauthenticated or expired sessions
+          // Send heartbeats for both authenticated users and active guest sessions
+          if (authService.authMode === 'unauthenticated' || authService.authMode === 'expired') {
+            return;
+          }
+
+          // Get device ID for session heartbeat
+          const deviceId = authService.getDeviceId();
+
+          // If no device ID, skip heartbeat (session not established yet or already cleared)
+          if (!deviceId) {
+            return;
+          }
+
           // Send heartbeat to update lastSeenAt on server
-          await fetch('/api/auth/heartbeat', {
-            method: 'POST',
+          // RESTful endpoint: PATCH /api/sessions/{id}/last-seen
+          const response = await fetch(`/api/sessions/${deviceId}/last-seen`, {
+            method: 'PATCH',
             headers: ApiService.getHeaders()
           });
+
+          // If unauthorized (401), device was revoked - trigger auth check
+          if (response.status === 401) {
+            console.warn('[ActivityTracker] Device unauthorized - triggering auth state refresh');
+            authService.handleUnauthorized();
+            return;
+          }
+
+          // If not found (404), session doesn't exist - stop sending heartbeats
+          if (response.status === 404) {
+            console.debug('[ActivityTracker] Session not found - may have been revoked');
+            return;
+          }
+
           isActiveRef.current = true;
         } catch (err) {
           // Silently fail - heartbeat is non-critical

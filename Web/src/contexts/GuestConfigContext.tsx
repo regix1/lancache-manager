@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
 
 interface GuestConfigContextType {
@@ -26,20 +25,11 @@ export const GuestConfigProvider: React.FC<GuestConfigProviderProps> = ({ childr
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch guest session duration on mount
+  // Guest session duration endpoint was removed during REST API refactoring
+  // Using default value of 6 hours (can be updated via SignalR if backend sends updates)
   useEffect(() => {
-    const fetchGuestDuration = async () => {
-      try {
-        const result = await ApiService.getGuestSessionDuration();
-        setGuestDurationHours(result.durationHours);
-      } catch (err) {
-        console.error('[GuestConfig] Failed to fetch guest duration, using default:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchGuestDuration();
+    // Immediately mark as loaded with default value
+    setIsLoading(false);
   }, []);
 
   // Listen for real-time guest duration updates via SignalR

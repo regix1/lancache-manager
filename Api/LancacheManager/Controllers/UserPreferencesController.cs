@@ -7,8 +7,12 @@ using static LancacheManager.Services.UserPreferencesService;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for user preferences management
+/// Handles reading and updating user preferences per session (device or guest)
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/user-preferences")]
 public class UserPreferencesController : ControllerBase
 {
     private readonly ILogger<UserPreferencesController> _logger;
@@ -88,8 +92,9 @@ public class UserPreferencesController : ControllerBase
 
     /// <summary>
     /// Update user preferences for the current session
+    /// RESTful: PUT is proper method for updating/replacing resources
     /// </summary>
-    [HttpPost]
+    [HttpPut]
     public async Task<IActionResult> SavePreferences([FromBody] UserPreferencesDto preferences)
     {
         try
@@ -201,8 +206,9 @@ public class UserPreferencesController : ControllerBase
 
     /// <summary>
     /// Update preferences for a specific session (admin only)
+    /// RESTful: PUT is proper method for updating/replacing resources
     /// </summary>
-    [HttpPost("session/{sessionId}")]
+    [HttpPut("session/{sessionId}")]
     public async Task<IActionResult> SavePreferencesForSession(string sessionId, [FromBody] UserPreferencesDto preferences)
     {
         try

@@ -6,8 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for statistics and analytics
+/// Handles client stats, service stats, and dashboard metrics
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/stats")]
 public class StatsController : ControllerBase
 {
     private readonly AppDbContext _context;

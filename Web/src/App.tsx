@@ -282,7 +282,7 @@ const AppContent: React.FC = () => {
 
     const checkDepotStatus = async () => {
       try {
-        const response = await fetch('/api/gameinfo/pics-status', {
+        const response = await fetch('/api/depots/status', {
           headers: ApiService.getHeaders()
         });
         if (response.ok) {
@@ -315,7 +315,7 @@ const AppContent: React.FC = () => {
 
     // Double-check that depot is actually initialized before updating state
     try {
-      const response = await fetch('/api/gameinfo/pics-status', {
+      const response = await fetch('/api/depots/status', {
         headers: ApiService.getHeaders()
       });
       if (response.ok) {

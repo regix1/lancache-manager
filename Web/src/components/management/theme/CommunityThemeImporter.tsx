@@ -174,7 +174,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/theme/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, {
         method: 'POST',
         headers: authService.getAuthHeaders(),
         body: formData
@@ -286,7 +286,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/theme/upload`, {
+      const response = await fetch(`${API_BASE}/themes/upload`, {
         method: 'POST',
         headers: authService.getAuthHeaders(),
         body: formData

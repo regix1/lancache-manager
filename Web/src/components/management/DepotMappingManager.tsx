@@ -237,7 +237,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       autoSwitchAttemptedRef.current = true;
 
       // Call API to switch to GitHub mode
-      fetch('/api/gameinfo/steamkit/scan-mode', {
+      fetch('/api/depots/rebuild/config/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify('github')
@@ -246,7 +246,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           if (response.ok) {
             console.log('[DepotMapping] Successfully set scan mode to GitHub');
             // Also set interval to 30 minutes (0.5 hours) for GitHub mode
-            return fetch('/api/gameinfo/steamkit/interval', {
+            return fetch('/api/depots/rebuild/config/interval', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(0.5)
@@ -554,7 +554,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       // Import JSON to database if needed (JSON exists but database is empty)
       if (hasJsonFile && !hasDatabaseMappings) {
         // console.log('[DepotMapping] Importing JSON file to database before scan');
-        await fetch('/api/gameinfo/import-pics-data', {
+        await fetch('/api/depots/import?source=github', {
           method: 'POST',
           headers: ApiService.getHeaders()
         });
@@ -849,7 +849,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     onChange={async (value) => {
                       const newInterval = Number(value);
                       try {
-                        await fetch('/api/gameinfo/steamkit/interval', {
+                        await fetch('/api/depots/rebuild/config/interval', {
                           method: 'POST',
                           headers: {
                             ...ApiService.getHeaders(),
@@ -913,7 +913,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
                     // If switching FROM GitHub to another mode, reset interval to 1 hour
                     if (wasGithubMode && value !== 'github') {
-                      await fetch('/api/gameinfo/steamkit/interval', {
+                      await fetch('/api/depots/rebuild/config/interval', {
                         method: 'POST',
                         headers: {
                           ...ApiService.getHeaders(),
@@ -926,7 +926,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     // If GitHub is selected, force 30-minute interval
                     if (value === 'github') {
                       // Set interval to 0.5 hours (30 minutes)
-                      await fetch('/api/gameinfo/steamkit/interval', {
+                      await fetch('/api/depots/rebuild/config/interval', {
                         method: 'POST',
                         headers: {
                           ...ApiService.getHeaders(),
@@ -939,7 +939,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     // Set scan mode
                     const incremental =
                       value === 'incremental' ? true : value === 'github' ? 'github' : false;
-                    await fetch('/api/gameinfo/steamkit/scan-mode', {
+                    await fetch('/api/depots/rebuild/config/mode', {
                       method: 'POST',
                       headers: {
                         ...ApiService.getHeaders(),

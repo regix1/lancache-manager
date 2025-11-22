@@ -10,8 +10,12 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// RESTful controller for theme management
+/// Handles theme upload, deletion, retrieval, and user preferences
+/// </summary>
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/themes")]
 public class ThemeController : ControllerBase
 {
     private readonly string _themesPath;
@@ -492,7 +496,7 @@ public class ThemeController : ControllerBase
         }
     }
 
-    [HttpPost("preference")]
+    [HttpPut("preference")]
     [RequireAuth]
     public IActionResult SetThemePreference([FromBody] ThemePreferenceRequest request)
     {
@@ -544,7 +548,7 @@ public class ThemeController : ControllerBase
         }
     }
 
-    [HttpPost("preferences/guest")]
+    [HttpPut("preferences/guest")]
     [RequireAuth]
     public async Task<IActionResult> SetDefaultGuestTheme([FromBody] ThemePreferenceRequest request)
     {

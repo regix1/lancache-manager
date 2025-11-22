@@ -242,6 +242,182 @@ public class RustProcessHelper
             _logger.LogWarning(ex, "Error waiting for stdout/stderr tasks");
         }
     }
+
+    /// <summary>
+    /// Runs the log_manager Rust executable for counting or removing log entries
+    /// </summary>
+    public async Task<RustExecutionResult> RunLogManagerAsync(
+        string command,
+        string logsPath,
+        string? progressFile = null,
+        string? service = null)
+    {
+        try
+        {
+            // Resolve path to log_manager executable using IPathResolver pattern
+            // For now, assume it's in the same directory as other Rust binaries
+            var dataDirectory = Path.GetDirectoryName(logsPath) ?? ".";
+            var rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "log_manager.exe");
+
+            if (!File.Exists(rustBinaryPath))
+            {
+                // Try Linux path
+                rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "log_manager");
+            }
+
+            ValidateRustBinaryExists(rustBinaryPath, "log_manager");
+
+            // Build arguments based on command
+            var arguments = command switch
+            {
+                "count" => $"count \"{logsPath}\" \"{progressFile ?? Path.GetTempFileName()}\"",
+                "remove" when !string.IsNullOrEmpty(service) =>
+                    $"remove \"{logsPath}\" \"{service}\" \"{progressFile ?? Path.GetTempFileName()}\"",
+                _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
+            };
+
+            var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
+            var result = await ExecuteProcessAsync(startInfo, CancellationToken.None);
+
+            if (result.ExitCode == 0)
+            {
+                // Try to read output JSON if it exists
+                var outputFile = progressFile ?? Path.GetTempFileName();
+                object? data = null;
+
+                if (File.Exists(outputFile))
+                {
+                    try
+                    {
+                        var jsonContent = await File.ReadAllTextAsync(outputFile);
+                        data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
+
+                        // Clean up temp file
+                        if (progressFile == null)
+                        {
+                            await DeleteTemporaryFileAsync(outputFile);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse log_manager output JSON");
+                    }
+                }
+
+                return new RustExecutionResult
+                {
+                    Success = true,
+                    Data = data,
+                    Error = null
+                };
+            }
+
+            return new RustExecutionResult
+            {
+                Success = false,
+                Data = null,
+                Error = result.Error
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error running log_manager");
+            return new RustExecutionResult
+            {
+                Success = false,
+                Data = null,
+                Error = ex.Message
+            };
+        }
+    }
+
+    /// <summary>
+    /// Runs the corruption_manager Rust executable for detecting or removing corrupted files
+    /// </summary>
+    public async Task<RustExecutionResult> RunCorruptionManagerAsync(
+        string command,
+        string logsPath,
+        string cachePath,
+        string? service = null,
+        string? progressFile = null)
+    {
+        try
+        {
+            // Resolve path to corruption_manager executable
+            var dataDirectory = Path.GetDirectoryName(logsPath) ?? ".";
+            var rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "corruption_manager.exe");
+
+            if (!File.Exists(rustBinaryPath))
+            {
+                // Try Linux path
+                rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "corruption_manager");
+            }
+
+            ValidateRustBinaryExists(rustBinaryPath, "corruption_manager");
+
+            // Build arguments based on command
+            var arguments = command switch
+            {
+                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC",
+                "remove" when !string.IsNullOrEmpty(service) =>
+                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile ?? Path.GetTempFileName()}\"",
+                _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
+            };
+
+            var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
+            var result = await ExecuteProcessAsync(startInfo, CancellationToken.None);
+
+            if (result.ExitCode == 0)
+            {
+                // Try to read output JSON if it exists
+                var outputFile = progressFile ?? Path.GetTempFileName();
+                object? data = null;
+
+                if (File.Exists(outputFile))
+                {
+                    try
+                    {
+                        var jsonContent = await File.ReadAllTextAsync(outputFile);
+                        data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
+
+                        // Clean up temp file
+                        if (progressFile == null)
+                        {
+                            await DeleteTemporaryFileAsync(outputFile);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse corruption_manager output JSON");
+                    }
+                }
+
+                return new RustExecutionResult
+                {
+                    Success = true,
+                    Data = data,
+                    Error = null
+                };
+            }
+
+            return new RustExecutionResult
+            {
+                Success = false,
+                Data = null,
+                Error = result.Error
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error running corruption_manager");
+            return new RustExecutionResult
+            {
+                Success = false,
+                Data = null,
+                Error = ex.Message
+            };
+        }
+    }
 }
 
 /// <summary>
@@ -252,4 +428,14 @@ public class ProcessExecutionResult
     public int ExitCode { get; set; }
     public string Output { get; set; } = string.Empty;
     public string Error { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Result of a Rust executable execution with data payload
+/// </summary>
+public class RustExecutionResult
+{
+    public bool Success { get; set; }
+    public object? Data { get; set; }
+    public string? Error { get; set; }
 }
