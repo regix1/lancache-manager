@@ -76,8 +76,29 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   mockMode = false
 }) => {
   const signalR = useSignalR();
-  const [progress, setProgress] = useState<PicsProgress | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+
+  // Initialize progress from sessionStorage cache if available
+  const [progress, setProgress] = useState<PicsProgress | null>(() => {
+    try {
+      const cached = sessionStorage.getItem('pics_progress_cache');
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (error) {
+      // Ignore errors, return null
+    }
+    return null;
+  });
+
+  // Only show loading if we don't have cached data
+  const [isLoading, setIsLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('pics_progress_cache');
+      return !cached; // Show loading only if no cache
+    } catch (error) {
+      return true;
+    }
+  });
 
   const fetchProgress = async () => {
     if (mockMode) {
@@ -90,6 +111,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       if (response.ok) {
         const data: PicsProgress = await response.json();
         setProgress(data);
+        // Cache to sessionStorage to prevent loading flashes
+        sessionStorage.setItem('pics_progress_cache', JSON.stringify(data));
       }
     } catch (error) {
       console.error('[PicsProgress] Failed to fetch progress:', error);

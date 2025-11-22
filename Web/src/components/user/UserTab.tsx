@@ -1228,9 +1228,14 @@ const UserTab: React.FC = () => {
                         className="w-4 h-4 rounded"
                         style={{ accentColor: 'var(--theme-primary)' }}
                       />
-                      <span className="text-sm text-themed-secondary">
-                        Sticky Notifications
-                      </span>
+                      <div className="flex flex-col">
+                        <span className="text-sm text-themed-secondary">
+                          Sticky Notifications
+                        </span>
+                        <span className="text-xs text-themed-muted">
+                          Keep notification bar fixed at top when scrolling
+                        </span>
+                      </div>
                     </label>
 
                     <label className="flex items-center gap-3 cursor-pointer">
@@ -1246,7 +1251,14 @@ const UserTab: React.FC = () => {
                         className="w-4 h-4 rounded"
                         style={{ accentColor: 'var(--theme-primary)' }}
                       />
-                      <span className="text-sm text-themed-secondary">Universal Notifications Always Visible</span>
+                      <div className="flex flex-col">
+                        <span className="text-sm text-themed-secondary">
+                          Static Notifications
+                        </span>
+                        <span className="text-xs text-themed-muted">
+                          Require manual dismissal - won't auto-clear
+                        </span>
+                      </div>
                     </label>
                   </>
                 )}
@@ -1254,7 +1266,7 @@ const UserTab: React.FC = () => {
             </div>
           )}
 
-          <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border)' }}>
+          <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
             <Button
               variant="default"
               onClick={() => {

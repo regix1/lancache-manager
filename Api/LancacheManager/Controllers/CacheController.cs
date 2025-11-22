@@ -251,47 +251,71 @@ public class CacheController : ControllerBase
         {
             var cachePath = _pathResolver.GetCacheDirectory();
             var logsPath = _pathResolver.GetLogsDirectory();
+            var dbPath = _pathResolver.GetDatabasePath();
 
             var operationId = Guid.NewGuid().ToString();
+
+            // Send start notification via SignalR
+            _ = _hubContext.Clients.All.SendAsync("CorruptionRemovalStarted", new
+            {
+                service,
+                operationId,
+                message = $"Starting corruption removal for {service}...",
+                timestamp = DateTime.UtcNow
+            });
 
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var result = await _rustProcessHelper.RunCorruptionManagerAsync(
-                        "remove",
-                        logsPath,
-                        cachePath,
-                        service: service,
-                        progressFile: Path.Combine(_pathResolver.GetDataDirectory(), $"corruption_removal_{operationId}.json")
-                    );
+                    // Pause LiveLogMonitorService to prevent file locking issues
+                    await LiveLogMonitorService.PauseAsync();
+                    _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
 
-                    if (result.Success)
+                    try
                     {
-                        _logger.LogInformation("Corruption removal completed for service: {Service}", service);
-                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalCompleted", new
+                        var result = await _rustProcessHelper.RunCorruptionManagerAsync(
+                            "remove",
+                            logsPath,
+                            cachePath,
+                            service: service,
+                            progressFile: Path.Combine(_pathResolver.GetDataDirectory(), $"corruption_removal_{operationId}.json"),
+                            databasePath: dbPath
+                        );
+
+                        if (result.Success)
                         {
-                            service,
-                            operationId,
-                            success = true
-                        });
+                            _logger.LogInformation("Corruption removal completed for service: {Service}", service);
+                            await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                            {
+                                service,
+                                operationId,
+                                success = true
+                            });
+                        }
+                        else
+                        {
+                            _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, result.Error);
+                            await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
+                            {
+                                service,
+                                operationId,
+                                success = false,
+                                error = result.Error
+                            });
+                        }
                     }
-                    else
+                    finally
                     {
-                        _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, result.Error);
-                        await _hubContext.Clients.All.SendAsync("CorruptionRemovalCompleted", new
-                        {
-                            service,
-                            operationId,
-                            success = false,
-                            error = result.Error
-                        });
+                        // Always resume LiveLogMonitorService
+                        await LiveLogMonitorService.ResumeAsync();
+                        _logger.LogInformation("Resumed LiveLogMonitorService after corruption removal");
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-                    await _hubContext.Clients.All.SendAsync("CorruptionRemovalCompleted", new
+                    await _hubContext.Clients.All.SendAsync("CorruptionRemovalComplete", new
                     {
                         service,
                         operationId,

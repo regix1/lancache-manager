@@ -378,35 +378,32 @@ public partial class SteamKit2Service
 
                     _processedBatches++;
 
-                    // Send SignalR progress updates every 10 batches for smoother UI feedback
-                    if (_processedBatches % 10 == 0)
-                    {
-                        double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
+                    // Send SignalR progress updates EVERY batch to keep connection alive
+                    // This prevents SignalR/HTTP connection timeouts during long-running PICS scans
+                    double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
 
-                        // Send progress via SignalR
-                        try
+                    // Send progress via SignalR
+                    try
+                    {
+                        await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
                         {
-                            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
-                            {
-                                status = "Scanning Steam PICS data",
-                                percentComplete,
-                                processedBatches = _processedBatches,
-                                totalBatches = allBatches.Count,
-                                depotMappingsFound = _depotToAppMappings.Count,
-                                isLoggedOn = IsSteamAuthenticated,
-                                message = $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to send PICS scan progress via SignalR");
-                        }
+                            status = "Scanning Steam PICS data",
+                            percentComplete,
+                            processedBatches = _processedBatches,
+                            totalBatches = allBatches.Count,
+                            depotMappingsFound = _depotToAppMappings.Count,
+                            isLoggedOn = IsSteamAuthenticated,
+                            message = $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to send PICS scan progress via SignalR");
                     }
 
                     // Log progress and save every 50 batches to reduce I/O
                     if (_processedBatches % 50 == 0)
                     {
-                        double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
                         _logger.LogInformation(
                             "Processed {Processed}/{Total} batches ({Percent:F1}%); depot mappings found={Mappings}",
                             _processedBatches,

@@ -119,7 +119,9 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       setConnectionState('connecting');
 
       const connection = new signalR.HubConnectionBuilder()
-        .withUrl(`${SIGNALR_BASE}/downloads`)
+        .withUrl(`${SIGNALR_BASE}/downloads`, {
+          withCredentials: true // Important: include session cookies
+        })
         .withAutomaticReconnect({
           nextRetryDelayInMilliseconds: (retryContext) => {
             // Progressive backoff: 0ms, 2s, 5s, 10s, 30s, then 30s
@@ -130,6 +132,10 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
             return 30000;
           }
         })
+        // Increase timeout to prevent disconnections during heavy processing
+        // Must match server settings: KeepAliveInterval=10s, ClientTimeoutInterval=60s
+        .withServerTimeout(60000) // 60 seconds (default: 30 seconds)
+        .withKeepAliveInterval(10000) // 10 seconds (default: 15 seconds)
         .configureLogging(signalR.LogLevel.Warning)
         .build();
 

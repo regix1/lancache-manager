@@ -33,7 +33,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
 
   const fetchSetupStatus = async () => {
     try {
-      const response = await fetch('/api/management/setup-status');
+      const response = await fetch('/api/system/setup');
       if (response.ok) {
         const data = await response.json();
         setSetupStatus({

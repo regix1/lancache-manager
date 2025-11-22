@@ -2,8 +2,11 @@
  * Browser Fingerprinting Utility (Synchronous)
  *
  * Generates a consistent device ID based on browser characteristics.
- * This helps identify the same browser across sessions even if localStorage is cleared.
- * All operations are synchronous to avoid waiting/polling.
+ * The fingerprint is deterministic - same browser = same ID.
+ *
+ * SECURITY: No client-side persistence (no localStorage/cookies).
+ * Device IDs are only sent to server during registration, then sessions
+ * are tracked via HttpOnly cookies to prevent XSS attacks.
  */
 
 export class BrowserFingerprint {
@@ -115,107 +118,16 @@ export class BrowserFingerprint {
   }
 
   /**
-   * Get or generate a stable device ID (synchronous)
-   * - First checks localStorage for existing ID
-   * - Falls back to cookie if localStorage was cleared
-   * - If not found, generates fingerprint-based ID
-   * - Stores the generated ID in both localStorage and cookie for maximum persistence
+   * Get device ID (generates fresh fingerprint on each call)
+   *
+   * IMPORTANT: With session-based auth, we no longer persist device IDs client-side.
+   * The server tracks sessions via HttpOnly cookies. The fingerprint is only used
+   * during initial device registration to identify the browser.
+   *
+   * This prevents XSS attacks from stealing device IDs stored in localStorage.
    */
-  static getOrCreateDeviceId(): string {
-    const STORAGE_KEY = 'lancache_device_id';
-
-    // Try to get from localStorage first
-    const storedId = localStorage.getItem(STORAGE_KEY);
-    if (storedId && storedId.length >= 32) {
-      return storedId;
-    }
-
-    // Try to restore from cookie if localStorage was cleared
-    const cookieId = this.getCookie(STORAGE_KEY);
-    if (cookieId && cookieId.length >= 32) {
-      console.log('[BrowserFingerprint] Restored device ID from cookie backup');
-      // Restore to localStorage
-      try {
-        localStorage.setItem(STORAGE_KEY, cookieId);
-      } catch (e) {
-        console.warn('[BrowserFingerprint] Could not restore to localStorage:', e);
-      }
-      return cookieId;
-    }
-
-    // Generate fingerprint-based ID (synchronous)
-    const fingerprintId = this.generate();
-
-    // Store it in both localStorage and cookie for maximum persistence
-    try {
-      localStorage.setItem(STORAGE_KEY, fingerprintId);
-    } catch (e) {
-      // localStorage might be disabled, but we can still use the fingerprint
-      console.warn('[BrowserFingerprint] Could not save to localStorage:', e);
-    }
-
-    try {
-      this.setCookie(STORAGE_KEY, fingerprintId, 365); // 1 year expiry
-      console.log('[BrowserFingerprint] Device ID saved to localStorage and cookie backup');
-    } catch (e) {
-      console.warn('[BrowserFingerprint] Could not save to cookie:', e);
-    }
-
-    return fingerprintId;
-  }
-
-  /**
-   * Set a cookie with expiration
-   */
-  private static setCookie(name: string, value: string, days: number): void {
-    const expires = new Date();
-    expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
-    document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
-  }
-
-  /**
-   * Get a cookie value
-   */
-  private static getCookie(name: string): string | null {
-    const nameEQ = name + '=';
-    const ca = document.cookie.split(';');
-    for (let i = 0; i < ca.length; i++) {
-      let c = ca[i];
-      while (c.charAt(0) === ' ') c = c.substring(1, c.length);
-      if (c.indexOf(nameEQ) === 0) {
-        return decodeURIComponent(c.substring(nameEQ.length, c.length));
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Delete a cookie
-   */
-  private static deleteCookie(name: string): void {
-    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;SameSite=Strict`;
-  }
-
-  /**
-   * Clear the stored device ID from both localStorage and cookies
-   * Use this when the user's session is revoked/cleared
-   */
-  static clearDeviceId(): void {
-    const STORAGE_KEY = 'lancache_device_id';
-
-    // Remove from localStorage
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch (e) {
-      console.warn('[BrowserFingerprint] Could not remove from localStorage:', e);
-    }
-
-    // Remove from cookie
-    try {
-      this.deleteCookie(STORAGE_KEY);
-      console.log('[BrowserFingerprint] Device ID cleared from localStorage and cookies');
-    } catch (e) {
-      console.warn('[BrowserFingerprint] Could not remove cookie:', e);
-    }
+  static getDeviceId(): string {
+    // Always generate fresh fingerprint (synchronous, consistent for same browser)
+    return this.generate();
   }
 }

@@ -11,28 +11,9 @@ import type { Config } from '../../types';
 
 // Fetch initial cache configuration data
 const fetchCacheConfig = async (): Promise<Config> => {
-  try {
-    return await ApiService.getConfig();
-  } catch (err) {
-    console.error('Failed to load config:', err);
-    return {
-      cachePath: 'Error loading...',
-      logPath: 'Error loading...',
-      services: [],
-      timezone: 'UTC'
-    };
-  }
+  return await ApiService.getConfig();
 };
 
-const fetchDeleteMode = async (): Promise<'preserve' | 'full' | 'rsync'> => {
-  try {
-    const data = await ApiService.getCacheDeleteMode();
-    return data.deleteMode as 'preserve' | 'full' | 'rsync';
-  } catch (err) {
-    console.error('Failed to load delete mode:', err);
-    return 'preserve';
-  }
-};
 
 const fetchRsyncAvailability = async (): Promise<boolean> => {
   try {
@@ -56,7 +37,6 @@ const fetchDirectoryPermissions = async (): Promise<boolean> => {
 
 // Cache promises to avoid refetching on every render
 let configPromise: Promise<Config> | null = null;
-let deleteModePromise: Promise<'preserve' | 'full' | 'rsync'> | null = null;
 let rsyncPromise: Promise<boolean> | null = null;
 let permissionsPromise: Promise<boolean> | null = null;
 
@@ -65,13 +45,6 @@ const getCacheConfigPromise = () => {
     configPromise = fetchCacheConfig();
   }
   return configPromise;
-};
-
-const getDeleteModePromise = () => {
-  if (!deleteModePromise) {
-    deleteModePromise = fetchDeleteMode();
-  }
-  return deleteModePromise;
 };
 
 const getRsyncPromise = () => {
@@ -106,13 +79,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Use the 'use' hook to load data
   const config = use(getCacheConfigPromise());
-  const initialDeleteMode = use(getDeleteModePromise());
   const rsyncAvailable = use(getRsyncPromise());
   const cacheReadOnly = use(getPermissionsPromise());
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(initialDeleteMode);
+  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(config.cacheDeleteMode as 'preserve' | 'full' | 'rsync');
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [isCacheClearing, setIsCacheClearing] = useState(false);
 

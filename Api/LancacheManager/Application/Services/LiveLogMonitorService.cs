@@ -19,11 +19,47 @@ public class LiveLogMonitorService : BackgroundService
     private long _lastFileSize = 0;
     private bool _isProcessing = false;
 
+    // Static pause mechanism for log file operations (corruption removal, etc.)
+    private static readonly SemaphoreSlim _pauseLock = new SemaphoreSlim(1, 1);
+    private static bool _isPaused = false;
+
     // Configuration - optimized for real-time updates with minimal latency
     private readonly int _pollIntervalSeconds = 1; // Check every 1 second for near-instant detection
     private readonly long _minFileSizeIncrease = 10_000; // 10 KB minimum increase to trigger processing (very responsive)
     private DateTime _lastProcessTime = DateTime.MinValue;
     private readonly int _minSecondsBetweenProcessing = 1; // Minimum 1 second between processing runs (near-instant updates)
+
+    /// <summary>
+    /// Temporarily pause the log monitor to allow other operations (like corruption removal) to modify log files
+    /// </summary>
+    public static async Task PauseAsync()
+    {
+        await _pauseLock.WaitAsync();
+        try
+        {
+            _isPaused = true;
+        }
+        finally
+        {
+            _pauseLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Resume the log monitor after log file modifications are complete
+    /// </summary>
+    public static async Task ResumeAsync()
+    {
+        await _pauseLock.WaitAsync();
+        try
+        {
+            _isPaused = false;
+        }
+        finally
+        {
+            _pauseLock.Release();
+        }
+    }
 
     public LiveLogMonitorService(
         ILogger<LiveLogMonitorService> logger,
@@ -112,7 +148,22 @@ public class LiveLogMonitorService : BackgroundService
         {
             try
             {
-                await MonitorAndProcessLogFile(stoppingToken);
+                // Skip monitoring if paused (e.g., during corruption removal)
+                bool shouldSkip = false;
+                await _pauseLock.WaitAsync(stoppingToken);
+                try
+                {
+                    shouldSkip = _isPaused;
+                }
+                finally
+                {
+                    _pauseLock.Release();
+                }
+
+                if (!shouldSkip)
+                {
+                    await MonitorAndProcessLogFile(stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

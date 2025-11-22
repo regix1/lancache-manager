@@ -165,10 +165,10 @@ public class GamesController : ControllerBase
 
             if (activeOperation == null)
             {
-                return NotFound(new { error = "No active detection operation" });
+                return Ok(new { hasActiveOperation = false, operation = (object?)null });
             }
 
-            return Ok(activeOperation);
+            return Ok(new { hasActiveOperation = true, operation = activeOperation });
         }
         catch (Exception ex)
         {
@@ -213,7 +213,8 @@ public class GamesController : ControllerBase
 
             if (cachedResults == null)
             {
-                return NotFound(new { error = "No cached detection results available" });
+                // Return success with hasCachedResults: false instead of 404
+                return Ok(new { hasCachedResults = false });
             }
 
             return Ok(cachedResults);

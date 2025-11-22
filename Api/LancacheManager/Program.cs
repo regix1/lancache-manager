@@ -40,6 +40,22 @@ if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VE
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// Configure session management with cookies
+// Sessions are stored in memory (cleared on app restart)
+// Session auto-restore logic in AuthController handles app restarts by validating device from DB
+builder.Services.AddDistributedMemoryCache();
+
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromHours(24); // Session timeout after 24 hours of inactivity
+    options.Cookie.HttpOnly = true; // Prevent JavaScript access (XSS protection)
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // Use HTTPS in production
+    options.Cookie.SameSite = SameSiteMode.Lax; // CSRF protection
+    options.Cookie.Name = "LancacheManager.Session"; // Custom cookie name
+    options.Cookie.IsEssential = true; // Required for GDPR compliance
+    options.Cookie.MaxAge = TimeSpan.FromDays(30); // Cookie persists for 30 days (survives browser restarts)
+});
 builder.Services.AddSwaggerGen(c =>
 {
     // Add API Key authentication support to Swagger UI
@@ -67,7 +83,14 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 });
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    // Increase timeouts to prevent disconnections during long-running operations (PICS scans, log processing, corruption analysis)
+    // PICS scanning can process 740+ batches which takes significant time even with frequent progress updates
+    options.KeepAliveInterval = TimeSpan.FromSeconds(10); // Send keepalive every 10 seconds (default: 15)
+    options.ClientTimeoutInterval = TimeSpan.FromMinutes(10); // Client timeout after 10 minutes (default: 30s) - generous for slow Steam API responses
+    options.HandshakeTimeout = TimeSpan.FromSeconds(30); // Handshake timeout (default: 15)
+});
 
 // Configure CORS
 builder.Services.AddCors(options =>
@@ -385,6 +408,9 @@ using (var scope = app.Services.CreateScope())
 
 app.UseCors("AllowAll");
 
+// Global exception handler - must run early to catch all exceptions
+app.UseGlobalExceptionHandler();
+
 // GC Middleware - must run BEFORE static files to catch all requests
 app.UseMiddleware<GcMiddleware>();
 
@@ -393,10 +419,14 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.UseRouting();
+
+// Enable session middleware (must be before authentication middleware)
+app.UseSession();
+
 app.UseOutputCache();
 app.UseAuthorization();
 
-// Add Authentication Middleware (after routing so endpoints are resolved)
+// Add Authentication Middleware (after routing and session so endpoints and sessions are resolved)
 app.UseMiddleware<AuthenticationMiddleware>();
 
 // Add Metrics Authentication Middleware (optional API key for /metrics)

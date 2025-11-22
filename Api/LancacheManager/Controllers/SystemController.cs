@@ -135,6 +135,31 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
+    /// GET /api/system/setup - Get setup status
+    /// </summary>
+    [HttpGet("setup")]
+    public IActionResult GetSetupStatus()
+    {
+        try
+        {
+            var isCompleted = _stateService.GetSetupCompleted();
+            var hasProcessedLogs = _stateService.GetHasProcessedLogs();
+
+            return Ok(new
+            {
+                isCompleted,
+                hasProcessedLogs,
+                setupCompleted = isCompleted // For backward compatibility
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting setup status");
+            return StatusCode(500, new { error = "Failed to get setup status", details = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// PATCH /api/system/setup - Update setup status
     /// RESTful: PATCH is proper method for partial updates
     /// Request body: { "completed": true }
@@ -203,6 +228,37 @@ public class SystemController : ControllerBase
         {
             _logger.LogError(ex, "Error during session migration");
             return StatusCode(500, new { error = "Session migration failed", details = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// PATCH /api/system/cache-delete-mode - Set cache clearing delete mode
+    /// RESTful: PATCH is proper method for configuration updates
+    /// Request body: { "deleteMode": "preserve" | "full" | "rsync" }
+    /// </summary>
+    [HttpPatch("cache-delete-mode")]
+    [RequireAuth]
+    public IActionResult SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
+    {
+        try
+        {
+            _cacheClearingService.SetDeleteMode(request.DeleteMode);
+            _logger.LogInformation("Cache delete mode updated to: {Mode}", request.DeleteMode);
+
+            return Ok(new
+            {
+                message = "Cache delete mode updated",
+                deleteMode = request.DeleteMode
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting cache delete mode");
+            return StatusCode(500, new { error = "Failed to set cache delete mode", details = ex.Message });
         }
     }
 
@@ -279,6 +335,11 @@ public class SystemController : ControllerBase
     public class UpdateSetupRequest
     {
         public bool? Completed { get; set; }
+    }
+
+    public class SetCacheDeleteModeRequest
+    {
+        public string DeleteMode { get; set; } = string.Empty;
     }
 
     public class SetCrawlIntervalRequest

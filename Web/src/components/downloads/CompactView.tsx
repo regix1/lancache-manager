@@ -242,7 +242,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   </div>
                 ) : (
                   <img
-                    src={`${API_BASE}/gameimages/${primaryDownload.gameAppId}/header/`}
+                    src={`${API_BASE}/game-images/${primaryDownload.gameAppId}/header/`}
                     alt={primaryDownload.gameName || group.name}
                     className="w-full sm:w-[240px] h-[110px] sm:h-[120px] rounded-lg object-cover"
                     loading="lazy"

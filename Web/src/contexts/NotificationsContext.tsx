@@ -115,7 +115,26 @@ const shouldAutoDismiss = (): boolean => {
 };
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
-  const [notifications, setNotifications] = useState<UnifiedNotification[]>([]);
+  const [notifications, setNotifications] = useState<UnifiedNotification[]>(() => {
+    // Restore depot mapping notification from localStorage on mount
+    try {
+      const savedDepotMapping = localStorage.getItem('depot_mapping_notification');
+      if (savedDepotMapping) {
+        const parsed = JSON.parse(savedDepotMapping);
+        // Only restore if it was running (not completed/failed)
+        if (parsed.status === 'running') {
+          // Convert startedAt back to Date object
+          return [{
+            ...parsed,
+            startedAt: new Date(parsed.startedAt)
+          } as UnifiedNotification];
+        }
+      }
+    } catch (error) {
+      console.error('[NotificationsContext] Failed to restore notification:', error);
+    }
+    return [];
+  });
   const signalR = useSignalR();
 
   // Helper function to remove notification with animation
@@ -826,19 +845,24 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       // Remove any existing depot mapping notifications (including completed/failed ones) and add new one
       setNotifications((prev) => {
         const filtered = prev.filter((n) => n.id !== notificationId);
+        const newNotification: UnifiedNotification = {
+          id: notificationId,
+          type: 'depot_mapping' as const,
+          status: 'running' as const,
+          message: payload.message || 'Starting depot mapping scan...',
+          startedAt: new Date(),
+          progress: 0,
+          details: {
+            isLoggedOn: payload.isLoggedOn
+          }
+        };
+
+        // Persist to localStorage
+        localStorage.setItem('depot_mapping_notification', JSON.stringify(newNotification));
+
         return [
           ...filtered,
-          {
-            id: notificationId,
-            type: 'depot_mapping',
-            status: 'running',
-            message: payload.message || 'Starting depot mapping scan...',
-            startedAt: new Date(),
-            progress: 0,
-            details: {
-              isLoggedOn: payload.isLoggedOn
-            }
-          }
+          newNotification
         ];
       });
     };
@@ -852,69 +876,83 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       setNotifications((prev) => {
         const existing = prev.find((n) => n.id === notificationId);
 
+        let updatedNotifications;
+
         // If no notification exists, create it (handles missed DepotMappingStarted event)
         if (!existing) {
           console.log('[NotificationsContext] Creating depot_mapping notification from progress event');
-          return [
+          const newNotification: UnifiedNotification = {
+            id: notificationId,
+            type: 'depot_mapping' as const,
+            status: 'running' as const,
+            message: payload.message || payload.status || 'Processing depot mappings...',
+            startedAt: new Date(),
+            progress: payload.percentComplete || 0,
+            details: {
+              isLoggedOn: payload.isLoggedOn
+            },
+            detailMessage: (() => {
+              if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
+                return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
+                  payload.depotMappingsFound !== undefined
+                    ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
+                    : ''
+                }`;
+              }
+              return undefined;
+            })()
+          };
+
+          // Persist to localStorage
+          localStorage.setItem('depot_mapping_notification', JSON.stringify(newNotification));
+
+          updatedNotifications = [
             ...prev,
-            {
-              id: notificationId,
-              type: 'depot_mapping',
-              status: 'running',
-              message: payload.message || payload.status || 'Processing depot mappings...',
-              startedAt: new Date(),
-              progress: payload.percentComplete || 0,
-              details: {
-                isLoggedOn: payload.isLoggedOn
-              },
-              detailMessage: (() => {
-                if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
-                  return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
-                    payload.depotMappingsFound !== undefined
-                      ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
-                      : ''
-                  }`;
-                }
-                return undefined;
-              })()
-            }
+            newNotification
           ];
+        } else {
+          updatedNotifications = prev.map((n) => {
+            if (n.id === notificationId) {
+              const updated = {
+                ...n,
+                progress: payload.percentComplete || 0,
+                message: payload.message || payload.status || 'Processing depot mappings...',
+                details: {
+                  ...n.details,
+                  isLoggedOn:
+                    payload.isLoggedOn !== undefined ? payload.isLoggedOn : n.details?.isLoggedOn
+                },
+                detailMessage: (() => {
+                  // PICS scan progress (processedBatches exists)
+                  if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
+                    return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
+                      payload.depotMappingsFound !== undefined
+                        ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
+                        : ''
+                    }`;
+                  }
+                  // Download mapping progress (processedMappings exists)
+                  if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
+                    return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
+                      payload.mappingsApplied !== undefined
+                        ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied`
+                        : ''
+                    }`;
+                  }
+                  return undefined;
+                })()
+              };
+
+              // Persist to localStorage
+              localStorage.setItem('depot_mapping_notification', JSON.stringify(updated));
+
+              return updated;
+            }
+            return n;
+          });
         }
 
-        return prev.map((n) => {
-          if (n.id === notificationId) {
-            return {
-              ...n,
-              progress: payload.percentComplete || 0,
-              message: payload.message || payload.status || 'Processing depot mappings...',
-              details: {
-                ...n.details,
-                isLoggedOn:
-                  payload.isLoggedOn !== undefined ? payload.isLoggedOn : n.details?.isLoggedOn
-              },
-              detailMessage: (() => {
-                // PICS scan progress (processedBatches exists)
-                if (payload.processedBatches !== undefined && payload.totalBatches !== undefined) {
-                  return `${payload.processedBatches.toLocaleString()} / ${payload.totalBatches.toLocaleString()} batches${
-                    payload.depotMappingsFound !== undefined
-                      ? ` • ${payload.depotMappingsFound.toLocaleString()} mappings found`
-                      : ''
-                  }`;
-                }
-                // Download mapping progress (processedMappings exists)
-                if (payload.processedMappings !== undefined && payload.totalMappings !== undefined) {
-                  return `${payload.processedMappings.toLocaleString()} / ${payload.totalMappings.toLocaleString()} downloads${
-                    payload.mappingsApplied !== undefined
-                      ? ` • ${payload.mappingsApplied.toLocaleString()} mappings applied`
-                      : ''
-                  }`;
-                }
-                return undefined;
-              })()
-            };
-          }
-          return n;
-        });
+        return updatedNotifications;
       });
     };
 
@@ -931,6 +969,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             console.warn('[NotificationsContext] No existing notification found for:', notificationId);
             return prev;
           }
+
+          // Clear from localStorage
+          localStorage.removeItem('depot_mapping_notification');
 
           return prev.map((n) => {
             if (n.id === notificationId) {
@@ -1002,6 +1043,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                       return prevNotes;
                     }
 
+                    // Clear from localStorage
+                    localStorage.removeItem('depot_mapping_notification');
+
                     return prevNotes.map((n) => {
                       if (n.id === notificationId) {
                         return {
@@ -1033,6 +1077,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               console.warn('[NotificationsContext] No existing notification found for:', notificationId);
               return prev;
             }
+
+            // Clear from localStorage
+            localStorage.removeItem('depot_mapping_notification');
 
             return prev.map((n) => {
               if (n.id === notificationId) {
@@ -1198,7 +1245,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverLogProcessing = async () => {
       try {
-        const response = await fetch('/api/management/processing-status');
+        const response = await fetch('/api/logs/process/status');
         if (response.ok) {
           const data = await response.json();
 
@@ -1242,7 +1289,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverServiceRemoval = async () => {
       try {
-        const response = await fetch('/api/management/logs/remove-status');
+        const response = await fetch('/api/logs/remove/status');
         if (response.ok) {
           const data = await response.json();
 
@@ -1328,7 +1375,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverCacheClearing = async () => {
       try {
-        const response = await fetch('/api/management/cache/active-operations');
+        const response = await fetch('/api/cache/operations');
         if (response.ok) {
           const data = await response.json();
 
@@ -1370,7 +1417,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverDatabaseReset = async () => {
       try {
-        const response = await fetch('/api/management/database/reset-status');
+        const response = await fetch('/api/database/reset-status');
         if (response.ok) {
           const data = await response.json();
 
@@ -1404,7 +1451,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
     const recoverGameDetection = async () => {
       try {
-        const response = await fetch('/api/management/cache/detect-games-active');
+        const response = await fetch('/api/games/detect/active');
         if (response.ok) {
           const data = await response.json();
 

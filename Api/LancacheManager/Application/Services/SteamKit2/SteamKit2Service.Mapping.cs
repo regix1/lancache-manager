@@ -147,9 +147,10 @@ public partial class SteamKit2Service
                     notFound++;
                 }
 
-                // Send progress updates every 100 downloads
+                // Send progress updates EVERY download to keep connection alive
+                // This prevents SignalR/HTTP connection timeouts during long-running mapping operations
                 processed++;
-                if (totalDownloads > 0 && processed % 100 == 0)
+                if (totalDownloads > 0)
                 {
                     double percentComplete = (double)processed / totalDownloads * 100;
                     try

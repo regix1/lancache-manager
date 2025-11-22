@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Globe, AlertCircle, CheckCircle, Key, Loader2, Info, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -42,17 +42,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
         updateStatus((prev) => {
           if (!prev) return prev;
 
-          // Update status to reflect removed API key
           const isFullyOperational = prev.isV2Available;
-
-          // Also update PICS progress to reflect Web API availability
-          updateProgress((prevProgress) => {
-            if (!prevProgress) return prevProgress;
-            return {
-              ...prevProgress,
-              isWebApiAvailable: isFullyOperational
-            };
-          });
 
           return {
             ...prev,
@@ -66,6 +56,8 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
             lastChecked: new Date().toISOString()
           };
         });
+
+        // Update PICS progress in useEffect, not during render
       } else {
         alert(data.error || 'Failed to remove API key');
       }
@@ -75,6 +67,48 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
       setRemoving(false);
     }
   };
+
+  const handleApiKeySuccess = () => {
+    // Optimistically update the status immediately - no loading flicker
+    updateStatus((prev) => {
+      if (!prev) return prev;
+
+      // Update status to reflect added/updated API key
+      return {
+        ...prev,
+        hasApiKey: true,
+        isV1Available: true,
+        isFullyOperational: true,
+        version: 'V1WithKey',
+        message: 'Steam Web API V1 operational with API key',
+        lastChecked: new Date().toISOString()
+      };
+    });
+
+    // Update PICS progress will happen in useEffect
+  };
+
+  // Sync Steam Web API status to PICS progress context using useEffect
+  // This prevents setState during render
+  useEffect(() => {
+    if (status) {
+      updateProgress((prevProgress) => {
+        if (!prevProgress) return prevProgress;
+
+        const newIsWebApiAvailable = status.isFullyOperational;
+
+        // Only update if the value changed to avoid unnecessary re-renders
+        if (prevProgress.isWebApiAvailable === newIsWebApiAvailable) {
+          return prevProgress;
+        }
+
+        return {
+          ...prevProgress,
+          isWebApiAvailable: newIsWebApiAvailable
+        };
+      });
+    }
+  }, [status?.isFullyOperational, updateProgress]);
 
   const getStatusIcon = () => {
     if (loading) {
@@ -269,32 +303,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
       <SteamWebApiKeyModal
         isOpen={showConfigModal}
         onClose={() => setShowConfigModal(false)}
-        onSuccess={() => {
-          // Optimistically update the status immediately - no loading flicker
-          updateStatus((prev) => {
-            if (!prev) return prev;
-
-            // Also update PICS progress to reflect Web API availability
-            updateProgress((prevProgress) => {
-              if (!prevProgress) return prevProgress;
-              return {
-                ...prevProgress,
-                isWebApiAvailable: true
-              };
-            });
-
-            // Update status to reflect added/updated API key
-            return {
-              ...prev,
-              hasApiKey: true,
-              isV1Available: true,
-              isFullyOperational: true,
-              version: 'V1WithKey',
-              message: 'Steam Web API V1 operational with API key',
-              lastChecked: new Date().toISOString()
-            };
-          });
-        }}
+        onSuccess={handleApiKeySuccess}
       />
 
       {/* Remove Confirmation Modal */}

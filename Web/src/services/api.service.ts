@@ -80,7 +80,19 @@ class ApiService {
       // Default error format
       throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
     }
-    return response.json();
+
+    // Check if response has content before parsing JSON
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      return {} as T; // Return empty object for empty responses
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error('Failed to parse JSON response:', text);
+      throw new Error('Invalid JSON response from server');
+    }
   }
 
   // Helper to add auth headers to all requests
@@ -91,12 +103,21 @@ class ApiService {
     };
   }
 
+  // Helper to get fetch options with credentials for session cookies
+  static getFetchOptions(options: RequestInit = {}): RequestInit {
+    return {
+      ...options,
+      credentials: 'include', // Important: include HttpOnly session cookies
+      headers: {
+        ...this.getHeaders(),
+        ...(options.headers || {})
+      }
+    };
+  }
+
   static async getCacheInfo(signal?: AbortSignal): Promise<CacheInfo> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache`, {
-        signal,
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/cache`, this.getFetchOptions({ signal }));
       return await this.handleResponse<CacheInfo>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -110,10 +131,7 @@ class ApiService {
 
   static async getActiveDownloads(signal?: AbortSignal): Promise<Download[]> {
     try {
-      const res = await fetch(`${API_BASE}/downloads/active`, {
-        signal,
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/downloads/active`, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -135,10 +153,7 @@ class ApiService {
       let url = `${API_BASE}/downloads/latest?count=${actualCount}`;
       if (startTime) url += `&startTime=${startTime}`;
       if (endTime) url += `&endTime=${endTime}`;
-      const res = await fetch(url, {
-        signal,
-        headers: this.getHeaders()
-      });
+      const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -160,10 +175,7 @@ class ApiService {
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (params.toString()) url += `?${params}`;
-      const res = await fetch(url, {
-        signal,
-        headers: this.getHeaders()
-      });
+      const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ClientStat[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -187,10 +199,7 @@ class ApiService {
       if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
       if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
       if (params.toString()) url += `?${params}`;
-      const res = await fetch(url, {
-        signal,
-        headers: this.getHeaders()
-      });
+      const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<ServiceStat[]>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -204,10 +213,7 @@ class ApiService {
   // Dashboard aggregated stats
   static async getDashboardStats(period = '24h', signal?: AbortSignal): Promise<DashboardStats> {
     try {
-      const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, {
-        signal,
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/stats/dashboard?period=${period}`, this.getFetchOptions({ signal }));
       return await this.handleResponse<DashboardStats>(res);
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -222,11 +228,11 @@ class ApiService {
   // Start async cache clearing operation (requires auth)
   static async clearAllCache(): Promise<ClearCacheResponse> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/clear-all`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+      const res = await fetch(`${API_BASE}/cache`, this.getFetchOptions({
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust backend handles efficiently
-      });
+      }));
       return await this.handleResponse<ClearCacheResponse>(res);
     } catch (error) {
       console.error('clearAllCache error:', error);
@@ -237,10 +243,9 @@ class ApiService {
   // Get status of cache clearing operation
   static async getCacheClearStatus(operationId: string): Promise<CacheClearStatus> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/clear-status/${operationId}`, {
-        signal: AbortSignal.timeout(5000),
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/cache/operations/${operationId}/status`, this.getFetchOptions({
+        signal: AbortSignal.timeout(5000)
+      }));
       return await this.handleResponse<CacheClearStatus>(res);
     } catch (error) {
       console.error('getCacheClearStatus error:', error);
@@ -251,11 +256,11 @@ class ApiService {
   // Cancel cache clearing operation (requires auth)
   static async cancelCacheClear(operationId: string): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/clear-cancel/${operationId}`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+      const res = await fetch(`${API_BASE}/cache/operations/${operationId}`, this.getFetchOptions({
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(5000)
-      });
+      }));
       return await this.handleResponse(res);
     } catch (error: any) {
       // Suppress logging for "operation not found" errors (expected when operation already completed)
@@ -274,11 +279,11 @@ class ApiService {
   // Also monitored via SignalR for progress notifications
   static async resetDatabase(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/database`, {
+      const res = await fetch(`${API_BASE}/database/tables`, this.getFetchOptions({
         method: 'DELETE',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+        headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust backend handles efficiently
-      });
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('resetDatabase error:', error);
@@ -289,11 +294,11 @@ class ApiService {
   // Reset selected database tables (requires auth)
   static async resetSelectedTables(tableNames: string[]): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/database/reset-selected`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(tableNames)
-      });
+      const res = await fetch(`${API_BASE}/database/tables`, this.getFetchOptions({
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tables: tableNames })
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('resetSelectedTables error:', error);
@@ -304,11 +309,12 @@ class ApiService {
   // Reset log position (requires auth)
   static async resetLogPosition(position: 'top' | 'bottom' = 'bottom'): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/reset-logs?position=${position}`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+      const res = await fetch(`${API_BASE}/logs/position`, this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true, position: position === 'top' ? 0 : null })
         // No timeout - may need to read entire log file to count lines
-      });
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('resetLogPosition error:', error);
@@ -319,11 +325,11 @@ class ApiService {
   // Process all logs (requires auth)
   static async processAllLogs(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/process-all-logs`, {
+      const res = await fetch(`${API_BASE}/logs/process`, this.getFetchOptions({
         method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+        headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust log processor handles large files efficiently
-      });
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('processAllLogs error:', error);
@@ -334,10 +340,9 @@ class ApiService {
 
   static async getProcessingStatus(): Promise<ProcessingStatus> {
     try {
-      const res = await fetch(`${API_BASE}/management/processing-status`, {
-        signal: AbortSignal.timeout(5000),
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/logs/process/status`, this.getFetchOptions({
+        signal: AbortSignal.timeout(5000)
+      }));
       return await this.handleResponse<ProcessingStatus>(res);
     } catch (error) {
       console.error('getProcessingStatus error:', error);
@@ -348,11 +353,11 @@ class ApiService {
   // Remove specific service entries from log file (requires auth)
   static async removeServiceFromLogs(service: string): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/logs/services/${encodeURIComponent(service)}`, {
+      const res = await fetch(`${API_BASE}/logs/services/${encodeURIComponent(service)}`, this.getFetchOptions({
         method: 'DELETE',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' })
+        headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust log filtering handles large files efficiently
-      });
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('removeServiceFromLogs error:', error);
@@ -363,9 +368,7 @@ class ApiService {
   // Get log removal status
   static async getLogRemovalStatus(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/logs/remove-status`, {
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/logs/remove/status`, this.getFetchOptions());
       return await this.handleResponse(res);
     } catch (error) {
       console.error('getLogRemovalStatus error:', error);
@@ -376,11 +379,10 @@ class ApiService {
   // Get counts of log entries per service (from log files)
   static async getServiceLogCounts(forceRefresh = false): Promise<Record<string, number>> {
     try {
-      const url = `${API_BASE}/management/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
-      const res = await fetch(url, {
+      const url = `${API_BASE}/logs/service-counts${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, this.getFetchOptions({
         // No timeout - can take hours for massive log files
-        headers: this.getHeaders()
-      });
+      }));
       return await this.handleResponse<Record<string, number>>(res);
     } catch (error) {
       console.error('getServiceLogCounts error:', error);
@@ -391,9 +393,7 @@ class ApiService {
   // Get count of LogEntries in database (not log files)
   static async getDatabaseLogEntriesCount(): Promise<number> {
     try {
-      const res = await fetch(`${API_BASE}/management/database/log-entries-count`, {
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/database/log-entries-count`, this.getFetchOptions());
       const data = await this.handleResponse<{ count: number }>(res);
       return data.count;
     } catch (error) {
@@ -404,10 +404,9 @@ class ApiService {
 
   // Get configuration info
   static async getConfig(): Promise<Config> {
-    const res = await fetch(`${API_BASE}/management/config`, {
+    const res = await fetch(`${API_BASE}/system/config`, this.getFetchOptions({
       // No timeout - can take time for large log file scanning
-      headers: this.getHeaders()
-    });
+    }));
     return await this.handleResponse<Config>(res);
   }
 
@@ -416,19 +415,14 @@ class ApiService {
     cache: { path: string; writable: boolean; readOnly: boolean };
     logs: { path: string; writable: boolean; readOnly: boolean };
   }> {
-    const res = await fetch(`${API_BASE}/management/directory-permissions`, {
-      headers: this.getHeaders()
-    });
+    const res = await fetch(`${API_BASE}/system/permissions`, this.getFetchOptions());
     return await this.handleResponse(res);
   }
 
   // PICS/Depot related endpoints (consolidated from GameInfoController)
   static async getPicsStatus(signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/depots/status`, {
-        signal,
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/depots/status`, this.getFetchOptions({ signal }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('getPicsStatus error:', error);
@@ -439,11 +433,11 @@ class ApiService {
 
   static async triggerSteamKitRebuild(incremental = false, signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/depots/rebuild?incremental=${incremental}`, {
+      const res = await fetch(`${API_BASE}/depots/rebuild?incremental=${incremental}`, this.getFetchOptions({
         method: 'POST',
         signal,
-        headers: this.getHeaders({ 'Content-Type': 'application/json' })
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('triggerSteamKitRebuild error:', error);
@@ -453,11 +447,11 @@ class ApiService {
 
   static async cancelSteamKitRebuild(signal?: AbortSignal): Promise<void> {
     try {
-      const res = await fetch(`${API_BASE}/depots/rebuild`, {
+      const res = await fetch(`${API_BASE}/depots/rebuild`, this.getFetchOptions({
         method: 'DELETE',
         signal,
-        headers: this.getHeaders({ 'Content-Type': 'application/json' })
-      });
+        headers: { 'Content-Type': 'application/json' }
+      }));
       if (!res.ok) {
         throw new Error(`Failed to cancel scan: ${res.statusText}`);
       }
@@ -469,11 +463,10 @@ class ApiService {
 
   static async checkIncrementalViability(signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/depots/rebuild/check-incremental`, {
+      const res = await fetch(`${API_BASE}/depots/rebuild/check-incremental`, this.getFetchOptions({
         method: 'GET',
-        signal,
-        headers: this.getHeaders()
-      });
+        signal
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('checkIncrementalViability error:', error);
@@ -483,27 +476,13 @@ class ApiService {
 
   static async downloadPrecreatedDepotData(signal?: AbortSignal): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/depots/import?source=github`, {
+      const res = await fetch(`${API_BASE}/depots/import?source=github`, this.getFetchOptions({
         method: 'POST',
-        signal,
-        headers: this.getHeaders()
-      });
+        signal
+      }));
       return await this.handleResponse(res);
     } catch (error) {
       console.error('downloadPrecreatedDepotData error:', error);
-      throw error;
-    }
-  }
-
-  // Get cache clearing delete mode
-  static async getCacheDeleteMode(): Promise<{ deleteMode: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/management/cache/delete-mode`, {
-        headers: this.getHeaders()
-      });
-      return await this.handleResponse<{ deleteMode: string }>(res);
-    } catch (error) {
-      console.error('getCacheDeleteMode error:', error);
       throw error;
     }
   }
@@ -512,25 +491,18 @@ class ApiService {
   static async setCacheDeleteMode(
     deleteMode: string
   ): Promise<{ message: string; deleteMode: string }> {
-    try {
-      const res = await fetch(`${API_BASE}/management/cache/delete-mode`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ deleteMode })
-      });
-      return await this.handleResponse<{ message: string; deleteMode: string }>(res);
-    } catch (error) {
-      console.error('setCacheDeleteMode error:', error);
-      throw error;
-    }
+    const res = await fetch(`${API_BASE}/system/cache-delete-mode`, this.getFetchOptions({
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deleteMode })
+    }));
+    return await this.handleResponse<{ message: string; deleteMode: string }>(res);
   }
 
   // Check if rsync is available on the system
   static async isRsyncAvailable(): Promise<{ available: boolean }> {
     try {
-      const res = await fetch(`${API_BASE}/management/system/rsync-available`, {
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/system/rsync/available`, this.getFetchOptions());
       return await this.handleResponse<{ available: boolean }>(res);
     } catch (error) {
       console.error('isRsyncAvailable error:', error);
@@ -542,11 +514,10 @@ class ApiService {
   // Get corruption summary (counts of corrupted chunks per service)
   static async getCorruptionSummary(forceRefresh = false): Promise<Record<string, number>> {
     try {
-      const url = `${API_BASE}/management/corruption/summary${forceRefresh ? '?forceRefresh=true' : ''}`;
-      const res = await fetch(url, {
+      const url = `${API_BASE}/cache/corruption/summary${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, this.getFetchOptions({
         // No timeout - can take hours for massive log files
-        headers: this.getHeaders()
-      });
+      }));
       return await this.handleResponse<Record<string, number>>(res);
     } catch (error) {
       console.error('getCorruptionSummary error:', error);
@@ -559,12 +530,11 @@ class ApiService {
     service: string
   ): Promise<{ message: string; service: string }> {
     try {
-      const res = await fetch(`${API_BASE}/management/corruption/remove`, {
-        method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ service })
+      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption`, this.getFetchOptions({
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust corruption remover handles large operations efficiently
-      });
+      }));
       return await this.handleResponse<{ message: string; service: string }>(res);
     } catch (error) {
       console.error('removeCorruptedChunks error:', error);
@@ -578,11 +548,10 @@ class ApiService {
     forceRefresh = false
   ): Promise<CorruptedChunkDetail[]> {
     try {
-      const url = `${API_BASE}/management/corruption/details/${encodeURIComponent(service)}${forceRefresh ? '?forceRefresh=true' : ''}`;
-      const res = await fetch(url, {
-        headers: this.getHeaders()
+      const url = `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, this.getFetchOptions({
         // No timeout - wait for backend to complete analysis (could take several minutes for large logs)
-      });
+      }));
       return await this.handleResponse<CorruptedChunkDetail[]>(res);
     } catch (error) {
       console.error('getCorruptionDetails error:', error);
@@ -593,12 +562,11 @@ class ApiService {
   // Start game cache detection as background operation
   static async startGameCacheDetection(forceRefresh: boolean = false): Promise<{ operationId: string }> {
     try {
-      const url = `${API_BASE}/management/cache/detect-games${forceRefresh ? '?forceRefresh=true' : ''}`;
-      const res = await fetch(url, {
+      const url = `${API_BASE}/games/detect${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const res = await fetch(url, this.getFetchOptions({
         method: 'POST',
-        headers: this.getHeaders(),
         signal: AbortSignal.timeout(10000) // Short timeout since it returns immediately
-      });
+      }));
       return await this.handleResponse<{ operationId: string }>(res);
     } catch (error) {
       console.error('startGameCacheDetection error:', error);
@@ -609,10 +577,9 @@ class ApiService {
   // Get status of game cache detection operation
   static async getGameDetectionStatus(operationId: string): Promise<GameDetectionStatus> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/detect-games/${operationId}`, {
-        headers: this.getHeaders(),
+      const res = await fetch(`${API_BASE}/games/detect/${operationId}/status`, this.getFetchOptions({
         signal: AbortSignal.timeout(30000) // 30 seconds - status check can be slow with many games
-      });
+      }));
       return await this.handleResponse<GameDetectionStatus>(res);
     } catch (error) {
       console.error('getGameDetectionStatus error:', error);
@@ -627,10 +594,9 @@ class ApiService {
     operation?: GameDetectionStatus;
   }> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/detect-games-active`, {
-        headers: this.getHeaders(),
+      const res = await fetch(`${API_BASE}/games/detect/active`, this.getFetchOptions({
         signal: AbortSignal.timeout(5000)
-      });
+      }));
       return await this.handleResponse<{
         hasActiveOperation: boolean;
         operation?: GameDetectionStatus;
@@ -651,10 +617,9 @@ class ApiService {
     lastDetectionTime?: string;
   }> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/detect-games-cached`, {
-        headers: this.getHeaders(),
+      const res = await fetch(`${API_BASE}/games/detect/cached`, this.getFetchOptions({
         signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
-      });
+      }));
       return await this.handleResponse<{
         hasCachedResults: boolean;
         games?: GameCacheInfo[];
@@ -674,11 +639,10 @@ class ApiService {
     gameAppId: number
   ): Promise<{ message: string; gameAppId: number; status: string }> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/game/${gameAppId}`, {
-        method: 'DELETE',
-        headers: this.getHeaders()
+      const res = await fetch(`${API_BASE}/games/${gameAppId}`, this.getFetchOptions({
+        method: 'DELETE'
         // Returns immediately with 202 Accepted - removal happens in background
-      });
+      }));
       return await this.handleResponse<{ message: string; gameAppId: number; status: string }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
@@ -691,11 +655,10 @@ class ApiService {
     serviceName: string
   ): Promise<{ message: string; serviceName: string; status: string }> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/service/${encodeURIComponent(serviceName)}`, {
-        method: 'DELETE',
-        headers: this.getHeaders()
+      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(serviceName)}`, this.getFetchOptions({
+        method: 'DELETE'
         // Returns immediately with 202 Accepted - removal happens in background
-      });
+      }));
       return await this.handleResponse<{ message: string; serviceName: string; status: string }>(res);
     } catch (error) {
       console.error('removeServiceFromCache error:', error);
@@ -707,9 +670,7 @@ class ApiService {
   // Note: Used by NotificationsContext for operation recovery
   static async getActiveCacheOperations(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/cache/active-operations`, {
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/cache/operations`, this.getFetchOptions());
       return await this.handleResponse(res);
     } catch (error) {
       console.error('getActiveCacheOperations error:', error);
@@ -721,9 +682,7 @@ class ApiService {
   // Note: Used by NotificationsContext for operation recovery
   static async getDatabaseResetStatus(): Promise<any> {
     try {
-      const res = await fetch(`${API_BASE}/management/database/reset-status`, {
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/database/reset-status`, this.getFetchOptions());
       return await this.handleResponse(res);
     } catch (error) {
       console.error('getDatabaseResetStatus error:', error);
@@ -734,9 +693,7 @@ class ApiService {
   // Get guest session duration configuration
   static async getGuestSessionDuration(): Promise<{ durationHours: number }> {
     try {
-      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, {
-        headers: this.getHeaders()
-      });
+      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, this.getFetchOptions());
       return await this.handleResponse<{ durationHours: number }>(res);
     } catch (error) {
       console.error('getGuestSessionDuration error:', error);
@@ -749,11 +706,11 @@ class ApiService {
     durationHours: number
   ): Promise<{ success: boolean; durationHours: number; message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, {
+      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, this.getFetchOptions({
         method: 'POST',
-        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ durationHours })
-      });
+      }));
       return await this.handleResponse<{
         success: boolean;
         durationHours: number;

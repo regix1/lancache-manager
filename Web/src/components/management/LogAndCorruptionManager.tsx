@@ -12,6 +12,7 @@ import {
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useBackendOperation } from '@hooks/useBackendOperation';
+import { useSignalR } from '@contexts/SignalRContext';
 import { Card } from '@components/ui/Card';
 
 interface ServiceRemovalOperationData {
@@ -83,7 +84,6 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
   mockMode,
   onError,
   onSuccess,
-  onDataRefresh,
   onReloadRef,
   onClearOperationRef
 }) => {
@@ -121,11 +121,53 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
     30
   );
 
+  const signalR = useSignalR();
+
   const clearOperationState = async () => {
     await serviceRemovalOp.clear();
     setActiveServiceRemoval(null);
     // Note: Background service removal is cleared by ManagementTab via SignalR events
   };
+
+  // Listen for CorruptionRemovalComplete event and refresh data
+  useEffect(() => {
+    if (!signalR) return;
+
+    const handleCorruptionRemovalComplete = async (payload: any) => {
+      console.log('[LogAndCorruptionManager] CorruptionRemovalComplete received, refreshing data');
+
+      // Always clear the removing state, whether success or failure
+      setRemovingCorruption(null);
+
+      // Only refresh data if successful
+      if (payload.success) {
+        try {
+          const [configData, counts, corruption] = await Promise.all([
+            ApiService.getConfig(),
+            ApiService.getServiceLogCounts(true),
+            ApiService.getCorruptionSummary(true)
+          ]);
+          setConfig({
+            logPath: configData.logsPath,
+            services: Object.keys(counts)
+          });
+          setServiceCounts(counts);
+          setCorruptionSummary(corruption);
+        } catch (err) {
+          console.error('[LogAndCorruptionManager] Failed to refresh after corruption removal:', err);
+        }
+      } else {
+        // Removal failed - show error
+        onError?.(payload.error || 'Corruption removal failed');
+      }
+    };
+
+    signalR.on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+
+    return () => {
+      signalR.off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+    };
+  }, [signalR]);
 
   useEffect(() => {
     // Only load on initial mount
@@ -165,7 +207,10 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
         ApiService.getServiceLogCounts(forceRefresh),
         ApiService.getCorruptionSummary(forceRefresh)
       ]);
-      setConfig(configData);
+      setConfig({
+        logPath: configData.logsPath,
+        services: Object.keys(counts)
+      });
       setServiceCounts(counts);
       setCorruptionSummary(corruption);
       setLoadError(null);
@@ -278,14 +323,12 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
     try {
       await ApiService.removeCorruptedChunks(service);
-      // Success notification now handled by SignalR (CorruptionRemovalComplete event)
-
-      await loadAllData();
-      onDataRefresh?.();
+      // Success notification and state clearing handled by SignalR (CorruptionRemovalComplete event)
+      // Don't clear removingCorruption here - it will be cleared when SignalR confirms completion
     } catch (err: any) {
       console.error('[CorruptionDetection] Removal failed:', err);
       onError?.(err.message || `Failed to remove corrupted chunks for ${service}`);
-    } finally {
+      // Only clear on error since SignalR won't fire
       setRemovingCorruption(null);
     }
   };

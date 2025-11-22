@@ -191,7 +191,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
     if (hasSteamArtwork && steamAppId) {
       bannerContent = (
         <img
-          src={`${API_BASE}/gameimages/${steamAppId}/header/`}
+          src={`${API_BASE}/game-images/${steamAppId}/header/`}
           alt={primaryName || group.name}
           className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
           loading="lazy"

@@ -51,19 +51,63 @@ public class AuthController : ControllerBase
         var authEnabled = _configuration.GetValue<bool>("Security:EnableAuthentication", true);
 
         // Check if already authenticated (do this first, before slow DB checks)
-        var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
-        var deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
-
         bool isAuthenticated = false;
         string? authenticationType = null;
+        string? deviceId = null;
 
-        if (!string.IsNullOrEmpty(apiKey) && _apiKeyService.ValidateApiKey(apiKey))
+        // Priority 1: Check session cookie
+        var sessionDeviceId = HttpContext.Session.GetString("DeviceId");
+        var sessionApiKey = HttpContext.Session.GetString("ApiKey");
+
+        if (!string.IsNullOrEmpty(sessionDeviceId) && !string.IsNullOrEmpty(sessionApiKey))
         {
-            isAuthenticated = true;
-            authenticationType = "api-key";
+            if (_apiKeyService.ValidateApiKey(sessionApiKey))
+            {
+                isAuthenticated = true;
+                authenticationType = "session";
+                deviceId = sessionDeviceId;
+            }
         }
-        // Device-only authentication removed - devices must use API keys for ongoing auth
-        // Device validation is only used during initial registration, not for session status
+
+        // Priority 2: Check for API key in header (backward compatibility)
+        if (!isAuthenticated)
+        {
+            var apiKeyHeader = Request.Headers["X-Api-Key"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(apiKeyHeader) && _apiKeyService.ValidateApiKey(apiKeyHeader))
+            {
+                isAuthenticated = true;
+                authenticationType = "api-key";
+                deviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+            }
+        }
+
+        // Priority 3: Auto-restore session if device is registered (handles app restart)
+        // When app restarts, in-memory sessions are lost but devices persist in DB
+        if (!isAuthenticated)
+        {
+            var requestDeviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(requestDeviceId))
+            {
+                // Check if this device is registered and valid in the database
+                if (_deviceAuthService.ValidateDevice(requestDeviceId))
+                {
+                    // Device exists and is valid - restore session
+                    var apiKey = _apiKeyService.GetOrCreateApiKey();
+                    if (!string.IsNullOrEmpty(apiKey))
+                    {
+                        HttpContext.Session.SetString("DeviceId", requestDeviceId);
+                        HttpContext.Session.SetString("ApiKey", apiKey);
+                        HttpContext.Session.SetString("AuthMode", "authenticated");
+
+                        isAuthenticated = true;
+                        authenticationType = "session-restored";
+                        deviceId = requestDeviceId;
+
+                        _logger.LogInformation("Auto-restored session for device {DeviceId} after app restart", requestDeviceId);
+                    }
+                }
+            }
+        }
 
         // Check for guest mode eligibility (these might be slow, so do them last)
         bool hasData = false;

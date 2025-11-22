@@ -43,7 +43,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const setupResponse = await fetch('/api/management/setup-status');
+      const setupResponse = await fetch('/api/system/setup');
       if (setupResponse.ok) {
         const setupData = await setupResponse.json();
         const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;

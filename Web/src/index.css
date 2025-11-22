@@ -11,6 +11,8 @@
     @apply bg-gray-900 text-gray-100;
     overflow-x: hidden;
     width: 100%;
+    /* Reserve space for scrollbar to prevent layout shift */
+    overflow-y: scroll;
   }
 
   /* Remove ALL default browser focus styles globally */

@@ -76,9 +76,9 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
 
     setLoading(true);
     try {
-      const response = await fetch('/api/management/steam-auth/logout', {
-        method: 'POST',
-        headers: ApiService.getHeaders({ 'Content-Type': 'application/json' })
+      const response = await fetch('/api/steam-auth', {
+        method: 'DELETE',
+        headers: ApiService.getHeaders()
       });
 
       if (response.ok) {
@@ -125,29 +125,41 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 : 'Using anonymous mode - only public games available'}
             </p>
             <p className="text-xs text-themed-muted mt-1">
-              Change login mode to access different depot mappings
+              {authMode === 'authenticated' && !mockMode
+                ? 'Change login mode to access different depot mappings'
+                : 'Login with your API key to change Steam authentication mode'}
             </p>
           </div>
 
-          <div className="w-full sm:w-64">
-            <EnhancedDropdown
-              options={dropdownOptions}
-              value={steamAuthMode}
-              onChange={handleModeChange}
-              disabled={loading || mockMode || authMode !== 'authenticated'}
-            />
-          </div>
+          {authMode === 'authenticated' && !mockMode ? (
+            <div className="w-full sm:w-64">
+              <EnhancedDropdown
+                options={dropdownOptions}
+                value={steamAuthMode}
+                onChange={handleModeChange}
+                disabled={loading}
+              />
+            </div>
+          ) : (
+            <div className="w-full sm:w-64 px-3 py-2 rounded-lg border bg-themed-tertiary/30 opacity-50">
+              <p className="text-sm text-themed-secondary">
+                {steamAuthMode === 'authenticated' ? 'Account Login' : 'Anonymous'}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Configuration section with unified background */}
-        <div className="p-4 rounded-lg bg-themed-tertiary/30">
+        <div className={`p-4 rounded-lg bg-themed-tertiary/30 ${steamAuthMode === 'anonymous' ? 'opacity-50' : ''}`}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1">
               <p className="text-themed-primary font-medium text-sm mb-1">
                 Depot Mapping After Login
               </p>
               <p className="text-xs text-themed-muted">
-                {autoStartPics
+                {steamAuthMode === 'anonymous'
+                  ? 'Only available when logged in with Steam account'
+                  : autoStartPics
                   ? 'Automatically rebuild depot mappings after login'
                   : 'Manually trigger depot mapping rebuild after login'}
               </p>
@@ -158,7 +170,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={autoStartPics ? 'filled' : 'default'}
                 color={autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(true)}
-                disabled={loading || mockMode}
+                disabled={loading || mockMode || steamAuthMode === 'anonymous'}
               >
                 Automatic
               </Button>
@@ -167,7 +179,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                 variant={!autoStartPics ? 'filled' : 'default'}
                 color={!autoStartPics ? 'blue' : undefined}
                 onClick={() => handleAutoStartPicsChange(false)}
-                disabled={loading || mockMode}
+                disabled={loading || mockMode || steamAuthMode === 'anonymous'}
               >
                 Manual
               </Button>

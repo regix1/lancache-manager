@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
@@ -80,7 +81,16 @@ public class LogsController : ControllerBase
                 });
             }
 
-            return Ok(result.Data);
+            // Extract service_counts from the result
+            if (result.Data is JsonElement jsonElement &&
+                jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
+            {
+                var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
+                return Ok(serviceCounts);
+            }
+
+            _logger.LogWarning("RunLogManagerAsync returned data without service_counts property");
+            return Ok(new Dictionary<string, ulong>());
         }
         catch (Exception ex)
         {
@@ -131,8 +141,9 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
-    /// POST /api/logs/process - Start processing all logs
+    /// POST /api/logs/process - Start processing logs from current position
     /// Note: POST is acceptable here as this starts an asynchronous operation
+    /// Uses the position set by PUT /api/logs/position endpoint (top or bottom)
     /// </summary>
     [HttpPost("process")]
     [RequireAuth]
@@ -221,11 +232,11 @@ public class LogsController : ControllerBase
     /// GET /api/logs/remove/status - Get status of log removal operation
     /// </summary>
     [HttpGet("remove/status")]
-    public IActionResult GetRemovalStatus()
+    public async Task<IActionResult> GetRemovalStatus()
     {
         try
         {
-            var status = _rustLogRemovalService.GetRemovalStatus();
+            var status = await _rustLogRemovalService.GetRemovalStatus();
 
             if (status == null)
             {

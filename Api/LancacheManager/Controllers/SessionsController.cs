@@ -269,6 +269,13 @@ public class SessionsController : ControllerBase
                 var (success, message) = _deviceAuthService.RevokeDevice(id);
                 if (success)
                 {
+                    // Clear session cookie if revoking own session
+                    var currentSessionDeviceId = HttpContext.Session.GetString("DeviceId");
+                    if (currentSessionDeviceId == id)
+                    {
+                        HttpContext.Session.Clear();
+                    }
+
                     // Broadcast revocation
                     await _hubContext.Clients.All.SendAsync("UserSessionRevoked", new
                     {

@@ -227,7 +227,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       }
 
       try {
-        const setupResponse = await fetch('/api/management/setup-status');
+        const setupResponse = await fetch('/api/system/setup');
         const setupData = await setupResponse.json();
 
         // Store auth disabled state
@@ -268,7 +268,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     try {
       // Check if log processing has been run by checking the setup status
       // This should have a flag indicating logs have been processed at least once
-      const setupResponse = await fetch('/api/management/setup-status');
+      const setupResponse = await fetch('/api/system/setup');
 
       if (setupResponse.ok) {
         const setupData = await setupResponse.json();
@@ -307,9 +307,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
   const markSetupCompleted = async () => {
     try {
-      await fetch('/api/management/mark-setup-completed', {
-        method: 'POST',
-        headers: ApiService.getHeaders()
+      await fetch('/api/system/setup', {
+        method: 'PATCH',
+        headers: ApiService.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ completed: true })
       });
     } catch (error) {
       console.warn('Failed to mark setup as completed:', error);
@@ -358,7 +359,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     await authService.startGuestMode();
     onAuthChanged?.();
 
-    const setupResponse = await fetch('/api/management/setup-status');
+    const setupResponse = await fetch('/api/system/setup');
     const setupData = await setupResponse.json();
 
     if (setupData.isSetupCompleted) {

@@ -86,6 +86,11 @@ public class DevicesController : ControllerBase
 
             if (result.Success)
             {
+                // Set session cookie for authenticated session
+                HttpContext.Session.SetString("DeviceId", request.DeviceId);
+                HttpContext.Session.SetString("ApiKey", request.ApiKey);
+                HttpContext.Session.SetString("AuthMode", "authenticated");
+
                 try
                 {
                     // Check if UserSession already exists for this device

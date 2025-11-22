@@ -143,9 +143,13 @@ export interface ClearCacheResponse {
 
 export interface Config {
   cachePath: string;
-  logPath: string;
-  services: string[];
-  timezone: string;
+  logsPath: string;
+  dataPath: string;
+  cacheDeleteMode: string;
+  steamAuthMode: string;
+  timeZone: string;
+  cacheWritable: boolean;
+  logsWritable: boolean;
 }
 
 export interface StatCardData {

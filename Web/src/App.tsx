@@ -29,6 +29,7 @@ import { storage } from '@utils/storage';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
+import heartbeatService from '@services/heartbeat.service';
 import { useActivityTracker } from '@hooks/useActivityTracker';
 
 // Lazy load heavy components
@@ -77,7 +78,25 @@ const AppContent: React.FC = () => {
   const signalR = useSignalR();
 
   // Track user activity and send heartbeats to keep session alive
-  useActivityTracker();
+  useActivityTracker(
+    () => {
+      // User became active - send heartbeat
+      heartbeatService.setActive(true);
+    },
+    () => {
+      // User became idle
+      heartbeatService.setActive(false);
+    }
+  );
+
+  // Start heartbeat service when component mounts
+  useEffect(() => {
+    heartbeatService.startHeartbeat();
+
+    return () => {
+      heartbeatService.stopHeartbeat();
+    };
+  }, []);
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
@@ -132,7 +151,7 @@ const AppContent: React.FC = () => {
 
     const checkCachedViabilityState = async () => {
       try {
-        const response = await fetch('/api/management/state', {
+        const response = await fetch('/api/system/state', {
           headers: ApiService.getHeaders()
         });
         if (response.ok) {
@@ -229,8 +248,8 @@ const AppContent: React.FC = () => {
     const fetchTimezone = async () => {
       try {
         const config = await ApiService.getConfig();
-        if (config.timezone) {
-          setServerTimezone(config.timezone);
+        if (config.timeZone) {
+          setServerTimezone(config.timeZone);
         }
       } catch (error) {
         console.error('Failed to fetch server timezone:', error);

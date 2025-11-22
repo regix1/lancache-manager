@@ -1,101 +1,153 @@
-import { useEffect, useRef } from 'react';
-import ApiService from '@services/api.service';
-import authService from '@services/auth.service';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
- * Hook to track user activity and send heartbeat to server
- * Detects mouse movement, clicks, keyboard input, scrolling, and touch gestures (mobile)
- * Sends heartbeat every 3 seconds when user is active
- * Marks user inactive after 1 minute of no activity
+ * Comprehensive user activity tracker for session management
+ * Based on best practices from:
+ * - MDN Idle Detection API
+ * - activity-detector npm package
+ * - Page Visibility API
+ *
+ * Monitors:
+ * - Mouse events (desktop)
+ * - Touch events (mobile)
+ * - Keyboard events
+ * - Scroll events
+ * - Page visibility changes
+ * - Focus/blur events
+ *
+ * Sends heartbeat to server every 30 seconds when active
  */
-export const useActivityTracker = () => {
+
+const ACTIVITY_EVENTS = [
+  // Mouse events (desktop)
+  'mousedown',
+  'mousemove',
+  'click',
+
+  // Touch events (mobile)
+  'touchstart',
+  'touchmove',
+  'touchend',
+
+  // Keyboard events
+  'keydown',
+  'keypress',
+
+  // Scroll events (both desktop and mobile)
+  'scroll',
+  'wheel',
+  'DOMMouseScroll', // Firefox
+
+  // Focus events
+  'focus'
+] as const;
+
+const IDLE_TIMEOUT = 60000; // 1 minute of inactivity = idle
+
+export interface ActivityTrackerReturn {
+  isActive: boolean;
+  lastActivityTime: number;
+}
+
+export const useActivityTracker = (
+  onActivity?: () => void,
+  onIdle?: () => void
+): ActivityTrackerReturn => {
+  const [isActive, setIsActive] = useState(true);
+  const [lastActivityTime, setLastActivityTime] = useState(Date.now());
   const lastActivityRef = useRef<number>(Date.now());
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isActiveRef = useRef<boolean>(true);
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const idleCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const onActivityRef = useRef(onActivity);
+  const onIdleRef = useRef(onIdle);
+
+  // Keep refs up to date
+  useEffect(() => {
+    onActivityRef.current = onActivity;
+    onIdleRef.current = onIdle;
+  }, [onActivity, onIdle]);
+
+  const handleActivity = useCallback(() => {
+    const now = Date.now();
+    const wasActive = isActiveRef.current;
+
+    lastActivityRef.current = now;
+    setLastActivityTime(now);
+
+    // If was idle, now becoming active
+    if (!wasActive) {
+      isActiveRef.current = true;
+      setIsActive(true);
+      onActivityRef.current?.();
+    }
+  }, []);
+
+  const handleIdle = useCallback(() => {
+    const wasActive = isActiveRef.current;
+
+    if (wasActive) {
+      isActiveRef.current = false;
+      setIsActive(false);
+      onIdleRef.current?.();
+    }
+  }, []);
 
   useEffect(() => {
-    // Track user activity
-    const updateActivity = () => {
-      lastActivityRef.current = Date.now();
-      isActiveRef.current = true;
-    };
+    // Check for idle status periodically
+    const checkIdleStatus = () => {
+      const timeSinceActivity = Date.now() - lastActivityRef.current;
 
-    // Listen for various user interactions
-    // Desktop: mousemove, mousedown, keydown, scroll, click
-    // Mobile: touchstart, touchmove, touchend, scroll
-    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'touchmove', 'touchend', 'click'];
-
-    events.forEach((event) => {
-      window.addEventListener(event, updateActivity, { passive: true });
-    });
-
-    // Send heartbeat to server every 3 seconds if user is active
-    const sendHeartbeat = async () => {
-      const timeSinceLastActivity = Date.now() - lastActivityRef.current;
-
-      // Only send heartbeat if user was active in the last 60 seconds (1 minute)
-      if (timeSinceLastActivity <= 60000) {
-        try {
-          // Skip heartbeat for unauthenticated or expired sessions
-          // Send heartbeats for both authenticated users and active guest sessions
-          if (authService.authMode === 'unauthenticated' || authService.authMode === 'expired') {
-            return;
-          }
-
-          // Get device ID for session heartbeat
-          const deviceId = authService.getDeviceId();
-
-          // If no device ID, skip heartbeat (session not established yet or already cleared)
-          if (!deviceId) {
-            return;
-          }
-
-          // Send heartbeat to update lastSeenAt on server
-          // RESTful endpoint: PATCH /api/sessions/{id}/last-seen
-          const response = await fetch(`/api/sessions/${deviceId}/last-seen`, {
-            method: 'PATCH',
-            headers: ApiService.getHeaders()
-          });
-
-          // If unauthorized (401), device was revoked - trigger auth check
-          if (response.status === 401) {
-            console.warn('[ActivityTracker] Device unauthorized - triggering auth state refresh');
-            authService.handleUnauthorized();
-            return;
-          }
-
-          // If not found (404), session doesn't exist - stop sending heartbeats
-          if (response.status === 404) {
-            console.debug('[ActivityTracker] Session not found - may have been revoked');
-            return;
-          }
-
-          isActiveRef.current = true;
-        } catch (err) {
-          // Silently fail - heartbeat is non-critical
-          console.debug('[ActivityTracker] Heartbeat failed:', err);
-        }
-      } else {
-        isActiveRef.current = false;
+      if (timeSinceActivity > IDLE_TIMEOUT) {
+        handleIdle();
       }
     };
 
-    // Start heartbeat interval - send every 3 seconds
-    heartbeatIntervalRef.current = setInterval(sendHeartbeat, 3000);
+    // Handle page visibility changes
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Page is hidden - mark as idle
+        handleIdle();
+      } else {
+        // Page is visible - mark as active
+        handleActivity();
+      }
+    };
+
+    // Set up event listeners with passive flag for better performance
+    ACTIVITY_EVENTS.forEach((event) => {
+      window.addEventListener(event, handleActivity, { passive: true });
+    });
+
+    // Page visibility API
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Check idle status every 5 seconds
+    idleCheckIntervalRef.current = setInterval(checkIdleStatus, 5000);
+
+    // Initial activity
+    handleActivity();
 
     // Cleanup
     return () => {
-      events.forEach((event) => {
-        window.removeEventListener(event, updateActivity);
+      ACTIVITY_EVENTS.forEach((event) => {
+        window.removeEventListener(event, handleActivity);
       });
+
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      if (idleCheckIntervalRef.current) {
+        clearInterval(idleCheckIntervalRef.current);
+      }
 
       if (heartbeatIntervalRef.current) {
         clearInterval(heartbeatIntervalRef.current);
       }
     };
-  }, []);
+  }, [handleActivity, handleIdle]);
 
   return {
-    isActive: isActiveRef.current
+    isActive,
+    lastActivityTime
   };
 };

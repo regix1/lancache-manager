@@ -39,7 +39,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
 
   const fetchSteamAuth = async () => {
     try {
-      const response = await fetch('/api/management/steam-auth-status', {
+      const response = await fetch('/api/steam-auth/status', {
         headers: ApiService.getHeaders()
       });
       if (response.ok) {

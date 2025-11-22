@@ -44,9 +44,12 @@ public class SteamAuthController : ControllerBase
 
             return Ok(new
             {
+                mode = authMode,
+                username = username ?? string.Empty,
+                isAuthenticated = !string.IsNullOrEmpty(username),
+                // Legacy fields for backward compatibility
                 authMode,
                 isConnected,
-                isAuthenticated = !string.IsNullOrEmpty(username),
                 hasStoredCredentials = !string.IsNullOrEmpty(username)
             });
         }
@@ -63,29 +66,24 @@ public class SteamAuthController : ControllerBase
     /// - Anonymous: No body required
     /// - Credentials: { "username": "...", "password": "..." }
     /// - Guard Code: { "guardCode": "..." }
+    /// Note: This endpoint does NOT require LANCache Manager authentication
+    /// since users need to be able to log in to Steam before authenticating to the app
     /// </summary>
     [HttpPost("login")]
-    [RequireAuth]
     public async Task<IActionResult> LoginToSteam([FromBody] SteamLoginRequest? request)
     {
         try
         {
-            var authMode = _stateService.GetSteamAuthMode();
-
-            if (authMode == "authenticated")
+            // If user provides credentials, they want to authenticate (regardless of current mode)
+            if (request != null && !string.IsNullOrEmpty(request.Username) && !string.IsNullOrEmpty(request.Password))
             {
-                // Authenticated login
-                if (request == null || string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
-                {
-                    return BadRequest(new { error = "Username and password required for authenticated login" });
-                }
-
+                // User wants to switch to authenticated mode
                 var result = await _steamKit2Service.AuthenticateAsync(
                     request.Username,
                     request.Password,
                     request.TwoFactorCode,
                     request.EmailCode,
-                    false // allowMobileConfirmation
+                    request.AllowMobileConfirmation
                 );
 
                 if (result.Success)
@@ -116,15 +114,27 @@ public class SteamAuthController : ControllerBase
                     return BadRequest(new { error = result.Message ?? "Authentication failed" });
                 }
             }
-            else if (authMode == "anonymous")
-            {
-                // Anonymous mode - Steam connects automatically
-                _logger.LogInformation("Steam running in anonymous mode");
 
+            // No credentials provided - just return current status
+            var authMode = _stateService.GetSteamAuthMode();
+
+            if (authMode == "anonymous")
+            {
                 return Ok(new
                 {
-                    message = "Steam is running in anonymous mode",
+                    message = "Steam is running in anonymous mode. Provide username and password to authenticate.",
                     authMode = "anonymous",
+                    status = "connected"
+                });
+            }
+            else if (authMode == "authenticated")
+            {
+                var username = _stateService.GetSteamUsername();
+                return Ok(new
+                {
+                    message = $"Already authenticated as {username}",
+                    authMode = "authenticated",
+                    username,
                     status = "connected"
                 });
             }
@@ -143,9 +153,9 @@ public class SteamAuthController : ControllerBase
     /// <summary>
     /// DELETE /api/steam-auth - Logout from Steam
     /// RESTful: DELETE is proper method for removing/ending sessions
+    /// Note: This endpoint does NOT require LANCache Manager authentication
     /// </summary>
     [HttpDelete]
-    [RequireAuth]
     public async Task<IActionResult> LogoutFromSteam()
     {
         try
@@ -168,5 +178,7 @@ public class SteamAuthController : ControllerBase
         public string? Password { get; set; }
         public string? TwoFactorCode { get; set; }
         public string? EmailCode { get; set; }
+        public bool AllowMobileConfirmation { get; set; } = true;
+        public bool AutoStartPicsRebuild { get; set; } = false;
     }
 }

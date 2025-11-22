@@ -254,25 +254,29 @@ public class RustProcessHelper
     {
         try
         {
-            // Resolve path to log_manager executable using IPathResolver pattern
-            // For now, assume it's in the same directory as other Rust binaries
-            var dataDirectory = Path.GetDirectoryName(logsPath) ?? ".";
-            var rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "log_manager.exe");
+            // Resolve path to log_manager executable
+            // logsPath is the logs directory (e.g., H:\_git\lancache-manager\logs)
+            // We need to go to the project root and then into rust-processor
+            var projectRoot = Directory.GetParent(logsPath)?.FullName ?? ".";
+            var rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "log_manager.exe");
 
             if (!File.Exists(rustBinaryPath))
             {
                 // Try Linux path
-                rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "log_manager");
+                rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "log_manager");
             }
 
             ValidateRustBinaryExists(rustBinaryPath, "log_manager");
 
+            // Create temp file path once if not provided
+            var outputFile = progressFile ?? Path.GetTempFileName();
+
             // Build arguments based on command
             var arguments = command switch
             {
-                "count" => $"count \"{logsPath}\" \"{progressFile ?? Path.GetTempFileName()}\"",
+                "count" => $"count \"{logsPath}\" \"{outputFile}\"",
                 "remove" when !string.IsNullOrEmpty(service) =>
-                    $"remove \"{logsPath}\" \"{service}\" \"{progressFile ?? Path.GetTempFileName()}\"",
+                    $"remove \"{logsPath}\" \"{service}\" \"{outputFile}\"",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 
@@ -282,7 +286,6 @@ public class RustProcessHelper
             if (result.ExitCode == 0)
             {
                 // Try to read output JSON if it exists
-                var outputFile = progressFile ?? Path.GetTempFileName();
                 object? data = null;
 
                 if (File.Exists(outputFile))
@@ -290,7 +293,16 @@ public class RustProcessHelper
                     try
                     {
                         var jsonContent = await File.ReadAllTextAsync(outputFile);
-                        data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
+
+                        // Only attempt to deserialize if content is not empty
+                        if (!string.IsNullOrWhiteSpace(jsonContent))
+                        {
+                            data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
+                        }
+                        else
+                        {
+                            _logger.LogDebug("log_manager output file is empty");
+                        }
 
                         // Clean up temp file
                         if (progressFile == null)
@@ -339,38 +351,55 @@ public class RustProcessHelper
         string logsPath,
         string cachePath,
         string? service = null,
-        string? progressFile = null)
+        string? progressFile = null,
+        string? databasePath = null)
     {
         try
         {
             // Resolve path to corruption_manager executable
-            var dataDirectory = Path.GetDirectoryName(logsPath) ?? ".";
-            var rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "corruption_manager.exe");
+            // logsPath is the logs directory (e.g., H:\_git\lancache-manager\logs)
+            // We need to go to the project root and then into rust-processor
+            var projectRoot = Directory.GetParent(logsPath)?.FullName ?? ".";
+            var rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "corruption_manager.exe");
 
             if (!File.Exists(rustBinaryPath))
             {
                 // Try Linux path
-                rustBinaryPath = Path.Combine(dataDirectory, "..", "rust-processor", "target", "release", "corruption_manager");
+                rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "corruption_manager");
             }
 
             ValidateRustBinaryExists(rustBinaryPath, "corruption_manager");
+
+            // Create temp file path once if not provided
+            var outputFile = progressFile ?? Path.GetTempFileName();
 
             // Build arguments based on command
             var arguments = command switch
             {
                 "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC",
-                "remove" when !string.IsNullOrEmpty(service) =>
-                    $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile ?? Path.GetTempFileName()}\"",
+                "remove" when !string.IsNullOrEmpty(service) && !string.IsNullOrEmpty(databasePath) =>
+                    $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\"",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
+
+            _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
             var result = await ExecuteProcessAsync(startInfo, CancellationToken.None);
 
+            // Log stdout and stderr for debugging
+            if (!string.IsNullOrEmpty(result.Output))
+            {
+                _logger.LogInformation("[corruption_manager] stdout: {Output}", result.Output);
+            }
+            if (!string.IsNullOrEmpty(result.Error))
+            {
+                _logger.LogWarning("[corruption_manager] stderr: {Error}", result.Error);
+            }
+
             if (result.ExitCode == 0)
             {
                 // Try to read output JSON if it exists
-                var outputFile = progressFile ?? Path.GetTempFileName();
                 object? data = null;
 
                 if (File.Exists(outputFile))
@@ -378,7 +407,16 @@ public class RustProcessHelper
                     try
                     {
                         var jsonContent = await File.ReadAllTextAsync(outputFile);
-                        data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
+
+                        // Only attempt to deserialize if content is not empty
+                        if (!string.IsNullOrWhiteSpace(jsonContent))
+                        {
+                            data = System.Text.Json.JsonSerializer.Deserialize<object>(jsonContent);
+                        }
+                        else
+                        {
+                            _logger.LogDebug("corruption_manager output file is empty");
+                        }
 
                         // Clean up temp file
                         if (progressFile == null)

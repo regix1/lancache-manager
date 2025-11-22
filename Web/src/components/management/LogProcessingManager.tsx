@@ -242,9 +242,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
 
       // Mark setup as completed (persistent flag for guest mode eligibility)
       try {
-        await fetch('/api/management/mark-setup-completed', {
-          method: 'POST',
-          headers: ApiService.getHeaders()
+        await fetch('/api/system/setup', {
+          method: 'PATCH',
+          headers: ApiService.getHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ completed: true })
         });
       } catch (error) {
         console.warn('Failed to mark setup as completed:', error);
@@ -478,7 +479,7 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
           return;
         }
 
-        if (result.logSizeMB > 0) {
+        if (result.logSizeMB !== undefined && result.logSizeMB > 0) {
           await logProcessingOp.save({ type: 'processAll', resume: result.resume });
           const remainingMBRaw =
             typeof result.remainingMB === 'number' ? result.remainingMB : result.logSizeMB || 0;
@@ -505,9 +506,18 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
             // Start polling immediately when SignalR is not connected
             startProcessingPolling();
           }
-        } else {
-          onError?.('Log file appears to be empty or invalid');
+        } else if (result.logSizeMB === 0) {
+          // Log file exists but no new data to process (already at end of file)
+          onSuccess?.('No new log entries to process. All logs are up to date.');
           await logProcessingOp.clear();
+        } else {
+          // Processing started without size info (backend will handle it)
+          await logProcessingOp.save({ type: 'processAll', resume: false });
+          setIsProcessingLogs(true);
+
+          if (!signalR.isConnected) {
+            startProcessingPolling();
+          }
         }
       } else {
         await logProcessingOp.clear();

@@ -41,7 +41,6 @@ class AuthService {
   public isAuthenticated: boolean;
   public authChecked: boolean;
   public authMode: AuthMode = 'unauthenticated';
-  private guestCheckInterval: NodeJS.Timeout | null = null;
   private onGuestExpiredCallback: (() => void) | null = null;
 
   constructor() {
@@ -64,7 +63,7 @@ class AuthService {
   private getOrCreateDeviceId(): string {
     try {
       // Use browser fingerprinting to generate stable device ID (synchronous)
-      return BrowserFingerprint.getOrCreateDeviceId();
+      return BrowserFingerprint.getDeviceId();
     } catch (error) {
       console.warn('[Auth] Failed to generate browser fingerprint, using fallback:', error);
       // Fallback to random UUID if fingerprinting fails
@@ -83,7 +82,7 @@ class AuthService {
 
   private startGuestModeTimer(): void {
     // Check guest mode status and device validity frequently
-    this.guestCheckInterval = setInterval(() => {
+    setInterval(() => {
       this.checkGuestModeExpiry();
       this.checkDeviceStillValid();
     }, 15000); // Check every 15 seconds for faster device revocation detection
@@ -671,7 +670,6 @@ class AuthService {
         this.authMode = 'unauthenticated';
         storage.removeItem('lancache_auth_registered');
         storage.removeItem('lancache_device_id');
-        BrowserFingerprint.clearDeviceId();
         this.deviceId = this.getOrCreateDeviceId();
         window.dispatchEvent(new CustomEvent('auth-state-changed'));
       } else {
@@ -687,10 +685,8 @@ class AuthService {
     storage.removeItem('lancache_api_key');
     this.apiKey = null;
 
-    // IMPORTANT: Clear device ID from both localStorage AND cookies
-    // Otherwise the cookie backup will restore it and create an infinite loop
+    // IMPORTANT: Clear device ID from localStorage
     storage.removeItem('lancache_device_id');
-    BrowserFingerprint.clearDeviceId();
 
     this.deviceId = this.getOrCreateDeviceId(); // Re-generate with fingerprint (synchronous)
 
@@ -714,9 +710,8 @@ class AuthService {
     storage.removeItem('lancache_api_key');
     this.apiKey = null;
 
-    // Clear device ID from both localStorage AND cookies
+    // Clear device ID from localStorage
     storage.removeItem('lancache_device_id');
-    BrowserFingerprint.clearDeviceId();
 
     // Clear guest mode data
     storage.removeItem('lancache_guest_session_start');
@@ -724,13 +719,6 @@ class AuthService {
     storage.removeItem('lancache_guest_session_id');
 
     // Note: Device ID will be regenerated on next page load via constructor
-  }
-
-  cleanup(): void {
-    if (this.guestCheckInterval) {
-      clearInterval(this.guestCheckInterval);
-      this.guestCheckInterval = null;
-    }
   }
 
   isRegistered(): boolean {

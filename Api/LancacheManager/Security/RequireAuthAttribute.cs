@@ -24,21 +24,38 @@ public class RequireAuthAttribute : ActionFilterAttribute
             return;
         }
 
-        var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
+        // Priority 1: Check session cookie
+        var sessionDeviceId = httpContext.Session.GetString("DeviceId");
+        var sessionApiKey = httpContext.Session.GetString("ApiKey");
 
-        // Check for API key in header - ONLY API KEY, NO DEVICE ID
-        var apiKey = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(apiKey) && apiKeyService.ValidateApiKey(apiKey))
+        if (!string.IsNullOrEmpty(sessionDeviceId) && !string.IsNullOrEmpty(sessionApiKey))
         {
-            base.OnActionExecuting(context);
-            return;
+            var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
+            if (apiKeyService.ValidateApiKey(sessionApiKey))
+            {
+                // Valid session - allow through
+                base.OnActionExecuting(context);
+                return;
+            }
         }
 
-        // Not authenticated - API Key required
+        // Priority 2: Check for API key in header (backward compatibility)
+        var apiKeyHeader = httpContext.Request.Headers["X-Api-Key"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(apiKeyHeader))
+        {
+            var apiKeyService = httpContext.RequestServices.GetRequiredService<ApiKeyService>();
+            if (apiKeyService.ValidateApiKey(apiKeyHeader))
+            {
+                base.OnActionExecuting(context);
+                return;
+            }
+        }
+
+        // Not authenticated - API Key or session required
         context.Result = new UnauthorizedObjectResult(new
         {
             error = "Authentication required",
-            message = "Please provide X-Api-Key header"
+            message = "Please authenticate with a valid session or API key"
         });
     }
 }
@@ -98,7 +115,6 @@ public class AuthenticationMiddleware
     public async Task InvokeAsync(HttpContext context, GuestSessionService guestSessionService)
     {
         var path = context.Request.Path.Value?.ToLower() ?? "";
-        var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
 
         // Skip authentication for swagger and metrics endpoints
         // These have their own dedicated authentication middleware
@@ -127,42 +143,63 @@ public class AuthenticationMiddleware
             return;
         }
 
-        // Validate guest sessions (if using guest session ID, not API key)
-        if (string.IsNullOrEmpty(apiKey))
-        {
-            var guestSessionId = context.Request.Headers["X-Guest-Session-Id"].FirstOrDefault();
-            if (!string.IsNullOrEmpty(guestSessionId))
-            {
-                var (isValid, reason) = guestSessionService.ValidateSessionWithReason(guestSessionId);
-                if (!isValid)
-                {
-                    // Only log warning if session exists but is revoked/expired (not if it doesn't exist)
-                    if (reason == "revoked")
-                    {
-                        _logger.LogWarning("Revoked guest session attempt: {SessionId} from {IP}",
-                            guestSessionId, context.Connection.RemoteIpAddress);
-                    }
-                    else if (reason == "expired")
-                    {
-                        _logger.LogWarning("Expired guest session attempt: {SessionId} from {IP}",
-                            guestSessionId, context.Connection.RemoteIpAddress);
-                    }
-                    // If reason is null, session doesn't exist - don't log (could be deleted or invalid ID)
+        // Priority 1: Check session cookie
+        var sessionDeviceId = context.Session.GetString("DeviceId");
+        var sessionApiKey = context.Session.GetString("ApiKey");
+        bool isSessionValid = false;
 
-                    context.Response.StatusCode = 401;
-                    context.Response.ContentType = "application/json";
-                    await context.Response.WriteAsync(
-                        System.Text.Json.JsonSerializer.Serialize(new
-                        {
-                            error = "Session revoked",
-                            message = reason == "revoked"
-                                ? "Your guest session has been revoked."
-                                : "Your guest session has expired. Please restart guest mode.",
-                            code = "GUEST_SESSION_REVOKED"
-                        }));
-                    return;
-                }
+        if (!string.IsNullOrEmpty(sessionDeviceId) && !string.IsNullOrEmpty(sessionApiKey))
+        {
+            if (_apiKeyService.ValidateApiKey(sessionApiKey))
+            {
+                isSessionValid = true;
             }
+        }
+
+        // Priority 2: Check for API key in header (backward compatibility)
+        var apiKeyHeader = context.Request.Headers["X-Api-Key"].FirstOrDefault();
+        bool isApiKeyValid = false;
+
+        if (!string.IsNullOrEmpty(apiKeyHeader) && _apiKeyService.ValidateApiKey(apiKeyHeader))
+        {
+            isApiKeyValid = true;
+        }
+
+        // Priority 3: Validate guest sessions (if using guest session ID)
+        var guestSessionId = context.Request.Headers["X-Guest-Session-Id"].FirstOrDefault();
+        bool isGuestValid = false;
+
+        if (!isSessionValid && !isApiKeyValid && !string.IsNullOrEmpty(guestSessionId))
+        {
+            var (isValid, reason) = guestSessionService.ValidateSessionWithReason(guestSessionId);
+            if (!isValid)
+            {
+                // Only log warning if session exists but is revoked/expired (not if it doesn't exist)
+                if (reason == "revoked")
+                {
+                    _logger.LogWarning("Revoked guest session attempt: {SessionId} from {IP}",
+                        guestSessionId, context.Connection.RemoteIpAddress);
+                }
+                else if (reason == "expired")
+                {
+                    _logger.LogWarning("Expired guest session attempt: {SessionId} from {IP}",
+                        guestSessionId, context.Connection.RemoteIpAddress);
+                }
+
+                context.Response.StatusCode = 401;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync(
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        error = "Session revoked",
+                        message = reason == "revoked"
+                            ? "Your guest session has been revoked."
+                            : "Your guest session has expired. Please restart guest mode.",
+                        code = "GUEST_SESSION_REVOKED"
+                    }));
+                return;
+            }
+            isGuestValid = isValid;
         }
 
         // Check if this is a protected endpoint
@@ -199,15 +236,14 @@ public class AuthenticationMiddleware
 
         if (requiresAuth)
         {
-            // Check for API key in header - ONLY API KEY, NO DEVICE ID
-            // (apiKey already extracted earlier in the method)
-            if (!string.IsNullOrEmpty(apiKey) && _apiKeyService.ValidateApiKey(apiKey))
+            // Check if authenticated via any method (session, API key header, or guest)
+            if (isSessionValid || isApiKeyValid)
             {
                 await _next(context);
                 return;
             }
 
-            // Not authenticated - API Key required
+            // Not authenticated - authentication required
             _logger.LogWarning("Unauthorized access attempt to {Path} from {IP}",
                 path, context.Connection.RemoteIpAddress);
 
@@ -217,7 +253,7 @@ public class AuthenticationMiddleware
                 System.Text.Json.JsonSerializer.Serialize(new
                 {
                     error = "Authentication required",
-                    message = "Please provide X-Api-Key header",
+                    message = "Please authenticate with a valid session or API key",
                     path
                 }));
             return;
