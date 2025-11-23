@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using LancacheManager.Infrastructure.Services.Interfaces;
 
 namespace LancacheManager.Infrastructure.Utilities;
 
@@ -10,11 +11,13 @@ public class RustProcessHelper
 {
     private readonly ILogger<RustProcessHelper> _logger;
     private readonly ProcessManager _processManager;
+    private readonly IPathResolver _pathResolver;
 
-    public RustProcessHelper(ILogger<RustProcessHelper> logger, ProcessManager processManager)
+    public RustProcessHelper(ILogger<RustProcessHelper> logger, ProcessManager processManager, IPathResolver pathResolver)
     {
         _logger = logger;
         _processManager = processManager;
+        _pathResolver = pathResolver;
     }
 
     /// <summary>
@@ -254,18 +257,8 @@ public class RustProcessHelper
     {
         try
         {
-            // Resolve path to log_manager executable
-            // logsPath is the logs directory (e.g., H:\_git\lancache-manager\logs)
-            // We need to go to the project root and then into rust-processor
-            var projectRoot = Directory.GetParent(logsPath)?.FullName ?? ".";
-            var rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "log_manager.exe");
-
-            if (!File.Exists(rustBinaryPath))
-            {
-                // Try Linux path
-                rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "log_manager");
-            }
-
+            // Use path resolver to get the correct Rust binary path for the current platform
+            var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
             ValidateRustBinaryExists(rustBinaryPath, "log_manager");
 
             // Create temp file path once if not provided
@@ -356,18 +349,8 @@ public class RustProcessHelper
     {
         try
         {
-            // Resolve path to corruption_manager executable
-            // logsPath is the logs directory (e.g., H:\_git\lancache-manager\logs)
-            // We need to go to the project root and then into rust-processor
-            var projectRoot = Directory.GetParent(logsPath)?.FullName ?? ".";
-            var rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "corruption_manager.exe");
-
-            if (!File.Exists(rustBinaryPath))
-            {
-                // Try Linux path
-                rustBinaryPath = Path.Combine(projectRoot, "rust-processor", "target", "release", "corruption_manager");
-            }
-
+            // Use path resolver to get the correct Rust binary path for the current platform
+            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
             ValidateRustBinaryExists(rustBinaryPath, "corruption_manager");
 
             // Create temp file path once if not provided
