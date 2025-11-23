@@ -47,13 +47,7 @@ public class DataMigrationController : ControllerBase
         {
             _logger.LogInformation("Starting import from DeveLanCacheUI_Backend database");
 
-            // Validate connection string format
-            if (!request.ConnectionString.Contains("Data Source", StringComparison.OrdinalIgnoreCase))
-            {
-                return BadRequest(new { error = "Invalid connection string format. Expected SQLite format: 'Data Source=path/to/database.db'" });
-            }
-
-            // Extract the database path from connection string
+            // Extract the database path - supports both raw paths and connection strings
             var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
             if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
             {
@@ -144,7 +138,7 @@ public class DataMigrationController : ControllerBase
 
     /// <summary>
     /// GET /api/migration/validate-connection - Test connection to DeveLanCacheUI database
-    /// Query params: connectionString
+    /// Query params: connectionString (supports raw path or "Data Source=..." format)
     /// </summary>
     [HttpGet("validate-connection")]
     [RequireAuth]
@@ -152,12 +146,18 @@ public class DataMigrationController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            return BadRequest(new { error = "Connection string is required" });
+            return BadRequest(new { error = "Database path is required" });
         }
 
         try
         {
-            using var connection = new SqliteConnection(connectionString);
+            // Extract path and convert to connection string format for SqliteConnection
+            var dbPath = ExtractDatabasePath(connectionString);
+            var connStr = connectionString.Contains("Data Source", StringComparison.OrdinalIgnoreCase)
+                ? connectionString
+                : $"Data Source={dbPath}";
+
+            using var connection = new SqliteConnection(connStr);
             await connection.OpenAsync();
 
             // Check for DownloadEvents table
@@ -198,23 +198,32 @@ public class DataMigrationController : ControllerBase
     }
 
     /// <summary>
-    /// Extracts the database path from a SQLite connection string
+    /// Extracts the database path from either a raw path or SQLite connection string
+    /// Supports: "/path/to/database.db" or "Data Source=/path/to/database.db"
     /// </summary>
-    private string ExtractDatabasePath(string connectionString)
+    private string ExtractDatabasePath(string input)
     {
-        // Parse connection string to extract Data Source value
-        var parts = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries);
-        foreach (var part in parts)
+        var trimmed = input.Trim();
+
+        // Check if it's a connection string format
+        if (trimmed.Contains("Data Source", StringComparison.OrdinalIgnoreCase))
         {
-            var keyValue = part.Split('=', 2, StringSplitOptions.TrimEntries);
-            if (keyValue.Length == 2 &&
-                keyValue[0].Equals("Data Source", StringComparison.OrdinalIgnoreCase))
+            // Parse connection string to extract Data Source value
+            var parts = trimmed.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var part in parts)
             {
-                return keyValue[1].Trim();
+                var keyValue = part.Split('=', 2, StringSplitOptions.TrimEntries);
+                if (keyValue.Length == 2 &&
+                    keyValue[0].Equals("Data Source", StringComparison.OrdinalIgnoreCase))
+                {
+                    return keyValue[1].Trim();
+                }
             }
+            return string.Empty;
         }
 
-        return string.Empty;
+        // Treat as raw file path
+        return trimmed;
     }
 
     /// <summary>

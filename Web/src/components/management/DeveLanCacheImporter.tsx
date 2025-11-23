@@ -126,8 +126,8 @@ const DeveLanCacheImporter: React.FC<DeveLanCacheImporterProps> = ({
   };
 
   const handleFileSelect = (path: string) => {
-    const connectionStr = `Data Source=${path}`;
-    setConnectionString(connectionStr);
+    // Pass raw path - controller now accepts both formats
+    setConnectionString(path);
     setValidationResult(null);
     setUseBrowser(false);
     onSuccess?.(`Selected database: ${path}`);
@@ -172,6 +172,9 @@ const DeveLanCacheImporter: React.FC<DeveLanCacheImporterProps> = ({
             <p>
               The <code className="bg-themed-secondary px-1 py-0.5 rounded">:ro</code> flag mounts it read-only for safety.
               Use the file browser to navigate to <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/develancache/lancache.db</code>
+            </p>
+            <p className="pt-2">
+              <strong className="text-themed-secondary">Manual input:</strong> You can paste the file path directly (e.g., <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/develancache/lancache.db</code>) or use a connection string format.
             </p>
             <p className="pt-2">
               <strong className="text-themed-secondary">Important:</strong> Stop DeveLanCacheUI_Backend before importing to avoid database locks.
@@ -225,7 +228,7 @@ const DeveLanCacheImporter: React.FC<DeveLanCacheImporterProps> = ({
               type="text"
               value={connectionString}
               onChange={(e) => setConnectionString(e.target.value)}
-              placeholder="Data Source=/mnt/develancache/lancache.db"
+              placeholder="/mnt/develancache/lancache.db"
               className="w-full px-3 py-2 rounded-lg transition-colors
                        bg-themed-secondary text-themed-primary
                        border border-themed-secondary focus:border-themed-focus
@@ -233,7 +236,8 @@ const DeveLanCacheImporter: React.FC<DeveLanCacheImporterProps> = ({
               disabled={mockMode || !isAuthenticated}
             />
             <p className="text-xs text-themed-muted mt-1">
-              Format: <code className="bg-themed-tertiary px-1 py-0.5 rounded">Data Source=/path/to/database.db</code>
+              Accepts file path or connection string:{' '}
+              <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
             </p>
           </div>
         )}
