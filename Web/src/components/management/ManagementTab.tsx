@@ -30,7 +30,7 @@ import GameCacheDetector from './GameCacheDetector';
 import ThemeManager from './ThemeManager';
 import GcManager from './GcManager';
 import GrafanaEndpoints from './GrafanaEndpoints';
-import DeveLanCacheImporter from './DeveLanCacheImporter';
+import DataImporter from './DataImporter';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -567,7 +567,7 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
                 onDataRefresh={refreshStatsAndGameCache}
               />
 
-              <DeveLanCacheImporter
+              <DataImporter
                 isAuthenticated={isAuthenticated}
                 mockMode={mockMode}
                 onError={addError}

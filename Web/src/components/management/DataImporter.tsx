@@ -8,7 +8,7 @@ import { Modal } from '@components/ui/Modal';
 import ApiService from '@services/api.service';
 import FileBrowser from './FileBrowser';
 
-interface DeveLanCacheImporterProps {
+interface DataImporterProps {
   isAuthenticated: boolean;
   mockMode: boolean;
   onError?: (message: string) => void;
@@ -31,7 +31,7 @@ interface ImportResult {
   backupPath?: string;
 }
 
-const DeveLanCacheImporter: React.FC<DeveLanCacheImporterProps> = ({
+const DataImporter: React.FC<DataImporterProps> = ({
   isAuthenticated,
   mockMode,
   onError,
@@ -415,4 +415,4 @@ const DeveLanCacheImporter: React.FC<DeveLanCacheImporterProps> = ({
   );
 };
 
-export default DeveLanCacheImporter;
+export default DataImporter;
