@@ -21,7 +21,7 @@ import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/AuthContext';
-import { formatDateTime } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
 interface Session {
   id: string;
@@ -41,6 +41,23 @@ interface Session {
   revokedBy?: string | null;
   type: 'authenticated' | 'guest';
 }
+
+// Helper component for session timestamps with timezone awareness
+const SessionTimestamp: React.FC<{
+  label: string;
+  timestamp: string;
+  color?: string;
+}> = ({ label, timestamp, color = 'var(--theme-text-secondary)' }) => {
+  const formattedTime = useFormattedDateTime(timestamp);
+  return (
+    <div className="flex items-center gap-2" style={{ color }}>
+      <Clock className="w-4 h-4 flex-shrink-0" />
+      <span className="truncate" title={`${label}: ${formattedTime}`}>
+        {label}: {formattedTime}
+      </span>
+    </div>
+  );
+};
 
 const UserTab: React.FC = () => {
   const { refreshAuth } = useAuth();
@@ -762,49 +779,20 @@ const UserTab: React.FC = () => {
                             )}
 
                             {/* Created */}
-                            <div
-                              className="flex items-center gap-2"
-                              style={{ color: 'var(--theme-text-secondary)' }}
-                            >
-                              <Clock className="w-4 h-4 flex-shrink-0" />
-                              <span
-                                className="truncate"
-                                title={`Created: ${formatDateTime(session.createdAt)}`}
-                              >
-                                Created: {formatDateTime(session.createdAt)}
-                              </span>
-                            </div>
+                            <SessionTimestamp label="Created" timestamp={session.createdAt} />
 
                             {/* Last seen */}
                             {session.lastSeenAt && (
-                              <div
-                                className="flex items-center gap-2"
-                                style={{ color: 'var(--theme-text-secondary)' }}
-                              >
-                                <Clock className="w-4 h-4 flex-shrink-0" />
-                                <span
-                                  className="truncate"
-                                  title={`Last seen: ${formatDateTime(session.lastSeenAt)}`}
-                                >
-                                  Last seen: {formatDateTime(session.lastSeenAt)}
-                                </span>
-                              </div>
+                              <SessionTimestamp label="Last seen" timestamp={session.lastSeenAt} />
                             )}
 
                             {/* Revoked (guests only) */}
                             {session.revokedAt && session.type === 'guest' && (
-                              <div
-                                className="flex items-center gap-2"
-                                style={{ color: 'var(--theme-error-text)' }}
-                              >
-                                <Clock className="w-4 h-4 flex-shrink-0" />
-                                <span
-                                  className="truncate"
-                                  title={`Revoked: ${formatDateTime(session.revokedAt)}`}
-                                >
-                                  Revoked: {formatDateTime(session.revokedAt)}
-                                </span>
-                              </div>
+                              <SessionTimestamp
+                                label="Revoked"
+                                timestamp={session.revokedAt}
+                                color="var(--theme-error-text)"
+                              />
                             )}
 
                             {/* Revoked by (guests only) */}

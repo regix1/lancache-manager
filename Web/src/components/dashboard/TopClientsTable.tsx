@@ -1,5 +1,6 @@
 import React, { useMemo, memo, useState } from 'react';
-import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
+import { formatBytes, formatPercent } from '../../utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
@@ -13,6 +14,50 @@ interface TopClientsTableProps {
 }
 
 type SortOption = 'total' | 'hits' | 'misses' | 'hitRate';
+
+interface TopClientRowProps {
+  client: {
+    clientIp: string;
+    totalBytes: number;
+    totalCacheHitBytes: number;
+    totalCacheMissBytes: number;
+    cacheHitPercent: number;
+    lastActivityUtc: string;
+  };
+}
+
+const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
+  const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+
+  return (
+    <tr className="hover:bg-themed-hover transition-colors">
+      <td className="py-3 text-themed-primary whitespace-nowrap">
+        {client.clientIp}
+      </td>
+      <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
+        {formatBytes(client.totalBytes)}
+      </td>
+      <td className="py-3 cache-hit hidden md:table-cell whitespace-nowrap">
+        {formatBytes(client.totalCacheHitBytes)}
+      </td>
+      <td className="py-3 cache-miss hidden md:table-cell whitespace-nowrap">
+        {formatBytes(client.totalCacheMissBytes)}
+      </td>
+      <td className="py-3">
+        <span
+          className={`px-2 py-1 rounded text-xs hit-rate-badge whitespace-nowrap ${
+            client.cacheHitPercent > 50 ? 'high' : 'warning'
+          }`}
+        >
+          {formatPercent(client.cacheHitPercent)}
+        </span>
+      </td>
+      <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">
+        {formattedLastActivity}
+      </td>
+    </tr>
+  );
+};
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
   ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate }) => {
@@ -101,35 +146,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
               </thead>
               <tbody className="text-sm">
                 {displayClients.map((client, idx) => (
-                  <tr
-                    key={`${client.clientIp}-${idx}`}
-                    className="hover:bg-themed-hover transition-colors"
-                  >
-                    <td className="py-3 text-themed-primary whitespace-nowrap">
-                      {client.clientIp}
-                    </td>
-                    <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
-                      {formatBytes(client.totalBytes)}
-                    </td>
-                    <td className="py-3 cache-hit hidden md:table-cell whitespace-nowrap">
-                      {formatBytes(client.totalCacheHitBytes)}
-                    </td>
-                    <td className="py-3 cache-miss hidden md:table-cell whitespace-nowrap">
-                      {formatBytes(client.totalCacheMissBytes)}
-                    </td>
-                    <td className="py-3">
-                      <span
-                        className={`px-2 py-1 rounded text-xs hit-rate-badge whitespace-nowrap ${
-                          client.cacheHitPercent > 50 ? 'high' : 'warning'
-                        }`}
-                      >
-                        {formatPercent(client.cacheHitPercent)}
-                      </span>
-                    </td>
-                    <td className="py-3 text-themed-muted hidden lg:table-cell whitespace-nowrap">
-                      {formatDateTime(client.lastActivityUtc)}
-                    </td>
-                  </tr>
+                  <TopClientRow key={`${client.clientIp}-${idx}`} client={client} />
                 ))}
               </tbody>
             </table>

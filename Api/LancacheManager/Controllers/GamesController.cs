@@ -127,16 +127,19 @@ public class GamesController : ControllerBase
     /// </summary>
     [HttpPost("detect")]
     [RequireAuth]
-    public IActionResult DetectGames()
+    public IActionResult DetectGames([FromQuery] bool forceRefresh = false)
     {
         try
         {
-            var operationId = _gameCacheDetectionService.StartDetectionAsync();
-            _logger.LogInformation("Started game detection operation: {OperationId}", operationId);
+            // forceRefresh=true means full scan (incremental=false)
+            // forceRefresh=false means quick scan (incremental=true)
+            var incremental = !forceRefresh;
+            var operationId = _gameCacheDetectionService.StartDetectionAsync(incremental);
+            _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
 
             return Accepted(new
             {
-                message = "Game detection started",
+                message = forceRefresh ? "Full scan started" : "Incremental scan started",
                 operationId,
                 status = "running"
             });
@@ -217,7 +220,19 @@ public class GamesController : ControllerBase
                 return Ok(new { hasCachedResults = false });
             }
 
-            return Ok(cachedResults);
+            // Return in the format expected by frontend
+            // Ensure StartTime is treated as UTC for proper timezone conversion on frontend
+            var lastDetectionTimeUtc = DateTime.SpecifyKind(cachedResults.StartTime, DateTimeKind.Utc);
+
+            return Ok(new
+            {
+                hasCachedResults = true,
+                games = cachedResults.Games,
+                services = cachedResults.Services,
+                totalGamesDetected = cachedResults.TotalGamesDetected,
+                totalServicesDetected = cachedResults.TotalServicesDetected,
+                lastDetectionTime = lastDetectionTimeUtc.ToString("o") // ISO 8601 format with UTC indicator
+            });
         }
         catch (Exception ex)
         {

@@ -13,7 +13,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import ApiService from '@services/api.service';
-import { formatDateTime } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
 interface FileSystemItem {
   name: string;
@@ -35,6 +35,55 @@ interface FileBrowserProps {
   isAuthenticated: boolean;
   mockMode: boolean;
 }
+
+interface FileItemRowProps {
+  item: FileSystemItem;
+  selectedFile: string | null;
+  onItemClick: (item: FileSystemItem) => void;
+}
+
+const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemClick }) => {
+  const formattedLastModified = useFormattedDateTime(item.lastModified);
+
+  return (
+    <button
+      onClick={() => onItemClick(item)}
+      disabled={!item.isAccessible}
+      className={`w-full px-3 py-2 flex items-center gap-3 transition-colors text-left
+        ${!item.isAccessible ? 'opacity-50 cursor-not-allowed' : 'hover:bg-themed-hover cursor-pointer'}
+        ${selectedFile === item.path ? 'bg-themed-accent-subtle' : ''}
+      `}
+    >
+      <div className="flex-shrink-0">
+        {item.isDirectory ? (
+          <Folder className="w-5 h-5 text-themed-accent" />
+        ) : (
+          <File className="w-5 h-5 text-themed-secondary" />
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-themed-primary truncate">{item.name}</div>
+        {!item.isDirectory && (
+          <div className="text-xs text-themed-muted">
+            {formatSize(item.size)} • {formattedLastModified}
+          </div>
+        )}
+      </div>
+
+      {item.isDirectory && item.isAccessible && (
+        <ChevronRight className="w-4 h-4 text-themed-muted flex-shrink-0" />
+      )}
+    </button>
+  );
+};
+
+const formatSize = (bytes: number): string => {
+  if (bytes === 0) return '-';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
+};
 
 const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated, mockMode }) => {
   const [currentPath, setCurrentPath] = useState<string | null>(null);
@@ -128,13 +177,6 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
     }
   };
 
-  const formatSize = (bytes: number): string => {
-    if (bytes === 0) return '-';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`;
-  };
-
   const displayItems = searchResults.length > 0 ? searchResults : items;
 
   return (
@@ -213,39 +255,12 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
         {!loading && displayItems.length > 0 && (
           <div className="space-y-1 max-h-96 overflow-y-auto rounded-lg border-themed-secondary">
             {displayItems.map((item, index) => (
-              <button
+              <FileItemRow
                 key={index}
-                onClick={() => handleItemClick(item)}
-                disabled={!item.isAccessible}
-                className={`w-full px-3 py-2 flex items-center gap-3 transition-colors text-left
-                  ${!item.isAccessible ? 'opacity-50 cursor-not-allowed' : 'hover:bg-themed-hover cursor-pointer'}
-                  ${selectedFile === item.path ? 'bg-themed-accent-subtle' : ''}
-                `}
-              >
-                {/* Icon */}
-                <div className="flex-shrink-0">
-                  {item.isDirectory ? (
-                    <Folder className="w-5 h-5 text-themed-accent" />
-                  ) : (
-                    <File className="w-5 h-5 text-themed-secondary" />
-                  )}
-                </div>
-
-                {/* Name */}
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-themed-primary truncate">{item.name}</div>
-                  {!item.isDirectory && (
-                    <div className="text-xs text-themed-muted">
-                      {formatSize(item.size)} • {formatDateTime(item.lastModified)}
-                    </div>
-                  )}
-                </div>
-
-                {/* Arrow for directories */}
-                {item.isDirectory && item.isAccessible && (
-                  <ChevronRight className="w-4 h-4 text-themed-muted flex-shrink-0" />
-                )}
-              </button>
+                item={item}
+                selectedFile={selectedFile}
+                onItemClick={handleItemClick}
+              />
             ))}
           </div>
         )}

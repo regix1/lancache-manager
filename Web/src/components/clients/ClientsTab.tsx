@@ -1,8 +1,61 @@
 import React from 'react';
 import { useStats } from '../../contexts/StatsContext';
-import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
+import { formatBytes, formatPercent } from '../../utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { Card } from '../ui/Card';
 import { CacheInfoTooltip } from '@components/ui/Tooltip';
+
+interface ClientRowProps {
+  client: {
+    clientIp: string;
+    totalDownloads: number;
+    totalBytes: number;
+    totalCacheHitBytes: number;
+    totalCacheMissBytes: number;
+    cacheHitPercent: number;
+    lastActivityUtc: string;
+  };
+}
+
+const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
+  const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
+
+  return (
+    <tr className="hover:bg-themed-hover transition-colors">
+      <td className="py-3 text-themed-primary font-medium text-sm whitespace-nowrap">
+        {client.clientIp}
+      </td>
+      <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
+        {client.totalDownloads}
+      </td>
+      <td className="py-3 text-themed-secondary text-sm whitespace-nowrap">
+        {formatBytes(client.totalBytes)}
+      </td>
+      <td className="py-3 cache-hit hidden md:table-cell text-sm whitespace-nowrap">
+        {formatBytes(client.totalCacheHitBytes)}
+      </td>
+      <td className="py-3 cache-miss hidden md:table-cell text-sm whitespace-nowrap">
+        {formatBytes(client.totalCacheMissBytes)}
+      </td>
+      <td className="py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
+          <div className="w-full sm:w-16 lg:w-24 progress-track rounded-full h-2">
+            <div
+              className="progress-bar-high h-2 rounded-full"
+              style={{ width: `${client.cacheHitPercent}%` }}
+            />
+          </div>
+          <span className="text-xs text-themed-secondary">
+            {formatPercent(client.cacheHitPercent)}
+          </span>
+        </div>
+      </td>
+      <td className="py-3 text-themed-muted text-xs hidden lg:table-cell whitespace-nowrap">
+        {formattedLastActivity}
+      </td>
+    </tr>
+  );
+};
 
 const ClientsTab: React.FC = () => {
   const { clientStats } = useStats();
@@ -35,39 +88,7 @@ const ClientsTab: React.FC = () => {
             <tbody className="text-sm">
               {clientStats.length > 0 ? (
                 clientStats.map((client, idx) => (
-                  <tr key={idx} className="hover:bg-themed-hover transition-colors">
-                    <td className="py-3 text-themed-primary font-medium text-sm whitespace-nowrap">
-                      {client.clientIp}
-                    </td>
-                    <td className="py-3 text-themed-secondary hidden sm:table-cell whitespace-nowrap">
-                      {client.totalDownloads}
-                    </td>
-                    <td className="py-3 text-themed-secondary text-sm whitespace-nowrap">
-                      {formatBytes(client.totalBytes)}
-                    </td>
-                    <td className="py-3 cache-hit hidden md:table-cell text-sm whitespace-nowrap">
-                      {formatBytes(client.totalCacheHitBytes)}
-                    </td>
-                    <td className="py-3 cache-miss hidden md:table-cell text-sm whitespace-nowrap">
-                      {formatBytes(client.totalCacheMissBytes)}
-                    </td>
-                    <td className="py-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
-                        <div className="w-full sm:w-16 lg:w-24 progress-track rounded-full h-2">
-                          <div
-                            className="progress-bar-high h-2 rounded-full"
-                            style={{ width: `${client.cacheHitPercent}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-themed-secondary">
-                          {formatPercent(client.cacheHitPercent)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 text-themed-muted text-xs hidden lg:table-cell whitespace-nowrap">
-                      {formatDateTime(client.lastActivityUtc)}
-                    </td>
-                  </tr>
+                  <ClientRow key={idx} client={client} />
                 ))
               ) : (
                 <tr>

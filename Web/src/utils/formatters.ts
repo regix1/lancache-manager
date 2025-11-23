@@ -3,6 +3,61 @@ import { getServerTimezone } from './timezone';
 import { getGlobalTimezonePreference } from './timezonePreference';
 
 /**
+ * Format date/time to localized string
+ * NOTE: This is for non-React contexts (CSV exports, etc.)
+ * For React components, use the useFormattedDateTime hook instead
+ */
+export function formatDateTime(dateString: string | Date | null | undefined): string {
+  if (!dateString) return 'N/A';
+
+  try {
+    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+
+    if (isNaN(date.getTime())) return 'Invalid Date';
+
+    // Determine which timezone to use based on preference
+    let targetTimezone: string | undefined;
+    let isUTC = false;
+
+    if (getGlobalTimezonePreference()) {
+      // Use browser's local timezone (undefined = automatic)
+      targetTimezone = undefined;
+    } else {
+      // Use server timezone from config
+      targetTimezone = getServerTimezone();
+      isUTC = targetTimezone === 'UTC';
+    }
+
+    // Convert to target timezone for display
+    try {
+      return date.toLocaleString(undefined, {
+        timeZone: targetTimezone,
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: isUTC ? false : undefined
+      });
+    } catch (tzError) {
+      // Timezone invalid, fall back to UTC
+      console.warn(`Invalid timezone "${targetTimezone}", falling back to UTC`);
+      return date.toLocaleString(undefined, {
+        timeZone: 'UTC',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    }
+  } catch (error) {
+    return 'Invalid Date';
+  }
+}
+
+/**
  * Format bytes to human-readable string
  */
 export function formatBytes(bytes: number, decimals = 2): string {
@@ -24,65 +79,6 @@ export function formatBytes(bytes: number, decimals = 2): string {
 export function formatPercent(value: number, decimals = 1): string {
   if (value === null || value === undefined || isNaN(value)) return '0%';
   return `${value.toFixed(decimals)}%`;
-}
-
-/**
- * Format date/time to locale string using either server timezone or browser's local timezone
- * Respects user's useLocalTimezone preference
- *
- * Note: For React components, consider using useFormattedDateTime hook for automatic re-renders
- */
-export function formatDateTime(dateString: string | Date | null | undefined): string {
-  if (!dateString) return 'N/A';
-
-  try {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
-
-    if (isNaN(date.getTime())) return 'Invalid Date';
-
-    // Read timezone preference from global state (managed by TimezoneContext)
-    const useLocalTimezone = getGlobalTimezonePreference();
-
-    // Determine which timezone to use
-    let targetTimezone: string | undefined;
-    let isUTC = false;
-
-    if (useLocalTimezone) {
-      // Use browser's local timezone (undefined = automatic)
-      targetTimezone = undefined;
-    } else {
-      // Use server timezone from config (set on app startup from docker-compose TZ)
-      targetTimezone = getServerTimezone();
-      isUTC = targetTimezone === 'UTC';
-    }
-
-    // Convert to target timezone for display
-    try {
-      return date.toLocaleString(undefined, {
-        timeZone: targetTimezone,
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: isUTC ? false : undefined // undefined = use locale default
-      });
-    } catch (tzError) {
-      // Timezone invalid (e.g., Windows timezone name), fall back to UTC
-      console.warn(`Invalid timezone "${targetTimezone}", falling back to UTC`);
-      return date.toLocaleString(undefined, {
-        timeZone: 'UTC',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      });
-    }
-  } catch (error) {
-    return 'Invalid Date';
-  }
 }
 
 /**

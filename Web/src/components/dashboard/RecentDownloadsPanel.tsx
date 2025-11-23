@@ -1,9 +1,10 @@
 import React, { memo, useMemo, useState, useCallback, useRef } from 'react';
 import { Activity, Clock, Loader2 } from 'lucide-react';
-import { formatBytes, formatPercent, formatDateTime } from '../../utils/formatters';
+import { formatBytes, formatPercent } from '../../utils/formatters';
 import { Card } from '../ui/Card';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 import { useDownloads } from '../../contexts/DownloadsContext';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
 interface DownloadGroup {
   id: string;
@@ -25,6 +26,194 @@ interface RecentDownloadsPanelProps {
   downloads?: any[]; // Keep for backward compatibility but won't be used
   timeRange?: string;
 }
+
+interface ActiveDownloadRowProps {
+  download: any;
+}
+
+const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download }) => {
+  const formattedStartTime = useFormattedDateTime(download.startTimeUtc);
+
+  return (
+    <div
+      className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-primary)',
+        borderColor: 'var(--theme-border-primary)'
+      }}
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
+      }
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
+      }
+    >
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="inline-block w-2 h-2 rounded-full animate-pulse"
+              style={{ backgroundColor: 'var(--theme-success)' }}
+            ></span>
+            <div className="text-sm font-medium text-themed-primary truncate flex items-center gap-2">
+              <span>{download.gameName || 'Unknown Game'}</span>
+              <Loader2
+                className="w-4 h-4 animate-spin"
+                style={{ color: 'var(--theme-primary)' }}
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
+              {download.service}
+            </span>
+            <span className="text-xs text-themed-muted">{download.clientIp}</span>
+          </div>
+        </div>
+        <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
+          {formattedStartTime}
+        </span>
+      </div>
+      <div className="flex justify-between items-center mt-2">
+        <div className="flex items-center gap-3">
+          <span className="text-themed-primary text-sm">
+            {formatBytes(download.totalBytes)}
+          </span>
+          <div className="flex gap-2 text-xs">
+            <span className="cache-hit">↓ {formatBytes(download.cacheHitBytes)}</span>
+            <span className="cache-miss">
+              ↑ {formatBytes(download.cacheMissBytes)}
+            </span>
+          </div>
+        </div>
+        <span
+          className={`text-xs px-2 py-1 rounded hit-rate-badge ${
+            download.cacheHitPercent > 75
+              ? 'high'
+              : download.cacheHitPercent > 50
+                ? 'medium'
+                : download.cacheHitPercent > 25
+                  ? 'low'
+                  : 'warning'
+          }`}
+        >
+          {formatPercent(download.cacheHitPercent)} Hit
+        </span>
+      </div>
+    </div>
+  );
+};
+
+interface RecentDownloadRowProps {
+  item: DownloadGroup | any;
+}
+
+const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
+  const isGroup = 'downloads' in item;
+  const display = isGroup
+    ? {
+        service: item.service,
+        name: item.name,
+        totalBytes: item.totalBytes,
+        totalDownloaded: item.totalDownloaded,
+        cacheHitBytes: item.cacheHitBytes,
+        cacheMissBytes: item.cacheMissBytes,
+        cacheHitPercent:
+          item.totalDownloaded > 0
+            ? (item.cacheHitBytes / item.totalDownloaded) * 100
+            : 0,
+        startTime: item.lastSeen,
+        clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
+        count: item.count,
+        type: item.type
+      }
+    : {
+        service: item.service,
+        name:
+          item.gameName &&
+          item.gameName !== 'Unknown Steam Game' &&
+          !item.gameName.match(/^Steam App \d+$/)
+            ? item.gameName
+            : 'Individual Download',
+        totalBytes: item.totalBytes,
+        totalDownloaded: item.totalBytes,
+        cacheHitBytes: item.cacheHitBytes,
+        cacheMissBytes: item.cacheMissBytes,
+        cacheHitPercent: item.cacheHitPercent,
+        startTime: item.startTimeUtc,
+        clientIp: item.clientIp,
+        count: 1,
+        type: 'individual'
+      };
+
+  const formattedStartTime = useFormattedDateTime(display.startTime);
+
+  return (
+    <div
+      className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
+      style={{
+        backgroundColor: 'var(--theme-bg-primary)',
+        borderColor: 'var(--theme-border-primary)'
+      }}
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
+      }
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
+      }
+    >
+      <div className="flex justify-between items-start mb-2">
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-sm font-medium text-themed-primary truncate">
+              {display.name}
+            </div>
+            {isGroup && (
+              <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
+                {display.count}×
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
+              {display.service}
+            </span>
+            <span className="text-xs text-themed-muted">{display.clientIp}</span>
+          </div>
+        </div>
+        <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
+          {formattedStartTime}
+        </span>
+      </div>
+      <div className="flex justify-between items-center mt-2">
+        <div className="flex items-center gap-3">
+          <span className="text-themed-primary text-sm">
+            {formatBytes(display.totalBytes)}
+          </span>
+          <div className="flex gap-2 text-xs">
+            <span className="cache-hit">↓ {formatBytes(display.cacheHitBytes)}</span>
+            <span className="cache-miss">
+              ↑ {formatBytes(display.cacheMissBytes)}
+            </span>
+          </div>
+        </div>
+        <span
+          className={`text-xs px-2 py-1 rounded hit-rate-badge ${
+            display.cacheHitPercent > 75
+              ? 'high'
+              : display.cacheHitPercent > 50
+                ? 'medium'
+                : display.cacheHitPercent > 25
+                  ? 'low'
+                  : 'warning'
+          }`}
+        >
+          {formatPercent(display.cacheHitPercent)} Hit
+        </span>
+      </div>
+    </div>
+  );
+};
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
   ({ timeRange = 'live' }) => {
@@ -427,73 +616,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
               // Active Downloads View - backend already grouped chunks by game
               groupedActiveDownloads.length > 0 ? (
                 groupedActiveDownloads.map((download, idx) => (
-                  <div
-                    key={download.id || idx}
-                    className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-primary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
-                    }
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span
-                            className="inline-block w-2 h-2 rounded-full animate-pulse"
-                            style={{ backgroundColor: 'var(--theme-success)' }}
-                          ></span>
-                          <div className="text-sm font-medium text-themed-primary truncate flex items-center gap-2">
-                            <span>{download.gameName || 'Unknown Game'}</span>
-                            <Loader2
-                              className="w-4 h-4 animate-spin"
-                              style={{ color: 'var(--theme-primary)' }}
-                            />
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
-                            {download.service}
-                          </span>
-                          <span className="text-xs text-themed-muted">{download.clientIp}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
-                        {formatDateTime(download.startTimeUtc)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-themed-primary text-sm">
-                          {formatBytes(download.totalBytes)}
-                        </span>
-                        <div className="flex gap-2 text-xs">
-                          <span className="cache-hit">↓ {formatBytes(download.cacheHitBytes)}</span>
-                          <span className="cache-miss">
-                            ↑ {formatBytes(download.cacheMissBytes)}
-                          </span>
-                        </div>
-                      </div>
-                      <span
-                        className={`text-xs px-2 py-1 rounded hit-rate-badge ${
-                          download.cacheHitPercent > 75
-                            ? 'high'
-                            : download.cacheHitPercent > 50
-                              ? 'medium'
-                              : download.cacheHitPercent > 25
-                                ? 'low'
-                                : 'warning'
-                        }`}
-                      >
-                        {formatPercent(download.cacheHitPercent)} Hit
-                      </span>
-                    </div>
-                  </div>
+                  <ActiveDownloadRow key={download.id || idx} download={download} />
                 ))
               ) : (
                 <div className="flex flex-col items-center justify-center h-32 text-themed-muted">
@@ -511,107 +634,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
             ) : groupedItems.displayedItems.length > 0 ? (
               groupedItems.displayedItems.map((item, idx) => {
                 const isGroup = 'downloads' in item;
-                const display = isGroup
-                  ? {
-                      service: item.service,
-                      name: item.name,
-                      totalBytes: item.totalBytes,
-                      totalDownloaded: item.totalDownloaded,
-                      cacheHitBytes: item.cacheHitBytes,
-                      cacheMissBytes: item.cacheMissBytes,
-                      cacheHitPercent:
-                        item.totalDownloaded > 0
-                          ? (item.cacheHitBytes / item.totalDownloaded) * 100
-                          : 0,
-                      startTime: item.lastSeen,
-                      clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
-                      count: item.count,
-                      type: item.type
-                    }
-                  : {
-                      service: item.service,
-                      name:
-                        item.gameName &&
-                        item.gameName !== 'Unknown Steam Game' &&
-                        !item.gameName.match(/^Steam App \d+$/)
-                          ? item.gameName
-                          : 'Individual Download',
-                      totalBytes: item.totalBytes,
-                      totalDownloaded: item.totalBytes,
-                      cacheHitBytes: item.cacheHitBytes,
-                      cacheMissBytes: item.cacheMissBytes,
-                      cacheHitPercent: item.cacheHitPercent,
-                      startTime: item.startTimeUtc,
-                      clientIp: item.clientIp,
-                      count: 1,
-                      type: 'individual'
-                    };
-
                 return (
-                  <div
-                    key={isGroup ? item.id : item.id || idx}
-                    className="rounded-lg p-3 border transition-all duration-200 themed-card hover:shadow-lg"
-                    style={{
-                      backgroundColor: 'var(--theme-bg-primary)',
-                      borderColor: 'var(--theme-border-primary)'
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.borderColor = 'var(--theme-border-secondary)')
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.borderColor = 'var(--theme-border-primary)')
-                    }
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className="text-sm font-medium text-themed-primary truncate">
-                            {display.name}
-                          </div>
-                          {isGroup && (
-                            <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
-                              {display.count}×
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
-                            {display.service}
-                          </span>
-                          <span className="text-xs text-themed-muted">{display.clientIp}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs text-themed-muted whitespace-nowrap ml-2">
-                        {formatDateTime(display.startTime)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-themed-primary text-sm">
-                          {formatBytes(display.totalBytes)}
-                        </span>
-                        <div className="flex gap-2 text-xs">
-                          <span className="cache-hit">↓ {formatBytes(display.cacheHitBytes)}</span>
-                          <span className="cache-miss">
-                            ↑ {formatBytes(display.cacheMissBytes)}
-                          </span>
-                        </div>
-                      </div>
-                      <span
-                        className={`text-xs px-2 py-1 rounded hit-rate-badge ${
-                          display.cacheHitPercent > 75
-                            ? 'high'
-                            : display.cacheHitPercent > 50
-                              ? 'medium'
-                              : display.cacheHitPercent > 25
-                                ? 'low'
-                                : 'warning'
-                        }`}
-                      >
-                        {formatPercent(display.cacheHitPercent)} Hit
-                      </span>
-                    </div>
-                  </div>
+                  <RecentDownloadRow key={isGroup ? item.id : item.id || idx} item={item} />
                 );
               })
             ) : (

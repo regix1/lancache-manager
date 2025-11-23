@@ -7,7 +7,7 @@ import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useBackendOperation } from '@hooks/useBackendOperation';
-import { formatDateTime } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import GamesList from './game-cache-detector/GamesList';
 import ServicesList from './game-cache-detector/ServicesList';
 import GameRemovalModal from './game-cache-detector/GameRemovalModal';
@@ -44,6 +44,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
 
+  // Format last detection time with timezone awareness
+  const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
 
   // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
@@ -710,7 +712,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       Showing results from previous scan
                     </span>
                     <span className="text-xs text-themed-muted">
-                      Detected {formatDateTime(lastDetectionTime)}
+                      Detected {formattedLastDetectionTime}
                     </span>
                   </div>
                 </Alert>
