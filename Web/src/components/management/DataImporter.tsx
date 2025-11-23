@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Database, HelpCircle, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -45,9 +45,17 @@ const DataImporter: React.FC<DataImporterProps> = ({
   const [importing, setImporting] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
+  const [showHelp, setShowHelp] = useState(() => {
+    const saved = localStorage.getItem('dataImporter.showHelp');
+    return saved !== null ? saved === 'true' : true;
+  });
   const [useBrowser, setUseBrowser] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // Save help visibility preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('dataImporter.showHelp', showHelp.toString());
+  }, [showHelp]);
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
