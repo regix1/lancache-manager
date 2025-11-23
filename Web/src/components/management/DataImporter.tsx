@@ -139,7 +139,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         <div className="flex items-center space-x-2">
           <Database className="w-5 h-5 icon-cyan flex-shrink-0" />
           <h3 className="text-lg font-semibold text-themed-primary">
-            Import from DeveLanCacheUI_Backend
+            Import Historical Data
           </h3>
         </div>
         <button
@@ -152,32 +152,35 @@ const DataImporter: React.FC<DataImporterProps> = ({
       </div>
 
       <p className="text-themed-muted text-sm mb-4">
-        Migrate your download history from DeveLanCacheUI_Backend to maintain all your historical data in one place
+        Import download history from external sources to maintain all your historical data in one place
       </p>
 
       {showHelp && (
         <div className="mb-4 p-4 bg-themed-tertiary rounded-lg">
           <div className="text-xs text-themed-muted space-y-3 leading-relaxed">
             <p>
+              <strong className="text-themed-secondary">Compatibility:</strong> This importer supports SQLite databases from DeveLanCacheUI_Backend and other compatible lancache management tools.
+            </p>
+            <p className="pt-2">
               <strong className="text-themed-secondary">For Docker users (recommended):</strong>
             </p>
             <p>
-              Add the DeveLanCacheUI_Backend data directory as a volume in your docker-compose.yml:
+              Mount the external database directory as a volume in your docker-compose.yml:
             </p>
             <div className="p-2 bg-themed-secondary rounded font-mono text-xs">
               volumes:<br />
               &nbsp;&nbsp;- ./data:/data<br />
-              &nbsp;&nbsp;- /path/to/develancache/data:/mnt/develancache:ro
+              &nbsp;&nbsp;- /path/to/external/data:/mnt/import:ro
             </div>
             <p>
               The <code className="bg-themed-secondary px-1 py-0.5 rounded">:ro</code> flag mounts it read-only for safety.
-              Use the file browser to navigate to <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/develancache/lancache.db</code>
+              Use the file browser to navigate to <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/import/lancache.db</code>
             </p>
             <p className="pt-2">
-              <strong className="text-themed-secondary">Manual input:</strong> You can paste the file path directly (e.g., <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/develancache/lancache.db</code>) or use a connection string format.
+              <strong className="text-themed-secondary">Manual input:</strong> You can paste the file path directly (e.g., <code className="bg-themed-secondary px-1 py-0.5 rounded">/mnt/import/lancache.db</code>) or use a connection string format.
             </p>
             <p className="pt-2">
-              <strong className="text-themed-secondary">Important:</strong> Stop DeveLanCacheUI_Backend before importing to avoid database locks.
+              <strong className="text-themed-secondary">Important:</strong> Stop the external application before importing to avoid database locks.
             </p>
           </div>
         </div>
@@ -228,7 +231,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               type="text"
               value={connectionString}
               onChange={(e) => setConnectionString(e.target.value)}
-              placeholder="/mnt/develancache/lancache.db"
+              placeholder="/mnt/import/lancache.db"
               className="w-full px-3 py-2 rounded-lg transition-colors
                        bg-themed-secondary text-themed-primary
                        border border-themed-secondary focus:border-themed-focus
@@ -367,7 +370,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-themed-primary font-medium mb-2">
-                Import {validationResult?.recordCount?.toLocaleString()} records from DeveLanCacheUI_Backend?
+                Import {validationResult?.recordCount?.toLocaleString()} records from external database?
               </p>
               <div className="text-sm text-themed-muted space-y-1">
                 {overwriteExisting ? (
