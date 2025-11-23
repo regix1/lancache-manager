@@ -91,6 +91,11 @@ public interface IPathResolver
     string GetRustServiceRemoverPath();
 
     /// <summary>
+    /// Gets the path to the Rust data migrator executable
+    /// </summary>
+    string GetRustDataMigratorPath();
+
+    /// <summary>
     /// Gets the path to the database file
     /// </summary>
     string GetDatabasePath();

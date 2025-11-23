@@ -985,6 +985,10 @@
     background-color: var(--theme-bg-hover);
   }
 
+  .bg-themed-accent-subtle {
+    background-color: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+  }
+
   .border-themed-primary {
     border-color: var(--theme-border-primary);
   }

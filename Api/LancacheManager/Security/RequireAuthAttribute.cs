@@ -175,7 +175,6 @@ public class AuthenticationMiddleware
         // Priority 3: Validate guest sessions
         // Check device ID header - for guests, device ID = session ID
         var deviceId = context.Request.Headers["X-Device-Id"].FirstOrDefault();
-        bool isGuestValid = false;
 
         if (!isSessionValid && !isApiKeyValid && !string.IsNullOrEmpty(deviceId))
         {
@@ -183,8 +182,9 @@ public class AuthenticationMiddleware
             var (isValid, reason) = guestSessionService.ValidateSessionWithReason(deviceId);
             if (isValid)
             {
-                // Valid guest session
-                isGuestValid = true;
+                // Valid guest session - allow through
+                await _next(context);
+                return;
             }
             else if (!string.IsNullOrEmpty(reason))
             {

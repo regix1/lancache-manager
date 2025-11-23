@@ -35,6 +35,10 @@ path = "src/game_cache_remover.rs"
 name = "service_remover"
 path = "src/service_remover.rs"
 
+[[bin]]
+name = "data_migrator"
+path = "src/data_migrator.rs"
+
 [dependencies]
 rusqlite = { version = "0.37", features = ["bundled"] }
 regex = "1.12"

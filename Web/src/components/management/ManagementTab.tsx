@@ -30,6 +30,7 @@ import GameCacheDetector from './GameCacheDetector';
 import ThemeManager from './ThemeManager';
 import GcManager from './GcManager';
 import GrafanaEndpoints from './GrafanaEndpoints';
+import DeveLanCacheImporter from './DeveLanCacheImporter';
 import { CollapsibleSection } from './CollapsibleSection';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -280,7 +281,6 @@ const DatabaseManager: React.FC<{
             loading={loading}
             variant="filled"
             color="red"
-            leftSection={<Database className="w-4 h-4" />}
           >
             <span className="hidden sm:inline">Clear Selected Tables</span>
             <span className="sm:hidden">Clear Selected</span>
@@ -348,7 +348,6 @@ const DatabaseManager: React.FC<{
             <Button
               variant="filled"
               color="red"
-              leftSection={<Database className="w-4 h-4" />}
               onClick={confirmClear}
               loading={loading}
             >
@@ -562,6 +561,14 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
               <DatabaseManager
                 isAuthenticated={isAuthenticated}
                 authMode={authMode}
+                mockMode={mockMode}
+                onError={addError}
+                onSuccess={setSuccess}
+                onDataRefresh={refreshStatsAndGameCache}
+              />
+
+              <DeveLanCacheImporter
+                isAuthenticated={isAuthenticated}
                 mockMode={mockMode}
                 onError={addError}
                 onSuccess={setSuccess}

@@ -67,6 +67,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\corruption_manager.exe</Link>
     </None>
+    <None Include="..\..\rust-processor\target\release\data_migrator.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\data_migrator.exe</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(SkipRustBuild)' != 'true'">
@@ -90,6 +94,10 @@
     <None Include="..\..\rust-processor\bin\win-x64\corruption_manager.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\corruption_manager.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\data_migrator.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\data_migrator.exe</Link>
     </None>
   </ItemGroup>
 
@@ -115,6 +123,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\corruption_manager</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\data_migrator">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\data_migrator</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And '$(SkipRustBuild)' != 'true'">
@@ -139,6 +151,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\corruption_manager</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\data_migrator">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\data_migrator</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == ''">
@@ -162,6 +178,10 @@
     <None Include="../../rust-processor/target/release/corruption_manager">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/corruption_manager</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/data_migrator">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/data_migrator</Link>
     </None>
   </ItemGroup>
 

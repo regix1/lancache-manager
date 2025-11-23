@@ -43,12 +43,25 @@ build_for_target() {
     if [[ $target == *"windows"* ]]; then
         cp "target/${target}/release/lancache_processor.exe" "$output_dir/"
         cp "target/${target}/release/database_reset.exe" "$output_dir/"
+        cp "target/${target}/release/log_manager.exe" "$output_dir/"
+        cp "target/${target}/release/cache_cleaner.exe" "$output_dir/"
+        cp "target/${target}/release/corruption_manager.exe" "$output_dir/"
+        cp "target/${target}/release/game_cache_detector.exe" "$output_dir/"
+        cp "target/${target}/release/game_cache_remover.exe" "$output_dir/"
+        cp "target/${target}/release/service_remover.exe" "$output_dir/"
+        cp "target/${target}/release/data_migrator.exe" "$output_dir/"
         echo -e "${GREEN}[OK] Windows executables copied to $output_dir${NC}"
     else
         cp "target/${target}/release/lancache_processor" "$output_dir/"
         cp "target/${target}/release/database_reset" "$output_dir/"
-        chmod +x "$output_dir/lancache_processor"
-        chmod +x "$output_dir/database_reset"
+        cp "target/${target}/release/log_manager" "$output_dir/"
+        cp "target/${target}/release/cache_cleaner" "$output_dir/"
+        cp "target/${target}/release/corruption_manager" "$output_dir/"
+        cp "target/${target}/release/game_cache_detector" "$output_dir/"
+        cp "target/${target}/release/game_cache_remover" "$output_dir/"
+        cp "target/${target}/release/service_remover" "$output_dir/"
+        cp "target/${target}/release/data_migrator" "$output_dir/"
+        chmod +x "$output_dir/"*
         echo -e "${GREEN}[OK] Linux executables copied to $output_dir${NC}"
     fi
 }

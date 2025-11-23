@@ -140,7 +140,8 @@ public class ApiKeysController : ControllerBase
             var revokedGuestCount = 0;
             foreach (var session in guestSessions.Where(s => !s.IsRevoked))
             {
-                if (_guestSessionService.RevokeSession(session.SessionId, "Admin (API Key Regeneration)"))
+                if (!string.IsNullOrEmpty(session.SessionId) &&
+                    _guestSessionService.RevokeSession(session.SessionId, "Admin (API Key Regeneration)"))
                 {
                     revokedGuestCount++;
                 }
