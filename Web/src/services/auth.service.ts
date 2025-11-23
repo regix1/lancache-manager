@@ -277,7 +277,12 @@ class AuthService {
         this.isAuthenticated = result.isAuthenticated;
         this.authChecked = true;
 
-        if (result.isAuthenticated) {
+        // Priority: Use backend's authMode if provided (handles guest sessions on refresh)
+        if (result.authMode === 'guest') {
+          this.authMode = 'guest' as AuthMode;
+        } else if (result.authMode === 'expired') {
+          this.authMode = 'expired' as AuthMode;
+        } else if (result.isAuthenticated) {
           this.authMode = 'authenticated' as AuthMode;
         } else {
           this.authMode = 'unauthenticated' as AuthMode;
@@ -288,7 +293,8 @@ class AuthService {
         if (
           result.requiresAuth &&
           !result.isAuthenticated &&
-          result.authenticationType !== 'device'
+          result.authenticationType !== 'device' &&
+          !result.authMode // Don't clear for guest sessions
         ) {
           this.clearAuthAndDevice();
         }
@@ -298,8 +304,7 @@ class AuthService {
           requiresAuth: result.requiresAuth,
           isAuthenticated: result.isAuthenticated,
           authMode: currentAuthMode,
-          guestTimeRemaining:
-            currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined,
+          guestTimeRemaining: result.guestTimeRemaining || (currentAuthMode === 'guest' ? this.getGuestTimeRemaining() : undefined),
           hasData: result.hasData || false,
           hasEverBeenSetup: result.hasEverBeenSetup || false,
           hasBeenInitialized: result.hasBeenInitialized || false,

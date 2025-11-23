@@ -8,7 +8,7 @@ import SteamWebApiKeyModal from '@components/shared/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
 import ApiService from '@services/api.service';
-import { formatDateTime } from '@utils/formatters';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
 interface SteamWebApiStatusProps {
   steamAuthMode?: 'anonymous' | 'authenticated';
@@ -20,6 +20,9 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removing, setRemoving] = useState(false);
+
+  // Format last checked time with timezone awareness
+  const formattedLastChecked = useFormattedDateTime(status?.lastChecked || null);
 
   const needsApiKey =
     status?.version === 'V1NoKey' || (status?.version === 'BothFailed' && !status?.hasApiKey);
@@ -294,7 +297,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode }) 
         {/* Last Checked */}
         {!loading && status && (
           <p className="text-xs text-themed-muted mt-3 text-center">
-            Last checked: {formatDateTime(status.lastChecked)}
+            Last checked: {formattedLastChecked}
           </p>
         )}
       </Card>

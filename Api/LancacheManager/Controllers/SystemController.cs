@@ -58,7 +58,10 @@ public class SystemController : ControllerBase
                 dataPath = _pathResolver.GetDataDirectory(),
                 cacheDeleteMode = _cacheClearingService.GetDeleteMode(),
                 steamAuthMode = _stateService.GetSteamAuthMode(),
-                timeZone = _configuration.GetValue<string>("TimeZone", "UTC"),
+                // Check TZ environment variable first (Docker standard), then TimeZone config, default to UTC
+                timeZone = _configuration.GetValue<string>("TZ")
+                          ?? _configuration.GetValue<string>("TimeZone")
+                          ?? "UTC",
                 cacheWritable = _pathResolver.IsCacheDirectoryWritable(),
                 logsWritable = _pathResolver.IsLogsDirectoryWritable()
             };

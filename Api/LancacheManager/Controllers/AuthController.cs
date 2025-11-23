@@ -112,6 +112,36 @@ public class AuthController : ControllerBase
             }
         }
 
+        // Priority 4: Check for guest session (handles guest mode page refresh)
+        string? authMode = null;
+        int? guestTimeRemaining = null;
+        if (!isAuthenticated)
+        {
+            var requestDeviceId = Request.Headers["X-Device-Id"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(requestDeviceId))
+            {
+                // Check if this is a valid guest session
+                var (isValidGuest, reason) = _guestSessionService.ValidateSessionWithReason(requestDeviceId);
+                if (isValidGuest)
+                {
+                    // Valid guest session - set mode and calculate time remaining
+                    authMode = "guest";
+                    var guestSession = _guestSessionService.GetSessionByDeviceId(requestDeviceId);
+                    if (guestSession != null)
+                    {
+                        var remaining = guestSession.ExpiresAt - DateTime.UtcNow;
+                        guestTimeRemaining = (int)Math.Ceiling(remaining.TotalMinutes);
+                    }
+                    _logger.LogDebug("Valid guest session found for device {DeviceId}, expires in {Minutes} minutes", requestDeviceId, guestTimeRemaining);
+                }
+                else if (reason == "expired")
+                {
+                    authMode = "expired";
+                    _logger.LogDebug("Guest session expired for device {DeviceId}", requestDeviceId);
+                }
+            }
+        }
+
         // Check for guest mode eligibility (these might be slow, so do them last)
         bool hasData = false;
         bool hasEverBeenSetup = false;
@@ -176,6 +206,8 @@ public class AuthController : ControllerBase
             isAuthenticated,
             authenticationType,
             deviceId = isAuthenticated && authenticationType == "device" ? deviceId : null,
+            authMode = authMode, // "guest", "expired", or null
+            guestTimeRemaining = guestTimeRemaining, // minutes remaining for guest sessions
             hasData,
             hasEverBeenSetup,
             hasBeenInitialized,

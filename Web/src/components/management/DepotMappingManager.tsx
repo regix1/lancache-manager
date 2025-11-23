@@ -11,6 +11,7 @@ import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
+import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
 interface DepotMappingManagerProps {
   isAuthenticated: boolean;
@@ -89,6 +90,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       progressPercent: picsProgress.progressPercent || 0
     };
   }, [picsProgress]);
+
+  // Format last crawl time with timezone awareness
+  const formattedLastCrawlTime = useFormattedDateTime(depotConfig?.lastCrawlTime || null);
 
   // Restore depot mapping operation on mount
   useEffect(() => {
@@ -843,7 +847,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     <span className="font-medium text-themed-primary">
                       {depotConfig.crawlIntervalHours === 0
                         ? 'Disabled'
-                        : new Date(depotConfig.lastCrawlTime).toLocaleString()}
+                        : formattedLastCrawlTime}
                     </span>
                   </div>
                 )}
