@@ -455,6 +455,15 @@ public class DeviceAuthService
         return null;
     }
 
+    /// <summary>
+    /// Reload the device cache from the database
+    /// Call this after making direct database changes to UserSessions
+    /// </summary>
+    public void ReloadDeviceCache()
+    {
+        LoadDeviceRegistrations();
+    }
+
     private void LoadDeviceRegistrations()
     {
         try

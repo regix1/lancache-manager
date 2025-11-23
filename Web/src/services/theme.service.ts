@@ -1189,7 +1189,7 @@ class ThemeService {
     window.dispatchEvent(new Event('themechange'));
   }
 
-  async loadSavedTheme(): Promise<void> {
+  async loadSavedTheme(selectedThemeFromPrefs?: string | null): Promise<void> {
     // Initialize with default settings (no API calls at startup)
     document.documentElement.setAttribute('data-disable-focus-outlines', 'false');
     document.documentElement.setAttribute('data-disable-tooltips', 'false');
@@ -1217,7 +1217,39 @@ class ThemeService {
     // Apply default Tailwind dark theme
     this.applyDefaultVariables();
 
-    // Fallback to localStorage cache if API didn't have a preference
+    // Priority 1: Use selectedTheme from API preferences if provided
+    if (selectedThemeFromPrefs !== undefined) {
+      if (selectedThemeFromPrefs === null) {
+        // Null means use default guest theme - fetch it from the API
+        try {
+          const response = await fetch(`${API_BASE}/themes/preferences/guest`, {
+            headers: authService.getAuthHeaders()
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const defaultGuestThemeId = data.themeId || 'dark-default';
+            console.log(`[ThemeService] Applying default guest theme: ${defaultGuestThemeId}`);
+            const theme = await this.getTheme(defaultGuestThemeId);
+            if (theme) {
+              this.applyTheme(theme);
+              return;
+            }
+          }
+        } catch (err) {
+          console.error('[ThemeService] Failed to fetch default guest theme:', err);
+        }
+        // Fall through to default if fetching failed
+      } else {
+        // Use the specified theme from preferences
+        const theme = await this.getTheme(selectedThemeFromPrefs);
+        if (theme) {
+          this.applyTheme(theme);
+          return;
+        }
+      }
+    }
+
+    // Priority 2: Fallback to localStorage cache if API didn't have a preference
     if (savedThemeId) {
       const theme = await this.getTheme(savedThemeId);
       if (theme) {
@@ -1226,7 +1258,7 @@ class ThemeService {
       }
     }
 
-    // Default to dark theme if no saved preference or theme not found
+    // Priority 3: Default to dark theme if no saved preference or theme not found
     const darkDefault = await this.getTheme('dark-default');
     if (darkDefault) {
       this.applyTheme(darkDefault);

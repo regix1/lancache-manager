@@ -146,40 +146,15 @@ const Header: React.FC<HeaderProps> = ({
                 </div>
               </div>
               <div className="min-w-0 flex-1">
-                <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">
-                  {title}
-                </h1>
-                <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted">
-                  <span className="truncate">{subtitle}</span>
-                  {isGuestMode && (
-                    <div
-                      className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
-                      style={{
-                        backgroundColor: isRevoked
-                          ? 'var(--theme-error-bg)'
-                          : 'var(--theme-warning-bg)',
-                        color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
-                        border: isRevoked
-                          ? '1px solid var(--theme-error)'
-                          : '1px solid var(--theme-warning)'
-                      }}
-                    >
-                      <span>{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
-                      {!isRevoked && (
-                        <>
-                          <span style={{ opacity: 0.7 }}>|</span>
-                          <span style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
-                            {deviceId}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  )}
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg sm:text-xl font-bold text-themed-primary truncate">
+                    {title}
+                  </h1>
                   {connectionStatus === 'connected' && (
                     <Tooltip content="API Status: Connected - All backend services are responding normally">
                       <div className="flex items-center">
                         <div
-                          className="w-1.5 h-1.5 rounded-full"
+                          className="w-2 h-2 rounded-full flex-shrink-0"
                           style={{ backgroundColor: 'var(--theme-success)' }}
                         ></div>
                       </div>
@@ -192,7 +167,7 @@ const Header: React.FC<HeaderProps> = ({
                         style={{ color: 'var(--theme-error-text)' }}
                       >
                         <div
-                          className="w-1.5 h-1.5 rounded-full"
+                          className="w-2 h-2 rounded-full flex-shrink-0"
                           style={{ backgroundColor: 'var(--theme-error)' }}
                         ></div>
                         <span className="text-xs">Disconnected</span>
@@ -206,12 +181,42 @@ const Header: React.FC<HeaderProps> = ({
                         style={{ color: 'var(--theme-warning-text)' }}
                       >
                         <div
-                          className="w-1.5 h-1.5 rounded-full animate-pulse"
+                          className="w-2 h-2 rounded-full animate-pulse flex-shrink-0"
                           style={{ backgroundColor: 'var(--theme-warning)' }}
                         ></div>
                         <span className="text-xs">Reconnecting</span>
                       </div>
                     </Tooltip>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs sm:text-sm text-themed-muted">
+                  <span className="truncate">{subtitle}</span>
+                  {isGuestMode && (
+                    <div
+                      className="px-2 py-0.5 rounded text-xs font-medium flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-1.5"
+                      style={{
+                        backgroundColor: isRevoked
+                          ? 'var(--theme-error-bg)'
+                          : 'var(--theme-warning-bg)',
+                        color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
+                        border: isRevoked
+                          ? '1px solid var(--theme-error)'
+                          : '1px solid var(--theme-warning)'
+                      }}
+                    >
+                      <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
+                      {!isRevoked && (
+                        <>
+                          <span className="hidden sm:inline" style={{ opacity: 0.5, fontSize: '0.9em' }}>•</span>
+                          <span
+                            className="truncate max-w-[180px] sm:max-w-none"
+                            style={{ fontFamily: 'monospace', fontSize: '0.8em', opacity: 0.85 }}
+                          >
+                            {deviceId}
+                          </span>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -305,6 +310,35 @@ const Header: React.FC<HeaderProps> = ({
               </div>
               <TimeFilter disabled={mockMode} />
             </div>
+
+            {/* Guest Mode Pill - Mobile */}
+            {isGuestMode && (
+              <div className="flex justify-center mt-2">
+                <div
+                  className="px-2.5 py-1 rounded text-xs font-medium flex flex-col items-center gap-0.5"
+                  style={{
+                    backgroundColor: isRevoked
+                      ? 'var(--theme-error-bg)'
+                      : 'var(--theme-warning-bg)',
+                    color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
+                    border: isRevoked
+                      ? '1px solid var(--theme-error)'
+                      : '1px solid var(--theme-warning)',
+                    maxWidth: '90%'
+                  }}
+                >
+                  <span className="whitespace-nowrap">{isRevoked ? 'Revoked' : 'Guest Mode'}</span>
+                  {!isRevoked && (
+                    <span
+                      className="truncate max-w-full text-center"
+                      style={{ fontFamily: 'monospace', fontSize: '0.75em', opacity: 0.85 }}
+                    >
+                      {deviceId}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </header>

@@ -243,7 +243,9 @@ class PreferencesService {
     // Track if we're processing to prevent race conditions
     let isProcessingUpdate = false;
     let isProcessingReset = false;
-    let isProcessingSessionRevocation = false;
+
+    // CRITICAL: Track recently processed revocations to prevent duplicate SignalR events
+    const recentRevocations = new Set<string>();
 
     // Handle preference updates
     const handlePreferencesUpdated = (payload: any) => {
@@ -349,24 +351,29 @@ class PreferencesService {
 
     // Handle session revoked - check if it's our session and logout immediately
     const handleSessionRevoked = (payload: any) => {
-      if (isProcessingSessionRevocation) {
-        console.log('[PreferencesService] Already processing session revocation, skipping duplicate');
+      const { deviceId, sessionType } = payload;
+      const revocationKey = `${deviceId}-${sessionType}`;
+
+      // CRITICAL: Skip if we just processed this revocation in the last 5 seconds
+      // This prevents duplicate SignalR events from causing multiple logout attempts
+      if (recentRevocations.has(revocationKey)) {
+        console.log('[PreferencesService] Already processed revocation for', revocationKey, '- skipping duplicate');
         return;
       }
 
       try {
-        isProcessingSessionRevocation = true;
         console.log('[PreferencesService] UserSessionRevoked event received:', payload);
 
-        const { sessionId, sessionType } = payload;
+        // Add to recent set FIRST to block duplicates immediately
+        recentRevocations.add(revocationKey);
 
         // Check if this is our session
         const ourDeviceId = authService.getDeviceId();
         const ourGuestSessionId = authService.getGuestSessionId();
 
         const isOurSession =
-          (sessionType === 'authenticated' && sessionId === ourDeviceId) ||
-          (sessionType === 'guest' && sessionId === ourGuestSessionId);
+          (sessionType === 'authenticated' && deviceId === ourDeviceId) ||
+          (sessionType === 'guest' && deviceId === ourGuestSessionId);
 
         if (isOurSession) {
           console.warn('[PreferencesService] Our session was revoked - forcing logout');
@@ -375,9 +382,9 @@ class PreferencesService {
           window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
         }
       } finally {
-        // Keep the flag set for longer to prevent rapid re-triggering
+        // Remove from set after 5 seconds to allow future legitimate revocations
         setTimeout(() => {
-          isProcessingSessionRevocation = false;
+          recentRevocations.delete(revocationKey);
         }, 5000);
       }
     };

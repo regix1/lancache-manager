@@ -306,6 +306,19 @@ public class GuestSessionService
     }
 
     /// <summary>
+    /// Remove guest session from cache only (used during upgrade to authenticated)
+    /// Does NOT delete from database - just removes from in-memory cache
+    /// </summary>
+    public void RemoveFromCache(string deviceId)
+    {
+        lock (_cacheLock)
+        {
+            _sessionCache.Remove(deviceId);
+        }
+        _logger.LogInformation("Removed guest session from cache (upgrade): {DeviceId}", deviceId);
+    }
+
+    /// <summary>
     /// Permanently delete a guest session
     /// </summary>
     public bool DeleteSession(string deviceId)
@@ -329,6 +342,12 @@ public class GuestSessionService
                 return true;
             }
 
+            _logger.LogWarning("Guest session not found for deletion: {DeviceId}", deviceId);
+            // Still remove from cache even if not in database
+            lock (_cacheLock)
+            {
+                _sessionCache.Remove(deviceId);
+            }
             return false;
         }
         catch (Exception ex)

@@ -36,14 +36,19 @@ public class SessionsController : ControllerBase
 
     /// <summary>
     /// GET /api/sessions - List all sessions (authenticated + guest)
+    /// Supports pagination via ?page=1&pageSize=20 query parameters
     /// RESTful: GET is proper method for retrieving resource collections
     /// </summary>
     [HttpGet]
     [RequireAuth]
-    public IActionResult GetAllSessions()
+    public IActionResult GetAllSessions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         try
         {
+            // Validate pagination parameters
+            if (page < 1) page = 1;
+            if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
             var devices = _deviceAuthService.GetAllDevices();
             var guests = _guestSessionService.GetAllSessions();
 
@@ -69,6 +74,7 @@ public class SessionsController : ControllerBase
             }).ToList();
 
             // Filter out guest sessions that have been upgraded to authenticated
+            // If the same device ID exists in both authenticated and guest, show only authenticated
             var authenticatedDeviceIds = new HashSet<string>(devices.Select(d => d.DeviceId));
 
             var guestSessions = guests
@@ -93,14 +99,35 @@ public class SessionsController : ControllerBase
                     type = "guest"
                 }).ToList();
 
-            var allSessions = authenticatedSessions.Concat(guestSessions)
-                .OrderByDescending(s => s.lastSeenAt ?? s.createdAt)
+            // Sort: authenticated users first, then guests, both by creation date (newest first)
+            var allSessionsSorted = authenticatedSessions.Concat(guestSessions)
+                .OrderBy(s => s.type == "guest" ? 1 : 0)  // authenticated (0) before guests (1)
+                .ThenByDescending(s => s.createdAt)  // newest first within each type
+                .ToList();
+
+            // Apply pagination
+            var totalCount = allSessionsSorted.Count;
+            var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+            var skip = (page - 1) * pageSize;
+
+            var paginatedSessions = allSessionsSorted
+                .Skip(skip)
+                .Take(pageSize)
                 .ToList();
 
             return Ok(new
             {
-                sessions = allSessions,
-                count = allSessions.Count,
+                sessions = paginatedSessions,
+                pagination = new
+                {
+                    page = page,
+                    pageSize = pageSize,
+                    totalCount = totalCount,
+                    totalPages = totalPages,
+                    hasNextPage = page < totalPages,
+                    hasPreviousPage = page > 1
+                },
+                count = totalCount,
                 authenticatedCount = authenticatedSessions.Count,
                 guestCount = guestSessions.Count
             });
@@ -385,6 +412,7 @@ public class SessionsController : ControllerBase
             var guestSession = _guestSessionService.GetSessionByDeviceId(id);
             if (guestSession != null)
             {
+
                 bool success;
                 string actionMessage;
 

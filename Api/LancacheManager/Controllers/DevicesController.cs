@@ -93,7 +93,16 @@ public class DevicesController : ControllerBase
 
                 try
                 {
-                    // Check if UserSession already exists for this device
+                    // Reload UserSession from database to get the ApiKey that was set by RegisterDevice
+                    // We need to detach any tracked entities first to avoid stale cache
+                    var trackedEntity = _dbContext.ChangeTracker.Entries<UserSession>()
+                        .FirstOrDefault(e => e.Entity.DeviceId == request.DeviceId);
+                    if (trackedEntity != null)
+                    {
+                        trackedEntity.State = Microsoft.EntityFrameworkCore.EntityState.Detached;
+                    }
+
+                    // Now query fresh from database
                     var existingUserSession = _dbContext.UserSessions.FirstOrDefault(s => s.DeviceId == request.DeviceId);
 
                     if (existingGuestSession != null && existingUserSession != null)
@@ -102,6 +111,8 @@ public class DevicesController : ControllerBase
                         _logger.LogInformation("Upgrading guest session {DeviceId} to authenticated device {DeviceId}",
                             existingGuestSession.DeviceId, request.DeviceId);
 
+                        // The ApiKey was already set by RegisterDevice -> SaveDeviceRegistration
+                        // Now we just need to flip the IsGuest flag
                         existingUserSession.IsGuest = false;
                         existingUserSession.IsRevoked = false;
                         existingUserSession.RevokedAtUtc = null;
@@ -110,8 +121,14 @@ public class DevicesController : ControllerBase
                         existingUserSession.LastSeenAtUtc = DateTime.UtcNow;
                         _dbContext.SaveChanges();
 
-                        // Revoke the in-memory guest session
-                        _guestSessionService.RevokeSession(existingGuestSession.DeviceId, "System (Upgraded to authenticated)");
+                        // CRITICAL: Remove guest session from GuestSessionService cache
+                        // We DON'T delete from database (the record was just updated to IsGuest=false)
+                        // We just remove from cache so GetSessionByDeviceId() won't find it
+                        _guestSessionService.RemoveFromCache(existingGuestSession.DeviceId);
+
+                        // Reload device cache to ensure the upgraded session is recognized by DeviceAuthService
+                        _deviceAuthService.ReloadDeviceCache();
+
                         _logger.LogInformation("Upgraded UserSession {DeviceId} from guest to authenticated", existingUserSession.DeviceId);
                     }
                     else if (existingUserSession == null)

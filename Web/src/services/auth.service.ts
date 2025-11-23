@@ -41,6 +41,7 @@ class AuthService {
   public authChecked: boolean;
   public authMode: AuthMode = 'unauthenticated';
   private onGuestExpiredCallback: (() => void) | null = null;
+  private isUpgrading: boolean = false; // CRITICAL: Prevent race conditions during guest->authenticated upgrade
 
   constructor() {
     // Generate device ID from browser fingerprint (stable across sessions)
@@ -75,6 +76,12 @@ class AuthService {
   }
 
   private async checkDeviceStillValid(): Promise<void> {
+    // CRITICAL: Skip check if upgrade is in progress to prevent race conditions
+    if (this.isUpgrading) {
+      console.log('[Auth] Skipping device check - upgrade in progress');
+      return;
+    }
+
     // Only check if we're authenticated
     if (this.authMode !== 'authenticated' || !this.isAuthenticated) {
       return;
@@ -332,6 +339,10 @@ class AuthService {
   }
 
   async register(apiKey: string, deviceName: string | null = null): Promise<RegisterResponse> {
+    // CRITICAL: Set flag BEFORE starting upgrade to prevent checkDeviceStillValid() interference
+    this.isUpgrading = true;
+    console.log('[Auth] Starting upgrade from guest to authenticated...');
+
     try {
       const response = await fetch(`${API_URL}/api/devices`, {
         method: 'POST',
@@ -356,6 +367,12 @@ class AuthService {
         this.apiKey = apiKey; // Keep in memory for header sending
         this.isAuthenticated = true;
         this.authMode = 'authenticated';
+
+        // CRITICAL: Wait briefly for backend to complete cleanup (delete guest session, etc.)
+        // This prevents race conditions where checkDeviceStillValid() runs before cleanup is done
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        console.log('[Auth] Upgrade to authenticated complete');
         return { success: true, message: result.message };
       }
 
@@ -369,6 +386,10 @@ class AuthService {
         success: false,
         message: error.message || 'Network error during registration'
       };
+    } finally {
+      // CRITICAL: Always clear the flag when done
+      this.isUpgrading = false;
+      console.log('[Auth] Upgrade process completed');
     }
   }
 
@@ -550,6 +571,12 @@ class AuthService {
   }
 
   handleUnauthorized(): void {
+    // CRITICAL: Skip if upgrade is in progress to prevent false positives
+    if (this.isUpgrading) {
+      console.log('[Auth] Ignoring unauthorized during upgrade process');
+      return;
+    }
+
     // Check if we're already unauthenticated (prevent interference during re-authentication)
     if (this.authMode === 'unauthenticated' && !this.isAuthenticated && !this.apiKey) {
       console.log('[Auth] Already unauthenticated - skipping unauthorized handler');

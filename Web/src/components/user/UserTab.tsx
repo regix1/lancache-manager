@@ -55,19 +55,23 @@ const UserTab: React.FC = () => {
   const [updatingDuration, setUpdatingDuration] = useState(false);
   const [defaultGuestTheme, setDefaultGuestTheme] = useState<string>('dark-default');
   const [updatingGuestTheme, setUpdatingGuestTheme] = useState(false);
-  const [availableThemes, setAvailableThemes] = useState<Array<{ id: string; name: string }>>([]);
+  const [availableThemes, setAvailableThemes] = useState<{ id: string; name: string }[]>([]);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [editingPreferences, setEditingPreferences] = useState<any>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(false);
   const [savingPreferences, setSavingPreferences] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
-  const loadSessions = async (showLoading = false) => {
+  const loadSessions = async (showLoading = false, page = currentPage) => {
     try {
       if (showLoading) {
         setLoading(true);
       }
       setError(null);
-      const response = await fetch('/api/sessions', {
+      const response = await fetch(`/api/sessions?page=${page}&pageSize=${pageSize}`, {
         headers: ApiService.getHeaders()
       });
 
@@ -84,6 +88,9 @@ const UserTab: React.FC = () => {
         }
 
         setSessions(sessions);
+        setTotalPages(data.pagination?.totalPages || 1);
+        setTotalCount(data.pagination?.totalCount || sessions.length);
+        setCurrentPage(data.pagination?.page || 1);
       } else {
         const errorData = await response.json();
         setError(errorData.error || 'Failed to load sessions');
@@ -98,9 +105,22 @@ const UserTab: React.FC = () => {
   };
 
   const loadGuestDuration = async () => {
-    // Guest session duration endpoint was removed during REST API refactoring
-    // Using default value of 6 hours (can be updated via SignalR if backend sends updates)
-    setGuestDurationHours(6);
+    try {
+      const response = await fetch('/api/auth/guest/config', {
+        headers: ApiService.getHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setGuestDurationHours(data.durationHours || 6);
+      } else {
+        // Fallback to default if endpoint fails
+        setGuestDurationHours(6);
+      }
+    } catch (err) {
+      console.error('Failed to load guest duration:', err);
+      // Fallback to default on error
+      setGuestDurationHours(6);
+    }
   };
 
   const handleUpdateDuration = async (newDuration: number) => {
@@ -136,7 +156,7 @@ const UserTab: React.FC = () => {
       });
       if (response.ok) {
         const data = await response.json();
-          setDefaultGuestTheme(data.themeId || 'dark-default');
+        setDefaultGuestTheme(data.themeId || 'dark-default');
       }
     } catch (err) {
       console.error('Failed to load default guest theme:', err);
@@ -147,7 +167,7 @@ const UserTab: React.FC = () => {
     try {
       setUpdatingGuestTheme(true);
       const response = await fetch('/api/themes/preferences/guest', {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           ...ApiService.getHeaders()
@@ -309,15 +329,21 @@ const UserTab: React.FC = () => {
     setEditingSession(session);
     setLoadingPreferences(true);
     try {
-      const response = await fetch(`/api/user-preferences/session/${encodeURIComponent(session.id)}`, {
-        headers: ApiService.getHeaders()
-      });
+      const response = await fetch(
+        `/api/user-preferences/session/${encodeURIComponent(session.id)}`,
+        {
+          headers: ApiService.getHeaders()
+        }
+      );
 
       if (response.ok) {
         const prefs = await response.json();
         // Ensure all boolean fields have proper defaults
+        // Convert empty string or undefined to null for selectedTheme
+        const selectedTheme =
+          prefs.selectedTheme && prefs.selectedTheme.trim() !== '' ? prefs.selectedTheme : null;
         setEditingPreferences({
-          selectedTheme: prefs.selectedTheme || null,
+          selectedTheme: selectedTheme,
           sharpCorners: prefs.sharpCorners ?? false,
           disableFocusOutlines: prefs.disableFocusOutlines ?? true,
           disableTooltips: prefs.disableTooltips ?? false,
@@ -350,14 +376,17 @@ const UserTab: React.FC = () => {
 
     try {
       setSavingPreferences(true);
-      const response = await fetch(`/api/user-preferences/session/${encodeURIComponent(editingSession.id)}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...ApiService.getHeaders()
-        },
-        body: JSON.stringify(editingPreferences)
-      });
+      const response = await fetch(
+        `/api/user-preferences/session/${encodeURIComponent(editingSession.id)}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...ApiService.getHeaders()
+          },
+          body: JSON.stringify(editingPreferences)
+        }
+      );
 
       if (response.ok) {
         // Check if we're editing our own session
@@ -375,7 +404,9 @@ const UserTab: React.FC = () => {
           await themeService.setSharpCorners(editingPreferences.sharpCorners);
           await themeService.setDisableTooltips(editingPreferences.disableTooltips);
           await themeService.setHideAboutSections(editingPreferences.hideAboutSections);
-          await themeService.setDisableStickyNotifications(editingPreferences.disableStickyNotifications);
+          await themeService.setDisableStickyNotifications(
+            editingPreferences.disableStickyNotifications
+          );
           await themeService.setPicsAlwaysVisible(editingPreferences.picsAlwaysVisible);
         }
 
@@ -863,57 +894,164 @@ const UserTab: React.FC = () => {
               ))}
             </div>
           )}
+
+          {/* Pagination */}
+          {!loading && !error && totalPages > 1 && (
+            <div
+              className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t pt-4"
+              style={{ borderColor: 'var(--theme-border)' }}
+            >
+              <div className="text-sm" style={{ color: 'var(--theme-text-secondary)' }}>
+                Showing {(currentPage - 1) * pageSize + 1} to{' '}
+                {Math.min(currentPage * pageSize, totalCount)} of {totalCount} sessions
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    const newPage = currentPage - 1;
+                    setCurrentPage(newPage);
+                    loadSessions(true, newPage);
+                  }}
+                  disabled={currentPage === 1}
+                  style={{
+                    opacity: currentPage === 1 ? 0.5 : 1,
+                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  Previous
+                </Button>
+
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => {
+                          setCurrentPage(pageNum);
+                          loadSessions(true, pageNum);
+                        }}
+                        className="px-3 py-1 text-sm rounded transition-colors"
+                        style={{
+                          backgroundColor:
+                            currentPage === pageNum
+                              ? 'var(--theme-primary)'
+                              : 'var(--theme-bg-secondary)',
+                          color:
+                            currentPage === pageNum
+                              ? 'var(--theme-primary-text)'
+                              : 'var(--theme-text-primary)',
+                          border: '1px solid var(--theme-border)'
+                        }}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    const newPage = currentPage + 1;
+                    setCurrentPage(newPage);
+                    loadSessions(true, newPage);
+                  }}
+                  disabled={currentPage === totalPages}
+                  style={{
+                    opacity: currentPage === totalPages ? 0.5 : 1,
+                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
       {/* Guest Device Configuration */}
       <Card>
-        <h3 className="text-lg font-semibold text-themed-primary mb-4 flex items-center gap-2">
-          <Clock className="w-5 h-5" />
-          Guest Device Configuration
-        </h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-themed-primary mb-2">
-              Guest Device Duration
-            </label>
-            <div className="flex items-center gap-3">
-              <EnhancedDropdown
-                options={durationOptions}
-                value={guestDurationHours.toString()}
-                onChange={(value) => handleUpdateDuration(Number(value))}
-                disabled={updatingDuration}
-                className="w-64"
-              />
-              {updatingDuration && <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />}
+        <div className="p-6">
+          <h3
+            className="text-lg font-semibold mb-4 flex items-center gap-2"
+            style={{ color: 'var(--theme-text-primary)' }}
+          >
+            <Clock className="w-5 h-5" />
+            Guest Device Configuration
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label
+                className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--theme-text-primary)' }}
+              >
+                Guest Device Duration
+              </label>
+              <div className="flex items-center gap-3">
+                <EnhancedDropdown
+                  options={durationOptions}
+                  value={guestDurationHours.toString()}
+                  onChange={(value) => handleUpdateDuration(Number(value))}
+                  disabled={updatingDuration}
+                  className="w-64"
+                />
+                {updatingDuration && (
+                  <Loader2
+                    className="w-4 h-4 animate-spin"
+                    style={{ color: 'var(--theme-primary)' }}
+                  />
+                )}
+              </div>
+              <p className="text-xs mt-2" style={{ color: 'var(--theme-text-muted)' }}>
+                How long guest devices remain valid before expiring
+              </p>
             </div>
-            <p className="text-xs text-themed-muted mt-2">
-              How long guest devices remain valid before expiring
-            </p>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-themed-primary mb-2">
-              Default Guest Theme
-            </label>
-            <div className="flex items-center gap-3">
-              <EnhancedDropdown
-                options={availableThemes.map((theme) => ({
-                  value: theme.id,
-                  label: theme.name
-                }))}
-                value={defaultGuestTheme}
-                onChange={handleUpdateGuestTheme}
-                disabled={updatingGuestTheme}
-                className="w-64"
-              />
-              {updatingGuestTheme && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
+            <div>
+              <label
+                className="block text-sm font-medium mb-2"
+                style={{ color: 'var(--theme-text-primary)' }}
+              >
+                Default Guest Theme
+              </label>
+              <div className="flex items-center gap-3">
+                <EnhancedDropdown
+                  options={availableThemes.map((theme) => ({
+                    value: theme.id,
+                    label: theme.name
+                  }))}
+                  value={defaultGuestTheme}
+                  onChange={handleUpdateGuestTheme}
+                  disabled={updatingGuestTheme}
+                  className="w-64"
+                />
+                {updatingGuestTheme && (
+                  <Loader2
+                    className="w-4 h-4 animate-spin"
+                    style={{ color: 'var(--theme-primary)' }}
+                  />
+                )}
+              </div>
+              <p className="text-xs mt-2" style={{ color: 'var(--theme-text-muted)' }}>
+                Default theme applied to all guest users (guests cannot change their theme)
+              </p>
             </div>
-            <p className="text-xs text-themed-muted mt-2">
-              Default theme applied to all guest users (guests cannot change their theme)
-            </p>
           </div>
         </div>
       </Card>
@@ -943,8 +1081,8 @@ const UserTab: React.FC = () => {
                   (up to configured device limit)
                 </li>
                 <li className="pl-1">
-                  <strong>Authenticated</strong> sessions have registered with the API key and don't
-                  expire
+                  <strong>Authenticated</strong> sessions have registered with the API key and
+                  don&apos;t expire
                 </li>
                 <li className="pl-1">
                   <strong>Guest</strong> devices have temporary {guestDurationHours}-hour access
@@ -958,7 +1096,7 @@ const UserTab: React.FC = () => {
                   <strong>Delete</strong> - Permanently removes the device record from history
                 </li>
                 <li className="pl-1">
-                  Revoked guests will see an "expired" message on their next request
+                  Revoked guests will see an &quot;expired&quot; message on their next request
                 </li>
               </ul>
             </div>
@@ -1124,7 +1262,7 @@ const UserTab: React.FC = () => {
               <p className="text-xs text-themed-muted">
                 {editingSession.type === 'authenticated' ? 'Authenticated User' : 'Guest User'}
               </p>
-              <p className="text-xs text-themed-muted font-mono">Device/Session ID: {editingSession.id}</p>
+              <p className="text-xs text-themed-muted font-mono">Device ID: {editingSession.id}</p>
             </div>
           )}
 
@@ -1151,7 +1289,7 @@ const UserTab: React.FC = () => {
                   options={[
                     {
                       value: 'default',
-                      label: `Default Theme (${availableThemes.find(t => t.id === defaultGuestTheme)?.name || defaultGuestTheme})`
+                      label: `Default Theme (${availableThemes.find((t) => t.id === defaultGuestTheme)?.name || defaultGuestTheme})`
                     },
                     ...availableThemes.map((theme) => ({
                       value: theme.id,
@@ -1159,9 +1297,7 @@ const UserTab: React.FC = () => {
                     }))
                   ]}
                   value={
-                    !editingPreferences.selectedTheme
-                      ? 'default'
-                      : editingPreferences.selectedTheme
+                    !editingPreferences.selectedTheme ? 'default' : editingPreferences.selectedTheme
                   }
                   onChange={(value) =>
                     setEditingPreferences({
@@ -1242,9 +1378,7 @@ const UserTab: React.FC = () => {
                         style={{ accentColor: 'var(--theme-primary)' }}
                       />
                       <div className="flex flex-col">
-                        <span className="text-sm text-themed-secondary">
-                          Sticky Notifications
-                        </span>
+                        <span className="text-sm text-themed-secondary">Sticky Notifications</span>
                         <span className="text-xs text-themed-muted">
                           Keep notification bar fixed at top when scrolling
                         </span>
@@ -1265,11 +1399,9 @@ const UserTab: React.FC = () => {
                         style={{ accentColor: 'var(--theme-primary)' }}
                       />
                       <div className="flex flex-col">
-                        <span className="text-sm text-themed-secondary">
-                          Static Notifications
-                        </span>
+                        <span className="text-sm text-themed-secondary">Static Notifications</span>
                         <span className="text-xs text-themed-muted">
-                          Require manual dismissal - won't auto-clear
+                          Require manual dismissal - won&apos;t auto-clear
                         </span>
                       </div>
                     </label>
@@ -1279,7 +1411,10 @@ const UserTab: React.FC = () => {
             </div>
           )}
 
-          <div className="flex justify-end space-x-3 pt-4 border-t" style={{ borderColor: 'var(--theme-border-secondary)' }}>
+          <div
+            className="flex justify-end space-x-3 pt-4 border-t"
+            style={{ borderColor: 'var(--theme-border-secondary)' }}
+          >
             <Button
               variant="default"
               onClick={() => {

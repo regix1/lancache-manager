@@ -176,6 +176,7 @@ public class UserPreferencesController : ControllerBase
 
     /// <summary>
     /// Get preferences for a specific session (admin only)
+    /// Returns default preferences if none exist for the session
     /// </summary>
     [HttpGet("session/{sessionId}")]
     public IActionResult GetPreferencesForSession(string sessionId)
@@ -192,7 +193,19 @@ public class UserPreferencesController : ControllerBase
             var preferences = _preferencesService.GetPreferences(sessionId);
             if (preferences == null)
             {
-                return NotFound(new { message = "Preferences not found for session" });
+                // Return default preferences instead of 404
+                _logger.LogInformation("No preferences found for session {SessionId}, returning defaults", sessionId);
+                return Ok(new UserPreferencesDto
+                {
+                    SelectedTheme = null,
+                    SharpCorners = false,
+                    DisableFocusOutlines = false,
+                    DisableTooltips = false,
+                    PicsAlwaysVisible = false,
+                    HideAboutSections = false,
+                    DisableStickyNotifications = false,
+                    UseLocalTimezone = false
+                });
             }
 
             return Ok(preferences);

@@ -23,6 +23,7 @@ public class AuthController : ControllerBase
     private readonly ILogger<AuthController> _logger;
     private readonly AppDbContext _dbContext;
     private readonly StateRepository _stateService;
+    private readonly GuestSessionService _guestSessionService;
 
     public AuthController(
         ApiKeyService apiKeyService,
@@ -30,7 +31,8 @@ public class AuthController : ControllerBase
         IConfiguration configuration,
         ILogger<AuthController> logger,
         AppDbContext dbContext,
-        StateRepository stateService)
+        StateRepository stateService,
+        GuestSessionService guestSessionService)
     {
         _apiKeyService = apiKeyService;
         _deviceAuthService = deviceAuthService;
@@ -38,6 +40,7 @@ public class AuthController : ControllerBase
         _logger = logger;
         _dbContext = dbContext;
         _stateService = stateService;
+        _guestSessionService = guestSessionService;
     }
 
     /// <summary>
@@ -210,5 +213,81 @@ public class AuthController : ControllerBase
                 details = ex.Message
             });
         }
+    }
+
+    /// <summary>
+    /// GET /api/auth/guest/config - Get guest session configuration
+    /// RESTful: GET is proper method for retrieving configuration
+    /// </summary>
+    [HttpGet("guest/config")]
+    [RequireAuth]
+    public IActionResult GetGuestConfig()
+    {
+        try
+        {
+            var durationHours = _guestSessionService.GetGuestSessionDurationHours();
+
+            return Ok(new
+            {
+                durationHours = durationHours,
+                message = "Guest configuration retrieved successfully"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving guest configuration");
+            return StatusCode(500, new
+            {
+                error = "Failed to retrieve guest configuration",
+                details = ex.Message
+            });
+        }
+    }
+
+    /// <summary>
+    /// POST /api/auth/guest/config/duration - Update guest session duration
+    /// RESTful: POST is used for configuration updates
+    /// </summary>
+    [HttpPost("guest/config/duration")]
+    [RequireAuth]
+    public IActionResult SetGuestSessionDuration([FromBody] SetGuestDurationRequest request)
+    {
+        try
+        {
+            if (request.DurationHours < 1 || request.DurationHours > 168)
+            {
+                return BadRequest(new
+                {
+                    success = false,
+                    error = "Duration must be between 1 and 168 hours"
+                });
+            }
+
+            _guestSessionService.SetGuestSessionDurationHours(request.DurationHours);
+
+            _logger.LogInformation("Guest session duration updated to {Hours} hours", request.DurationHours);
+
+            return Ok(new
+            {
+                success = true,
+                durationHours = request.DurationHours,
+                message = $"Guest session duration updated to {request.DurationHours} hours"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating guest session duration");
+            return StatusCode(500, new
+            {
+                success = false,
+                error = "Failed to update guest session duration",
+                details = ex.Message
+            });
+        }
+    }
+
+    public class SetGuestDurationRequest
+    {
+        public int DurationHours { get; set; }
     }
 }
