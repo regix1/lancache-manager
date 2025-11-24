@@ -5,11 +5,21 @@ import { usePicsProgress } from '@contexts/PicsProgressContext';
 
 interface PicsProgressStepProps {
   onComplete: () => void;
+  onProcessingStateChange?: (isProcessing: boolean) => void;
 }
 
-export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }) => {
+export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
+  onComplete,
+  onProcessingStateChange
+}) => {
   const { progress } = usePicsProgress();
   const [isComplete, setIsComplete] = useState(false);
+
+  // Notify parent when processing state changes (to disable back button)
+  useEffect(() => {
+    const isProcessing = progress?.isRunning || false;
+    onProcessingStateChange?.(isProcessing);
+  }, [progress?.isRunning, onProcessingStateChange]);
 
   // Helper to determine if we're in initialization phase
   const isInitializing = () => {
@@ -93,16 +103,27 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({ onComplete }
                 {getStatusMessage()}
               </p>
 
-              {/* Show app count if available and not in initialization */}
-              {!isInitializing() &&
-                progress?.processedApps !== undefined &&
-                progress?.totalApps !== undefined &&
-                progress.totalApps > 0 && (
-                  <p className="text-sm text-themed-secondary text-center">
-                    {progress.processedApps.toLocaleString()} /{' '}
-                    {progress.totalApps.toLocaleString()} apps processed
-                  </p>
-                )}
+              {/* Show batch/app count if available and not in initialization */}
+              {!isInitializing() && (
+                <>
+                  {/* Prefer showing batches since that's what updates in real-time */}
+                  {progress?.processedBatches !== undefined &&
+                    progress?.totalBatches !== undefined &&
+                    progress.totalBatches > 0 && (
+                      <p className="text-sm text-themed-secondary text-center">
+                        {progress.processedBatches.toLocaleString()} /{' '}
+                        {progress.totalBatches.toLocaleString()} batches processed
+                      </p>
+                    )}
+
+                  {/* Show depot mappings found if available */}
+                  {progress?.depotMappingsFound !== undefined && progress.depotMappingsFound > 0 && (
+                    <p className="text-xs text-themed-muted text-center mt-1">
+                      {progress.depotMappingsFound.toLocaleString()} depot mappings found
+                    </p>
+                  )}
+                </>
+              )}
 
               {/* Progress Bar */}
               <div className="mt-4">

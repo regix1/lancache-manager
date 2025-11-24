@@ -520,6 +520,7 @@ public class PicsDataService
 
             // Batch insert new mappings to avoid huge single transactions
             const int batchSize = 5000;
+
             for (int i = 0; i < newMappings.Count; i += batchSize)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -532,11 +533,11 @@ public class PicsDataService
                 }
                 catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
                 {
-                    // UNIQUE constraint violation - duplicates already exist, this is fine
-                    // This can happen if the import is called multiple times or run concurrently
-
-                    // Clear the context to avoid tracking issues
+                    // UNIQUE constraint violation - duplicates already exist
+                    // This can happen if the same data is imported multiple times
+                    // Just clear the context and continue - the data is already there
                     context.ChangeTracker.Clear();
+                    _logger.LogDebug("Skipped batch with duplicate mappings - data already exists");
                 }
 
                 // Yield after each batch

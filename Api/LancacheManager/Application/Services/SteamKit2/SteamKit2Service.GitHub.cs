@@ -11,6 +11,13 @@ public partial class SteamKit2Service
     /// </summary>
     public async Task<bool> DownloadAndImportGitHubDataAsync(CancellationToken cancellationToken = default)
     {
+        // Prevent concurrent downloads - if already running, log and return immediately
+        if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
+        {
+            _logger.LogInformation("[GitHub Mode] Download already in progress, skipping duplicate request");
+            return true; // Return true to indicate "no error, just already running"
+        }
+
         try
         {
             _logger.LogInformation("[GitHub Mode] Starting download of pre-created depot data from GitHub");
@@ -175,6 +182,11 @@ public partial class SteamKit2Service
             _logger.LogError(ex, "[GitHub Mode] Error downloading pre-created depot data");
             await SendGitHubErrorNotification($"Error downloading depot data: {ex.Message}");
             return false;
+        }
+        finally
+        {
+            // Always release the lock when done
+            Interlocked.Exchange(ref _rebuildActive, 0);
         }
     }
 

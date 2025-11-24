@@ -283,27 +283,52 @@ const AppContent: React.FC = () => {
       return; // Don't proceed until both checks are complete
     }
 
+    const storedFlow = storage.getItem('initializationFlowActive');
+    const storedStep = storage.getItem('initializationCurrentStep');
+
+    // IMPORTANT: If user has an active initialization flow in localStorage, respect that first
+    // This ensures that page refreshes during initialization don't kick the user to the dashboard
+    if (storedFlow === 'true' || storedStep) {
+      console.log('[App] Active initialization flow detected in localStorage, restoring...');
+      setIsInitializationFlowActive(true);
+      return;
+    }
+
     // If setup is complete OR logs have been processed, clear any stale initialization flow
     if (setupCompleted || hasProcessedLogs) {
+      console.log('[App] Setup complete or logs processed, clearing initialization flow');
       setIsInitializationFlowActive(false);
       storage.removeItem('initializationFlowActive');
       storage.removeItem('initializationCurrentStep');
       storage.removeItem('initializationInProgress');
       storage.removeItem('initializationMethod');
       storage.removeItem('initializationDownloadStatus');
+      storage.removeItem('usingSteamAuth');
+      storage.removeItem('dataSourceChoice');
     } else {
-      // Only restore initialization flow from localStorage if setup is NOT complete
-      const storedFlow = storage.getItem('initializationFlowActive');
-      if (storedFlow === 'true') {
-        setIsInitializationFlowActive(true);
+      // Backend shows setup is NOT complete
+      // Check if we have stale initialization state that needs clearing
+
+      // If backend was reset (setup not complete) but we have advanced initialization state,
+      // this indicates /data was deleted while browser was open - clear everything
+      if (storedStep && storedStep !== 'api-key' && storedStep !== 'import-historical-data' && setupCompleted === false && hasProcessedLogs === false) {
+        console.log('[App] Detected backend reset with stale browser state, clearing all initialization localStorage');
+        storage.removeItem('initializationFlowActive');
+        storage.removeItem('initializationCurrentStep');
+        storage.removeItem('initializationInProgress');
+        storage.removeItem('initializationMethod');
+        storage.removeItem('initializationDownloadStatus');
+        storage.removeItem('usingSteamAuth');
+        storage.removeItem('dataSourceChoice');
+        setIsInitializationFlowActive(false);
       }
     }
   }, [checkingAuth, checkingSetupStatus, setupCompleted, hasProcessedLogs]);
 
   // Check if depot data exists (only after auth check is done)
   useEffect(() => {
-    if (checkingAuth) {
-      return; // Don't check depot status until auth check is complete
+    if (checkingAuth || checkingSetupStatus) {
+      return; // Don't check depot status until auth and setup checks are complete
     }
 
     if (authMode === 'guest') {
@@ -322,6 +347,14 @@ const AppContent: React.FC = () => {
           const hasData =
             data.database?.totalMappings > 0 ||
             (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
+
+          console.log('[App] Depot status check:', {
+            totalMappings: data.database?.totalMappings,
+            steamKit2Ready: data.steamKit2?.isReady,
+            steamKit2DepotCount: data.steamKit2?.depotCount,
+            hasData
+          });
+
           setDepotInitialized(hasData);
         } else {
           setDepotInitialized(false);
@@ -335,7 +368,7 @@ const AppContent: React.FC = () => {
     };
 
     checkDepotStatus();
-  }, [checkingAuth, authMode]);
+  }, [checkingAuth, checkingSetupStatus, authMode, setupCompleted, hasProcessedLogs]);
 
   const handleDepotInitialized = async () => {
     // Initialization flow is complete

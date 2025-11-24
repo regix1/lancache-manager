@@ -356,6 +356,13 @@ builder.Logging.AddFilter("LancacheManager.Security.ApiKeyService", LogLevel.Inf
 builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.RustLogProcessorService", LogLevel.Information);
 builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.Information);
+
+// Suppress Data Protection key ring warnings when old session cookies are encountered
+// This occurs when the data folder is deleted but browser still has cookies encrypted with old keys
+// The session middleware gracefully handles this by ignoring invalid cookies
+builder.Logging.AddFilter("Microsoft.AspNetCore.DataProtection.KeyManagement.KeyRingBasedDataProtector", LogLevel.None);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Session.SessionMiddleware", LogLevel.Error);
+
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 var app = builder.Build();

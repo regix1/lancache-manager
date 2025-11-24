@@ -1,21 +1,44 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileText, Loader2, SkipForward, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import { useSignalR } from '@contexts/SignalRContext';
 import ApiService from '@services/api.service';
 
 interface LogProcessingStepProps {
   onComplete: () => void;
   onSkip: () => void;
+  onProcessingStateChange?: (isProcessing: boolean) => void;
 }
 
-export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete, onSkip }) => {
+interface ProcessingProgress {
+  isProcessing: boolean;
+  progress: number;
+  status: string;
+  linesProcessed?: number;
+  totalLines?: number;
+  entriesProcessed?: number;
+  mbProcessed?: number;
+  mbTotal?: number;
+}
+
+export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
+  onComplete,
+  onSkip,
+  onProcessingStateChange
+}) => {
+  const signalR = useSignalR();
   const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState<any>(null);
+  const [progress, setProgress] = useState<ProcessingProgress | null>(null);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Notify parent when processing state changes (to disable back button)
+  useEffect(() => {
+    onProcessingStateChange?.(processing);
+  }, [processing, onProcessingStateChange]);
+
   // Check if processing is already active on mount (page reload restoration)
-  React.useEffect(() => {
+  useEffect(() => {
     const checkActiveProcessing = async () => {
       try {
         const status = await ApiService.getProcessingStatus();
@@ -23,7 +46,6 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
           console.log('[LogProcessing] Detected active processing on mount, restoring...');
           setProcessing(true);
           setProgress(status);
-          startPolling();
         }
       } catch (error) {
         console.error('[LogProcessing] Failed to check processing status:', error);
@@ -33,51 +55,83 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
     checkActiveProcessing();
   }, []);
 
-  const startPolling = () => {
-    const pollingInterval = setInterval(async () => {
-      try {
-        const status = await ApiService.getProcessingStatus();
-        setProgress(status);
+  // Listen to SignalR events for log processing
+  useEffect(() => {
+    const handleProcessingProgress = (payload: any) => {
+      console.log('[LogProcessing] ProcessingProgress received:', payload);
 
-        // Check if complete - must have finished processing
-        // Handle both empty log files (0 lines = 0% progress) and populated logs (100% progress)
-        const isFullyComplete =
-          !status.isProcessing &&
-          // Normal completion: progress reached 100%
-          (status.progress === 100 ||
-            status.percentComplete === 100 ||
-            // Empty file completion: 0 total lines and 0 processed (progress will be 0%)
-            (status.totalLines === 0 && status.linesProcessed === 0) ||
-            // Alternative: position-based completion
-            (status.currentPosition !== undefined &&
-              status.totalSize !== undefined &&
-              status.currentPosition >= status.totalSize) ||
-            // Rust processor explicitly marked as complete (handles invalid/empty logs)
-            status.status === 'complete');
+      const currentProgress = payload.percentComplete || payload.progress || 0;
+      const status = payload.status || 'processing';
 
-        if (isFullyComplete) {
-          setComplete(true);
-          clearInterval(pollingInterval);
-          // Don't auto-continue - let user click the Continue button
-        }
-      } catch (err) {
-        console.error('Failed to fetch processing status:', err);
+      // Check if complete
+      if (status === 'complete' || payload.status === 'complete') {
+        console.log('[LogProcessing] Processing completed via SignalR');
+        setProgress({
+          isProcessing: false,
+          progress: 100,
+          status: 'complete',
+          entriesProcessed: payload.entriesProcessed,
+          linesProcessed: payload.linesProcessed || payload.totalLines,
+          totalLines: payload.totalLines,
+          mbProcessed: payload.mbTotal,
+          mbTotal: payload.mbTotal
+        });
+        setComplete(true);
+        setProcessing(false);
+        return;
       }
-    }, 1000);
 
-    return () => clearInterval(pollingInterval);
-  };
+      // Update progress
+      setProgress({
+        isProcessing: true,
+        progress: Math.min(99.9, currentProgress),
+        status: status,
+        mbProcessed: payload.mbProcessed,
+        mbTotal: payload.mbTotal,
+        entriesProcessed: payload.entriesProcessed,
+        totalLines: payload.totalLines,
+        linesProcessed: payload.linesProcessed
+      });
+    };
+
+    const handleFastProcessingComplete = (payload: any) => {
+      console.log('[LogProcessing] FastProcessingComplete received:', payload);
+      setProgress({
+        isProcessing: false,
+        progress: 100,
+        status: 'complete',
+        entriesProcessed: payload.entriesProcessed,
+        linesProcessed: payload.linesProcessed,
+        totalLines: payload.linesProcessed
+      });
+      setComplete(true);
+      setProcessing(false);
+    };
+
+    // Register SignalR listeners
+    signalR.on('ProcessingProgress', handleProcessingProgress);
+    signalR.on('FastProcessingComplete', handleFastProcessingComplete);
+
+    // Cleanup
+    return () => {
+      signalR.off('ProcessingProgress', handleProcessingProgress);
+      signalR.off('FastProcessingComplete', handleFastProcessingComplete);
+    };
+  }, [signalR]);
 
   const startLogProcessing = async () => {
     setProcessing(true);
     setError(null);
+    setComplete(false);
 
     try {
-      // Start log processing
-      await ApiService.processAllLogs();
+      // IMPORTANT: During initialization, always start from the beginning of the log
+      console.log('[LogProcessing] Resetting log position to beginning (top)...');
+      await ApiService.resetLogPosition('top');
+      console.log('[LogProcessing] Log position reset complete, starting processing...');
 
-      // Start polling for progress
-      startPolling();
+      // Start log processing - SignalR will handle progress updates
+      await ApiService.processAllLogs();
     } catch (err: any) {
       setError(err.message || 'Failed to start log processing');
       setProcessing(false);
@@ -192,6 +246,14 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({ onComplete
                     <p className="text-xs text-themed-muted mb-1">Entries Processed</p>
                     <p className="text-sm font-semibold text-themed-primary">
                       {progress.entriesProcessed.toLocaleString()}
+                    </p>
+                  </div>
+                )}
+                {progress.mbProcessed !== undefined && progress.mbTotal !== undefined && (
+                  <div>
+                    <p className="text-xs text-themed-muted mb-1">Data Processed</p>
+                    <p className="text-sm font-semibold text-themed-primary">
+                      {progress.mbProcessed.toFixed(1)} / {progress.mbTotal.toFixed(1)} MB
                     </p>
                   </div>
                 )}

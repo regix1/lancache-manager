@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { storage } from '@utils/storage';
 import {
   ApiKeyStep,
+  ImportHistoricalDataStep,
+  DataSourceChoiceStep,
+  SteamApiKeyStep,
   SteamPicsAuthStep,
   DepotInitStep,
   PicsProgressStep,
@@ -19,6 +22,9 @@ interface DepotInitializationModalProps {
 
 type InitStep =
   | 'api-key'
+  | 'import-historical-data'
+  | 'data-source-choice'
+  | 'steam-api-key'
   | 'steam-auth'
   | 'depot-init'
   | 'pics-progress'
@@ -26,233 +32,132 @@ type InitStep =
   | 'depot-mapping';
 
 const STEP_INFO: Record<InitStep, { number: number; title: string; total: number }> = {
-  'api-key': { number: 1, title: 'Authentication', total: 6 },
-  'steam-auth': { number: 2, title: 'Steam PICS Authentication', total: 6 },
-  'depot-init': { number: 3, title: 'Depot Initialization', total: 6 },
-  'pics-progress': { number: 4, title: 'PICS Data Progress', total: 6 },
-  'log-processing': { number: 5, title: 'Log Processing', total: 6 },
-  'depot-mapping': { number: 6, title: 'Depot Mapping', total: 6 }
+  'api-key': { number: 1, title: 'Authentication', total: 9 },
+  'import-historical-data': { number: 2, title: 'Import Historical Data', total: 9 },
+  'data-source-choice': { number: 3, title: 'Data Source Selection', total: 9 },
+  'steam-api-key': { number: 4, title: 'Steam API Key', total: 9 },
+  'steam-auth': { number: 5, title: 'Steam PICS Authentication', total: 9 },
+  'depot-init': { number: 6, title: 'Depot Initialization', total: 9 },
+  'pics-progress': { number: 7, title: 'PICS Data Progress', total: 9 },
+  'log-processing': { number: 8, title: 'Log Processing', total: 9 },
+  'depot-mapping': { number: 9, title: 'Depot Mapping', total: 9 }
 };
 
 const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   onInitialized,
   onAuthChanged
 }) => {
+  // Restore step from localStorage
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
-    // Initialize from localStorage to survive page reloads
     const stored = storage.getItem('initializationCurrentStep');
     return (stored as InitStep) || 'api-key';
   });
+
   const [apiKey, setApiKey] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [dataAvailable, setDataAvailable] = useState(false);
   const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
   const [picsData, setPicsData] = useState<any>(null);
-  const [initializing, setInitializing] = useState(() => {
-    // Restore from localStorage to survive page reloads
-    const stored = storage.getItem('initializationInProgress');
-    return stored === 'true';
-  });
-  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(
-    () => {
-      // Restore from localStorage
-      const stored = storage.getItem('initializationMethod');
-      return (stored as 'cloud' | 'generate' | 'continue') || null;
-    }
-  );
-  const [error, setError] = useState<string | null>(null);
-  const [downloadStatus, setDownloadStatus] = useState<string | null>(() => {
-    // Restore from localStorage
-    return storage.getItem('initializationDownloadStatus') || null;
-  });
-  const [usingSteamAuth, setUsingSteamAuth] = useState<boolean>(() => {
-    // Restore from localStorage
-    const stored = storage.getItem('usingSteamAuth');
-    return stored === 'true';
+  const [usingSteamAuth, setUsingSteamAuth] = useState<boolean>(false);
+  const [dataSourceChoice, setDataSourceChoice] = useState<'github' | 'steam' | null>(() => {
+    const stored = storage.getItem('dataSourceChoice');
+    return (stored as 'github' | 'steam') || null;
   });
   const [authDisabled, setAuthDisabled] = useState<boolean>(false);
+  const [backButtonDisabled, setBackButtonDisabled] = useState<boolean>(false);
 
-  // Persist current step to localStorage whenever it changes
+  // Persist current step whenever it changes
   useEffect(() => {
     storage.setItem('initializationCurrentStep', currentStep);
+    console.log('[DepotInit] Step changed to:', currentStep);
   }, [currentStep]);
 
-  // Persist initialization state to localStorage
+  // Persist data source choice
   useEffect(() => {
-    storage.setItem('initializationInProgress', initializing.toString());
-  }, [initializing]);
-
-  useEffect(() => {
-    if (selectedMethod) {
-      storage.setItem('initializationMethod', selectedMethod);
+    if (dataSourceChoice) {
+      storage.setItem('dataSourceChoice', dataSourceChoice);
     } else {
-      storage.removeItem('initializationMethod');
+      storage.removeItem('dataSourceChoice');
     }
-  }, [selectedMethod]);
+  }, [dataSourceChoice]);
 
-  useEffect(() => {
-    if (downloadStatus) {
-      storage.setItem('initializationDownloadStatus', downloadStatus);
-    } else {
-      storage.removeItem('initializationDownloadStatus');
-    }
-  }, [downloadStatus]);
-
-  // Persist usingSteamAuth to localStorage
-  useEffect(() => {
-    storage.setItem('usingSteamAuth', usingSteamAuth.toString());
-  }, [usingSteamAuth]);
-
-  // Wrapper to clear localStorage and call onInitialized
-  const handleInitializationComplete = () => {
-    storage.removeItem('initializationCurrentStep');
-    storage.removeItem('initializationInProgress');
-    storage.removeItem('initializationMethod');
-    storage.removeItem('initializationDownloadStatus');
-    storage.removeItem('usingSteamAuth');
-    onInitialized();
-  };
-
+  // Check setup status on mount
   useEffect(() => {
     const checkSetupStatus = async () => {
-      await checkDataAvailability();
+      // IMPORTANT: Check for stale localStorage data and clear if needed
+      // Increment this version when localStorage structure changes to force cleanup
+      const INIT_VERSION = '1.0';
+      const storedVersion = storage.getItem('initializationVersion');
 
-      // Check if authentication is globally disabled
-      const authCheck = await authService.checkAuth();
-      const authRequired = authCheck.requiresAuth;
-
-      console.log('[DepotInit] Auth check:', {
-        requiresAuth: authRequired,
-        isAuthenticated: authCheck.isAuthenticated
-      });
-
-      // If we have a stored step from a previous session, validate it's still relevant
-      const storedStep = storage.getItem('initializationCurrentStep');
-      if (storedStep) {
-        console.log('[DepotInit] Found stored step from localStorage:', storedStep);
-
-        // Store auth disabled state
-        setAuthDisabled(!authRequired);
-
-        // Check if initialization state is stale (browser was closed mid-setup)
-        // Only reset if auth is required AND there's NO auth at all
-        // This prevents resetting on page refresh when API is slow to respond
-        const isAuthenticated = storage.getItem('lancache_auth_registered') === 'true';
-        const isGuestMode = storage.getItem('lancache_guest_expires') !== null;
-        const hasAuth = isAuthenticated || isGuestMode;
-
-        if (authRequired && !hasAuth && storedStep !== 'api-key') {
-          console.log(
-            '[DepotInit] Stale initialization state detected (no auth), resetting to step 1'
-          );
-          storage.removeItem('initializationCurrentStep');
-          storage.removeItem('initializationInProgress');
-          storage.removeItem('initializationMethod');
-          storage.removeItem('initializationDownloadStatus');
-          storage.removeItem('initializationFlowActive');
-          storage.removeItem('usingSteamAuth');
-          setCurrentStep('api-key');
-          return;
-        }
-
-        console.log('[DepotInit] Restoring to step:', storedStep);
-
-        // Explicitly set the current step to the stored step (in case it wasn't set during initialization)
-        setCurrentStep(storedStep as InitStep);
-
-        // Restore other state variables from localStorage
-        const storedMethod = storage.getItem('initializationMethod');
-        const storedInProgress = storage.getItem('initializationInProgress');
-        const storedDownloadStatus = storage.getItem('initializationDownloadStatus');
-        const storedUsingSteamAuth = storage.getItem('usingSteamAuth');
-
-        // Restore state
-        if (storedMethod) {
-          setSelectedMethod(storedMethod as 'cloud' | 'generate' | 'continue');
-        }
-        if (storedInProgress === 'true') {
-          setInitializing(true);
-        }
-        if (storedDownloadStatus) {
-          setDownloadStatus(storedDownloadStatus);
-        }
-        if (storedUsingSteamAuth === 'true') {
-          setUsingSteamAuth(true);
-        }
-
-        // Check if we were in the middle of a download when page reloaded
-        if (
-          (storedStep === 'depot-init' || storedStep === 'steam-auth') &&
-          storedMethod === 'cloud' &&
-          storedInProgress === 'true'
-        ) {
-          console.log('[DepotInit] Download was in progress, checking completion status...');
-          // Check if download actually completed while page was reloading
-          const picsStatus = await checkPicsDataStatus();
-          if (picsStatus?.database?.totalMappings > 0) {
-            console.log('[DepotInit] Download completed, moving to log-processing');
-            setInitializing(false);
-            setSelectedMethod(null);
-            setDownloadStatus(null);
-            storage.removeItem('initializationInProgress');
-            storage.removeItem('initializationMethod');
-            storage.removeItem('initializationDownloadStatus');
-            setCurrentStep('log-processing');
-            return;
-          } else {
-            console.log('[DepotInit] Download was interrupted by page reload');
-            // Keep the UI state to show download was interrupted
-            // User will see the download status and can retry
-            setError('Download was interrupted by page reload. Please try again.');
-            setInitializing(false);
-            setSelectedMethod(null);
-            setDownloadStatus(null);
-            storage.removeItem('initializationInProgress');
-            storage.removeItem('initializationMethod');
-            storage.removeItem('initializationDownloadStatus');
-          }
-        }
-
-        // Still need to check PICS data if we're past the steam-auth step
-        if (
-          storedStep === 'depot-init' ||
-          storedStep === 'pics-progress' ||
-          storedStep === 'log-processing' ||
-          storedStep === 'depot-mapping'
-        ) {
-          checkPicsDataStatus();
-        }
-        return;
+      if (storedVersion !== INIT_VERSION) {
+        console.log(
+          '[DepotInit] Stale or missing version detected (stored:',
+          storedVersion,
+          'expected:',
+          INIT_VERSION,
+          '), clearing all initialization localStorage'
+        );
+        clearAllLocalStorage();
+        storage.setItem('initializationVersion', INIT_VERSION);
       }
 
+      await checkDataAvailability();
+
       try {
+        // Check if authentication is globally disabled
+        const authCheck = await authService.checkAuth();
+        const authRequired = authCheck.requiresAuth;
+        setAuthDisabled(!authRequired);
+
+        console.log('[DepotInit] Auth check:', {
+          requiresAuth: authRequired,
+          isAuthenticated: authCheck.isAuthenticated
+        });
+
+        // Check backend setup status
         const setupResponse = await fetch('/api/system/setup');
         const setupData = await setupResponse.json();
 
-        // Store auth disabled state
-        setAuthDisabled(!authRequired);
-
-        if (!setupData.isCompleted) {
-          setCurrentStep('api-key');
+        // If setup is already complete, clear localStorage and close modal
+        if (setupData.isCompleted && authCheck.isAuthenticated) {
+          console.log('[DepotInit] Setup already complete, clearing localStorage and closing');
+          clearAllLocalStorage();
+          onInitialized();
           return;
         }
 
-        // If auth is disabled, start at api-key step but with simplified UI
-        if (!authRequired) {
-          console.log(
-            '[DepotInit] Authentication is globally disabled, showing simplified auth step'
-          );
-          setCurrentStep('api-key');
+        // Check if we have a stored step - keep it if valid
+        const storedStep = storage.getItem('initializationCurrentStep');
+        if (storedStep) {
+          console.log('[DepotInit] Restoring saved step:', storedStep);
+
+          // Restore data source choice if we're on steps that need it
+          const storedChoice = storage.getItem('dataSourceChoice');
+          if (storedChoice) {
+            console.log('[DepotInit] Restoring data source choice:', storedChoice);
+            setDataSourceChoice(storedChoice as 'github' | 'steam');
+          }
+
+          // Load PICS data if needed for later steps
+          if (
+            storedStep === 'depot-init' ||
+            storedStep === 'pics-progress' ||
+            storedStep === 'log-processing' ||
+            storedStep === 'depot-mapping'
+          ) {
+            await checkPicsDataStatus();
+          }
           return;
         }
 
-        if (!authCheck.isAuthenticated) {
+        // No stored step - determine initial step based on auth status
+        if (!authRequired || !authCheck.isAuthenticated) {
           setCurrentStep('api-key');
         } else {
-          // Authenticated and setup complete - go to steam auth
-          setCurrentStep('steam-auth');
-          checkPicsDataStatus();
+          // Already authenticated, skip to import step
+          await checkPicsDataStatus();
+          setCurrentStep('import-historical-data');
         }
       } catch (error) {
         console.error('Failed to check setup status:', error);
@@ -263,26 +168,28 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     checkSetupStatus();
   }, []);
 
+  const clearAllLocalStorage = () => {
+    console.log('[DepotInit] Clearing all initialization localStorage');
+    storage.removeItem('initializationCurrentStep');
+    storage.removeItem('dataSourceChoice');
+    storage.removeItem('initializationApiKey');
+    storage.removeItem('steamApiKey');
+    storage.removeItem('importConnectionString');
+    storage.removeItem('importBatchSize');
+    storage.removeItem('importOverwriteExisting');
+    storage.removeItem('initializationVersion');
+  };
+
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      // Check if log processing has been run by checking the setup status
-      // This should have a flag indicating logs have been processed at least once
       const setupResponse = await fetch('/api/system/setup');
-
       if (setupResponse.ok) {
         const setupData = await setupResponse.json();
-        // Enable guest mode if setup has been completed or if logs have been processed
         const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
-        console.log('[DepotInit] Data availability check:', {
-          isSetupCompleted: setupData.isSetupCompleted,
-          hasProcessedLogs: setupData.hasProcessedLogs,
-          hasData
-        });
         setDataAvailable(hasData);
         return hasData;
       }
-
       setDataAvailable(false);
       return false;
     } catch (error) {
@@ -317,6 +224,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   };
 
+  const handleInitializationComplete = () => {
+    clearAllLocalStorage();
+    console.log('[DepotInit] Initialization complete, cleared localStorage');
+    onInitialized();
+  };
+
+  // Step 1: API Key
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
       setAuthError('API key is required');
@@ -332,10 +246,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         const authCheck = await authService.checkAuth();
         if (authCheck.isAuthenticated) {
           onAuthChanged?.();
-
-          // Move to steam authentication step
           await checkPicsDataStatus();
-          setCurrentStep('steam-auth');
+          setCurrentStep('import-historical-data');
         } else {
           setAuthError('Authentication succeeded but verification failed');
         }
@@ -365,200 +277,124 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     if (setupData.isSetupCompleted) {
       handleInitializationComplete();
     } else {
-      setCurrentStep('steam-auth');
-    }
-  };
-
-  const handleDownloadPrecreated = async () => {
-    console.log('[DepotInit] handleDownloadPrecreated started');
-    setInitializing(true);
-    setSelectedMethod('cloud');
-    setError(null);
-    setDownloadStatus(null);
-
-    try {
-      // Step 1: Download from GitHub
-      setDownloadStatus('Connecting to GitHub...');
-      console.log('[DepotInit] Downloading precreated data from GitHub');
-
-      // Add a small delay to show the first status
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      setDownloadStatus('Downloading depot mappings from GitHub (290,000+ mappings)...');
-      await ApiService.downloadPrecreatedDepotData();
-
-      // Step 2: Import into database
-      setDownloadStatus('Import complete! Finalizing setup...');
-      console.log('[DepotInit] Download complete');
-
-      // Step 3: Move to next step
-      setDownloadStatus('Success! Moving to next step...');
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      console.log('[DepotInit] Changing step to log-processing');
-      setInitializing(false);
-      setSelectedMethod(null);
-      setDownloadStatus(null);
-      // Clear localStorage since download is complete
-      storage.removeItem('initializationInProgress');
-      storage.removeItem('initializationMethod');
-      storage.removeItem('initializationDownloadStatus');
-      setCurrentStep('log-processing');
-      console.log('[DepotInit] Step changed to log-processing');
-    } catch (err: any) {
-      console.error('[DepotInit] Error in handleDownloadPrecreated:', err);
-      setError(err.message || 'Failed to download pre-created depot data');
-      setInitializing(false);
-      setSelectedMethod(null);
-      setDownloadStatus(null);
-      // Clear localStorage on error
-      storage.removeItem('initializationInProgress');
-      storage.removeItem('initializationMethod');
-      storage.removeItem('initializationDownloadStatus');
-    }
-  };
-
-  const handleGenerateOwn = async () => {
-    console.log('[DepotInit] handleGenerateOwn started');
-    setInitializing(true);
-    setSelectedMethod('generate');
-    setError(null);
-
-    try {
-      console.log('[DepotInit] Triggering full rebuild');
-      const response = await ApiService.triggerSteamKitRebuild(false);
-      console.log('[DepotInit] Backend response:', response);
-
-      // If backend requires full scan but we already requested full, something went wrong
-      if (response.requiresFullScan) {
-        console.error(
-          '[DepotInit] Backend still requires full scan even though we requested full scan'
-        );
-        setError('Unable to start full scan. Please try again or download from GitHub.');
-        setInitializing(false);
-        setSelectedMethod(null);
-        storage.removeItem('initializationInProgress');
-        storage.removeItem('initializationMethod');
-        storage.removeItem('initializationDownloadStatus');
-        return;
-      }
-
-      console.log('[DepotInit] Changing step to pics-progress');
-      setInitializing(false);
-      setSelectedMethod(null);
-      // Clear localStorage since generation started successfully
-      storage.removeItem('initializationInProgress');
-      storage.removeItem('initializationMethod');
-      storage.removeItem('initializationDownloadStatus');
-      setCurrentStep('pics-progress');
-      console.log('[DepotInit] Step changed to pics-progress');
-    } catch (err: any) {
-      console.error('[DepotInit] Error in handleGenerateOwn:', err);
-      setError(err.message || 'Failed to start depot generation');
-      setInitializing(false);
-      setSelectedMethod(null);
-      // Clear localStorage on error
-      storage.removeItem('initializationInProgress');
-      storage.removeItem('initializationMethod');
-      storage.removeItem('initializationDownloadStatus');
-    }
-  };
-
-  const handleContinue = async () => {
-    console.log('[DepotInit] handleContinue started');
-    setInitializing(true);
-    setSelectedMethod('continue');
-    setError(null);
-    setDownloadStatus(null);
-
-    try {
-      // Check if JSON file exists and needs to be imported
-      const picsStatus = await checkPicsDataStatus();
-      console.log('[DepotInit] PICS status for Continue:', picsStatus);
-
-      const hasJsonFile = picsStatus?.jsonFile?.exists === true;
-      const hasDatabaseMappings = (picsStatus?.database?.totalMappings || 0) > 1000;
-
-      if (hasJsonFile && !hasDatabaseMappings) {
-        setDownloadStatus('Importing existing depot mappings from file...');
-        console.log('[DepotInit] Importing JSON file to database before rebuild');
-
-        // Import JSON to database first
-        await fetch('/api/depots/import?source=github', {
-          method: 'POST',
-          headers: ApiService.getHeaders()
-        });
-
-        setDownloadStatus('Import complete! Starting incremental update...');
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      } else {
-        setDownloadStatus('Starting incremental update...');
-      }
-
-      console.log('[DepotInit] Triggering incremental rebuild');
-      const response = await ApiService.triggerSteamKitRebuild(true);
-      console.log('[DepotInit] Backend response:', response);
-
-      // Check if backend says full scan is required
-      if (response.requiresFullScan) {
-        console.log(
-          '[DepotInit] Backend requires full scan - automatically retrying with full scan'
-        );
-        setDownloadStatus(
-          `Change gap too large (${response.changeGap || 'unknown'}). Starting full scan instead...`
-        );
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        // Retry with full scan
-        const fullScanResponse = await ApiService.triggerSteamKitRebuild(false);
-        console.log('[DepotInit] Full scan response:', fullScanResponse);
-
-        // If full scan also fails, show error
-        if (fullScanResponse.requiresFullScan) {
-          console.error('[DepotInit] Full scan also returned requiresFullScan');
-          setError('Unable to start scan. Please try downloading from GitHub instead.');
-          setInitializing(false);
-          setSelectedMethod(null);
-          setDownloadStatus(null);
-          storage.removeItem('initializationInProgress');
-          storage.removeItem('initializationMethod');
-          storage.removeItem('initializationDownloadStatus');
-          return;
-        }
-      }
-
-      setDownloadStatus('Success! Moving to next step...');
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      console.log('[DepotInit] Changing step to pics-progress');
-      setInitializing(false);
-      setSelectedMethod(null);
-      setDownloadStatus(null);
-      // Clear localStorage since continue started successfully
-      storage.removeItem('initializationInProgress');
-      storage.removeItem('initializationMethod');
-      storage.removeItem('initializationDownloadStatus');
-      setCurrentStep('pics-progress');
-      console.log('[DepotInit] Step changed to pics-progress');
-    } catch (err: any) {
-      console.error('[DepotInit] Error in handleContinue:', err);
-      setError(err.message || 'Failed to run incremental update');
-      setInitializing(false);
-      setSelectedMethod(null);
-      setDownloadStatus(null);
-      // Clear localStorage on error
-      storage.removeItem('initializationInProgress');
-      storage.removeItem('initializationMethod');
-      storage.removeItem('initializationDownloadStatus');
+      setCurrentStep('import-historical-data');
     }
   };
 
   const handleContinueAsAdmin = async () => {
-    // When auth is disabled, just move to next step without authentication
     onAuthChanged?.();
+    await checkPicsDataStatus();
+    setCurrentStep('import-historical-data');
+  };
+
+  // Step 2: Import Historical Data
+  const handleImportComplete = () => {
+    setCurrentStep('data-source-choice');
+  };
+
+  // Step 3: Data Source Choice
+  const handleChooseGithub = () => {
+    setDataSourceChoice('github');
+    setCurrentStep('depot-init');
+  };
+
+  const handleChooseSteam = () => {
+    setDataSourceChoice('steam');
+    setCurrentStep('steam-api-key');
+  };
+
+  // Step 4: Steam API Key
+  const handleSteamApiKeyComplete = async () => {
     await checkPicsDataStatus();
     setCurrentStep('steam-auth');
   };
+
+  // Step 5: Steam Auth
+  const handleSteamAuthComplete = async (usingSteam: boolean) => {
+    setUsingSteamAuth(usingSteam);
+    await checkPicsDataStatus();
+    setCurrentStep('depot-init');
+  };
+
+  // Step 6: Depot Init
+  const handleDepotInitComplete = () => {
+    // GitHub download completed - skip to log processing
+    setCurrentStep('log-processing');
+  };
+
+  const handleDepotInitGenerateOwn = () => {
+    // User clicked "Generate Fresh" - advance to PICS progress
+    setCurrentStep('pics-progress');
+  };
+
+  const handleDepotInitContinue = () => {
+    // User clicked "Continue" (incremental update) - advance to PICS progress
+    setCurrentStep('pics-progress');
+  };
+
+  // Step 7: PICS Progress
+  const handlePicsProgressComplete = () => {
+    setCurrentStep('log-processing');
+  };
+
+  // Step 8: Log Processing
+  const handleLogProcessingComplete = () => {
+    setCurrentStep('depot-mapping');
+  };
+
+  const handleLogProcessingSkip = async () => {
+    await markSetupCompleted();
+    handleInitializationComplete();
+  };
+
+  // Step 9: Depot Mapping
+  const handleDepotMappingComplete = async () => {
+    await markSetupCompleted();
+    handleInitializationComplete();
+  };
+
+  const handleDepotMappingSkip = async () => {
+    await markSetupCompleted();
+    handleInitializationComplete();
+  };
+
+  // Back button navigation
+  const handleGoBack = () => {
+    switch (currentStep) {
+      case 'import-historical-data':
+        setCurrentStep('api-key');
+        break;
+      case 'data-source-choice':
+        setCurrentStep('import-historical-data');
+        break;
+      case 'steam-api-key':
+        setCurrentStep('data-source-choice');
+        break;
+      case 'steam-auth':
+        setCurrentStep(dataSourceChoice === 'steam' ? 'steam-api-key' : 'data-source-choice');
+        break;
+      case 'depot-init':
+        if (dataSourceChoice === 'steam') {
+          setCurrentStep('steam-auth');
+        } else {
+          setCurrentStep('data-source-choice');
+        }
+        break;
+      case 'pics-progress':
+        setCurrentStep('depot-init');
+        break;
+      case 'log-processing':
+        setCurrentStep('depot-init');
+        break;
+      case 'depot-mapping':
+        setCurrentStep('log-processing');
+        break;
+      default:
+        break;
+    }
+  };
+
+  const canGoBack = currentStep !== 'api-key' && !backButtonDisabled;
 
   const renderStep = () => {
     switch (currentStep) {
@@ -578,28 +414,35 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           />
         );
 
-      case 'steam-auth':
+      case 'import-historical-data':
         return (
-          <SteamPicsAuthStep
-            onComplete={async (usingSteam: boolean) => {
-              setUsingSteamAuth(usingSteam);
-              await checkPicsDataStatus();
-              setCurrentStep('depot-init');
-            }}
+          <ImportHistoricalDataStep onComplete={handleImportComplete} onSkip={handleImportComplete} />
+        );
+
+      case 'data-source-choice':
+        return (
+          <DataSourceChoiceStep
+            onChooseGithub={handleChooseGithub}
+            onChooseSteam={handleChooseSteam}
           />
         );
+
+      case 'steam-api-key':
+        return <SteamApiKeyStep onComplete={handleSteamApiKeyComplete} />;
+
+      case 'steam-auth':
+        return <SteamPicsAuthStep onComplete={handleSteamAuthComplete} />;
 
       case 'depot-init':
         return (
           <DepotInitStep
             picsData={picsData}
-            initializing={initializing}
-            selectedMethod={selectedMethod}
-            downloadStatus={downloadStatus}
             usingSteamAuth={usingSteamAuth}
-            onDownloadPrecreated={handleDownloadPrecreated}
-            onGenerateOwn={handleGenerateOwn}
-            onContinue={handleContinue}
+            hideOptions={dataSourceChoice === 'github'}
+            onDownloadPrecreated={handleDepotInitComplete}
+            onGenerateOwn={handleDepotInitGenerateOwn}
+            onContinue={handleDepotInitContinue}
+            onComplete={handleDepotInitComplete}
             onBackToSteamAuth={() => {
               setUsingSteamAuth(false);
               setCurrentStep('steam-auth');
@@ -608,31 +451,25 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         );
 
       case 'pics-progress':
-        return <PicsProgressStep onComplete={() => setCurrentStep('log-processing')} />;
+        return (
+          <PicsProgressStep
+            onComplete={handlePicsProgressComplete}
+            onProcessingStateChange={setBackButtonDisabled}
+          />
+        );
 
       case 'log-processing':
         return (
           <LogProcessingStep
-            onComplete={() => setCurrentStep('depot-mapping')}
-            onSkip={async () => {
-              await markSetupCompleted();
-              handleInitializationComplete();
-            }}
+            onComplete={handleLogProcessingComplete}
+            onSkip={handleLogProcessingSkip}
+            onProcessingStateChange={setBackButtonDisabled}
           />
         );
 
       case 'depot-mapping':
         return (
-          <DepotMappingStep
-            onComplete={async () => {
-              await markSetupCompleted();
-              handleInitializationComplete();
-            }}
-            onSkip={async () => {
-              await markSetupCompleted();
-              handleInitializationComplete();
-            }}
-          />
+          <DepotMappingStep onComplete={handleDepotMappingComplete} onSkip={handleDepotMappingSkip} />
         );
 
       default:
@@ -657,16 +494,62 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           borderColor: 'var(--theme-primary)'
         }}
       >
-        {/* Step Indicator - Top Left */}
-        <div
-          className="absolute top-4 left-4 px-3 py-1.5 rounded-full text-xs font-semibold"
-          style={{
-            backgroundColor: 'var(--theme-primary)/10',
-            color: 'var(--theme-primary)',
-            border: '1px solid var(--theme-primary)/30'
-          }}
-        >
-          Step {STEP_INFO[currentStep].number} of {STEP_INFO[currentStep].total}
+        {/* Step Indicator & Back Button - Top Left */}
+        <div className="absolute top-4 left-4 flex items-center gap-3">
+          {/* Back Button */}
+          {currentStep !== 'api-key' && (
+            <button
+              onClick={backButtonDisabled ? undefined : handleGoBack}
+              disabled={backButtonDisabled}
+              className="group flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200"
+              style={{
+                backgroundColor: backButtonDisabled
+                  ? 'var(--theme-bg-tertiary)'
+                  : 'var(--theme-bg-tertiary)',
+                color: backButtonDisabled ? 'var(--theme-text-muted)' : 'var(--theme-text-secondary)',
+                border: `1px solid ${backButtonDisabled ? 'var(--theme-border-tertiary)' : 'var(--theme-border-secondary)'}`,
+                cursor: backButtonDisabled ? 'not-allowed' : 'pointer',
+                opacity: backButtonDisabled ? 0.5 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!backButtonDisabled) {
+                  e.currentTarget.style.backgroundColor = 'var(--theme-primary)/10';
+                  e.currentTarget.style.borderColor = 'var(--theme-primary)/30';
+                  e.currentTarget.style.color = 'var(--theme-primary)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!backButtonDisabled) {
+                  e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
+                  e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
+                  e.currentTarget.style.color = 'var(--theme-text-secondary)';
+                }
+              }}
+              title={
+                backButtonDisabled
+                  ? 'Cannot go back while operation is in progress'
+                  : 'Go back to previous step'
+              }
+            >
+              <ArrowLeft
+                size={14}
+                className={`transition-transform duration-200 ${!backButtonDisabled && 'group-hover:-translate-x-0.5'}`}
+              />
+              <span className="hidden sm:inline">Back</span>
+            </button>
+          )}
+
+          {/* Step Indicator */}
+          <div
+            className="px-3 py-1.5 rounded-full text-xs font-semibold"
+            style={{
+              backgroundColor: 'var(--theme-primary)/10',
+              color: 'var(--theme-primary)',
+              border: '1px solid var(--theme-primary)/30'
+            }}
+          >
+            Step {STEP_INFO[currentStep].number} of {STEP_INFO[currentStep].total}
+          </div>
         </div>
 
         {/* Header */}
@@ -691,20 +574,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
         {/* Content - Render current step */}
         <div className="mb-8">{renderStep()}</div>
-
-        {/* Error Display */}
-        {error && (
-          <div
-            className="p-4 rounded-lg mb-4"
-            style={{
-              backgroundColor: 'var(--theme-error-bg)',
-              borderColor: 'var(--theme-error)',
-              color: 'var(--theme-error-text)'
-            }}
-          >
-            <p className="text-sm">{error}</p>
-          </div>
-        )}
       </div>
     </div>
   );

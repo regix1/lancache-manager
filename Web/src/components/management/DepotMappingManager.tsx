@@ -114,9 +114,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             // Restore loading state
             setActionLoading(true);
             setOperationType(data.operationType);
+            // Sync depotSource from backend if available
             if (data.depotSource) {
               setDepotSource(data.depotSource);
               storage.setItem('depotSource', data.depotSource);
+            } else if (data.crawlIncrementalMode === 'github') {
+              // If backend is in GitHub mode but depotSource isn't set, sync it
+              setDepotSource('github');
+              storage.setItem('depotSource', 'github');
             }
             // SignalR will handle the completion when it arrives
           }
@@ -325,6 +330,27 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       storage.removeItem('githubDownloading'); // Make sure this is also cleared
     }
   }, [depotConfig?.isRunning, githubDownloadComplete]);
+
+  // Sync "Apply Now Source" with automatic schedule mode
+  useEffect(() => {
+    if (!depotConfig) return;
+
+    // Sync depotSource to match the backend's crawlIncrementalMode
+    const backendMode = depotConfig.crawlIncrementalMode;
+    if (backendMode === 'github' && depotSource !== 'github' && steamAuthMode !== 'authenticated') {
+      console.log('[DepotMapping] Syncing Apply Now Source to GitHub (matches automatic schedule)');
+      setDepotSource('github');
+      storage.setItem('depotSource', 'github');
+    } else if (backendMode === true && depotSource !== 'incremental') {
+      console.log('[DepotMapping] Syncing Apply Now Source to Incremental (matches automatic schedule)');
+      setDepotSource('incremental');
+      storage.setItem('depotSource', 'incremental');
+    } else if (backendMode === false && depotSource !== 'full') {
+      console.log('[DepotMapping] Syncing Apply Now Source to Full (matches automatic schedule)');
+      setDepotSource('full');
+      storage.setItem('depotSource', 'full');
+    }
+  }, [depotConfig?.crawlIncrementalMode, steamAuthMode]);
 
   // Auto-switch away from GitHub when Steam auth mode changes to authenticated
   useEffect(() => {
@@ -980,6 +1006,11 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                         },
                         body: JSON.stringify(0.5)
                       });
+
+                      // IMPORTANT: Also update the "Apply Now Source" to match
+                      // When user selects GitHub schedule, they likely want GitHub for manual apply too
+                      setDepotSource('github');
+                      storage.setItem('depotSource', 'github');
                     }
 
                     // Set scan mode

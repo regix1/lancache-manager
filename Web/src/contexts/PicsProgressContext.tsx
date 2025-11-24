@@ -162,7 +162,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
               status: payload.status || 'Running',
               totalApps: payload.totalApps || prev.totalApps,
               processedApps: payload.processedApps || 0,
-              progressPercent: payload.progressPercent || 0,
+              // Backend sends 'percentComplete', map it to 'progressPercent'
+              progressPercent: payload.percentComplete ?? payload.progressPercent ?? 0,
               startTime: payload.startTime || new Date().toISOString()
             }
           : null
@@ -181,7 +182,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
               processedApps: payload.processedApps || prev.processedApps,
               totalBatches: payload.totalBatches || prev.totalBatches,
               processedBatches: payload.processedBatches || prev.processedBatches,
-              progressPercent: payload.progressPercent || prev.progressPercent,
+              // Backend sends 'percentComplete', map it to 'progressPercent'
+              progressPercent: payload.percentComplete ?? payload.progressPercent ?? prev.progressPercent,
               depotMappingsFound: payload.depotMappingsFound || prev.depotMappingsFound,
               failedBatches: payload.failedBatches,
               remainingApps: payload.remainingApps

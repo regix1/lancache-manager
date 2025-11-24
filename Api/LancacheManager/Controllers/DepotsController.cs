@@ -319,6 +319,7 @@ public class DepotsController : ControllerBase
         }
     }
 
+
     /// <summary>
     /// PUT /api/depots/rebuild/config/interval - Set the automatic crawl interval
     /// RESTful: PUT is proper method for updating configuration
