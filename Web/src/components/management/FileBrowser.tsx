@@ -184,8 +184,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
       <div className="space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h4 className="text-md font-semibold text-themed-primary flex items-center gap-2">
-            <Database className="w-4 h-4" />
+          <h4 className="text-md font-semibold text-themed-primary">
             Browse Server Filesystem
           </h4>
           {currentPath && (
@@ -253,7 +252,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
 
         {/* Items List */}
         {!loading && displayItems.length > 0 && (
-          <div className="space-y-1 max-h-96 overflow-y-auto rounded-lg border-themed-secondary">
+          <div className="space-y-1 max-h-[32rem] overflow-y-auto rounded-lg border border-themed-secondary p-2 custom-scrollbar">
             {displayItems.map((item, index) => (
               <FileItemRow
                 key={index}

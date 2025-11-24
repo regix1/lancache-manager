@@ -202,25 +202,33 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
       <div className="space-y-4">
         {/* Browse/Manual Toggle */}
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            onClick={() => setUseBrowser(true)}
-            size="xs"
-            variant={useBrowser ? 'filled' : 'default'}
-            color="blue"
-            disabled={mockMode || !isAuthenticated}
-          >
-            Browse
-          </Button>
-          <Button
-            onClick={() => setUseBrowser(false)}
-            size="xs"
-            variant={!useBrowser ? 'filled' : 'default'}
-            color="blue"
-            disabled={mockMode || !isAuthenticated}
-          >
-            Manual
-          </Button>
+        <div className="flex items-center gap-4">
+          <div
+            className="flex-1 h-[2px] rounded-full"
+            style={{
+              background: 'repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px)'
+            }}
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setUseBrowser(true)}
+              size="xs"
+              variant={useBrowser ? 'filled' : 'default'}
+              color="blue"
+              disabled={mockMode || !isAuthenticated}
+            >
+              Browse
+            </Button>
+            <Button
+              onClick={() => setUseBrowser(false)}
+              size="xs"
+              variant={!useBrowser ? 'filled' : 'default'}
+              color="blue"
+              disabled={mockMode || !isAuthenticated}
+            >
+              Manual
+            </Button>
+          </div>
         </div>
 
         {/* File Browser or Manual Input */}
