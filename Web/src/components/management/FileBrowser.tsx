@@ -6,12 +6,12 @@ import {
   ArrowLeft,
   Home,
   Loader2,
-  Database,
   Search
 } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 
@@ -252,15 +252,17 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
 
         {/* Items List */}
         {!loading && displayItems.length > 0 && (
-          <div className="space-y-1 max-h-[32rem] overflow-y-auto rounded-lg border border-themed-secondary p-2 custom-scrollbar">
-            {displayItems.map((item, index) => (
-              <FileItemRow
-                key={index}
-                item={item}
-                selectedFile={selectedFile}
-                onItemClick={handleItemClick}
-              />
-            ))}
+          <div className="rounded-lg border border-themed-secondary p-2">
+            <CustomScrollbar maxHeight="32rem" className="space-y-1">
+              {displayItems.map((item, index) => (
+                <FileItemRow
+                  key={index}
+                  item={item}
+                  selectedFile={selectedFile}
+                  onItemClick={handleItemClick}
+                />
+              ))}
+            </CustomScrollbar>
           </div>
         )}
 
