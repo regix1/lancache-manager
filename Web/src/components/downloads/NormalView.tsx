@@ -283,11 +283,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </span>
                 )}
               </div>
-              <h3
-                className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate flex-1`}
-              >
-                {group.name}
-              </h3>
+              {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                <h3
+                  className={`${fullHeightBanners ? 'text-base sm:text-lg' : 'text-lg sm:text-xl'} font-bold text-[var(--theme-text-primary)] truncate flex-1`}
+                >
+                  {group.name}
+                </h3>
+              )}
             </div>
 
             {/* Stats Grid - Better aligned */}
@@ -849,7 +851,7 @@ const NormalView: React.FC<NormalViewProps> = ({
 
     const fakeGroup = {
       id: `individual-${download.id}`,
-      name: download.gameName || 'Unknown Game',
+      name: download.gameName || download.service,
       type: 'game' as const,
       service: download.service,
       downloads: [download],

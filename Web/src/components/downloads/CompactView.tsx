@@ -180,9 +180,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
           >
             {group.service.toUpperCase()}
           </span>
-          <span className="text-sm sm:text-base font-medium text-[var(--theme-text-primary)] truncate">
-            {group.name}
-          </span>
+          {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+            <span className="text-sm sm:text-base font-medium text-[var(--theme-text-primary)] truncate">
+              {group.name}
+            </span>
+          )}
           <span className="hidden sm:inline text-sm text-themed-muted flex-shrink-0">
             {group.count} download{group.count !== 1 ? 's' : ''}
           </span>
@@ -498,7 +500,7 @@ const CompactView: React.FC<CompactViewProps> = ({
     // Create a fake group-like structure for individual downloads to match grouped style
     const fakeGroup = {
       id: `individual-${download.id}`,
-      name: download.gameName || 'Unknown Game',
+      name: download.gameName || download.service,
       type: 'game' as const,
       service: download.service,
       downloads: [download],

@@ -55,13 +55,15 @@ const ActiveDownloadRow: React.FC<ActiveDownloadRowProps> = ({ download }) => {
               className="inline-block w-2 h-2 rounded-full animate-pulse"
               style={{ backgroundColor: 'var(--theme-success)' }}
             ></span>
-            <div className="text-sm font-medium text-themed-primary truncate flex items-center gap-2">
-              <span>{download.gameName || 'Unknown Game'}</span>
-              <Loader2
-                className="w-4 h-4 animate-spin"
-                style={{ color: 'var(--theme-primary)' }}
-              />
-            </div>
+            {download.gameName && (
+              <div className="text-sm font-medium text-themed-primary truncate flex items-center gap-2">
+                <span>{download.gameName}</span>
+                <Loader2
+                  className="w-4 h-4 animate-spin"
+                  style={{ color: 'var(--theme-primary)' }}
+                />
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
@@ -125,7 +127,8 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
         startTime: item.lastSeen,
         clientIp: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
         count: item.count,
-        type: item.type
+        type: item.type,
+        hasGameName: item.downloads.some((d: any) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/))
       }
     : {
         service: item.service,
@@ -134,7 +137,7 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
           item.gameName !== 'Unknown Steam Game' &&
           !item.gameName.match(/^Steam App \d+$/)
             ? item.gameName
-            : 'Individual Download',
+            : item.service,
         totalBytes: item.totalBytes,
         totalDownloaded: item.totalBytes,
         cacheHitBytes: item.cacheHitBytes,
@@ -143,7 +146,10 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
         startTime: item.startTimeUtc,
         clientIp: item.clientIp,
         count: 1,
-        type: 'individual'
+        type: 'individual',
+        hasGameName: item.gameName &&
+          item.gameName !== 'Unknown Steam Game' &&
+          !item.gameName.match(/^Steam App \d+$/)
       };
 
   const formattedStartTime = useFormattedDateTime(display.startTime);
@@ -164,20 +170,27 @@ const RecentDownloadRow: React.FC<RecentDownloadRowProps> = ({ item }) => {
     >
       <div className="flex justify-between items-start mb-2">
         <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="text-sm font-medium text-themed-primary truncate">
-              {display.name}
+          {('hasGameName' in display && display.hasGameName) && (
+            <div className="flex items-center gap-2 mb-1">
+              <div className="text-sm font-medium text-themed-primary truncate">
+                {display.name}
+              </div>
+              {isGroup && (
+                <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
+                  {display.count}×
+                </span>
+              )}
             </div>
-            {isGroup && (
-              <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
-                {display.count}×
-              </span>
-            )}
-          </div>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-xs px-2 py-0.5 rounded bg-themed-accent bg-opacity-10 text-themed-accent font-medium">
               {display.service}
             </span>
+            {isGroup && !('hasGameName' in display && display.hasGameName) && (
+              <span className="text-xs px-2 py-0.5 rounded bg-themed-tertiary text-themed-secondary">
+                {display.count}×
+              </span>
+            )}
             <span className="text-xs text-themed-muted">{display.clientIp}</span>
           </div>
         </div>
