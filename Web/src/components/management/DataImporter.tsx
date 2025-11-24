@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Database, HelpCircle, AlertTriangle } from 'lucide-react';
+import { Database, HelpCircle, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -259,18 +259,40 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <label className="block text-sm font-medium text-themed-primary mb-2">
               Batch Size
             </label>
-            <input
-              type="number"
-              value={batchSize}
-              onChange={(e) => setBatchSize(parseInt(e.target.value) || 1000)}
-              min="100"
-              max="10000"
-              step="100"
-              className="w-full px-3 py-2 rounded-lg transition-colors
-                       bg-themed-secondary text-themed-primary
-                       border border-themed-secondary focus:border-themed-focus"
-              disabled={mockMode || !isAuthenticated}
-            />
+            <div className="number-input-wrapper">
+              <input
+                type="number"
+                value={batchSize}
+                onChange={(e) => setBatchSize(parseInt(e.target.value) || 1000)}
+                min="100"
+                max="10000"
+                step="100"
+                className="w-full px-3 py-2 rounded-lg transition-colors
+                         bg-themed-secondary text-themed-primary
+                         border border-themed-secondary focus:border-themed-focus"
+                disabled={mockMode || !isAuthenticated}
+              />
+              <div className="spinner-buttons">
+                <button
+                  type="button"
+                  className="spinner-btn up"
+                  onClick={() => setBatchSize(Math.min(10000, batchSize + 100))}
+                  disabled={mockMode || !isAuthenticated}
+                  aria-label="Increase batch size"
+                >
+                  <ChevronUp />
+                </button>
+                <button
+                  type="button"
+                  className="spinner-btn down"
+                  onClick={() => setBatchSize(Math.max(100, batchSize - 100))}
+                  disabled={mockMode || !isAuthenticated}
+                  aria-label="Decrease batch size"
+                >
+                  <ChevronDown />
+                </button>
+              </div>
+            </div>
             <p className="text-xs text-themed-muted mt-1">
               Number of records to process at once (100-10000)
             </p>
