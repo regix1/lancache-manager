@@ -622,73 +622,79 @@ const DownloadsTab: React.FC = () => {
           ? compactViewItems
           : filteredDownloads;
 
-    // Apply sorting while preserving Multiple vs Single categorization
+    // Define the sort function
+    const sortFn = (a: Download | DownloadGroup, b: Download | DownloadGroup) => {
+      switch (settings.sortOrder) {
+        case 'oldest':
+          const aTime =
+            'downloads' in a
+              ? Math.min(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+              : new Date(a.startTimeUtc).getTime();
+          const bTime =
+            'downloads' in b
+              ? Math.min(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+              : new Date(b.startTimeUtc).getTime();
+          return aTime - bTime;
+        case 'largest':
+          const aBytes = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
+          const bBytes = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
+          return bBytes - aBytes;
+        case 'smallest':
+          const aBytesSmall = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
+          const bBytesSmall = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
+          return aBytesSmall - bBytesSmall;
+        case 'service':
+          const serviceCompare = a.service.localeCompare(b.service);
+          if (serviceCompare !== 0) return serviceCompare;
+          const aLatest =
+            'downloads' in a
+              ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+              : new Date(a.startTimeUtc).getTime();
+          const bLatest =
+            'downloads' in b
+              ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+              : new Date(b.startTimeUtc).getTime();
+          return bLatest - aLatest;
+        case 'latest':
+        default:
+          const aLatestDefault =
+            'downloads' in a
+              ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+              : new Date(a.startTimeUtc).getTime();
+          const bLatestDefault =
+            'downloads' in b
+              ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
+              : new Date(b.startTimeUtc).getTime();
+          return bLatestDefault - aLatestDefault;
+      }
+    };
+
+    // Apply sorting
     if (settings.viewMode === 'normal' || settings.viewMode === 'compact') {
       const mixedItems = [...items] as (Download | DownloadGroup)[];
 
-      // Separate items into categories first
-      const multipleDownloads = mixedItems.filter(
-        (item) => 'downloads' in item && item.downloads.length > 1
-      );
-      const singleDownloads = mixedItems.filter(
-        (item) => 'downloads' in item && item.downloads.length === 1
-      );
-      const individuals = mixedItems.filter((item) => !('downloads' in item));
+      // When sorting by service, sort all items together without frequency grouping
+      if (settings.sortOrder === 'service') {
+        mixedItems.sort(sortFn);
+        items = mixedItems;
+      } else {
+        // For other sort orders, preserve Multiple vs Single categorization
+        const multipleDownloads = mixedItems.filter(
+          (item) => 'downloads' in item && item.downloads.length > 1
+        );
+        const singleDownloads = mixedItems.filter(
+          (item) => 'downloads' in item && item.downloads.length === 1
+        );
+        const individuals = mixedItems.filter((item) => !('downloads' in item));
 
-      // Sort each category separately
-      const sortFn = (a: Download | DownloadGroup, b: Download | DownloadGroup) => {
-        switch (settings.sortOrder) {
-          case 'oldest':
-            const aTime =
-              'downloads' in a
-                ? Math.min(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-                : new Date(a.startTimeUtc).getTime();
-            const bTime =
-              'downloads' in b
-                ? Math.min(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-                : new Date(b.startTimeUtc).getTime();
-            return aTime - bTime;
-          case 'largest':
-            const aBytes = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
-            const bBytes = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
-            return bBytes - aBytes;
-          case 'smallest':
-            const aBytesSmall = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
-            const bBytesSmall = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
-            return aBytesSmall - bBytesSmall;
-          case 'service':
-            const serviceCompare = a.service.localeCompare(b.service);
-            if (serviceCompare !== 0) return serviceCompare;
-            const aLatest =
-              'downloads' in a
-                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-                : new Date(a.startTimeUtc).getTime();
-            const bLatest =
-              'downloads' in b
-                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-                : new Date(b.startTimeUtc).getTime();
-            return bLatest - aLatest;
-          case 'latest':
-          default:
-            const aLatestDefault =
-              'downloads' in a
-                ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-                : new Date(a.startTimeUtc).getTime();
-            const bLatestDefault =
-              'downloads' in b
-                ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-                : new Date(b.startTimeUtc).getTime();
-            return bLatestDefault - aLatestDefault;
-        }
-      };
+        // Sort each category
+        multipleDownloads.sort(sortFn);
+        singleDownloads.sort(sortFn);
+        individuals.sort(sortFn);
 
-      // Sort each category
-      multipleDownloads.sort(sortFn);
-      singleDownloads.sort(sortFn);
-      individuals.sort(sortFn);
-
-      // Combine categories in the correct order
-      items = [...multipleDownloads, ...singleDownloads, ...individuals];
+        // Combine categories in the correct order
+        items = [...multipleDownloads, ...singleDownloads, ...individuals];
+      }
     }
 
     return items;
