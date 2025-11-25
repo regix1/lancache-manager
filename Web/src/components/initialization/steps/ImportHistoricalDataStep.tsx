@@ -3,7 +3,7 @@ import { Database, Loader2, CheckCircle, XCircle, FolderOpen } from 'lucide-reac
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
 import ApiService from '@services/api.service';
-import FileBrowser from '@components/management/FileBrowser';
+import FileBrowser from '@components/features/management/file-browser/FileBrowser';
 import { storage } from '@utils/storage';
 
 interface ImportHistoricalDataStepProps {

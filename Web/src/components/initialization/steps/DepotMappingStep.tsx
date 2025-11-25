@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Map, Loader2, CheckCircle, Home } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
-import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
+import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 

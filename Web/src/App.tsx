@@ -20,9 +20,9 @@ import Footer from '@components/layout/Footer';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
-import DepotInitializationModal from '@components/initialization/DepotInitializationModal';
-import AuthenticationModal from '@components/auth/AuthenticationModal';
-import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
+import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
+import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
+import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
 import { storage } from '@utils/storage';
@@ -33,14 +33,14 @@ import heartbeatService from '@services/heartbeat.service';
 import { useActivityTracker } from '@hooks/useActivityTracker';
 
 // Lazy load heavy components
-const Dashboard = lazy(() => import('@components/dashboard/Dashboard'));
-const DownloadsTab = lazy(() => import('@components/downloads/DownloadsTab'));
-const ClientsTab = lazy(() => import('@components/clients/ClientsTab'));
-const ServicesTab = lazy(() => import('@components/services/ServicesTab'));
-const AuthenticateTab = lazy(() => import('@components/auth/AuthenticateTab'));
-const UserTab = lazy(() => import('@components/user/UserTab'));
-const ManagementTab = lazy(() => import('@components/management/ManagementTab'));
-const MemoryDiagnostics = lazy(() => import('@components/memory/MemoryDiagnostics'));
+const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
+const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
+const ClientsTab = lazy(() => import('@components/features/clients/ClientsTab'));
+const ServicesTab = lazy(() => import('@components/features/services/ServicesTab'));
+const AuthenticateTab = lazy(() => import('@components/features/auth/AuthenticateTab'));
+const UserTab = lazy(() => import('@components/features/user/UserTab'));
+const ManagementTab = lazy(() => import('@components/features/management/ManagementTab'));
+const MemoryDiagnostics = lazy(() => import('@components/features/memory/MemoryDiagnostics'));
 
 // Wrapper components to inject mockMode from context into providers
 const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {

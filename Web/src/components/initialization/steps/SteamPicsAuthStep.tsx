@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Shield, CheckCircle, Users, User, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { SteamAuthModal } from '@components/auth/SteamAuthModal';
+import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import ApiService from '@services/api.service';
 
