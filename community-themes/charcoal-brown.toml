@@ -1,0 +1,176 @@
+[meta]
+name = "Charcoal & Brown"
+id = "charcoal-brown"
+description = "Deep charcoal blacks with rich coffee browns"
+author = "Community"
+version = "1.0.0"
+isDark = true
+sharpCorners = false
+
+[colors]
+primaryColor = "#8b5a2b"
+secondaryColor = "#a0522d"
+accentColor = "#cd853f"
+bgPrimary = "#1a1a1a"
+bgSecondary = "#252525"
+bgTertiary = "#2d2d2d"
+bgHover = "#3a3a3a"
+textPrimary = "#e8e4e0"
+textSecondary = "#c4bfb8"
+textMuted = "#8a8480"
+textAccent = "#d4a574"
+textPlaceholder = "#6a6560"
+borderPrimary = "#3a3a3a"
+borderSecondary = "#4a4a4a"
+borderFocus = "#8b5a2b"
+navBg = "#1f1f1f"
+navBorder = "#3a3a3a"
+navTabActive = "#8b5a2b"
+navTabInactive = "#8a8480"
+navTabHover = "#e8e4e0"
+navTabActiveBorder = "#8b5a2b"
+navMobileMenuBg = "#1f1f1f"
+navMobileItemHover = "#2d2d2d"
+success = "#6b8e4e"
+successBg = "#2a3528"
+successText = "#a5c48a"
+warning = "#d4a574"
+warningBg = "#3d3228"
+warningText = "#e8c9a8"
+error = "#c45c4a"
+errorBg = "#3d2828"
+errorText = "#e8a598"
+info = "#7a8fa4"
+infoBg = "#282d35"
+infoText = "#a8c0d8"
+steamColor = "#7a8fa4"
+epicColor = "#a0522d"
+originColor = "#cd853f"
+blizzardColor = "#6b8e9f"
+wsusColor = "#8b7355"
+riotColor = "#c45c4a"
+cardBg = "#222222"
+cardBorder = "#3a3a3a"
+buttonBg = "#8b5a2b"
+buttonHover = "#6b4423"
+buttonText = "#ffffff"
+inputBg = "#2d2d2d"
+inputBorder = "#4a4a4a"
+inputFocus = "#8b5a2b"
+checkboxAccent = "#8b5a2b"
+checkboxBorder = "#4a4a4a"
+checkboxBg = "#252525"
+checkboxCheckmark = "#ffffff"
+checkboxShadow = "none"
+checkboxHoverShadow = "0 0 0 3px rgba(139, 90, 43, 0.15)"
+checkboxHoverBg = "#3a3a3a"
+checkboxFocus = "#8b5a2b"
+sliderAccent = "#8b5a2b"
+sliderThumb = "#8b5a2b"
+sliderTrack = "#2d2d2d"
+progressBg = "#2d2d2d"
+hitRateHighBg = "#2a3528"
+hitRateHighText = "#a5c48a"
+hitRateMediumBg = "#282d35"
+hitRateMediumText = "#a8c0d8"
+hitRateLowBg = "#3d3228"
+hitRateLowText = "#d4a574"
+hitRateWarningBg = "#3d2828"
+hitRateWarningText = "#e8a598"
+actionResetBg = "#d4a574"
+actionResetHover = "#b8935f"
+actionProcessBg = "#6b8e4e"
+actionProcessHover = "#5a7a40"
+actionDeleteBg = "#c45c4a"
+actionDeleteHover = "#a84a3a"
+iconBgBlue = "#5a7a8f"
+iconBgGreen = "#6b8e4e"
+iconBgEmerald = "#5a8b6a"
+iconBgPurple = "#7a5a6f"
+iconBgIndigo = "#5a5a8a"
+iconBgOrange = "#a0522d"
+iconBgYellow = "#8b7355"
+iconBgCyan = "#5a7a7a"
+iconBgRed = "#8b4a4a"
+chartColor1 = "#8b5a2b"
+chartColor2 = "#6b8e4e"
+chartColor3 = "#d4a574"
+chartColor4 = "#c45c4a"
+chartColor5 = "#a0522d"
+chartColor6 = "#7a8fa4"
+chartColor7 = "#cd853f"
+chartColor8 = "#7a5a6f"
+chartBorderColor = "#222222"
+chartGridColor = "#3a3a3a"
+chartTextColor = "#8a8480"
+chartCacheHitColor = "#6b8e4e"
+chartCacheMissColor = "#d4a574"
+scrollbarTrack = "#252525"
+scrollbarThumb = "#4a4a4a"
+scrollbarHover = "#5a5a5a"
+publicAccessBg = "rgba(107, 142, 78, 0.2)"
+publicAccessText = "#a5c48a"
+publicAccessBorder = "rgba(107, 142, 78, 0.3)"
+securedAccessBg = "rgba(212, 165, 116, 0.2)"
+securedAccessText = "#e8c9a8"
+securedAccessBorder = "rgba(212, 165, 116, 0.3)"
+userSessionColor = "#8b5a2b"
+userSessionBg = "rgba(139, 90, 43, 0.15)"
+guestSessionColor = "#7a8fa4"
+guestSessionBg = "rgba(122, 143, 164, 0.15)"
+activeSessionColor = "#cd853f"
+activeSessionBg = "rgba(205, 133, 63, 0.15)"
+dragHandleColor = "#6a6560"
+dragHandleHover = "#d4a574"
+
+[css]
+content = """
+/* Charcoal & Brown Theme - Deep and Rich */
+
+/* Subtle warmth on cards */
+.themed-card {
+  background-image:
+    linear-gradient(
+      145deg,
+      rgba(139, 90, 43, 0.02) 0%,
+      transparent 60%,
+      rgba(139, 90, 43, 0.02) 100%
+    );
+  transition: all 0.2s ease;
+}
+
+.themed-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Brown focus glow */
+*:focus-visible {
+  box-shadow: 0 0 0 2px rgba(139, 90, 43, 0.3);
+  outline: none;
+}
+
+/* Warm button shadows */
+button {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  transition: all 0.15s ease;
+}
+
+button:hover {
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+/* Deep scrollbar */
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #4a4a4a, #3a3a3a);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #5a5a5a, #4a4a4a);
+}
+"""

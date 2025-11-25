@@ -6,8 +6,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  Lock,
-  Search
+  Lock
 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';

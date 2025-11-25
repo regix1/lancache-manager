@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Info } from 'lucide-react';
 
@@ -103,6 +103,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
             style={{
               left: x + 10,
               top: y + 10,
+              transition: 'none',
               backdropFilter: 'blur(8px)',
               border: '1px solid var(--theme-card-border)',
               boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
@@ -140,9 +141,10 @@ const EdgeTooltip: React.FC<{
   contentClassName: string;
 }> = ({ trigger, content, position, offset, contentClassName }) => {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
+  // Use useLayoutEffect to calculate position before browser paint
+  useLayoutEffect(() => {
     if (!ref.current) return;
 
     const rect = trigger.getBoundingClientRect();
@@ -205,8 +207,10 @@ const EdgeTooltip: React.FC<{
       ref={ref}
       className={`fixed z-[9999] max-w-md px-2.5 py-1.5 text-xs themed-card text-themed-secondary rounded-md shadow-2xl pointer-events-none ${contentClassName}`}
       style={{
-        left: pos.x,
-        top: pos.y,
+        left: pos?.x ?? -9999,
+        top: pos?.y ?? -9999,
+        visibility: pos ? 'visible' : 'hidden',
+        transition: 'none',
         backdropFilter: 'blur(8px)',
         border: '1px solid var(--theme-card-border)',
         boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'

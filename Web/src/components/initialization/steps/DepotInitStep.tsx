@@ -19,7 +19,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   picsData,
   usingSteamAuth = false,
   hideOptions = false,
-  onDownloadPrecreated,
+  onDownloadPrecreated: _onDownloadPrecreated,
   onGenerateOwn,
   onContinue,
   onBackToSteamAuth,

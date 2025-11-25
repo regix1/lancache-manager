@@ -22,11 +22,6 @@ const isErrorStatus = (status?: string): boolean => {
   return normalized === 'error' || normalized === 'failed' || normalized === 'failure';
 };
 
-const isRunningStatus = (status?: string): boolean => {
-  if (!status) return false;
-  const normalized = status.toLowerCase();
-  return normalized === 'running' || normalized === 'processing' || normalized === 'in_progress' || normalized === 'inprogress';
-};
 
 // Unified notification type for all background operations
 export type NotificationType =
@@ -1151,64 +1146,38 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleSteamSessionError = (payload: any) => {
       console.log('[NotificationsContext] SteamSessionError received:', payload);
 
-      // Create a notification for the Steam session error
-      const notificationId = `steam-session-error-${Date.now()}`;
-
-      // Determine notification type based on error type
-      const getNotificationDetails = () => {
+      // Determine title based on error type
+      const getTitle = () => {
         switch (payload.errorType) {
           case 'SessionReplaced':
           case 'LoggedInElsewhere':
-            return {
-              title: 'Steam Session Replaced',
-              icon: 'alert-triangle'
-            };
+            return 'Steam Session Replaced';
           case 'InvalidCredentials':
           case 'AuthenticationRequired':
           case 'SessionExpired':
-            return {
-              title: 'Steam Authentication Required',
-              icon: 'key'
-            };
+            return 'Steam Authentication Required';
           case 'ServerUnavailable':
           case 'ServiceUnavailable':
-            return {
-              title: 'Steam Service Unavailable',
-              icon: 'cloud-off'
-            };
+            return 'Steam Service Unavailable';
           case 'RateLimited':
-            return {
-              title: 'Steam Rate Limited',
-              icon: 'clock'
-            };
+            return 'Steam Rate Limited';
           default:
-            return {
-              title: 'Steam Connection Error',
-              icon: 'alert-circle'
-            };
+            return 'Steam Connection Error';
         }
       };
 
-      const details = getNotificationDetails();
-
-      addNotification({
-        id: notificationId,
+      const id = addNotification({
         type: 'generic',
         status: 'failed',
-        message: payload.message || 'Steam session error occurred',
+        message: `${getTitle()}: ${payload.message || 'Steam session error occurred'}`,
         details: {
-          notificationType: 'error',
-          title: details.title,
-          errorType: payload.errorType,
-          result: payload.result,
-          wasRebuildActive: payload.wasRebuildActive
+          notificationType: 'error'
         }
       });
 
-      // Don't auto-dismiss - user needs to see this
-      // But still schedule auto-dismiss after a longer delay
+      // Auto-dismiss after a longer delay
       setTimeout(() => {
-        scheduleAutoDismiss(notificationId, AUTO_DISMISS_DELAY_MS * 2);
+        scheduleAutoDismiss(id, AUTO_DISMISS_DELAY_MS * 2);
       }, 100);
     };
 

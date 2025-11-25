@@ -42,7 +42,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         const status = await ApiService.getProcessingStatus();
         if (status.isProcessing) {
           setProcessing(true);
-          setProgress(status);
+          setProgress({
+            ...status,
+            progress: status.progress ?? 0,
+            status: status.status ?? 'processing'
+          });
         }
       } catch (error) {
         console.error('[LogProcessing] Failed to check processing status:', error);
