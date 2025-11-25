@@ -6,9 +6,10 @@ import {
   ArrowLeft,
   Home,
   Loader2,
-  Search
+  Search,
+  HardDrive,
+  Database
 } from 'lucide-react';
-import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
@@ -40,32 +41,50 @@ interface FileItemRowProps {
   item: FileSystemItem;
   selectedFile: string | null;
   onItemClick: (item: FileSystemItem) => void;
+  isRootLevel?: boolean;
 }
 
-const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemClick }) => {
+const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemClick, isRootLevel }) => {
   const formattedLastModified = useFormattedDateTime(item.lastModified);
+  const isSelected = selectedFile === item.path;
+  const isDrive = isRootLevel && item.isDirectory;
+  const isDbFile = !item.isDirectory && item.name.endsWith('.db');
 
   return (
     <button
       onClick={() => onItemClick(item)}
       disabled={!item.isAccessible}
-      className={`w-full px-3 py-2 flex items-center gap-3 transition-colors text-left
-        ${!item.isAccessible ? 'opacity-50 cursor-not-allowed' : 'hover:bg-themed-hover cursor-pointer'}
-        ${selectedFile === item.path ? 'bg-themed-accent-subtle' : ''}
+      className={`w-full px-3 py-2.5 flex items-center gap-3 transition-all text-left rounded-lg
+        ${!item.isAccessible ? 'opacity-40 cursor-not-allowed' : 'hover:bg-themed-hover cursor-pointer'}
+        ${isSelected ? 'bg-themed-accent-subtle ring-1 ring-themed-accent' : ''}
       `}
     >
-      <div className="flex-shrink-0">
-        {item.isDirectory ? (
-          <Folder className="w-5 h-5 text-themed-accent" />
+      <div
+        className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
+          isDrive
+            ? 'bg-blue-500/10'
+            : item.isDirectory
+              ? 'bg-amber-500/10'
+              : isDbFile
+                ? 'bg-green-500/10'
+                : 'bg-themed-tertiary'
+        }`}
+      >
+        {isDrive ? (
+          <HardDrive className="w-4 h-4 text-blue-400" />
+        ) : item.isDirectory ? (
+          <Folder className="w-4 h-4 text-amber-400" />
+        ) : isDbFile ? (
+          <Database className="w-4 h-4 text-green-400" />
         ) : (
-          <File className="w-5 h-5 text-themed-secondary" />
+          <File className="w-4 h-4 text-themed-secondary" />
         )}
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-themed-primary truncate">{item.name}</div>
+        <div className="font-medium text-themed-primary truncate text-sm">{item.name}</div>
         {!item.isDirectory && (
-          <div className="text-xs text-themed-muted">
+          <div className="text-xs text-themed-muted mt-0.5">
             {formatSize(item.size)} • {formattedLastModified}
           </div>
         )}
@@ -95,7 +114,8 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<FileSystemItem[]>([]);
 
-  // Load common locations on mount
+  const isRootLevel = currentPath === '/' || currentPath === null || !currentPath.includes('/');
+
   useEffect(() => {
     if (!mockMode && isAuthenticated) {
       loadDirectory(null);
@@ -180,137 +200,154 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
   const displayItems = searchResults.length > 0 ? searchResults : items;
 
   return (
-    <Card>
-      <div className="space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h4 className="text-md font-semibold text-themed-primary">
-            Browse Server Filesystem
-          </h4>
-          {currentPath && (
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={handleGoHome}
-                size="xs"
-                variant="default"
-                leftSection={<Home className="w-3 h-3" />}
-                disabled={loading || mockMode}
-              >
-                Home
-              </Button>
-              {currentPath !== '/' && parentPath !== null && (
-                <Button
-                  onClick={handleBack}
-                  size="xs"
-                  variant="default"
-                  leftSection={<ArrowLeft className="w-3 h-3" />}
-                  disabled={loading || mockMode}
-                >
-                  Back
-                </Button>
-              )}
-            </div>
-          )}
+    <div className="space-y-3">
+      {/* Navigation Bar */}
+      <div
+        className="flex items-center gap-2 p-2 rounded-lg"
+        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+      >
+        <Button
+          onClick={handleGoHome}
+          size="xs"
+          variant={isRootLevel && !currentPath ? 'filled' : 'default'}
+          color="blue"
+          disabled={loading || mockMode}
+          title="Home"
+        >
+          <Home className="w-3.5 h-3.5" />
+        </Button>
+
+        {currentPath !== '/' && parentPath !== null && (
+          <Button
+            onClick={handleBack}
+            size="xs"
+            variant="default"
+            disabled={loading || mockMode}
+            title="Go back"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+          </Button>
+        )}
+
+        {/* Breadcrumb Path */}
+        <div className="flex-1 min-w-0">
+          <div
+            className="text-xs font-mono px-2 py-1 rounded truncate"
+            style={{ backgroundColor: 'var(--theme-bg-secondary)', color: 'var(--theme-text-secondary)' }}
+          >
+            {currentPath || '/'}
+          </div>
         </div>
 
-        {/* Current Path & Search */}
-        {currentPath && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-themed-secondary">
-              <span className="font-mono bg-themed-tertiary px-2 py-1 rounded break-all">
-                {currentPath}
-              </span>
-            </div>
-            {currentPath !== '/' && (
-              <Button
-                onClick={() => handleSearch(currentPath)}
-                size="sm"
-                variant="default"
-                leftSection={searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                disabled={searching || loading || mockMode}
-                fullWidth
-              >
-                {searching ? 'Searching...' : 'Search for .db files in subdirectories'}
-              </Button>
-            )}
-          </div>
+        {/* Search Button */}
+        {currentPath && currentPath !== '/' && (
+          <Button
+            onClick={() => handleSearch(currentPath)}
+            size="xs"
+            variant="default"
+            disabled={searching || loading || mockMode}
+            title="Search for .db files"
+          >
+            {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+          </Button>
         )}
+      </div>
 
-        {/* Error */}
-        {error && (
-          <Alert color="red">
-            <span className="text-sm">{error}</span>
-          </Alert>
-        )}
+      {/* Error */}
+      {error && (
+        <Alert color="red">
+          <span className="text-sm">{error}</span>
+        </Alert>
+      )}
 
-        {/* Loading */}
-        {loading && (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-          </div>
-        )}
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+        </div>
+      )}
 
-        {/* Items List */}
-        {!loading && displayItems.length > 0 && (
-          <div className="rounded-lg border border-themed-secondary p-2">
-            <CustomScrollbar maxHeight="32rem" className="space-y-1">
+      {/* Items List */}
+      {!loading && displayItems.length > 0 && (
+        <div
+          className="rounded-lg border overflow-hidden"
+          style={{ borderColor: 'var(--theme-border-secondary)' }}
+        >
+          <CustomScrollbar maxHeight="280px">
+            <div className="p-1.5 space-y-0.5">
               {displayItems.map((item, index) => (
                 <FileItemRow
                   key={index}
                   item={item}
                   selectedFile={selectedFile}
                   onItemClick={handleItemClick}
+                  isRootLevel={isRootLevel}
                 />
               ))}
-            </CustomScrollbar>
-          </div>
-        )}
-
-        {/* Empty State */}
-        {!loading && displayItems.length === 0 && !error && currentPath && (
-          <div className="text-center py-8 text-themed-muted">
-            <p>No directories or .db files found</p>
-          </div>
-        )}
-
-        {/* Selected File Display */}
-        {selectedFile && (
-          <Alert color="blue">
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Selected database file:</p>
-              <p className="text-xs font-mono bg-themed-tertiary px-2 py-1 rounded break-all">
-                {selectedFile}
-              </p>
-              <Button
-                onClick={handleSelectFile}
-                size="sm"
-                variant="filled"
-                color="green"
-                fullWidth
-              >
-                Use This Database
-              </Button>
             </div>
-          </Alert>
-        )}
+          </CustomScrollbar>
+        </div>
+      )}
 
-        {/* Search Results Info */}
-        {searchResults.length > 0 && (
-          <Alert color="blue">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Found {searchResults.length} database file(s)</span>
-              <Button
-                onClick={() => setSearchResults([])}
-                size="xs"
-                variant="default"
-              >
-                Clear Search
-              </Button>
+      {/* Empty State */}
+      {!loading && displayItems.length === 0 && !error && currentPath && (
+        <div
+          className="text-center py-10 rounded-lg"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
+          <Folder className="w-10 h-10 mx-auto mb-2 text-themed-muted opacity-50" />
+          <p className="text-sm text-themed-muted">No directories or .db files found</p>
+        </div>
+      )}
+
+      {/* Selected File Display */}
+      {selectedFile && (
+        <div
+          className="p-3 rounded-lg border"
+          style={{
+            backgroundColor: 'var(--theme-success-bg)',
+            borderColor: 'var(--theme-success)'
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: 'var(--theme-success)', opacity: 0.15 }}
+            >
+              <Database className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
             </div>
-          </Alert>
-        )}
-      </div>
-    </Card>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-themed-muted mb-0.5">Selected database</p>
+              <p className="text-sm font-mono text-themed-primary truncate">{selectedFile}</p>
+            </div>
+            <Button
+              onClick={handleSelectFile}
+              size="sm"
+              variant="filled"
+              color="green"
+            >
+              Use File
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Search Results Info */}
+      {searchResults.length > 0 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-themed-secondary">
+            Found <strong>{searchResults.length}</strong> database file(s)
+          </span>
+          <Button
+            onClick={() => setSearchResults([])}
+            size="xs"
+            variant="default"
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+    </div>
   );
 };
 

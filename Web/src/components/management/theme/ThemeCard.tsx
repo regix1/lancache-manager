@@ -19,6 +19,7 @@ import {
   ActionMenuDivider,
   ActionMenuDangerItem
 } from '../../ui/ActionMenu';
+import { Tooltip } from '../../ui/Tooltip';
 
 interface ThemeCardProps {
   theme: Theme;
@@ -53,59 +54,101 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
 }) => {
   const isMenuOpen = themeActionMenu === currentMenuId;
 
+  const colorPreview = [
+    theme.colors.primaryColor || '#3b82f6',
+    theme.colors.secondaryColor || '#8b5cf6',
+    theme.colors.accentColor || '#06b6d4',
+    theme.colors.bgPrimary || '#111827',
+    theme.colors.textPrimary || '#ffffff'
+  ];
+
   return (
     <div
-      className="rounded-lg p-4 transition-all hover:shadow-lg themed-card relative"
+      className="rounded-lg p-4 transition-all hover:shadow-md themed-card relative group"
       style={{
+        backgroundColor: 'var(--theme-bg-secondary)',
         border: `2px solid ${
           isActive
             ? 'var(--theme-primary)'
             : isPreviewing
               ? 'var(--theme-warning)'
-              : 'var(--theme-border-primary)'
+              : 'var(--theme-border-secondary)'
         }`
       }}
     >
+      {/* Status Badge - Top Right */}
+      {(isActive || isPreviewing) && (
+        <div
+          className="absolute -top-2 -right-2 px-2 py-0.5 text-xs font-medium rounded-full"
+          style={{
+            backgroundColor: isActive ? 'var(--theme-primary)' : 'var(--theme-warning)',
+            color: 'white'
+          }}
+        >
+          {isActive ? 'Active' : 'Preview'}
+        </div>
+      )}
+
       {/* Theme Header */}
       <div className="flex items-start justify-between mb-3">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="font-semibold text-themed-primary">{theme.meta.name}</span>
+            <span className="font-semibold text-themed-primary text-sm truncate">
+              {theme.meta.name}
+            </span>
             {theme.meta.isDark ? (
-              <Moon className="w-3 h-3 text-themed-muted" />
+              <Moon className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
             ) : (
-              <Sun className="w-3 h-3 text-themed-warning" />
+              <Sun className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
             )}
-            {isActive && (
-              <span className="px-2 py-0.5 text-xs rounded themed-button-primary">Active</span>
+            {isSystem && (
+              <Lock className="w-3 h-3 text-themed-muted flex-shrink-0" />
             )}
-            {isPreviewing && (
-              <span className="px-2 py-0.5 text-xs rounded bg-themed-warning text-themed-primary">
-                Preview
-              </span>
-            )}
-            {isSystem && <Lock className="w-3 h-3 text-themed-muted" />}
+          </div>
+
+          {/* Badges Row */}
+          <div className="flex flex-wrap gap-1 mb-2">
             {theme.meta.isCommunityTheme && (
-              <span className="px-2 py-0.5 text-xs rounded bg-themed-info text-white flex items-center gap-1">
-                <Globe className="w-3 h-3" />
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded"
+                style={{
+                  backgroundColor: 'var(--theme-info-bg)',
+                  color: 'var(--theme-info)'
+                }}
+              >
+                <Globe className="w-2.5 h-2.5" />
                 Community
               </span>
             )}
             {theme.meta.basedOn && (
-              <span className="px-2 py-0.5 text-xs rounded bg-themed-accent text-white">
+              <span
+                className="px-1.5 py-0.5 text-xs rounded"
+                style={{
+                  backgroundColor: 'var(--theme-accent)',
+                  color: 'white'
+                }}
+              >
                 Custom
               </span>
             )}
           </div>
+
           {theme.meta.basedOn && (
             <p className="text-xs text-themed-muted mb-1">Based on: {theme.meta.basedOn}</p>
           )}
           {theme.meta.description && (
-            <p className="text-xs text-themed-muted mb-1">{theme.meta.description}</p>
+            <p className="text-xs text-themed-muted line-clamp-2 mb-1">{theme.meta.description}</p>
           )}
-          <div className="flex items-center gap-3 text-xs text-themed-muted">
+          <div className="flex items-center gap-2 text-xs text-themed-muted">
             {theme.meta.author && <span>by {theme.meta.author}</span>}
-            {theme.meta.version && <span>v{theme.meta.version}</span>}
+            {theme.meta.version && (
+              <span
+                className="px-1.5 py-0.5 rounded"
+                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+              >
+                v{theme.meta.version}
+              </span>
+            )}
           </div>
         </div>
 
@@ -116,7 +159,8 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
           trigger={
             <button
               onClick={() => onMenuToggle(themeActionMenu === currentMenuId ? null : currentMenuId)}
-              className="p-1 rounded hover:bg-themed-hover transition-colors"
+              className="p-1.5 rounded-lg hover:bg-themed-hover transition-colors opacity-0 group-hover:opacity-100"
+              style={{ backgroundColor: isMenuOpen ? 'var(--theme-bg-hover)' : 'transparent' }}
             >
               <MoreVertical className="w-4 h-4 text-themed-muted" />
             </button>
@@ -128,7 +172,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                 onApplyTheme(currentMenuId);
                 onMenuToggle(null);
               }}
-              icon={<Check className="w-3 h-3" />}
+              icon={<Check className="w-3.5 h-3.5" />}
             >
               Apply Theme
             </ActionMenuItem>
@@ -138,7 +182,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               onPreview(currentMenuId);
               onMenuToggle(null);
             }}
-            icon={isPreviewing ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+            icon={isPreviewing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
           >
             {isPreviewing ? 'Stop Preview' : 'Preview'}
           </ActionMenuItem>
@@ -148,7 +192,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                 onEdit(theme);
                 onMenuToggle(null);
               }}
-              icon={<Edit className="w-3 h-3" />}
+              icon={<Edit className="w-3.5 h-3.5" />}
             >
               Edit Theme
             </ActionMenuItem>
@@ -158,7 +202,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               onExport(theme);
               onMenuToggle(null);
             }}
-            icon={<Download className="w-3 h-3" />}
+            icon={<Download className="w-3.5 h-3.5" />}
           >
             Export
           </ActionMenuItem>
@@ -170,7 +214,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                   onDelete(currentMenuId, theme.meta.name);
                   onMenuToggle(null);
                 }}
-                icon={<Trash2 className="w-3 h-3" />}
+                icon={<Trash2 className="w-3.5 h-3.5" />}
               >
                 Delete
               </ActionMenuDangerItem>
@@ -180,35 +224,26 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
       </div>
 
       {/* Color Preview Strip */}
-      <div className="flex gap-1 mt-3">
-        <div
-          className="flex-1 h-6 rounded"
-          style={{ backgroundColor: theme.colors.primaryColor || '#3b82f6' }}
-          title="Primary"
-        />
-        <div
-          className="flex-1 h-6 rounded"
-          style={{ backgroundColor: theme.colors.secondaryColor || '#8b5cf6' }}
-          title="Secondary"
-        />
-        <div
-          className="flex-1 h-6 rounded"
-          style={{ backgroundColor: theme.colors.accentColor || '#06b6d4' }}
-          title="Accent"
-        />
-        <div
-          className="flex-1 h-6 rounded"
-          style={{ backgroundColor: theme.colors.bgPrimary || '#111827' }}
-          title="Background"
-        />
-        <div
-          className="flex-1 h-6 rounded"
-          style={{
-            border: '1px solid var(--theme-border)',
-            backgroundColor: theme.colors.textPrimary || '#ffffff'
-          }}
-          title="Text"
-        />
+      <div className="flex gap-1">
+        {colorPreview.map((color, idx) => (
+          <Tooltip
+            key={idx}
+            content={['Primary', 'Secondary', 'Accent', 'Background', 'Text'][idx]}
+            position="bottom"
+            className="flex-1"
+          >
+            <div
+              className="h-5 rounded transition-transform hover:scale-y-125"
+              style={{
+                backgroundColor: color,
+                border:
+                  color === '#ffffff' || color.toLowerCase().includes('fff')
+                    ? '1px solid var(--theme-border-secondary)'
+                    : 'none'
+              }}
+            />
+          </Tooltip>
+        ))}
       </div>
     </div>
   );

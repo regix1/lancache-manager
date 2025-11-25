@@ -8,10 +8,12 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { Alert } from '../../ui/Alert';
+import { Tooltip } from '../../ui/Tooltip';
 import themeService from '../../../services/theme.service';
 import authService from '../../../services/auth.service';
 import { API_BASE } from '../../../utils/constants';
@@ -332,84 +334,143 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     ];
   };
 
+  // Count themes that would be visible
+  const visibleThemesCount = communityThemes.filter((theme) => {
+    const isInstalled = isThemeInstalled(theme.meta?.id || '');
+    const isImported = importedThemes.has(theme.fileName);
+    return showImported || (!isInstalled && !isImported);
+  }).length;
+
+  const allImported = communityThemes.length > 0 && visibleThemesCount === 0 && !showImported;
+
   return (
-    <div className="space-y-4">
+    <div
+      className="rounded-lg border"
+      style={{
+        backgroundColor: 'var(--theme-bg-tertiary)',
+        borderColor: 'var(--theme-border-secondary)'
+      }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Globe className="w-5 h-5 icon-purple" />
-          <h4 className="text-sm font-semibold text-themed-primary">Community Themes</h4>
+      <div
+        className="flex items-center justify-between p-4 border-b"
+        style={{ borderColor: 'var(--theme-border-secondary)' }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center icon-bg-purple">
+            <Globe className="w-4 h-4 icon-purple" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-themed-primary">Community Themes</h4>
+            <p className="text-xs text-themed-muted">
+              {communityThemes.length} available
+              {installedThemes.filter(t => communityThemes.some(ct => ct.meta?.id === t.meta.id)).length > 0 && (
+                <span> · {installedThemes.filter(t => communityThemes.some(ct => ct.meta?.id === t.meta.id)).length} installed</span>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {communityThemes.length > 0 && (
-            <Button
-              variant="filled"
-              color="default"
-              size="sm"
-              onClick={() => setShowImported(!showImported)}
-              leftSection={
-                showImported ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />
-              }
-              className="transition-all duration-200"
-            >
-              {showImported ? 'Hide Imported' : 'Show Imported'}
-            </Button>
+            <Tooltip content={showImported ? 'Hide imported themes' : 'Show imported themes'} position="bottom">
+              <Button
+                variant="default"
+                size="xs"
+                onClick={() => setShowImported(!showImported)}
+              >
+                {showImported ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </Button>
+            </Tooltip>
           )}
+          <Tooltip content="Refresh" position="bottom">
+            <Button
+              variant="default"
+              size="xs"
+              onClick={loadCommunityThemes}
+              disabled={loading}
+            >
+              {loading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+            </Button>
+          </Tooltip>
           <a
             href="https://github.com/regix1/lancache-manager/tree/main/community-themes"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-themed-accent hover:text-themed-primary flex items-center gap-1 transition-colors duration-200"
+            className="text-xs text-themed-accent hover:text-themed-primary flex items-center gap-1 transition-colors px-2 py-1 rounded hover:bg-themed-hover"
           >
             <ExternalLink className="w-3 h-3" />
-            View on GitHub
+            GitHub
           </a>
         </div>
       </div>
 
-      {/* Error Alert */}
-      {error && <Alert color="red">{error}</Alert>}
+      {/* Content */}
+      <div className="p-4">
+        {/* Error Alert */}
+        {error && (
+          <Alert color="red" className="mb-4">
+            {error}
+          </Alert>
+        )}
 
-      {/* Success Alert */}
-      {successMessage && <Alert color="green">{successMessage}</Alert>}
+        {/* Success Alert */}
+        {successMessage && (
+          <Alert color="green" className="mb-4">
+            {successMessage}
+          </Alert>
+        )}
 
-      {/* Auto-Update Progress Alert */}
-      {updatingThemes.size > 0 && (
-        <Alert color="blue">
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">
-              Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''} to
-              latest version...
-            </span>
+        {/* Auto-Update Progress Alert */}
+        {updatingThemes.size > 0 && (
+          <Alert color="blue" className="mb-4">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">
+                Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''}...
+              </span>
+            </div>
+          </Alert>
+        )}
+
+        {/* Authentication Warning */}
+        {!isAuthenticated && (
+          <Alert color="yellow" className="mb-4">
+            Authentication required to import community themes
+          </Alert>
+        )}
+
+        {/* Loading State */}
+        {loading && communityThemes.length === 0 && (
+          <div className="flex items-center justify-center py-8 text-themed-muted">
+            <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            <span className="text-sm">Loading community themes...</span>
           </div>
-        </Alert>
-      )}
+        )}
 
-      {/* Authentication Warning */}
-      {!isAuthenticated && (
-        <Alert color="yellow">Authentication required to import community themes</Alert>
-      )}
+        {/* Empty State */}
+        {!loading && communityThemes.length === 0 && !error && (
+          <div className="text-center py-8 text-themed-muted">
+            <Globe className="w-10 h-10 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No community themes available</p>
+          </div>
+        )}
 
-      {/* Loading State */}
-      {loading && communityThemes.length === 0 && (
-        <div className="text-center py-8 text-themed-muted">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" />
-          <p>Loading community themes...</p>
-        </div>
-      )}
+        {/* All Imported State */}
+        {allImported && (
+          <div className="text-center py-8 text-themed-muted">
+            <Check className="w-10 h-10 mx-auto mb-2 opacity-50 text-green-500" />
+            <p className="text-sm font-medium mb-1">All themes imported!</p>
+            <p className="text-xs">Click the eye icon to view installed themes</p>
+          </div>
+        )}
 
-      {/* Community Themes Grid */}
-      {!loading && communityThemes.length === 0 && !error && (
-        <div className="text-center py-8 text-themed-muted">
-          <Globe className="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>No community themes available</p>
-        </div>
-      )}
-
-      {communityThemes.length > 0 && (
-        <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Community Themes Grid */}
+        {communityThemes.length > 0 && !allImported && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {communityThemes.map((theme) => {
               const isInstalled = isThemeInstalled(theme.meta?.id || '');
               const isImported = importedThemes.has(theme.fileName);
@@ -418,69 +479,73 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
               const colorPreview = getColorPreview(theme.colors);
               const shouldHide = !showImported && (isInstalled || isImported);
 
+              if (shouldHide) return null;
+
               return (
                 <div
                   key={theme.fileName}
-                  className={`rounded-lg themed-card border transition-all duration-300 ${
-                    shouldHide
-                      ? 'opacity-0 scale-95 h-0 p-0 m-0 border-0 overflow-hidden pointer-events-none'
-                      : 'opacity-100 scale-100 p-4 border-themed-secondary hover:border-themed-primary'
-                  }`}
+                  className="rounded-lg border p-3 transition-all hover:border-themed-primary"
                   style={{
-                    transition:
-                      'opacity 0.3s ease-out, transform 0.3s ease-out, height 0.3s ease-out, padding 0.3s ease-out, margin 0.3s ease-out, border-width 0.3s ease-out'
+                    backgroundColor: 'var(--theme-bg-secondary)',
+                    borderColor: isInstalled || isImported
+                      ? 'var(--theme-success)'
+                      : 'var(--theme-border-secondary)'
                   }}
                 >
                   {/* Theme Header */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-themed-primary">
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium text-themed-primary text-sm truncate">
                           {theme.meta?.name || theme.name}
                         </span>
                         {theme.meta?.isDark ? (
-                          <Moon className="w-3 h-3 text-themed-muted" />
+                          <Moon className="w-3 h-3 text-themed-muted flex-shrink-0" />
                         ) : (
-                          <Sun className="w-3 h-3 text-themed-warning" />
+                          <Sun className="w-3 h-3 text-yellow-400 flex-shrink-0" />
                         )}
-                        {isUpdating && (
+                      </div>
+                      {theme.meta?.description && (
+                        <p className="text-xs text-themed-muted line-clamp-2 mb-1">
+                          {theme.meta.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 text-xs text-themed-muted">
+                        {theme.meta?.author && <span>by {theme.meta.author}</span>}
+                        {theme.meta?.version && (
                           <span
-                            className="px-2 py-0.5 text-xs rounded flex items-center gap-1"
-                            style={{
-                              backgroundColor: 'var(--theme-info)',
-                              color: 'var(--theme-info-text)'
-                            }}
+                            className="px-1.5 py-0.5 rounded text-xs"
+                            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
                           >
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Updating...
-                          </span>
-                        )}
-                        {(isImported || isInstalled) && !isUpdating && (
-                          <span className="px-2 py-0.5 text-xs rounded bg-themed-success text-white">
-                            Imported
+                            v{theme.meta.version}
                           </span>
                         )}
                       </div>
                     </div>
-
-                    {theme.meta?.description && (
-                      <p className="text-xs text-themed-muted mb-2">{theme.meta.description}</p>
+                    {(isImported || isInstalled) && !isUpdating && (
+                      <div
+                        className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center"
+                        style={{ backgroundColor: 'var(--theme-success-bg)' }}
+                      >
+                        <Check className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+                      </div>
                     )}
-
-                    <div className="flex items-center gap-3 text-xs text-themed-muted">
-                      {theme.meta?.author && <span>by {theme.meta.author}</span>}
-                      {theme.meta?.version && <span>v{theme.meta.version}</span>}
-                    </div>
+                    {isUpdating && (
+                      <div
+                        className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center"
+                        style={{ backgroundColor: 'var(--theme-info-bg)' }}
+                      >
+                        <Loader2 className="w-3 h-3 animate-spin" style={{ color: 'var(--theme-info)' }} />
+                      </div>
+                    )}
                   </div>
 
                   {/* Color Preview */}
-                  <div className="mb-3">
-                    <p className="text-xs text-themed-muted mb-1">Color Preview:</p>
-                    <div className="flex gap-1">
-                      {colorPreview.map((color, idx) => (
+                  <div className="flex gap-1 mb-3">
+                    {colorPreview.map((color, idx) => (
+                      <Tooltip key={idx} content={color} position="bottom" className="flex-1">
                         <div
-                          key={idx}
-                          className="flex-1 h-6 rounded"
+                          className="h-5 rounded"
                           style={{
                             backgroundColor: color,
                             border:
@@ -488,51 +553,39 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                                 ? '1px solid var(--theme-border-secondary)'
                                 : 'none'
                           }}
-                          title={color}
                         />
-                      ))}
-                    </div>
+                      </Tooltip>
+                    ))}
                   </div>
 
                   {/* Import Button */}
                   <Button
-                    variant="filled"
-                    color="purple"
-                    size="sm"
+                    variant={isImported || isInstalled ? 'default' : 'filled'}
+                    color={isImported || isInstalled ? 'default' : 'purple'}
+                    size="xs"
                     fullWidth
-                    leftSection={
-                      isImported || isInstalled ? (
-                        <Check className="w-4 h-4" />
-                      ) : (
-                        <Download className="w-4 h-4" />
-                      )
-                    }
                     onClick={() => handleImportTheme(theme)}
                     disabled={!isAuthenticated || isImporting || isImported || isInstalled}
                     loading={isImporting}
                   >
-                    {isImported || isInstalled ? 'Imported' : 'Import Theme'}
+                    {isImported || isInstalled ? (
+                      <>
+                        <Check className="w-3 h-3 mr-1" />
+                        Installed
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-3 h-3 mr-1" />
+                        Import
+                      </>
+                    )}
                   </Button>
                 </div>
               );
             })}
           </div>
-
-          {/* Empty State when all themes are hidden */}
-          {!showImported &&
-            communityThemes.every((theme) => {
-              const isInstalled = isThemeInstalled(theme.meta?.id || '');
-              const isImported = importedThemes.has(theme.fileName);
-              return isInstalled || isImported;
-            }) && (
-              <div className="text-center py-8 text-themed-muted animate-fadeIn">
-                <Check className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p className="font-medium mb-1">All themes imported!</p>
-                <p className="text-sm">Click "Show Imported" to view installed themes</p>
-              </div>
-            )}
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 };

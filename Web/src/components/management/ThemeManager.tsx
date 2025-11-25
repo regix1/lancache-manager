@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Palette,
-  Upload,
   Download,
   RefreshCw,
   Lock,
@@ -12,11 +11,11 @@ import {
   Info,
   Edit,
   Loader2,
-  Square,
-  HelpCircle,
-  AlertCircle,
   Bell,
-  Pin
+  FileText,
+  Settings2,
+  Moon,
+  Sun
 } from 'lucide-react';
 import themeService from '../../services/theme.service';
 import authService from '../../services/auth.service';
@@ -26,6 +25,7 @@ import { Card } from '../ui/Card';
 import { Checkbox } from '../ui/Checkbox';
 import { EnhancedDropdown } from '../ui/EnhancedDropdown';
 import { API_BASE } from '../../utils/constants';
+import { Tooltip } from '../ui/Tooltip';
 import { ThemeCard } from './theme/ThemeCard';
 import CreateThemeModal from './theme/CreateThemeModal';
 import EditThemeModal from './theme/EditThemeModal';
@@ -105,7 +105,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     // Listen for live preference changes from admin
     const handlePreferenceChange = (event: any) => {
       const { key, value } = event.detail;
-      // console.log(`[ThemeManager] Received preference change: ${key} = ${value}`);
 
       switch (key) {
         case 'selectedTheme':
@@ -160,8 +159,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       await themeService.setTheme(themeId);
       setCurrentTheme(themeId);
       setPreviewTheme(null);
-      themeService.clearPreviewTheme(); // Clear any active preview
-      themeService.clearOriginalThemeBeforePreview(); // Clear original theme storage
+      themeService.clearPreviewTheme();
+      themeService.clearOriginalThemeBeforePreview();
       window.location.reload();
     } catch (error) {
       console.error('Failed to change theme:', error);
@@ -555,262 +554,280 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
     setCreateModalOpen(true);
   };
 
+  // Get current theme data for display
+  const currentThemeData = themes.find((t) => t.meta.id === (previewTheme || currentTheme));
+
+  // Separate themes by type
+  const systemThemes = themes.filter((t) => isSystemTheme(t.meta.id));
+  const customThemes = themes.filter((t) => !isSystemTheme(t.meta.id));
+
   return (
     <>
       <Card>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-2">
-            <Palette className="w-5 h-5 icon-purple" />
-            <h3 className="text-lg font-semibold text-themed-primary">Theme Management</h3>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+              <Palette className="w-5 h-5 icon-purple" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">Theme Management</h3>
+              <p className="text-xs text-themed-muted">{themes.length} themes available</p>
+            </div>
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center gap-2">
             {isAuthenticated ? (
               <>
-                <button
-                  onClick={openCreateModal}
-                  className="p-2 rounded-lg transition-colors"
-                  style={{
-                    color: 'var(--theme-text-muted)',
-                    backgroundColor: 'transparent'
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                  }
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  title="Create new theme"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={cleanupThemes}
-                  disabled={loading}
-                  className="p-2 rounded-lg transition-colors"
-                  style={{
-                    color: 'var(--theme-text-muted)',
-                    backgroundColor: 'transparent'
-                  }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-                  }
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                  title="Delete all custom themes"
-                >
-                  <Sparkles className="w-4 h-4" />
-                </button>
+                <Tooltip content="Create new theme" position="bottom">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={openCreateModal}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </Tooltip>
+                <Tooltip content="Delete all custom themes" position="bottom">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={cleanupThemes}
+                    disabled={loading || customThemes.length === 0}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </Button>
+                </Tooltip>
               </>
             ) : (
-              <button
-                disabled
-                className="p-2 rounded-lg transition-colors opacity-50 cursor-not-allowed"
-                style={{
-                  color: 'var(--theme-text-muted)',
-                  backgroundColor: 'transparent'
-                }}
-                title="Authentication required to create themes"
-              >
-                <Lock className="w-4 h-4" />
-              </button>
+              <Tooltip content="Authentication required" position="bottom">
+                <Button variant="default" size="sm" disabled>
+                  <Lock className="w-4 h-4" />
+                </Button>
+              </Tooltip>
             )}
-            <button
-              onClick={() => loadThemes()}
-              disabled={loading}
-              className="p-2 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center"
-              style={{
-                color: 'var(--theme-text-muted)',
-                backgroundColor: 'transparent'
-              }}
-              onMouseEnter={(e) =>
-                !loading && (e.currentTarget.style.backgroundColor = 'var(--theme-bg-hover)')
-              }
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-              title="Refresh themes"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-            </button>
+            <Tooltip content="Refresh themes" position="bottom">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => loadThemes()}
+                disabled={loading}
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
+              </Button>
+            </Tooltip>
           </div>
         </div>
 
         {/* Tab Navigation */}
         <div
-          className="flex gap-2 mb-6 border-b"
-          style={{ borderColor: 'var(--theme-border-secondary)' }}
+          className="flex gap-1 mb-6 p-1 rounded-lg"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
         >
           <button
             onClick={() => setActiveTab('themes')}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === 'themes'
-                ? 'text-themed-accent'
-                : 'text-themed-muted hover:text-themed-primary'
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'themes' ? 'text-themed-primary shadow-sm' : 'text-themed-muted hover:text-themed-secondary'
             }`}
-            style={activeTab === 'themes' ? { borderBottom: '2px solid var(--theme-primary)' } : {}}
+            style={
+              activeTab === 'themes'
+                ? { backgroundColor: 'var(--theme-bg-secondary)' }
+                : { backgroundColor: 'transparent' }
+            }
           >
-            <Layers className="w-4 h-4 inline-block mr-2" />
-            Themes ({themes.length})
+            <Layers className="w-4 h-4" />
+            Themes
           </button>
           <button
             onClick={() => setActiveTab('customize')}
-            className={`px-4 py-2 font-medium transition-colors ${
-              activeTab === 'customize'
-                ? 'text-themed-accent'
-                : 'text-themed-muted hover:text-themed-primary'
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              activeTab === 'customize' ? 'text-themed-primary shadow-sm' : 'text-themed-muted hover:text-themed-secondary'
             }`}
             style={
-              activeTab === 'customize' ? { borderBottom: '2px solid var(--theme-primary)' } : {}
+              activeTab === 'customize'
+                ? { backgroundColor: 'var(--theme-bg-secondary)' }
+                : { backgroundColor: 'transparent' }
             }
           >
-            <Brush className="w-4 h-4 inline-block mr-2" />
+            <Brush className="w-4 h-4" />
             Customize
           </button>
         </div>
 
         {activeTab === 'themes' ? (
-          <>
+          <div className="space-y-6">
             {/* Guest User Alert */}
             {authService.authMode === 'guest' && (
-              <Alert color="blue" className="mb-6">
+              <Alert color="blue">
                 <div>
                   <p className="text-sm font-medium mb-1">Guest Mode - Theme Selection Disabled</p>
                   <p className="text-sm">
-                    Guest users cannot change themes. The theme is set by the administrator. To
-                    customize your theme, please authenticate with an API key.
+                    Guest users cannot change themes. The theme is set by the administrator.
                   </p>
                 </div>
               </Alert>
             )}
 
-            {/* Active Theme Selector */}
-            <div className="mb-6 p-4 rounded-lg bg-themed-tertiary">
-              <label className="block text-sm font-medium mb-2 text-themed-secondary">
-                Active Theme
-              </label>
-              <EnhancedDropdown
-                options={themes.map((theme) => ({
-                  value: theme.meta.id,
-                  label: `${theme.meta.name}${theme.meta.author && theme.meta.author !== 'System' ? ` by ${theme.meta.author}` : ''}${isSystemTheme(theme.meta.id) ? ' (System)' : ''}${previewTheme === theme.meta.id ? ' (Preview)' : ''}`
-                }))}
-                value={previewTheme || currentTheme}
-                onChange={handleThemeChange}
-                placeholder="Select a theme"
-                className="w-full"
-                disabled={authService.authMode === 'guest'}
-              />
+            {/* Current Theme Section */}
+            <div
+              className="p-4 rounded-lg border"
+              style={{
+                backgroundColor: 'var(--theme-bg-tertiary)',
+                borderColor: 'var(--theme-border-secondary)'
+              }}
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Settings2 className="w-4 h-4 text-themed-accent" />
+                <span className="text-sm font-medium text-themed-primary">Active Theme</span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <EnhancedDropdown
+                    options={themes.map((theme) => ({
+                      value: theme.meta.id,
+                      label: `${theme.meta.name}${isSystemTheme(theme.meta.id) ? ' (System)' : ''}${previewTheme === theme.meta.id ? ' (Preview)' : ''}`
+                    }))}
+                    value={previewTheme || currentTheme}
+                    onChange={handleThemeChange}
+                    placeholder="Select a theme"
+                    className="w-full"
+                    disabled={authService.authMode === 'guest'}
+                  />
+                </div>
+                {currentThemeData && (
+                  <div className="flex items-center gap-2">
+                    {currentThemeData.meta.isDark ? (
+                      <Moon className="w-4 h-4 text-themed-muted" />
+                    ) : (
+                      <Sun className="w-4 h-4 text-yellow-400" />
+                    )}
+                    <div className="flex gap-0.5">
+                      {[
+                        currentThemeData.colors.primaryColor,
+                        currentThemeData.colors.secondaryColor,
+                        currentThemeData.colors.accentColor
+                      ].map((color, i) => (
+                        <div
+                          key={i}
+                          className="w-5 h-5 rounded"
+                          style={{ backgroundColor: color || '#666' }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {previewTheme && authService.authMode !== 'guest' && (
                 <p className="text-xs mt-2 text-themed-warning">
                   Preview mode active. Select a theme to apply it permanently.
                 </p>
               )}
-              {authService.authMode === 'guest' && (
-                <p className="text-xs mt-2 text-themed-muted">
-                  Theme changes are disabled for guest users.
-                </p>
-              )}
             </div>
 
-            {/* Options */}
-            <div className="mb-6 space-y-4">
-              {/* Visual Options */}
-              <div className="p-4 rounded-lg bg-themed-tertiary">
+            {/* Preferences Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Visual Preferences */}
+              <div
+                className="p-4 rounded-lg border"
+                style={{
+                  backgroundColor: 'var(--theme-bg-tertiary)',
+                  borderColor: 'var(--theme-border-secondary)'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-4">
                   <Brush className="w-4 h-4 text-themed-accent" />
-                  <label className="text-sm font-medium text-themed-secondary">
-                    Visual Preferences
-                  </label>
+                  <span className="text-sm font-medium text-themed-primary">Visual</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
-                    <Square className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <Checkbox
-                        checked={sharpCornersEnabled}
-                        onChange={(e) => handleSharpCornersToggle(e.target.checked)}
-                        variant="rounded"
-                        label="Sharp Corners"
-                      />
-                      <p className="text-xs text-themed-muted mt-1 ml-6">
-                        Use square corners instead of rounded
-                      </p>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <Checkbox
+                      checked={sharpCornersEnabled}
+                      onChange={(e) => handleSharpCornersToggle(e.target.checked)}
+                      variant="rounded"
+                    />
+                    <div>
+                      <span className="text-sm text-themed-primary">Sharp Corners</span>
+                      <p className="text-xs text-themed-muted">Square corners instead of rounded</p>
                     </div>
-                  </div>
-                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
-                    <HelpCircle className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <Checkbox
-                        checked={!tooltipsDisabled}
-                        onChange={(e) => handleTooltipsToggle(!e.target.checked)}
-                        variant="rounded"
-                        label="Tooltips"
-                      />
-                      <p className="text-xs text-themed-muted mt-1 ml-6">
-                        Show helpful hints on hover
-                      </p>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <Checkbox
+                      checked={!tooltipsDisabled}
+                      onChange={(e) => handleTooltipsToggle(!e.target.checked)}
+                      variant="rounded"
+                    />
+                    <div>
+                      <span className="text-sm text-themed-primary">Tooltips</span>
+                      <p className="text-xs text-themed-muted">Show helpful hints on hover</p>
                     </div>
-                  </div>
-                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
-                    <AlertCircle className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <Checkbox
-                        checked={!hideAboutSections}
-                        onChange={(e) => handleHideAboutSectionsToggle(!e.target.checked)}
-                        variant="rounded"
-                        label="Info Sections"
-                      />
-                      <p className="text-xs text-themed-muted mt-1 ml-6">
-                        Display informational panels
-                      </p>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <Checkbox
+                      checked={!hideAboutSections}
+                      onChange={(e) => handleHideAboutSectionsToggle(!e.target.checked)}
+                      variant="rounded"
+                    />
+                    <div>
+                      <span className="text-sm text-themed-primary">Info Sections</span>
+                      <p className="text-xs text-themed-muted">Display informational panels</p>
                     </div>
-                  </div>
+                  </label>
                 </div>
               </div>
 
-              {/* Notification Options */}
-              <div className="p-4 rounded-lg bg-themed-tertiary">
+              {/* Notification Preferences */}
+              <div
+                className="p-4 rounded-lg border"
+                style={{
+                  backgroundColor: 'var(--theme-bg-tertiary)',
+                  borderColor: 'var(--theme-border-secondary)'
+                }}
+              >
                 <div className="flex items-center gap-2 mb-4">
                   <Bell className="w-4 h-4 text-themed-accent" />
-                  <label className="text-sm font-medium text-themed-secondary">
-                    Notification Behavior
-                  </label>
+                  <span className="text-sm font-medium text-themed-primary">Notifications</span>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
-                    <Pin className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <Checkbox
-                        checked={!disableStickyNotifications}
-                        onChange={(e) => handleDisableStickyNotificationsToggle(!e.target.checked)}
-                        variant="rounded"
-                        label="Sticky Notifications"
-                      />
-                      <p className="text-xs text-themed-muted mt-1 ml-6">
-                        Keep notification bar fixed at top when scrolling
-                      </p>
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <Checkbox
+                      checked={!disableStickyNotifications}
+                      onChange={(e) => handleDisableStickyNotificationsToggle(!e.target.checked)}
+                      variant="rounded"
+                    />
+                    <div>
+                      <span className="text-sm text-themed-primary">Sticky Notifications</span>
+                      <p className="text-xs text-themed-muted">Fixed at top when scrolling</p>
                     </div>
-                  </div>
-                  <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-themed-hover transition-colors">
-                    <Bell className="w-4 h-4 text-themed-accent mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <Checkbox
-                        checked={picsAlwaysVisible}
-                        onChange={(e) => handlePicsAlwaysVisibleToggle(e.target.checked)}
-                        variant="rounded"
-                        label="Static Notifications"
-                      />
-                      <p className="text-xs text-themed-muted mt-1 ml-6">
-                        Require manual dismissal - won't auto-clear
-                      </p>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <Checkbox
+                      checked={picsAlwaysVisible}
+                      onChange={(e) => handlePicsAlwaysVisibleToggle(e.target.checked)}
+                      variant="rounded"
+                    />
+                    <div>
+                      <span className="text-sm text-themed-primary">Static Notifications</span>
+                      <p className="text-xs text-themed-muted">Require manual dismissal</p>
                     </div>
-                  </div>
+                  </label>
                 </div>
               </div>
             </div>
 
-            {/* Theme Cards Grid */}
-            <div className="mb-6">
-              <h4 className="text-sm font-medium mb-3 text-themed-secondary">Installed Themes</h4>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Installed Themes */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-medium text-themed-secondary">Installed Themes</h4>
+                <span className="text-xs text-themed-muted">
+                  {systemThemes.length} system, {customThemes.length} custom
+                </span>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {themes.map((theme) => (
                   <ThemeCard
                     key={theme.meta.id}
@@ -832,71 +849,70 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               </div>
             </div>
 
-            {/* Community Themes Section */}
-            <div className="mb-6">
-              <CommunityThemeImporter
-                isAuthenticated={isAuthenticated}
-                onThemeImported={loadThemes}
-                installedThemes={themes}
-                autoCheckUpdates={true}
-              />
-            </div>
+            {/* Community Themes */}
+            <CommunityThemeImporter
+              isAuthenticated={isAuthenticated}
+              onThemeImported={loadThemes}
+              installedThemes={themes}
+              autoCheckUpdates={true}
+            />
 
-            {/* Upload Custom Theme Section */}
+            {/* Upload Section */}
             {isAuthenticated && (
-              <>
-                <div className="mb-4">
-                  <h4 className="text-sm font-medium mb-3 text-themed-secondary">
-                    Upload Custom Theme
-                  </h4>
-                  <div
-                    className={`border-dashed rounded-lg p-8 text-center transition-colors ${
-                      dragActive ? 'bg-purple-900 bg-opacity-20' : ''
-                    }`}
-                    style={{
-                      border: dragActive
-                        ? '2px dashed var(--theme-primary)'
-                        : '2px dashed var(--theme-border-secondary)'
-                    }}
-                    onDragEnter={handleDrag}
-                    onDragLeave={handleDrag}
-                    onDragOver={handleDrag}
-                    onDrop={handleDrop}
-                  >
-                    <Upload className="w-12 h-12 mx-auto mb-3 text-themed-muted" />
-                    <p className="mb-2 text-themed-secondary">
-                      Drag and drop a theme file here, or click to browse
-                    </p>
-                    <p className="text-xs mb-3 text-themed-muted">TOML format, max 1MB</p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".toml"
-                      onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-                      className="hidden"
-                    />
-                    <Button
-                      variant="filled"
-                      color="purple"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={loading}
-                      loading={loading}
-                    >
-                      Browse Files
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex justify-center">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-themed-secondary">Upload Custom Theme</h4>
                   <Button
                     variant="subtle"
-                    leftSection={<Download className="w-4 h-4" />}
+                    size="xs"
+                    leftSection={<Download className="w-3 h-3" />}
                     onClick={downloadSampleTheme}
                   >
-                    Download Sample TOML Theme
+                    Download Sample
                   </Button>
                 </div>
-              </>
+                <div
+                  className={`rounded-lg p-6 text-center transition-all border-2 border-dashed ${
+                    dragActive ? 'border-purple-500 bg-purple-500/10' : ''
+                  }`}
+                  style={{
+                    borderColor: dragActive ? 'var(--theme-secondary)' : 'var(--theme-border-secondary)',
+                    backgroundColor: dragActive ? 'var(--theme-secondary-bg)' : 'transparent'
+                  }}
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                >
+                  <div
+                    className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center"
+                    style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                  >
+                    <FileText className="w-6 h-6 text-themed-muted" />
+                  </div>
+                  <p className="text-sm text-themed-secondary mb-1">
+                    Drop a theme file here, or click to browse
+                  </p>
+                  <p className="text-xs text-themed-muted mb-3">TOML format, max 1MB</p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".toml"
+                    onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                    className="hidden"
+                  />
+                  <Button
+                    variant="filled"
+                    color="purple"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={loading}
+                    loading={loading}
+                  >
+                    Browse Files
+                  </Button>
+                </div>
+              </div>
             )}
 
             {!isAuthenticated && (
@@ -904,7 +920,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                 Authentication required to create, upload, or delete custom themes
               </Alert>
             )}
-          </>
+          </div>
         ) : (
           /* Customize Tab */
           <div className="space-y-4">
@@ -915,8 +931,15 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               </div>
             </Alert>
 
-            <div className="p-4 rounded-lg bg-themed-tertiary">
-              <h4 className="text-sm font-semibold text-themed-primary mb-2">Quick Actions</h4>
+            {/* Quick Actions */}
+            <div
+              className="p-4 rounded-lg border"
+              style={{
+                backgroundColor: 'var(--theme-bg-tertiary)',
+                borderColor: 'var(--theme-border-secondary)'
+              }}
+            >
+              <h4 className="text-sm font-semibold text-themed-primary mb-3">Quick Actions</h4>
               <div className="flex gap-2 flex-wrap">
                 <Button
                   variant="default"
@@ -949,29 +972,39 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               </div>
             </div>
 
-            <div className="p-4 rounded-lg bg-themed-tertiary">
-              <h4 className="text-sm font-semibold text-themed-primary mb-3">
-                Color Groups Overview
-              </h4>
-              <div className="text-xs text-themed-muted mb-3">
-                Themes contain {colorGroups.reduce((acc, g) => acc + g.colors.length, 0)}{' '}
-                customizable colors organized into groups:
-              </div>
+            {/* Color Groups Overview */}
+            <div
+              className="p-4 rounded-lg border"
+              style={{
+                backgroundColor: 'var(--theme-bg-tertiary)',
+                borderColor: 'var(--theme-border-secondary)'
+              }}
+            >
+              <h4 className="text-sm font-semibold text-themed-primary mb-2">Color Groups</h4>
+              <p className="text-xs text-themed-muted mb-4">
+                Themes contain {colorGroups.reduce((acc, g) => acc + g.colors.length, 0)} customizable
+                colors organized into {colorGroups.length} groups
+              </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {colorGroups.map((group) => {
                   const Icon = group.icon;
                   return (
                     <div
                       key={group.name}
-                      className="flex items-start gap-2 text-sm p-2 rounded hover:bg-themed-hover transition-colors"
+                      className="flex items-start gap-3 p-3 rounded-lg transition-colors hover:bg-themed-hover"
                     >
-                      <Icon className="w-4 h-4 text-themed-accent mt-0.5" />
-                      <div>
-                        <span className="text-themed-primary font-medium capitalize">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: 'var(--theme-bg-secondary)' }}
+                      >
+                        <Icon className="w-4 h-4 text-themed-accent" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="text-sm text-themed-primary font-medium capitalize block">
                           {group.name.replace(/([A-Z])/g, ' $1').trim()}
                         </span>
-                        <span className="text-themed-muted text-xs block">
-                          {group.colors.length} colors - {group.description}
+                        <span className="text-xs text-themed-muted">
+                          {group.colors.length} colors
                         </span>
                       </div>
                     </div>
