@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Map, Loader2, SkipForward, CheckCircle, Home } from 'lucide-react';
+import { Map, Loader2, CheckCircle, Home } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { FullScanRequiredModal } from '@components/shared/FullScanRequiredModal';
@@ -22,55 +22,59 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
     changeGap: number;
     estimatedApps: number;
   } | null>(null);
+  const [phase, setPhase] = useState<'scanning' | 'applying' | null>(null);
+  const [applyingMappings, setApplyingMappings] = useState(false);
 
-  // Derive progress and status from context
   const progress = picsProgress?.progressPercent || 0;
   const statusMessage = picsProgress?.status || '';
   const isRunning = picsProgress?.isRunning || false;
 
-  // Log when component mounts and check for active PICS scan
   useEffect(() => {
-    // console.log('[DepotMapping] Component mounted - Step 5 is now active');
-
-    // Check if PICS scan is already running (page reload restoration)
-    if (picsProgress?.isRunning) {
-      // console.log('[DepotMapping] Detected active PICS scan on mount, restoring...');
+    if (picsProgress?.isRunning && picsProgress.progressPercent < 100) {
       setMapping(true);
+      setPhase('scanning');
     }
   }, []);
 
-  // Watch for completion
   useEffect(() => {
-    if (mapping && !isRunning && progress >= 100) {
-      // PICS crawl completed
-      setTimeout(() => {
-        setComplete(true);
-        setMapping(false);
-        // console.log('[DepotMapping] Complete!');
-      }, 2000);
-    }
-  }, [mapping, isRunning, progress]);
+    const applyMappingsAfterScan = async () => {
+      if (mapping && !isRunning && progress >= 100 && phase === 'scanning' && !applyingMappings) {
+        try {
+          setPhase('applying');
+          setApplyingMappings(true);
+          await ApiService.applyDepotMappings();
+          setTimeout(() => {
+            setComplete(true);
+            setMapping(false);
+            setApplyingMappings(false);
+            setPhase(null);
+          }, 1000);
+        } catch (err: any) {
+          console.error('[DepotMapping] Error applying mappings:', err);
+          setError(err.message || 'Failed to apply depot mappings');
+          setMapping(false);
+          setApplyingMappings(false);
+          setPhase(null);
+        }
+      }
+    };
+    applyMappingsAfterScan();
+  }, [mapping, isRunning, progress, phase, applyingMappings]);
 
   const startDepotMapping = async () => {
-    // console.log('[DepotMapping] Starting depot mapping process...');
     setError(null);
     await proceedWithScan(false);
   };
 
   const proceedWithScan = async (forceFull = false) => {
-    // console.log('[DepotMapping] Starting PICS scan...');
     setMapping(true);
+    setPhase('scanning');
 
     try {
-      // Use incremental scan by default for initialization (faster), unless forcing full
       const useIncremental = !forceFull;
-      // console.log('[DepotMapping] Triggering PICS crawl (incremental:', useIncremental, ')...');
       const response = await ApiService.triggerSteamKitRebuild(useIncremental);
-      // console.log('[DepotMapping] Backend response:', response);
 
-      // Check if backend says full scan is required (for incremental requests)
       if (response.requiresFullScan) {
-        // console.log('[DepotMapping] Backend requires full scan - showing modal');
         setChangeGapWarning({
           show: true,
           changeGap: response.changeGap || 25000,
@@ -79,12 +83,11 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
         setMapping(false);
         return;
       }
-
-      // console.log('[DepotMapping] PICS crawl started successfully');
     } catch (err: any) {
       console.error('[DepotMapping] Error:', err);
       setError(err.message || 'Failed to start depot scan');
       setMapping(false);
+      setPhase(null);
     }
   };
 
@@ -94,7 +97,6 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
     try {
       await ApiService.downloadPrecreatedDepotData();
-
       setTimeout(() => {
         setComplete(true);
         setMapping(false);
@@ -115,193 +117,145 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   };
 
   return (
-    <div className="space-y-6">
-      {/* Modern Card Layout */}
-      <div
-        className="rounded-xl overflow-hidden border"
-        style={{
-          backgroundColor: 'var(--theme-card-bg)',
-          borderColor: 'var(--theme-card-border)'
-        }}
-      >
-        {/* Gradient Banner with Icon */}
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col items-center text-center">
         <div
-          className="relative h-32 flex items-center justify-center"
+          className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
           style={{
-            background: complete
-              ? 'linear-gradient(135deg, var(--theme-success) 0%, var(--theme-success-dark, var(--theme-success)) 100%)'
+            backgroundColor: complete
+              ? 'var(--theme-success-bg)'
               : mapping
-                ? 'linear-gradient(135deg, var(--theme-primary) 0%, var(--theme-primary-dark, var(--theme-primary)) 100%)'
-                : 'linear-gradient(135deg, var(--theme-info) 0%, var(--theme-info-dark, var(--theme-info)) 100%)'
+                ? 'var(--theme-primary-bg, var(--theme-info-bg))'
+                : 'var(--theme-info-bg)'
           }}
         >
           {complete ? (
-            <CheckCircle size={64} className="text-white" />
+            <CheckCircle className="w-8 h-8" style={{ color: 'var(--theme-success)' }} />
           ) : mapping ? (
-            <Loader2 size={64} className="text-white animate-spin" />
+            <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--theme-primary)' }} />
           ) : (
-            <Map size={64} className="text-white" />
+            <Map className="w-8 h-8" style={{ color: 'var(--theme-info)' }} />
           )}
         </div>
+        <h3 className="text-xl font-semibold text-themed-primary mb-1">
+          {complete ? 'Setup Complete!' : 'Map Game Depots'}
+        </h3>
+        <p className="text-sm text-themed-secondary max-w-md">
+          {complete
+            ? 'All downloads have been mapped to games'
+            : 'Map depot IDs to game names for your downloads'}
+        </p>
+      </div>
 
-        {/* Content Section */}
-        <div className="p-8">
-          <h2 className="text-2xl font-bold text-themed-primary mb-2 text-center">
-            {complete ? 'Setup Complete!' : 'Map Game Depots'}
-          </h2>
-          <p className="text-themed-secondary text-center mb-6">
-            {complete
-              ? 'All downloads have been mapped to games'
-              : 'Would you like to map depot IDs to game names now?'}
+      {/* Content */}
+      {!mapping && !complete && (
+        <div
+          className="p-4 rounded-lg"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
+          <p className="text-sm text-themed-secondary mb-2">
+            This step runs an incremental PICS scan to update depot mappings, then applies them to your downloads.
           </p>
+          <p className="text-sm text-themed-muted">
+            You can skip this and map depots later from the Management tab.
+          </p>
+        </div>
+      )}
 
-          {/* Info Box (when not mapping and not complete) */}
-          {!mapping && !complete && (
-            <div
-              className="p-4 rounded-lg mb-6"
-              style={{
-                backgroundColor: 'var(--theme-info-bg)',
-                color: 'var(--theme-info-text)'
-              }}
-            >
-              <p className="text-sm mb-2">
-                This step will run an incremental PICS scan to update depot mappings, then apply
-                them to your downloads. This helps you see game names instead of depot IDs.
+      {/* Progress Display */}
+      {mapping && !complete && (
+        <div
+          className="p-4 rounded-lg text-center"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
+          {phase === 'scanning' ? (
+            <>
+              <p className="text-base font-medium text-themed-primary mb-1">
+                {statusMessage || 'Scanning Steam for depot mappings...'}
               </p>
-              <p className="text-sm font-semibold">
-                You can skip this step and map depots later from the Management tab.
+              <p className="text-sm text-themed-secondary">{progress.toFixed(0)}% complete</p>
+            </>
+          ) : phase === 'applying' ? (
+            <>
+              <p className="text-base font-medium text-themed-primary mb-1">
+                Applying depot mappings...
               </p>
-            </div>
-          )}
-
-          {/* Progress Display */}
-          {mapping && !complete && (
-            <div className="space-y-4 mb-6">
-              <div
-                className="p-6 rounded-lg text-center"
-                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-              >
-                <p className="text-lg font-semibold text-themed-primary mb-1">
-                  {statusMessage || 'Processing...'}
-                </p>
-                <p className="text-sm text-themed-secondary">{progress.toFixed(0)}% complete</p>
-              </div>
-            </div>
-          )}
-
-          {/* Completion Summary */}
-          {complete && (
-            <div className="space-y-4 mb-6">
-              <div
-                className="p-4 rounded-lg"
-                style={{
-                  backgroundColor: 'var(--theme-success-bg)',
-                  color: 'var(--theme-success-text)'
-                }}
-              >
-                <p className="text-sm flex items-center justify-center gap-2">
-                  <CheckCircle className="w-4 h-4" />
-                  Setup complete! Your Lancache Manager is ready to use.
-                </p>
-              </div>
-
-              <div
-                className="p-6 rounded-lg"
-                style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
-              >
-                <div className="text-center">
-                  <h3 className="text-lg font-semibold text-themed-primary mb-3">What's Next?</h3>
-                  <ul className="text-sm text-themed-secondary space-y-2 text-left max-w-md mx-auto">
-                    <li className="flex items-start gap-2">
-                      <CheckCircle
-                        className="w-4 h-4 flex-shrink-0 mt-0.5"
-                        style={{ color: 'var(--theme-success)' }}
-                      />
-                      <span>PICS depot mappings updated</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle
-                        className="w-4 h-4 flex-shrink-0 mt-0.5"
-                        style={{ color: 'var(--theme-success)' }}
-                      />
-                      <span>Cache logs have been processed</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle
-                        className="w-4 h-4 flex-shrink-0 mt-0.5"
-                        style={{ color: 'var(--theme-success)' }}
-                      />
-                      <span>Downloads are mapped to games</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Home
-                        className="w-4 h-4 flex-shrink-0 mt-0.5"
-                        style={{ color: 'var(--theme-primary)' }}
-                      />
-                      <span>View your dashboard to see cache statistics</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Home
-                        className="w-4 h-4 flex-shrink-0 mt-0.5"
-                        style={{ color: 'var(--theme-primary)' }}
-                      />
-                      <span>Check the Downloads tab to see identified games</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <div
-              className="p-4 rounded-lg mb-6"
-              style={{
-                backgroundColor: 'var(--theme-error-bg)',
-                color: 'var(--theme-error-text)'
-              }}
-            >
-              <p className="text-sm">{error}</p>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          {!mapping && !complete && (
-            <div className="flex gap-3">
-              <Button
-                variant="filled"
-                color="blue"
-                leftSection={<Map className="w-4 h-4" />}
-                onClick={startDepotMapping}
-                fullWidth
-              >
-                Scan & Map Depots
-              </Button>
-              <Button
-                variant="default"
-                leftSection={<SkipForward className="w-4 h-4" />}
-                onClick={handleSkip}
-                fullWidth
-              >
-                Skip for Now
-              </Button>
-            </div>
-          )}
-
-          {complete && (
-            <Button
-              variant="filled"
-              color="green"
-              size="lg"
-              leftSection={<Home className="w-5 h-5" />}
-              onClick={onComplete}
-              fullWidth
-            >
-              Go to Dashboard
-            </Button>
+              <p className="text-sm text-themed-secondary">This may take a moment</p>
+            </>
+          ) : (
+            <p className="text-base font-medium text-themed-primary">Processing...</p>
           )}
         </div>
+      )}
+
+      {/* Complete Summary */}
+      {complete && (
+        <div className="space-y-4">
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: 'var(--theme-success-bg)' }}
+          >
+            <p className="text-sm text-center" style={{ color: 'var(--theme-success-text)' }}>
+              Setup complete! Your Lancache Manager is ready to use.
+            </p>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+          >
+            <h4 className="text-sm font-semibold text-themed-primary mb-3 text-center">What's Next?</h4>
+            <ul className="text-sm text-themed-secondary space-y-2">
+              <li className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                <span>PICS depot mappings updated</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                <span>Cache logs processed</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+                <span>Downloads mapped to games</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Home className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-primary)' }} />
+                <span>View your dashboard for cache statistics</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div
+          className="p-3 rounded-lg"
+          style={{ backgroundColor: 'var(--theme-error-bg)' }}
+        >
+          <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</p>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div className="pt-2">
+        {!mapping && !complete && (
+          <div className="flex gap-3">
+            <Button variant="filled" color="blue" onClick={startDepotMapping} className="flex-1">
+              Scan & Map Depots
+            </Button>
+            <Button variant="default" onClick={handleSkip} className="flex-1">
+              Skip for Now
+            </Button>
+          </div>
+        )}
+
+        {complete && (
+          <Button variant="filled" color="green" size="lg" onClick={onComplete} fullWidth>
+            Go to Dashboard
+          </Button>
+        )}
       </div>
 
       {/* Full Scan Required Modal */}
@@ -311,7 +265,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           estimatedApps={changeGapWarning.estimatedApps}
           onConfirm={() => {
             setChangeGapWarning(null);
-            proceedWithScan(true); // Force full scan
+            proceedWithScan(true);
           }}
           onCancel={() => setChangeGapWarning(null)}
           onDownloadFromGitHub={handleDownloadFromGitHub}

@@ -5,6 +5,7 @@ import { useNotifications } from '@contexts/NotificationsContext';
 export interface SteamAuthOptions {
   autoStartPics?: boolean;
   onSuccess?: (message: string) => void;
+  onError?: (message: string) => void;
 }
 
 export interface SteamLoginFlowState {
@@ -25,13 +26,15 @@ export interface SteamAuthActions {
   setTwoFactorCode: (value: string) => void;
   setEmailCode: (value: string) => void;
   setUseManualCode: (value: boolean) => void;
+  setNeedsTwoFactor: (value: boolean) => void;
+  setWaitingForMobileConfirmation: (value: boolean) => void;
   handleAuthenticate: () => Promise<boolean>;
   resetAuthForm: () => void;
   cancelPendingRequest: () => void;
 }
 
 export function useSteamAuthentication(options: SteamAuthOptions = {}) {
-  const { autoStartPics = false, onSuccess } = options;
+  const { autoStartPics = false, onSuccess, onError } = options;
   const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
@@ -151,6 +154,21 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       }
 
       if (response.ok) {
+        if (result.sessionExpired) {
+          // Session expired while waiting for mobile confirmation
+          // Switch to manual 2FA code entry
+          setWaitingForMobileConfirmation(false);
+          setNeedsTwoFactor(true);
+          setUseManualCode(true);
+          addNotification({
+            type: 'generic',
+            status: 'failed',
+            message: 'Mobile confirmation timed out. Please enter your 2FA code instead.',
+            details: { notificationType: 'warning' }
+          });
+          return false; // Stay in modal, show 2FA input
+        }
+
         if (result.requiresTwoFactor) {
           setWaitingForMobileConfirmation(false);
           setNeedsTwoFactor(true);
@@ -178,19 +196,27 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
           return false;
         }
       } else {
+        // Backend returned non-OK status (400, 500, etc.)
         setWaitingForMobileConfirmation(false);
+        setLoading(false);
+        const errorMsg = result.message || result.error || 'Authentication failed';
         addNotification({
           type: 'generic',
           status: 'failed',
-          message: result.message || 'Authentication failed',
+          message: errorMsg,
           details: { notificationType: 'error' }
         });
+        // Reset form on error so modal can be closed cleanly
+        resetAuthForm();
+        // Notify parent component of error (to close modal)
+        onError?.(errorMsg);
         return false;
       }
     } catch (err: any) {
       // Don't show error if request was aborted intentionally
       if (err.name !== 'AbortError') {
         setWaitingForMobileConfirmation(false);
+        setLoading(false);
         const errorMessage = err.message || 'Authentication failed';
         addNotification({
           type: 'generic',
@@ -198,6 +224,10 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
           message: errorMessage,
           details: { notificationType: 'error' }
         });
+        // Reset form on error so modal can be closed cleanly
+        resetAuthForm();
+        // Notify parent component of error (to close modal)
+        onError?.(errorMessage);
       }
       return false;
     } finally {
@@ -224,6 +254,8 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     setTwoFactorCode,
     setEmailCode,
     setUseManualCode,
+    setNeedsTwoFactor,
+    setWaitingForMobileConfirmation,
     handleAuthenticate,
     resetAuthForm,
     cancelPendingRequest

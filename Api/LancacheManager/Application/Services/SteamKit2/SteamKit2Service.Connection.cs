@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using SteamKit2;
 
 namespace LancacheManager.Application.Services;
@@ -114,15 +115,145 @@ public partial class SteamKit2Service
         }
         else
         {
+            // Create user-friendly error messages for common login failures
+            var (errorType, errorMessage) = callback.Result switch
+            {
+                EResult.InvalidPassword => (
+                    "InvalidCredentials",
+                    "Your Steam credentials are invalid or have expired. Please re-authenticate with your Steam account."
+                ),
+                EResult.AccountLogonDenied => (
+                    "AuthenticationRequired",
+                    "Steam Guard authentication is required. Please re-authenticate with your Steam account."
+                ),
+                EResult.TryAnotherCM => (
+                    "ServerUnavailable",
+                    "Steam server is temporarily unavailable. This often happens after a session was replaced. Please wait a moment and try again, or re-authenticate."
+                ),
+                EResult.ServiceUnavailable => (
+                    "ServiceUnavailable",
+                    "Steam service is temporarily unavailable. Please try again later."
+                ),
+                EResult.RateLimitExceeded => (
+                    "RateLimited",
+                    "Too many login attempts. Please wait a few minutes before trying again."
+                ),
+                EResult.Expired => (
+                    "SessionExpired",
+                    "Your Steam session has expired. Please re-authenticate with your Steam account."
+                ),
+                _ => (
+                    "LoginFailed",
+                    $"Unable to log into Steam: {callback.Result}. Please try again or re-authenticate."
+                )
+            };
+
+            _lastErrorMessage = errorMessage;
             _loggedOnTcs?.TrySetException(new Exception($"Logon failed: {callback.Result} / {callback.ExtendedResult}"));
-            _logger.LogError($"Unable to logon to Steam: {callback.Result} / {callback.ExtendedResult}");
+            _logger.LogError("Unable to logon to Steam: {Result} / {ExtendedResult}", callback.Result, callback.ExtendedResult);
+
+            // Send error notification to frontend
+            _ = _hubContext.Clients.All.SendAsync("SteamSessionError", new
+            {
+                errorType,
+                message = errorMessage,
+                result = callback.Result.ToString(),
+                extendedResult = callback.ExtendedResult.ToString(),
+                timestamp = DateTime.UtcNow,
+                wasRebuildActive = IsRebuildRunning
+            });
+
+            // If a rebuild was in progress, send failure completion
+            if (IsRebuildRunning)
+            {
+                _ = _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                {
+                    success = false,
+                    error = errorMessage,
+                    errorType,
+                    depotMappingsFound = _depotToAppMappings.Count,
+                    timestamp = DateTime.UtcNow
+                });
+
+                _currentRebuildCts?.Cancel();
+            }
         }
     }
 
     private void OnLoggedOff(SteamUser.LoggedOffCallback callback)
     {
-        _logger.LogWarning($"Logged off of Steam: {callback.Result}");
+        _logger.LogWarning("Logged off of Steam: {Result}", callback.Result);
         _isLoggedOn = false;
+
+        // Handle specific logoff reasons with user-friendly messages
+        var (errorType, errorMessage, shouldCancelRebuild) = callback.Result switch
+        {
+            EResult.LogonSessionReplaced => (
+                "SessionReplaced",
+                "Your Steam session was replaced. This happens when you log into Steam from another device or application (Steam client, another server, etc.). Please close other Steam sessions and try again.",
+                true
+            ),
+            EResult.LoggedInElsewhere => (
+                "LoggedInElsewhere",
+                "You logged into Steam from another location. Steam only allows one active session for PICS access. Please close other Steam sessions and try again.",
+                true
+            ),
+            EResult.AccountLogonDenied => (
+                "AuthenticationRequired",
+                "Steam authentication is required. Please re-authenticate with your Steam account.",
+                true
+            ),
+            EResult.InvalidPassword => (
+                "InvalidCredentials",
+                "Your Steam credentials are no longer valid. Please re-authenticate with your Steam account.",
+                true
+            ),
+            EResult.Expired => (
+                "SessionExpired",
+                "Your Steam session has expired. Please re-authenticate with your Steam account.",
+                true
+            ),
+            _ => (
+                "Disconnected",
+                $"Disconnected from Steam: {callback.Result}",
+                false
+            )
+        };
+
+        // Send SignalR notification for significant errors
+        if (shouldCancelRebuild)
+        {
+            _lastErrorMessage = errorMessage;
+
+            // Send error notification to frontend
+            _ = _hubContext.Clients.All.SendAsync("SteamSessionError", new
+            {
+                errorType,
+                message = errorMessage,
+                result = callback.Result.ToString(),
+                timestamp = DateTime.UtcNow,
+                wasRebuildActive = IsRebuildRunning
+            });
+
+            // Cancel the rebuild if one is active
+            if (IsRebuildRunning)
+            {
+                _logger.LogError("Steam session error during active rebuild: {ErrorType} - {Message}", errorType, errorMessage);
+
+                // Send a failure completion event
+                _ = _hubContext.Clients.All.SendAsync("DepotMappingComplete", new
+                {
+                    success = false,
+                    error = errorMessage,
+                    errorType,
+                    depotMappingsFound = _depotToAppMappings.Count,
+                    timestamp = DateTime.UtcNow
+                });
+
+                // Cancel the rebuild
+                _currentRebuildCts?.Cancel();
+            }
+        }
     }
 
     /// <summary>

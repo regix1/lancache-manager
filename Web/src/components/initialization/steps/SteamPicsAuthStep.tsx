@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Shield, CheckCircle, ChevronRight, Users, User } from 'lucide-react';
+import { Shield, CheckCircle, Users, User, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
+import ApiService from '@services/api.service';
 
 interface SteamPicsAuthStepProps {
   onComplete: (usingSteamAuth: boolean) => void;
@@ -13,66 +14,92 @@ type AuthMode = 'anonymous' | 'account';
 export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete }) => {
   const [selectedMode, setSelectedMode] = useState<AuthMode>('anonymous');
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const { state, actions } = useSteamAuthentication({
-    autoStartPics: false, // Don't auto-start during initialization
+    autoStartPics: false,
     onSuccess: () => {
       setShowAuthModal(false);
-      // Continue to next step - true = using Steam auth
       onComplete(true);
+    },
+    onError: () => {
+      setShowAuthModal(false);
+      actions.resetAuthForm();
+      setSelectedMode('anonymous');
     }
   });
 
   const handleModeSelect = (mode: AuthMode) => {
     setSelectedMode(mode);
+    setError(null);
     if (mode === 'account') {
       setShowAuthModal(true);
     }
   };
 
-  const handleContinueAnonymous = () => {
-    onComplete(false); // false = not using Steam auth
+  const handleContinueAnonymous = async () => {
+    setSaving(true);
+    setError(null);
+
+    try {
+      // Save anonymous mode to backend
+      const response = await fetch('/api/steam-auth/mode', {
+        method: 'PUT',
+        headers: {
+          ...ApiService.getHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ mode: 'anonymous' })
+      });
+
+      if (response.ok) {
+        onComplete(false);
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Failed to save authentication mode');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Network error - failed to save authentication mode');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCloseModal = () => {
     if (!state.loading) {
       setShowAuthModal(false);
       actions.resetAuthForm();
-      // Reset to anonymous if they cancel
       setSelectedMode('anonymous');
     }
   };
 
   return (
     <>
-      <div className="space-y-6">
-        <div className="text-center">
+      <div className="space-y-5">
+        {/* Header */}
+        <div className="flex flex-col items-center text-center">
           <div
-            className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-            style={{ backgroundColor: 'var(--theme-primary)/10' }}
+            className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
+            style={{ backgroundColor: 'var(--theme-info-bg)' }}
           >
-            <Shield size={32} style={{ color: 'var(--theme-primary)' }} />
+            <Shield className="w-7 h-7" style={{ color: 'var(--theme-info)' }} />
           </div>
-          <h2 className="text-2xl font-bold text-themed-primary mb-2">Steam PICS Authentication</h2>
-          <p className="text-themed-secondary">
+          <h3 className="text-lg font-semibold text-themed-primary mb-1">Steam PICS Authentication</h3>
+          <p className="text-sm text-themed-secondary max-w-md">
             Choose how to authenticate with Steam for depot mapping data
           </p>
         </div>
 
+        {/* Info Box */}
         <div
-          className="p-4 rounded-lg"
-          style={{
-            backgroundColor: 'var(--theme-info-bg)',
-            borderColor: 'var(--theme-info)',
-            color: 'var(--theme-info-text)'
-          }}
+          className="p-3 rounded-lg text-sm"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
         >
-          <p className="text-sm">
-            <strong>What is depot mapping?</strong>
-            <br />
-            Depot mapping links cache files to games. Anonymous mode provides access to public games
-            only. Logging in with your Steam account enables access to playtest and restricted
-            games.
+          <p className="text-themed-secondary">
+            <strong className="text-themed-primary">What is depot mapping?</strong>{' '}
+            Links cache files to games. Anonymous mode provides public games only.
+            Account login enables access to playtest and restricted games.
           </p>
         </div>
 
@@ -83,31 +110,23 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             onClick={() => setSelectedMode('anonymous')}
             className="w-full p-4 rounded-lg border-2 text-left transition-all"
             style={{
-              borderColor:
-                selectedMode === 'anonymous'
-                  ? 'var(--theme-primary)'
-                  : 'var(--theme-border-primary)',
-              backgroundColor:
-                selectedMode === 'anonymous' ? 'var(--theme-primary)/10' : 'transparent'
+              borderColor: selectedMode === 'anonymous' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+              backgroundColor: selectedMode === 'anonymous' ? 'var(--theme-primary-bg, rgba(var(--theme-primary-rgb), 0.1))' : 'transparent'
             }}
           >
-            <div className="flex items-start gap-3">
+            <div className="flex items-center gap-3">
               <div
-                className="p-2 rounded-lg"
+                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
               >
                 <Users className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
               </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-themed-primary mb-1">
-                  Anonymous (Public Data Only)
-                </h3>
-                <p className="text-sm text-themed-secondary">
-                  Access depot mappings for public games only. No Steam login required.
-                </p>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-themed-primary">Anonymous (Public Only)</h4>
+                <p className="text-sm text-themed-secondary">No Steam login required</p>
               </div>
               {selectedMode === 'anonymous' && (
-                <CheckCircle className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
+                <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
               )}
             </div>
           </button>
@@ -117,45 +136,49 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             onClick={() => handleModeSelect('account')}
             className="w-full p-4 rounded-lg border-2 text-left transition-all"
             style={{
-              borderColor:
-                selectedMode === 'account' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
-              backgroundColor:
-                selectedMode === 'account' ? 'var(--theme-primary)/10' : 'transparent'
+              borderColor: selectedMode === 'account' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
+              backgroundColor: selectedMode === 'account' ? 'var(--theme-primary-bg, rgba(var(--theme-primary-rgb), 0.1))' : 'transparent'
             }}
           >
-            <div className="flex items-start gap-3">
+            <div className="flex items-center gap-3">
               <div
-                className="p-2 rounded-lg"
+                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
               >
-                <User className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
+                <User className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
               </div>
-              <div className="flex-1">
-                <h3 className="font-semibold text-themed-primary mb-1">
-                  Account Login (All Games)
-                </h3>
-                <p className="text-sm text-themed-secondary">
-                  Login with Steam account to access playtest and restricted games. Depot mapping
-                  will be configured in the next step.
-                </p>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-semibold text-themed-primary">Account Login (All Games)</h4>
+                <p className="text-sm text-themed-secondary">Access playtest and restricted games</p>
               </div>
               {selectedMode === 'account' && (
-                <CheckCircle className="w-6 h-6" style={{ color: 'var(--theme-primary)' }} />
+                <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
               )}
             </div>
           </button>
         </div>
+
+        {/* Error Display */}
+        {error && (
+          <div
+            className="p-3 rounded-lg"
+            style={{ backgroundColor: 'var(--theme-error-bg)' }}
+          >
+            <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>{error}</p>
+          </div>
+        )}
 
         {/* Continue Button */}
         {selectedMode === 'anonymous' && (
           <Button
             variant="filled"
             color="blue"
-            leftSection={<ChevronRight className="w-4 h-4" />}
             onClick={handleContinueAnonymous}
+            disabled={saving}
             fullWidth
           >
-            Continue with Anonymous Mode
+            {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            {saving ? 'Saving...' : 'Continue with Anonymous Mode'}
           </Button>
         )}
       </div>

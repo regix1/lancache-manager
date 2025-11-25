@@ -38,6 +38,17 @@ public partial class SteamKit2Service
             {
                 pollResponse = await authSession.PollingWaitForResultAsync();
             }
+            catch (AuthenticationException authEx) when (authEx.Message.Contains("Expired"))
+            {
+                // Steam's authentication session timed out (usually ~2-3 minutes for mobile confirmation)
+                _logger.LogWarning("Authentication session expired - user did not confirm in time");
+                return new AuthenticationResult
+                {
+                    Success = false,
+                    SessionExpired = true,
+                    Message = "Authentication session expired. Please try again and confirm on your Steam Mobile App within 2 minutes, or use a 2FA code instead."
+                };
+            }
             catch (InvalidOperationException)
             {
                 // Check if we need mobile confirmation
@@ -231,6 +242,7 @@ public partial class SteamKit2Service
         public bool RequiresTwoFactor { get; set; }
         public bool RequiresEmailCode { get; set; }
         public bool RequiresMobileConfirmation { get; set; }
+        public bool SessionExpired { get; set; }
         public string? Message { get; set; }
     }
 }

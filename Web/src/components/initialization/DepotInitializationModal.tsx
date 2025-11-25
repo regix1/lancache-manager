@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Rocket, ArrowLeft } from 'lucide-react';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { storage } from '@utils/storage';
@@ -47,7 +47,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   onInitialized,
   onAuthChanged
 }) => {
-  // Restore step from localStorage
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
     const stored = storage.getItem('initializationCurrentStep');
     return (stored as InitStep) || 'api-key';
@@ -67,13 +66,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const [authDisabled, setAuthDisabled] = useState<boolean>(false);
   const [backButtonDisabled, setBackButtonDisabled] = useState<boolean>(false);
 
-  // Persist current step whenever it changes
   useEffect(() => {
     storage.setItem('initializationCurrentStep', currentStep);
-    console.log('[DepotInit] Step changed to:', currentStep);
   }, [currentStep]);
 
-  // Persist data source choice
   useEffect(() => {
     if (dataSourceChoice) {
       storage.setItem('dataSourceChoice', dataSourceChoice);
@@ -82,22 +78,12 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   }, [dataSourceChoice]);
 
-  // Check setup status on mount
   useEffect(() => {
     const checkSetupStatus = async () => {
-      // IMPORTANT: Check for stale localStorage data and clear if needed
-      // Increment this version when localStorage structure changes to force cleanup
       const INIT_VERSION = '1.0';
       const storedVersion = storage.getItem('initializationVersion');
 
       if (storedVersion !== INIT_VERSION) {
-        console.log(
-          '[DepotInit] Stale or missing version detected (stored:',
-          storedVersion,
-          'expected:',
-          INIT_VERSION,
-          '), clearing all initialization localStorage'
-        );
         clearAllLocalStorage();
         storage.setItem('initializationVersion', INIT_VERSION);
       }
@@ -105,41 +91,32 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
       await checkDataAvailability();
 
       try {
-        // Check if authentication is globally disabled
         const authCheck = await authService.checkAuth();
         const authRequired = authCheck.requiresAuth;
         setAuthDisabled(!authRequired);
 
-        console.log('[DepotInit] Auth check:', {
-          requiresAuth: authRequired,
-          isAuthenticated: authCheck.isAuthenticated
-        });
-
-        // Check backend setup status
         const setupResponse = await fetch('/api/system/setup');
         const setupData = await setupResponse.json();
 
-        // If setup is already complete, clear localStorage and close modal
         if (setupData.isCompleted && authCheck.isAuthenticated) {
-          console.log('[DepotInit] Setup already complete, clearing localStorage and closing');
           clearAllLocalStorage();
           onInitialized();
           return;
         }
 
-        // Check if we have a stored step - keep it if valid
         const storedStep = storage.getItem('initializationCurrentStep');
         if (storedStep) {
-          console.log('[DepotInit] Restoring saved step:', storedStep);
+          if (!authCheck.isAuthenticated && !setupData.isCompleted) {
+            clearAllLocalStorage();
+            setCurrentStep('api-key');
+            return;
+          }
 
-          // Restore data source choice if we're on steps that need it
           const storedChoice = storage.getItem('dataSourceChoice');
           if (storedChoice) {
-            console.log('[DepotInit] Restoring data source choice:', storedChoice);
             setDataSourceChoice(storedChoice as 'github' | 'steam');
           }
 
-          // Load PICS data if needed for later steps
           if (
             storedStep === 'depot-init' ||
             storedStep === 'pics-progress' ||
@@ -151,11 +128,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           return;
         }
 
-        // No stored step - determine initial step based on auth status
         if (!authRequired || !authCheck.isAuthenticated) {
           setCurrentStep('api-key');
         } else {
-          // Already authenticated, skip to import step
           await checkPicsDataStatus();
           setCurrentStep('import-historical-data');
         }
@@ -169,7 +144,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   }, []);
 
   const clearAllLocalStorage = () => {
-    console.log('[DepotInit] Clearing all initialization localStorage');
     storage.removeItem('initializationCurrentStep');
     storage.removeItem('dataSourceChoice');
     storage.removeItem('initializationApiKey');
@@ -226,11 +200,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
   const handleInitializationComplete = () => {
     clearAllLocalStorage();
-    console.log('[DepotInit] Initialization complete, cleared localStorage');
     onInitialized();
   };
 
-  // Step 1: API Key
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
       setAuthError('API key is required');
@@ -287,12 +259,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     setCurrentStep('import-historical-data');
   };
 
-  // Step 2: Import Historical Data
   const handleImportComplete = () => {
     setCurrentStep('data-source-choice');
   };
 
-  // Step 3: Data Source Choice
   const handleChooseGithub = () => {
     setDataSourceChoice('github');
     setCurrentStep('depot-init');
@@ -303,41 +273,38 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     setCurrentStep('steam-api-key');
   };
 
-  // Step 4: Steam API Key
   const handleSteamApiKeyComplete = async () => {
     await checkPicsDataStatus();
     setCurrentStep('steam-auth');
   };
 
-  // Step 5: Steam Auth
   const handleSteamAuthComplete = async (usingSteam: boolean) => {
     setUsingSteamAuth(usingSteam);
     await checkPicsDataStatus();
     setCurrentStep('depot-init');
   };
 
-  // Step 6: Depot Init
   const handleDepotInitComplete = () => {
-    // GitHub download completed - skip to log processing
     setCurrentStep('log-processing');
   };
 
   const handleDepotInitGenerateOwn = () => {
-    // User clicked "Generate Fresh" - advance to PICS progress
     setCurrentStep('pics-progress');
   };
 
   const handleDepotInitContinue = () => {
-    // User clicked "Continue" (incremental update) - advance to PICS progress
     setCurrentStep('pics-progress');
   };
 
-  // Step 7: PICS Progress
   const handlePicsProgressComplete = () => {
     setCurrentStep('log-processing');
   };
 
-  // Step 8: Log Processing
+  const handlePicsProgressCancel = () => {
+    setDataSourceChoice(null);
+    setCurrentStep('data-source-choice');
+  };
+
   const handleLogProcessingComplete = () => {
     setCurrentStep('depot-mapping');
   };
@@ -347,7 +314,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     handleInitializationComplete();
   };
 
-  // Step 9: Depot Mapping
   const handleDepotMappingComplete = async () => {
     await markSetupCompleted();
     handleInitializationComplete();
@@ -358,7 +324,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     handleInitializationComplete();
   };
 
-  // Back button navigation
   const handleGoBack = () => {
     switch (currentStep) {
       case 'import-historical-data':
@@ -393,8 +358,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         break;
     }
   };
-
-  const canGoBack = currentStep !== 'api-key' && !backButtonDisabled;
 
   const renderStep = () => {
     switch (currentStep) {
@@ -455,6 +418,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           <PicsProgressStep
             onComplete={handlePicsProgressComplete}
             onProcessingStateChange={setBackButtonDisabled}
+            onCancel={handlePicsProgressCancel}
           />
         );
 
@@ -477,9 +441,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
   };
 
+  const stepInfo = STEP_INFO[currentStep];
+
   return (
-    <div className="fixed inset-0 z-[9999] bg-[var(--theme-bg-primary)] flex items-center justify-center">
-      {/* Background pattern */}
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--theme-bg-primary)' }}
+    >
+      {/* Stripe background pattern */}
       <div
         className="absolute inset-0 opacity-5"
         style={{
@@ -487,93 +456,70 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         }}
       />
 
+      {/* Main Card */}
       <div
-        className="relative z-10 max-w-4xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
+        className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden"
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: 'var(--theme-primary)'
+          borderColor: 'var(--theme-border-primary)'
         }}
       >
-        {/* Step Indicator & Back Button - Top Left */}
-        <div className="absolute top-4 left-4 flex items-center gap-3">
-          {/* Back Button */}
-          {currentStep !== 'api-key' && (
-            <button
-              onClick={backButtonDisabled ? undefined : handleGoBack}
-              disabled={backButtonDisabled}
-              className="group flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200"
-              style={{
-                backgroundColor: backButtonDisabled
-                  ? 'var(--theme-bg-tertiary)'
-                  : 'var(--theme-bg-tertiary)',
-                color: backButtonDisabled ? 'var(--theme-text-muted)' : 'var(--theme-text-secondary)',
-                border: `1px solid ${backButtonDisabled ? 'var(--theme-border-tertiary)' : 'var(--theme-border-secondary)'}`,
-                cursor: backButtonDisabled ? 'not-allowed' : 'pointer',
-                opacity: backButtonDisabled ? 0.5 : 1
-              }}
-              onMouseEnter={(e) => {
-                if (!backButtonDisabled) {
-                  e.currentTarget.style.backgroundColor = 'var(--theme-primary)/10';
-                  e.currentTarget.style.borderColor = 'var(--theme-primary)/30';
-                  e.currentTarget.style.color = 'var(--theme-primary)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!backButtonDisabled) {
-                  e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
-                  e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-                  e.currentTarget.style.color = 'var(--theme-text-secondary)';
-                }
-              }}
-              title={
-                backButtonDisabled
-                  ? 'Cannot go back while operation is in progress'
-                  : 'Go back to previous step'
-              }
-            >
-              <ArrowLeft
-                size={14}
-                className={`transition-transform duration-200 ${!backButtonDisabled && 'group-hover:-translate-x-0.5'}`}
-              />
-              <span className="hidden sm:inline">Back</span>
-            </button>
-          )}
-
-          {/* Step Indicator */}
+        {/* Header */}
+        <div
+          className="px-8 py-5 border-b flex items-center justify-between"
+          style={{ borderColor: 'var(--theme-border-secondary)' }}
+        >
+          <div className="flex items-center gap-3">
+            {currentStep !== 'api-key' && (
+              <button
+                onClick={backButtonDisabled ? undefined : handleGoBack}
+                disabled={backButtonDisabled}
+                className="p-1.5 rounded-lg transition-colors"
+                style={{
+                  backgroundColor: 'transparent',
+                  color: backButtonDisabled ? 'var(--theme-text-muted)' : 'var(--theme-text-secondary)',
+                  cursor: backButtonDisabled ? 'not-allowed' : 'pointer',
+                  opacity: backButtonDisabled ? 0.5 : 1
+                }}
+                title={backButtonDisabled ? 'Cannot go back during operation' : 'Go back'}
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            <div className="flex items-center gap-2">
+              <Rocket className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
+              <span className="font-semibold text-themed-primary">Setup Wizard</span>
+            </div>
+          </div>
           <div
-            className="px-3 py-1.5 rounded-full text-xs font-semibold"
+            className="text-xs font-medium px-2.5 py-1 rounded-full"
             style={{
-              backgroundColor: 'var(--theme-primary)/10',
-              color: 'var(--theme-primary)',
-              border: '1px solid var(--theme-primary)/30'
+              backgroundColor: 'var(--theme-bg-tertiary)',
+              color: 'var(--theme-text-secondary)'
             }}
           >
-            Step {STEP_INFO[currentStep].number} of {STEP_INFO[currentStep].total}
+            {stepInfo.number} / {stepInfo.total}
           </div>
         </div>
 
-        {/* Header */}
-        <div className="text-center mb-8">
+        {/* Progress Bar */}
+        <div
+          className="h-1"
+          style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+        >
           <div
-            className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-            style={{ backgroundColor: 'var(--theme-primary)/10' }}
-          >
-            <AlertTriangle size={32} style={{ color: 'var(--theme-primary)' }} />
-          </div>
-          <h1 className="text-3xl font-bold text-themed-primary mb-2">
-            Welcome to Lancache Manager
-          </h1>
-          <p className="text-lg text-themed-secondary">
-            {currentStep === 'api-key'
-              ? authDisabled
-                ? 'Choose access mode'
-                : 'Authentication required'
-              : 'Initial setup'}
-          </p>
+            className="h-full transition-all duration-300 ease-out"
+            style={{
+              width: `${(stepInfo.number / stepInfo.total) * 100}%`,
+              backgroundColor: 'var(--theme-primary)'
+            }}
+          />
         </div>
 
-        {/* Content - Render current step */}
-        <div className="mb-8">{renderStep()}</div>
+        {/* Content */}
+        <div className="p-8">
+          {renderStep()}
+        </div>
       </div>
     </div>
   );

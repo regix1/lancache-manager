@@ -127,10 +127,26 @@ public class SteamAuthRepository : ISteamAuthRepository
                     var decryptedRefreshToken = _encryption.Decrypt(persisted.RefreshToken);
                     var decryptedApiKey = _encryption.Decrypt(persisted.SteamApiKey);
 
-                    // If decryption failed (returned null) and we had encrypted data, clear the invalid data
-                    if (decryptedRefreshToken == null && !string.IsNullOrEmpty(persisted.RefreshToken))
+                    // Check if any decryption failed for encrypted fields
+                    var refreshTokenDecryptFailed = decryptedRefreshToken == null && !string.IsNullOrEmpty(persisted.RefreshToken);
+                    var apiKeyDecryptFailed = decryptedApiKey == null && !string.IsNullOrEmpty(persisted.SteamApiKey);
+
+                    // If any decryption failed, log warning (but don't delete the file - user might just need to reconfigure)
+                    if (refreshTokenDecryptFailed)
                     {
-                        _logger.LogWarning("Failed to decrypt Steam auth data - clearing invalid credentials. You will need to re-authenticate.");
+                        _logger.LogWarning("Failed to decrypt Steam refresh token - you may need to re-authenticate with Steam.");
+                    }
+
+                    if (apiKeyDecryptFailed)
+                    {
+                        _logger.LogWarning("Failed to decrypt Steam Web API key - you may need to reconfigure your API key.");
+                    }
+
+                    // Only clear the file if BOTH critical fields failed to decrypt
+                    // This preserves partially working data (e.g., API key works but refresh token doesn't)
+                    if (refreshTokenDecryptFailed && apiKeyDecryptFailed)
+                    {
+                        _logger.LogWarning("Failed to decrypt all Steam auth data - clearing invalid credentials file.");
 
                         // Clear the invalid encrypted file
                         try

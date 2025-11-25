@@ -109,6 +109,16 @@ public class SteamAuthController : ControllerBase
                 {
                     return Ok(new { requiresEmailCode = true, message = "Email verification code required" });
                 }
+                else if (result.SessionExpired)
+                {
+                    // Session expired waiting for mobile confirmation - suggest using 2FA code instead
+                    return Ok(new
+                    {
+                        sessionExpired = true,
+                        requiresTwoFactor = true,
+                        message = result.Message ?? "Session expired. Please enter your 2FA code instead."
+                    });
+                }
                 else
                 {
                     return BadRequest(new { error = result.Message ?? "Authentication failed" });
@@ -151,6 +161,44 @@ public class SteamAuthController : ControllerBase
     }
 
     /// <summary>
+    /// PUT /api/steam-auth/mode - Set Steam authentication mode
+    /// Request body: { "mode": "anonymous" | "authenticated" }
+    /// Used during setup to explicitly save the user's auth mode choice
+    /// </summary>
+    [HttpPut("mode")]
+    public IActionResult SetSteamAuthMode([FromBody] SetModeRequest request)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request?.Mode))
+            {
+                return BadRequest(new { error = "Mode is required" });
+            }
+
+            var mode = request.Mode.ToLowerInvariant();
+            if (mode != "anonymous" && mode != "authenticated")
+            {
+                return BadRequest(new { error = "Mode must be 'anonymous' or 'authenticated'" });
+            }
+
+            _stateService.SetSteamAuthMode(mode);
+            _logger.LogInformation("Steam auth mode set to: {Mode}", mode);
+
+            return Ok(new
+            {
+                success = true,
+                message = $"Steam authentication mode set to {mode}",
+                mode
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting Steam auth mode");
+            return StatusCode(500, new { error = "Failed to set Steam auth mode", details = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// DELETE /api/steam-auth - Logout from Steam
     /// RESTful: DELETE is proper method for removing/ending sessions
     /// Note: This endpoint does NOT require LANCache Manager authentication
@@ -180,5 +228,10 @@ public class SteamAuthController : ControllerBase
         public string? EmailCode { get; set; }
         public bool AllowMobileConfirmation { get; set; } = true;
         public bool AutoStartPicsRebuild { get; set; } = false;
+    }
+
+    public class SetModeRequest
+    {
+        public string? Mode { get; set; }
     }
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Database } from 'lucide-react';
+import { Cloud, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 
 interface DataSourceChoiceStepProps {
@@ -12,101 +12,114 @@ export const DataSourceChoiceStep: React.FC<DataSourceChoiceStepProps> = ({
   onChooseSteam
 }) => {
   return (
-    <>
-      <p className="text-themed-secondary text-center mb-6">
-        Choose how you want to obtain depot mapping data for identifying Steam games in your cache logs:
-      </p>
-
-      {/* What is depot mapping info box */}
-      <div
-        className="mb-6 p-4 rounded-lg border"
-        style={{
-          backgroundColor: 'var(--theme-info-bg)',
-          borderColor: 'var(--theme-info)'
-        }}
-      >
-        <p className="text-sm" style={{ color: 'var(--theme-info-text)' }}>
-          <strong>What is depot mapping?</strong>
-          <br />
-          Depot mapping links cache files to games. This data is essential for identifying which games are being cached.
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col items-center text-center">
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
+          style={{ backgroundColor: 'var(--theme-info-bg)' }}
+        >
+          <Database className="w-7 h-7" style={{ color: 'var(--theme-info)' }} />
+        </div>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">Choose Data Source</h3>
+        <p className="text-sm text-themed-secondary max-w-md">
+          Select how to obtain depot mapping data for identifying Steam games
         </p>
       </div>
 
-      {/* Options */}
+      {/* Info Box */}
+      <div
+        className="p-3 rounded-lg text-sm"
+        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+      >
+        <p className="text-themed-secondary">
+          <strong className="text-themed-primary">What is depot mapping?</strong>{' '}
+          Links cache files to games. Essential for identifying which games are being cached.
+        </p>
+      </div>
+
+      {/* Options Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* GitHub Pre-created Data Option */}
+        {/* GitHub Option */}
         <div
-          className="p-5 rounded-lg border-2 transition-all flex flex-col"
+          className="p-4 rounded-lg border-2 flex flex-col"
           style={{
             backgroundColor: 'var(--theme-bg-tertiary)',
-            borderColor: 'var(--theme-border-primary)',
-            minHeight: '260px'
+            borderColor: 'var(--theme-border-primary)'
           }}
         >
-          <div className="flex items-center gap-2 mb-3">
-            <Cloud size={20} style={{ color: 'var(--theme-info)' }} />
-            <h3 className="text-base font-semibold text-themed-primary">GitHub Pre-created Data</h3>
+          <div className="flex items-center gap-2 mb-2">
+            <Cloud className="w-5 h-5" style={{ color: 'var(--theme-info)' }} />
+            <h4 className="font-semibold text-themed-primary">GitHub Data</h4>
           </div>
           <p className="text-sm text-themed-secondary mb-3">
-            Download community-maintained depot mappings from GitHub. No Steam API key required.
+            Community-maintained depot mappings. Quick and easy.
           </p>
           <ul className="text-xs text-themed-muted space-y-1 mb-4 flex-grow">
-            <li>✓ Quick setup (~30 seconds)</li>
-            <li>✓ 290,000+ mappings ready</li>
-            <li>✓ Regularly updated</li>
-            <li>✓ No Steam API key needed</li>
-            <li>✓ Access to public games only</li>
+            <li className="flex items-center gap-1.5">
+              <CheckCircle className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+              Quick setup (~30 seconds)
+            </li>
+            <li className="flex items-center gap-1.5">
+              <CheckCircle className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+              290,000+ mappings ready
+            </li>
+            <li className="flex items-center gap-1.5">
+              <CheckCircle className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+              No API key needed
+            </li>
           </ul>
           <Button
             variant="filled"
             color="blue"
             size="sm"
-            leftSection={<Cloud className="w-3 h-3" />}
             onClick={onChooseGithub}
             fullWidth
-            className="mt-auto"
           >
             Use GitHub Data
           </Button>
         </div>
 
-        {/* Steam Data Option */}
+        {/* Steam Option */}
         <div
-          className="p-5 rounded-lg border-2 transition-all flex flex-col"
+          className="p-4 rounded-lg border-2 flex flex-col"
           style={{
             backgroundColor: 'var(--theme-bg-tertiary)',
-            borderColor: 'var(--theme-border-primary)',
-            minHeight: '260px'
+            borderColor: 'var(--theme-border-primary)'
           }}
         >
-          <div className="flex items-center gap-2 mb-3">
-            <Database size={20} style={{ color: 'var(--theme-success)' }} />
-            <h3 className="text-base font-semibold text-themed-primary">Steam Data</h3>
+          <div className="flex items-center gap-2 mb-2">
+            <Database className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+            <h4 className="font-semibold text-themed-primary">Steam Data</h4>
           </div>
           <p className="text-sm text-themed-secondary mb-3">
-            Generate depot mappings directly from Steam. Requires Steam Web API v1 key.
+            Generate directly from Steam. Access all games.
           </p>
           <ul className="text-xs text-themed-muted space-y-1 mb-4 flex-grow">
-            <li>✓ Latest data from Steam</li>
-            <li>✓ Access to playtest/beta games</li>
-            <li>✓ Customizable auth options</li>
-            <li>✓ Can update incrementally</li>
-            <li>○ Requires Steam API key setup</li>
-            <li>○ Takes 10-30 minutes for full scan</li>
+            <li className="flex items-center gap-1.5">
+              <CheckCircle className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+              Latest data from Steam
+            </li>
+            <li className="flex items-center gap-1.5">
+              <CheckCircle className="w-3 h-3" style={{ color: 'var(--theme-success)' }} />
+              Playtest/beta games access
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full border" style={{ borderColor: 'var(--theme-muted)' }} />
+              Requires Steam API key
+            </li>
           </ul>
           <Button
             variant="filled"
             color="green"
             size="sm"
-            leftSection={<Database className="w-3 h-3" />}
             onClick={onChooseSteam}
             fullWidth
-            className="mt-auto"
           >
             Use Steam Data
           </Button>
         </div>
       </div>
-    </>
+    </div>
   );
 };

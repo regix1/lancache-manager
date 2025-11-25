@@ -487,6 +487,20 @@ class ApiService {
     }
   }
 
+  static async applyDepotMappings(signal?: AbortSignal): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/depots`, this.getFetchOptions({
+        method: 'PATCH',
+        signal,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+      return await this.handleResponse(res);
+    } catch (error) {
+      console.error('applyDepotMappings error:', error);
+      throw error;
+    }
+  }
+
   // Set cache clearing delete mode (requires auth)
   static async setCacheDeleteMode(
     deleteMode: string

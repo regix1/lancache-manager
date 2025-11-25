@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Lock, ExternalLink, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Key, ExternalLink, CheckCircle, XCircle, Loader2, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { storage } from '@utils/storage';
@@ -10,14 +10,12 @@ interface SteamApiKeyStepProps {
 
 export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) => {
   const [apiKey, setApiKey] = useState(() => {
-    // Restore from localStorage
     return storage.getItem('steamApiKey') || '';
   });
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ valid: boolean; message: string } | null>(null);
 
-  // Persist apiKey to localStorage
   useEffect(() => {
     if (apiKey) {
       storage.setItem('steamApiKey', apiKey);
@@ -89,7 +87,6 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       const data = await response.json();
 
       if (response.ok) {
-        // API key saved successfully, move to next step
         onComplete();
       } else {
         setTestResult({
@@ -108,137 +105,115 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
   };
 
   return (
-    <>
-      <p className="text-themed-secondary text-center mb-6">
-        To access Steam data, you need a Steam Web API v1 key. This allows Lancache Manager to
-        fetch depot information from Steam.
-      </p>
-
-      {/* Info Section */}
-      <div
-        className="mb-6 rounded-lg p-4 border"
-        style={{
-          backgroundColor: 'var(--theme-info-bg)',
-          borderColor: 'var(--theme-info)'
-        }}
-      >
-        <div className="space-y-2 text-sm text-themed-secondary">
-          <p className="font-medium" style={{ color: 'var(--theme-info-text)' }}>
-            Steps to get your API key:
-          </p>
-          <ol className="list-decimal list-inside space-y-1 ml-2">
-            <li>
-              Visit{' '}
-              <a
-                href="https://steamcommunity.com/dev/apikey"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 font-medium hover:underline"
-                style={{ color: 'var(--theme-info-text)' }}
-              >
-                steamcommunity.com/dev/apikey
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </li>
-            <li>Login with your Steam account</li>
-            <li>
-              Enter a domain name (can be anything):
-              <ul className="list-disc list-inside ml-4 mt-1 space-y-0.5">
-                <li>Recommended: Your Steam username</li>
-                <li>Examples: "MyLancache", "HomeServer", etc.</li>
-                <li>This is just for organization - use any name you prefer</li>
-              </ul>
-            </li>
-            <li>Copy your API key and paste below</li>
-          </ol>
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col items-center text-center">
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
+          style={{ backgroundColor: 'var(--theme-steam-bg, var(--theme-primary)/10)' }}
+        >
+          <Key className="w-7 h-7" style={{ color: 'var(--theme-steam, var(--theme-primary))' }} />
         </div>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">Steam Web API Key</h3>
+        <p className="text-sm text-themed-secondary max-w-md">
+          Required to fetch depot information directly from Steam
+        </p>
+      </div>
+
+      {/* Instructions */}
+      <div
+        className="p-4 rounded-lg"
+        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+      >
+        <p className="text-sm font-medium text-themed-primary mb-2">How to get your API key:</p>
+        <ol className="text-sm text-themed-secondary space-y-1.5 list-decimal list-inside">
+          <li>
+            Visit{' '}
+            <a
+              href="https://steamcommunity.com/dev/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-themed-accent hover:underline"
+            >
+              steamcommunity.com/dev/apikey
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </li>
+          <li>Login with your Steam account</li>
+          <li>Enter any domain name (e.g., "MyLancache")</li>
+          <li>Copy and paste your key below</li>
+        </ol>
       </div>
 
       {/* API Key Input */}
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-themed-secondary mb-2">
-          Steam Web API Key
+      <div>
+        <label className="block text-sm font-medium text-themed-secondary mb-1.5">
+          API Key
         </label>
         <input
           type="password"
           value={apiKey}
           onChange={(e) => {
             setApiKey(e.target.value);
-            setTestResult(null); // Clear test result when typing
+            setTestResult(null);
           }}
-          placeholder="Enter your Steam Web API key..."
-          className="w-full px-4 py-2 rounded-lg border themed-input"
+          placeholder="Enter your Steam Web API key"
+          className="w-full px-3 py-2.5 themed-input"
           disabled={testing || saving}
         />
-      </div>
-
-      {/* Security Notice */}
-      <div className="flex items-start gap-2 text-xs text-themed-muted mb-4">
-        <Lock className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <p>
-          Your API key will be encrypted and stored securely alongside your Steam credentials using
-          Microsoft Data Protection API.
-        </p>
       </div>
 
       {/* Test Result */}
       {testResult && (
         <div
-          className="mb-4 rounded-lg p-3 border flex items-start gap-3"
+          className="p-3 rounded-lg flex items-start gap-3"
           style={{
-            backgroundColor: testResult.valid ? 'var(--theme-success-bg)' : 'var(--theme-error-bg)',
-            borderColor: testResult.valid ? 'var(--theme-success)' : 'var(--theme-error)'
+            backgroundColor: testResult.valid ? 'var(--theme-success-bg)' : 'var(--theme-error-bg)'
           }}
         >
           {testResult.valid ? (
-            <CheckCircle
-              className="w-5 h-5 flex-shrink-0 mt-0.5"
-              style={{ color: 'var(--theme-success)' }}
-            />
+            <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-success)' }} />
           ) : (
-            <XCircle
-              className="w-5 h-5 flex-shrink-0 mt-0.5"
-              style={{ color: 'var(--theme-error)' }}
-            />
+            <XCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-error)' }} />
           )}
-          <div className="flex-1">
-            <p
-              className="text-sm font-medium"
-              style={{
-                color: testResult.valid ? 'var(--theme-success-text)' : 'var(--theme-error-text)'
-              }}
-            >
-              {testResult.message}
-            </p>
-          </div>
+          <p
+            className="text-sm"
+            style={{ color: testResult.valid ? 'var(--theme-success-text)' : 'var(--theme-error-text)' }}
+          >
+            {testResult.message}
+          </p>
         </div>
       )}
 
+      {/* Security Note */}
+      <div className="flex items-start gap-2 text-xs text-themed-muted">
+        <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-success)' }} />
+        <p>Your API key is encrypted and stored securely using Microsoft Data Protection API.</p>
+      </div>
+
       {/* Action Buttons */}
-      <div className="flex flex-col gap-3">
+      <div className="flex gap-3 pt-2">
         <Button
-          onClick={handleTest}
           variant="default"
+          onClick={handleTest}
           disabled={!apiKey.trim() || testing || saving}
-          leftSection={testing ? <Loader2 className="w-4 h-4 animate-spin" /> : undefined}
-          fullWidth
+          className="flex-1"
         >
+          {testing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
           {testing ? 'Testing...' : 'Test Connection'}
         </Button>
 
         <Button
-          onClick={handleSave}
           variant="filled"
-          color="blue"
-          leftSection={
-            saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />
-          }
-          disabled={!apiKey.trim() || testing || saving || !!(testResult && !testResult.valid)}
-          fullWidth
+          color="green"
+          onClick={handleSave}
+          disabled={!apiKey.trim() || testing || saving || !testResult?.valid}
+          className="flex-1"
         >
-          {saving ? 'Saving...' : 'Save and Continue'}
+          {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+          {saving ? 'Saving...' : 'Save & Continue'}
         </Button>
       </div>
-    </>
+    </div>
   );
 };

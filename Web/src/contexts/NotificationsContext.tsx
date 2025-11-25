@@ -9,6 +9,25 @@ const NOTIFICATION_ANIMATION_DURATION_MS = 300; // Animation duration for notifi
 const INCREMENTAL_SCAN_ANIMATION_DURATION_MS = 1500; // Progress animation for incremental scans
 const INCREMENTAL_SCAN_ANIMATION_STEPS = 30; // Number of steps in incremental scan animation
 
+// Helper functions for flexible status checking (handles variations from SignalR)
+const isCompleteStatus = (status?: string): boolean => {
+  if (!status) return false;
+  const normalized = status.toLowerCase();
+  return normalized === 'complete' || normalized === 'completed' || normalized === 'done' || normalized === 'finished';
+};
+
+const isErrorStatus = (status?: string): boolean => {
+  if (!status) return false;
+  const normalized = status.toLowerCase();
+  return normalized === 'error' || normalized === 'failed' || normalized === 'failure';
+};
+
+const isRunningStatus = (status?: string): boolean => {
+  if (!status) return false;
+  const normalized = status.toLowerCase();
+  return normalized === 'running' || normalized === 'processing' || normalized === 'in_progress' || normalized === 'inprogress';
+};
+
 // Unified notification type for all background operations
 export type NotificationType =
   | 'log_processing'
@@ -221,7 +240,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const currentProgress = payload.percentComplete || payload.progress || 0;
       const status = payload.status || 'processing';
 
-      if (status === 'complete') {
+      if (isCompleteStatus(status)) {
         // Find existing notification and update it, or create one if it doesn't exist (handles race condition)
         let notificationId: string | null = null;
         setNotifications((prev) => {
@@ -703,13 +722,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const handleDatabaseResetProgress = (payload: any) => {
       const notificationId = 'database-reset';
 
-      if (payload.status === 'complete') {
+      if (isCompleteStatus(payload.status)) {
         updateNotification(notificationId, {
           status: 'completed',
           message: payload.message || 'Database reset completed',
           progress: 100
         });
-      } else if (payload.status === 'error') {
+      } else if (isErrorStatus(payload.status)) {
         updateNotification(notificationId, {
           status: 'failed',
           error: payload.message
@@ -1128,6 +1147,71 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
+    // Steam Session Error - handles session replacement, auth failures, etc.
+    const handleSteamSessionError = (payload: any) => {
+      console.log('[NotificationsContext] SteamSessionError received:', payload);
+
+      // Create a notification for the Steam session error
+      const notificationId = `steam-session-error-${Date.now()}`;
+
+      // Determine notification type based on error type
+      const getNotificationDetails = () => {
+        switch (payload.errorType) {
+          case 'SessionReplaced':
+          case 'LoggedInElsewhere':
+            return {
+              title: 'Steam Session Replaced',
+              icon: 'alert-triangle'
+            };
+          case 'InvalidCredentials':
+          case 'AuthenticationRequired':
+          case 'SessionExpired':
+            return {
+              title: 'Steam Authentication Required',
+              icon: 'key'
+            };
+          case 'ServerUnavailable':
+          case 'ServiceUnavailable':
+            return {
+              title: 'Steam Service Unavailable',
+              icon: 'cloud-off'
+            };
+          case 'RateLimited':
+            return {
+              title: 'Steam Rate Limited',
+              icon: 'clock'
+            };
+          default:
+            return {
+              title: 'Steam Connection Error',
+              icon: 'alert-circle'
+            };
+        }
+      };
+
+      const details = getNotificationDetails();
+
+      addNotification({
+        id: notificationId,
+        type: 'generic',
+        status: 'failed',
+        message: payload.message || 'Steam session error occurred',
+        details: {
+          notificationType: 'error',
+          title: details.title,
+          errorType: payload.errorType,
+          result: payload.result,
+          wasRebuildActive: payload.wasRebuildActive
+        }
+      });
+
+      // Don't auto-dismiss - user needs to see this
+      // But still schedule auto-dismiss after a longer delay
+      setTimeout(() => {
+        scheduleAutoDismiss(notificationId, AUTO_DISMISS_DELAY_MS * 2);
+      }, 100);
+    };
+
     // Subscribe to events
     signalR.on('ProcessingProgress', handleProcessingProgress);
     signalR.on('FastProcessingComplete', handleFastProcessingComplete);
@@ -1145,6 +1229,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotMappingComplete', handleDepotMappingComplete);
+    signalR.on('SteamSessionError', handleSteamSessionError);
 
     // Cleanup
     return () => {
@@ -1164,6 +1249,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DepotMappingStarted', handleDepotMappingStarted);
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
+      signalR.off('SteamSessionError', handleSteamSessionError);
     };
   }, [
     signalR,
