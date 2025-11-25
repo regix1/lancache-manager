@@ -47,6 +47,90 @@ const STORAGE_KEYS = {
 // View modes
 type ViewMode = 'compact' | 'normal';
 
+// Preset type
+type PresetType = 'pretty' | 'minimal' | 'showAll' | 'default' | 'custom';
+
+// Preset configurations
+const PRESETS = {
+  pretty: {
+    showZeroBytes: false,
+    showSmallFiles: false,
+    hideLocalhost: true,
+    hideUnknownGames: true,
+    groupUnknownGames: false,
+    aestheticMode: false,
+    fullHeightBanners: true,
+    groupByFrequency: false,
+    enableScrollIntoView: true
+  },
+  minimal: {
+    showZeroBytes: false,
+    showSmallFiles: false,
+    hideLocalhost: true,
+    hideUnknownGames: true,
+    groupUnknownGames: false,
+    aestheticMode: true,
+    fullHeightBanners: false,
+    groupByFrequency: true,
+    enableScrollIntoView: true
+  },
+  showAll: {
+    showZeroBytes: true,
+    showSmallFiles: true,
+    hideLocalhost: false,
+    hideUnknownGames: false,
+    groupUnknownGames: true,
+    aestheticMode: false,
+    fullHeightBanners: false,
+    groupByFrequency: true,
+    enableScrollIntoView: true
+  },
+  default: {
+    showZeroBytes: false,
+    showSmallFiles: true,
+    hideLocalhost: false,
+    hideUnknownGames: false,
+    groupUnknownGames: false,
+    aestheticMode: false,
+    fullHeightBanners: false,
+    groupByFrequency: true,
+    enableScrollIntoView: true
+  }
+};
+
+// Function to detect current preset
+const detectActivePreset = (settings: {
+  showZeroBytes: boolean;
+  showSmallFiles: boolean;
+  hideLocalhost: boolean;
+  hideUnknownGames: boolean;
+  groupUnknownGames: boolean;
+  aestheticMode: boolean;
+  fullHeightBanners: boolean;
+  groupByFrequency: boolean;
+  enableScrollIntoView: boolean;
+}): PresetType => {
+  const presetKeys = ['pretty', 'minimal', 'showAll', 'default'] as const;
+
+  for (const preset of presetKeys) {
+    const presetConfig = PRESETS[preset];
+    const matches =
+      settings.showZeroBytes === presetConfig.showZeroBytes &&
+      settings.showSmallFiles === presetConfig.showSmallFiles &&
+      settings.hideLocalhost === presetConfig.hideLocalhost &&
+      settings.hideUnknownGames === presetConfig.hideUnknownGames &&
+      settings.groupUnknownGames === presetConfig.groupUnknownGames &&
+      settings.aestheticMode === presetConfig.aestheticMode &&
+      settings.fullHeightBanners === presetConfig.fullHeightBanners &&
+      settings.groupByFrequency === presetConfig.groupByFrequency &&
+      settings.enableScrollIntoView === presetConfig.enableScrollIntoView;
+
+    if (matches) return preset;
+  }
+
+  return 'custom';
+};
+
 // CSV conversion utilities
 const convertDownloadsToCSV = (downloads: Download[]): string => {
   if (!downloads || downloads.length === 0) return '';
@@ -1020,105 +1104,57 @@ const DownloadsTab: React.FC = () => {
                 style={{ borderColor: 'var(--theme-border-secondary)' }}
               />
               <div className="space-y-4 animate-slide-in-top">
-                {/* Quick Presets */}
+                {/* Quick Presets - Mobile-friendly segmented control */}
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
                     Quick Presets
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setSettings({
-                        ...settings,
-                        showZeroBytes: false,
-                        showSmallFiles: false,
-                        hideLocalhost: true,
-                        hideUnknownGames: true,
-                        groupUnknownGames: false,
-                        aestheticMode: false,
-                        fullHeightBanners: true,
-                        groupByFrequency: false,
-                        enableScrollIntoView: true
-                      })}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
-                      style={{
-                        backgroundColor: 'var(--theme-primary)',
-                        color: 'var(--theme-button-text)',
-                        border: '1px solid var(--theme-primary)'
-                      }}
-                    >
-                      Pretty
-                    </button>
-                    <button
-                      onClick={() => setSettings({
-                        ...settings,
-                        showZeroBytes: false,
-                        showSmallFiles: false,
-                        hideLocalhost: true,
-                        hideUnknownGames: true,
-                        groupUnknownGames: false,
-                        aestheticMode: true,
-                        fullHeightBanners: false,
-                        groupByFrequency: true,
-                        enableScrollIntoView: true
-                      })}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-primary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
-                    >
-                      Minimal
-                    </button>
-                    <button
-                      onClick={() => setSettings({
-                        ...settings,
-                        showZeroBytes: true,
-                        showSmallFiles: true,
-                        hideLocalhost: false,
-                        hideUnknownGames: false,
-                        groupUnknownGames: true,
-                        aestheticMode: false,
-                        fullHeightBanners: false,
-                        groupByFrequency: true,
-                        enableScrollIntoView: true
-                      })}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-primary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
-                    >
-                      Show All
-                    </button>
-                    <button
-                      onClick={() => setSettings({
-                        ...settings,
-                        showZeroBytes: false,
-                        showSmallFiles: true,
-                        hideLocalhost: false,
-                        hideUnknownGames: false,
-                        groupUnknownGames: false,
-                        aestheticMode: false,
-                        fullHeightBanners: false,
-                        groupByFrequency: true,
-                        enableScrollIntoView: true
-                      })}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
-                      style={{
-                        backgroundColor: 'var(--theme-bg-tertiary)',
-                        color: 'var(--theme-text-primary)',
-                        border: '1px solid var(--theme-border-secondary)'
-                      }}
-                    >
-                      Default
-                    </button>
-                  </div>
+                  {(() => {
+                    const activePreset = detectActivePreset(settings);
+                    const presetButtons: { key: PresetType; label: string }[] = [
+                      { key: 'pretty', label: 'Pretty' },
+                      { key: 'minimal', label: 'Minimal' },
+                      { key: 'showAll', label: 'Show All' },
+                      { key: 'default', label: 'Default' },
+                      { key: 'custom', label: 'Custom' }
+                    ];
+
+                    return (
+                      <div
+                        className="inline-flex rounded-lg p-1 w-full sm:w-auto overflow-x-auto"
+                        style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
+                      >
+                        {presetButtons.map(({ key, label }) => {
+                          const isActive = activePreset === key;
+                          return (
+                            <button
+                              key={key}
+                              onClick={() => {
+                                if (key !== 'custom') {
+                                  setSettings({ ...settings, ...PRESETS[key as keyof typeof PRESETS] });
+                                }
+                              }}
+                              disabled={key === 'custom'}
+                              className={`flex-1 sm:flex-none px-3 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
+                                isActive ? 'shadow-sm' : key === 'custom' ? '' : 'hover:bg-[var(--theme-bg-secondary)]'
+                              } ${key === 'custom' && !isActive ? 'opacity-50' : ''}`}
+                              style={{
+                                backgroundColor: isActive ? 'var(--theme-primary)' : 'transparent',
+                                color: isActive ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
+                                cursor: key === 'custom' ? 'default' : 'pointer'
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
 
-                {/* Settings Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
+                {/* Settings Grid - Responsive with collapsible sections on mobile */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-x-6 sm:gap-y-1">
                   {/* Filters Column */}
                   <div className="space-y-1">
                     <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>

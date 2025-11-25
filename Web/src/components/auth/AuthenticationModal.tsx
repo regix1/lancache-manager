@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, Key, Eye, Loader2 } from 'lucide-react';
+import { Key, Eye, Loader2, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
@@ -103,8 +103,11 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-[var(--theme-bg-primary)] flex items-center justify-center">
-      {/* Background pattern */}
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      style={{ backgroundColor: 'var(--theme-bg-primary)' }}
+    >
+      {/* Stripe background pattern */}
       <div
         className="absolute inset-0 opacity-5"
         style={{
@@ -112,30 +115,38 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         }}
       />
 
+      {/* Main Card */}
       <div
-        className="relative z-10 max-w-4xl w-full mx-4 p-8 rounded-2xl border-2 shadow-2xl"
+        className="relative z-10 w-full max-w-xl rounded-xl border overflow-hidden"
         style={{
           backgroundColor: 'var(--theme-bg-secondary)',
-          borderColor: 'var(--theme-primary)'
+          borderColor: 'var(--theme-border-primary)'
         }}
       >
         {/* Header */}
-        <div className="text-center mb-8">
-          <div
-            className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4"
-            style={{ backgroundColor: 'var(--theme-primary)/10' }}
-          >
-            <AlertTriangle size={32} style={{ color: 'var(--theme-primary)' }} />
+        <div
+          className="px-8 py-5 border-b flex items-center justify-between"
+          style={{ borderColor: 'var(--theme-border-secondary)' }}
+        >
+          <div className="flex items-center gap-2">
+            <Shield className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
+            <span className="font-semibold text-themed-primary">{title}</span>
           </div>
-          <h1 className="text-3xl font-bold text-themed-primary mb-2">{title}</h1>
-          <p className="text-lg text-themed-secondary">{subtitle}</p>
         </div>
 
         {/* Content */}
-        <div className="mb-8">
+        <div className="p-8">
           <p className="text-themed-secondary text-center mb-6">
-            Enter your API key for full management access, or continue as guest to view data for{' '}
-            {guestDurationHours} hour{guestDurationHours !== 1 ? 's' : ''}:
+            {subtitle}
+            {allowGuestMode && (
+              <>
+                <br />
+                <span className="text-sm text-themed-muted">
+                  Or continue as guest to view data for {guestDurationHours} hour
+                  {guestDurationHours !== 1 ? 's' : ''}.
+                </span>
+              </>
+            )}
           </p>
 
           {/* API Key Form */}
@@ -180,9 +191,15 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
               {allowGuestMode && (
                 <>
                   <div className="flex items-center gap-4">
-                    <div className="flex-1 h-px bg-themed-border"></div>
+                    <div
+                      className="flex-1 h-px"
+                      style={{ backgroundColor: 'var(--theme-border-secondary)' }}
+                    />
                     <span className="text-xs text-themed-muted">OR</span>
-                    <div className="flex-1 h-px bg-themed-border"></div>
+                    <div
+                      className="flex-1 h-px"
+                      style={{ backgroundColor: 'var(--theme-border-secondary)' }}
+                    />
                   </div>
 
                   <Button
@@ -208,7 +225,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
           {/* API Key Help */}
           <div
-            className="mt-6 p-4 rounded-lg"
+            className="mt-6 p-4 rounded-lg border"
             style={{
               backgroundColor: 'var(--theme-info-bg)',
               borderColor: 'var(--theme-info)',
@@ -225,7 +242,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
           {authError && (
             <div
-              className="mt-4 p-4 rounded-lg"
+              className="mt-4 p-4 rounded-lg border"
               style={{
                 backgroundColor: 'var(--theme-error-bg)',
                 borderColor: 'var(--theme-error)',

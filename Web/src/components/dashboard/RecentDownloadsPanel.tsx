@@ -502,22 +502,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                 <h3 className="text-lg font-semibold text-themed-primary">Downloads</h3>
 
                 {/* View Mode Toggle */}
-                <div
-                  className="flex items-center gap-1 p-1 rounded-lg w-full sm:w-auto"
-                  style={{ backgroundColor: 'var(--theme-card-hover)' }}
-                >
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-themed-tertiary w-full sm:w-auto">
                   <button
                     onClick={() => setViewMode('recent')}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 sm:flex-initial ${
-                      viewMode === 'recent' ? 'shadow-sm' : ''
+                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-1 sm:flex-initial ${
+                      viewMode === 'recent' ? 'bg-primary' : 'text-themed-secondary hover:text-themed-primary'
                     }`}
                     style={{
-                      backgroundColor:
-                        viewMode === 'recent' ? 'var(--theme-button-primary)' : 'transparent',
-                      color:
-                        viewMode === 'recent'
-                          ? 'var(--theme-button-text)'
-                          : 'var(--theme-text-secondary)'
+                      color: viewMode === 'recent' ? 'var(--theme-button-text)' : undefined
                     }}
                   >
                     <Clock className="w-4 h-4" />
@@ -525,16 +517,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                   </button>
                   <button
                     onClick={() => setViewMode('active')}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all flex-1 sm:flex-initial ${
-                      viewMode === 'active' ? 'shadow-sm' : ''
+                    className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-1 sm:flex-initial ${
+                      viewMode === 'active' ? 'bg-primary' : 'text-themed-secondary hover:text-themed-primary'
                     }`}
                     style={{
-                      backgroundColor:
-                        viewMode === 'active' ? 'var(--theme-button-primary)' : 'transparent',
-                      color:
-                        viewMode === 'active'
-                          ? 'var(--theme-button-text)'
-                          : 'var(--theme-text-secondary)'
+                      color: viewMode === 'active' ? 'var(--theme-button-text)' : undefined
                     }}
                   >
                     <Activity className="w-4 h-4" />
@@ -543,7 +530,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = memo(
                       <span
                         className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold"
                         style={{
-                          backgroundColor: 'var(--theme-accent-red)',
+                          backgroundColor: 'var(--theme-error)',
                           color: 'white'
                         }}
                       >
