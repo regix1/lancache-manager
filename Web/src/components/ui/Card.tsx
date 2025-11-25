@@ -15,6 +15,6 @@ export const Card: React.FC<CardProps> = ({ children, className = '', padding = 
   };
 
   return (
-    <div className={`themed-card rounded-lg ${paddings[padding]} ${className}`}>{children}</div>
+    <div className={`themed-card rounded-lg border ${paddings[padding]} ${className}`}>{children}</div>
   );
 };

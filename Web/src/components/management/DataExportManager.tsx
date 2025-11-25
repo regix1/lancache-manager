@@ -416,7 +416,7 @@ const DataExportManager: React.FC<DataExportManagerProps> = ({
         </p>
 
         <div className="space-y-3">
-          <div className="p-3 rounded-lg themed-card border">
+          <div className="p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-card-bg)', borderColor: 'var(--theme-card-border)' }}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
               <Button

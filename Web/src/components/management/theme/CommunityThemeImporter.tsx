@@ -462,7 +462,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         {/* All Imported State */}
         {allImported && (
           <div className="text-center py-8 text-themed-muted">
-            <Check className="w-10 h-10 mx-auto mb-2 opacity-50 text-green-500" />
+            <Check className="w-10 h-10 mx-auto mb-2 opacity-50 icon-green" />
             <p className="text-sm font-medium mb-1">All themes imported!</p>
             <p className="text-xs">Click the eye icon to view installed themes</p>
           </div>
@@ -502,7 +502,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                         {theme.meta?.isDark ? (
                           <Moon className="w-3 h-3 text-themed-muted flex-shrink-0" />
                         ) : (
-                          <Sun className="w-3 h-3 text-yellow-400 flex-shrink-0" />
+                          <Sun className="w-3 h-3 icon-yellow flex-shrink-0" />
                         )}
                       </div>
                       {theme.meta?.description && (

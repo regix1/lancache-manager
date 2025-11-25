@@ -1,226 +1,211 @@
 [meta]
 name = "LANCache Unofficial"
 id = "lancache-unofficial"
-description = "Unofficial LANCache branding colors - vibrant red highlights on deep charcoal"
+description = "Lava-inspired theme - bold reds and warm ambers on deep charcoal"
 author = "Regix"
-version = "1.0.0"
+version = "2.0.0"
 isDark = true
 sharpCorners = false
 
 [colors]
-primaryColor = "#E91D12"
-secondaryColor = "#C41810"
-accentColor = "#FF4538"
-bgPrimary = "#28252C"
-bgSecondary = "#1F1D21"
-bgTertiary = "#353239"
-bgHover = "#3D393F"
-textPrimary = "#FBEEE9"
-textSecondary = "#F5E8E0"
-textMuted = "#D8C8BE"
-textAccent = "#FFBEB6"
-textPlaceholder = "#B8A79D"
-borderPrimary = "#3D393F"
-borderSecondary = "#4A454B"
-borderFocus = "#E91D12"
-navBg = "#1F1D21"
-navBorder = "#3D393F"
-navTabActive = "#E91D12"
-navTabInactive = "#D8C8BE"
-navTabHover = "#F5E8E0"
-navTabActiveBorder = "#E91D12"
-navMobileMenuBg = "#1F1D21"
-navMobileItemHover = "#353239"
-success = "#E5D5CD"
-successBg = "#3D393F"
-successText = "#F5E8E0"
-warning = "#FFA726"
-warningBg = "#4A3520"
-warningText = "#FFD4A3"
-error = "#E91D12"
-errorBg = "#3F1A18"
-errorText = "#FFBEB6"
-info = "#F5E8E0"
-infoBg = "#3D393F"
-infoText = "#FBEEE9"
-steamColor = "#E91D12"
-epicColor = "#FF6B5E"
-originColor = "#FFA726"
-blizzardColor = "#E5D5CD"
-wsusColor = "#FFD4A3"
-riotColor = "#FF4538"
-cardBg = "#302D33"
-cardBorder = "#3D393F"
-buttonBg = "#E91D12"
-buttonHover = "#C41810"
-buttonText = "#FBEEE9"
-inputBg = "#353239"
-inputBorder = "#4A454B"
-inputFocus = "#E91D12"
-checkboxAccent = "#E91D12"
-checkboxBorder = "#4A454B"
-checkboxBg = "#353239"
-checkboxCheckmark = "#FBEEE9"
+# Core - LANCache brand red
+primaryColor = "#dc3545"
+secondaryColor = "#c0392b"
+accentColor = "#e74c3c"
+
+# Backgrounds - Deep charcoal like the official site
+bgPrimary = "#1a1a1c"
+bgSecondary = "#242426"
+bgTertiary = "#2e2e30"
+bgHover = "#3a3a3c"
+
+# Text - Clean whites
+textPrimary = "#f5f5f5"
+textSecondary = "#d0d0d0"
+textMuted = "#999999"
+textAccent = "#ff6b6b"
+textPlaceholder = "#707070"
+
+# Borders
+borderPrimary = "#363638"
+borderSecondary = "#454547"
+borderFocus = "#dc3545"
+
+# Navigation
+navBg = "#1f1f21"
+navBorder = "#363638"
+navTabActive = "#dc3545"
+navTabInactive = "#999999"
+navTabHover = "#f5f5f5"
+navTabActiveBorder = "#dc3545"
+navMobileMenuBg = "#1f1f21"
+navMobileItemHover = "#2e2e30"
+
+# Status colors - WARM PALETTE ONLY (no green/blue)
+success = "#f39c12"
+successBg = "#3d3015"
+successText = "#f7dc6f"
+warning = "#e67e22"
+warningBg = "#3d2a15"
+warningText = "#f5b041"
+error = "#dc3545"
+errorBg = "#3d1a1a"
+errorText = "#f1948a"
+info = "#bdc3c7"
+infoBg = "#2d2d30"
+infoText = "#ecf0f1"
+
+# Service colors - Warm reds/oranges/yellows only
+steamColor = "#f39c12"
+epicColor = "#e74c3c"
+originColor = "#e67e22"
+blizzardColor = "#f5b041"
+wsusColor = "#d4ac0d"
+riotColor = "#c0392b"
+
+# Components
+cardBg = "#222224"
+cardBorder = "#363638"
+cardOutline = "#dc3545"
+buttonBg = "#dc3545"
+buttonHover = "#c0392b"
+buttonText = "#ffffff"
+inputBg = "#2e2e30"
+inputBorder = "#454547"
+inputFocus = "#dc3545"
+checkboxAccent = "#dc3545"
+checkboxBorder = "#454547"
+checkboxBg = "#2e2e30"
+checkboxCheckmark = "#ffffff"
 checkboxShadow = "none"
-checkboxHoverShadow = "0 0 0 3px rgba(233, 29, 18, 0.2)"
-checkboxHoverBg = "#3D393F"
-checkboxFocus = "#E91D12"
-sliderAccent = "#E91D12"
-sliderThumb = "#E91D12"
-sliderTrack = "#353239"
-badgeBg = "#E91D12"
-badgeText = "#FBEEE9"
-progressBar = "#E91D12"
-progressBg = "#353239"
-hitRateHighBg = "#3D393F"
-hitRateHighText = "#E5D5CD"
-hitRateMediumBg = "#3D393F"
-hitRateMediumText = "#F5E8E0"
-hitRateLowBg = "#4A3520"
-hitRateLowText = "#FFD4A3"
-hitRateWarningBg = "#3F1A18"
-hitRateWarningText = "#FFBEB6"
-actionResetBg = "#FFA726"
-actionResetHover = "#FB8C00"
-actionProcessBg = "#FFA726"
-actionProcessHover = "#FB8C00"
-actionDeleteBg = "#E91D12"
-actionDeleteHover = "#C41810"
-iconBgBlue = "#C41810"
-iconBgGreen = "#FFA726"
-iconBgEmerald = "#E91D12"
-iconBgPurple = "#B8A79D"
-iconBgIndigo = "#D8C8BE"
-iconBgOrange = "#FFA726"
-iconBgYellow = "#E5D5CD"
-iconBgCyan = "#FF6B5E"
-iconBgRed = "#E91D12"
-chartColor1 = "#E91D12"
-chartColor2 = "#FF4538"
-chartColor3 = "#FFA726"
-chartColor4 = "#E5D5CD"
-chartColor5 = "#C41810"
-chartColor6 = "#B8A79D"
-chartColor7 = "#FF6B5E"
-chartColor8 = "#E5D5CD"
-chartBorderColor = "#302D33"
-chartGridColor = "#3D393F"
-chartTextColor = "#D8C8BE"
-chartCacheHitColor = "#FFA726"
-chartCacheMissColor = "#E91D12"
-scrollbarTrack = "#302D33"
-scrollbarThumb = "#E91D12"
-scrollbarHover = "#FF4538"
-publicAccessBg = "rgba(245, 232, 224, 0.1)"
-publicAccessText = "#F5E8E0"
-publicAccessBorder = "rgba(245, 232, 224, 0.2)"
-securedAccessBg = "rgba(233, 29, 18, 0.15)"
-securedAccessText = "#FFBEB6"
-securedAccessBorder = "rgba(233, 29, 18, 0.3)"
-userSessionColor = "#E91D12"
-userSessionBg = "rgba(233, 29, 18, 0.15)"
-guestSessionColor = "#FFA726"
-guestSessionBg = "rgba(255, 167, 38, 0.15)"
-dragHandleColor = "#B8A79D"
-dragHandleHover = "#E91D12"
+checkboxHoverShadow = "0 0 0 3px rgba(220, 53, 69, 0.2)"
+checkboxHoverBg = "#3a3a3c"
+checkboxFocus = "#dc3545"
+sliderAccent = "#dc3545"
+sliderThumb = "#dc3545"
+sliderTrack = "#2e2e30"
+
+# Badges & Progress
+badgeBg = "#dc3545"
+badgeText = "#ffffff"
+progressBar = "#dc3545"
+progressBg = "#2e2e30"
+
+# Hit rate - Warm tones only
+hitRateHighBg = "#3d3015"
+hitRateHighText = "#f7dc6f"
+hitRateMediumBg = "#3d2a15"
+hitRateMediumText = "#f5b041"
+hitRateLowBg = "#3d2215"
+hitRateLowText = "#eb984e"
+hitRateWarningBg = "#3d1a1a"
+hitRateWarningText = "#f1948a"
+
+# Action buttons - Warm palette
+actionResetBg = "#e67e22"
+actionResetHover = "#d35400"
+actionProcessBg = "#f39c12"
+actionProcessHover = "#d68910"
+actionDeleteBg = "#dc3545"
+actionDeleteHover = "#c0392b"
+
+# Icon backgrounds - Reds, oranges, yellows, warm greys
+iconBgBlue = "#e74c3c"
+iconBgGreen = "#f39c12"
+iconBgEmerald = "#d4ac0d"
+iconBgPurple = "#c0392b"
+iconBgIndigo = "#a93226"
+iconBgOrange = "#e67e22"
+iconBgYellow = "#f1c40f"
+iconBgCyan = "#f5b041"
+iconBgRed = "#dc3545"
+
+# Chart colors - Warm lava palette
+chartColor1 = "#dc3545"
+chartColor2 = "#f39c12"
+chartColor3 = "#e67e22"
+chartColor4 = "#c0392b"
+chartColor5 = "#f1c40f"
+chartColor6 = "#e74c3c"
+chartColor7 = "#d35400"
+chartColor8 = "#f5b041"
+chartBorderColor = "#222224"
+chartGridColor = "#363638"
+chartTextColor = "#999999"
+chartCacheHitColor = "#f39c12"
+chartCacheMissColor = "#dc3545"
+
+# Scrollbar
+scrollbarTrack = "#222224"
+scrollbarThumb = "#454547"
+scrollbarHover = "#dc3545"
+
+# Access indicators - Warm tones
+publicAccessBg = "rgba(243, 156, 18, 0.15)"
+publicAccessText = "#f7dc6f"
+publicAccessBorder = "rgba(243, 156, 18, 0.3)"
+securedAccessBg = "rgba(220, 53, 69, 0.15)"
+securedAccessText = "#f1948a"
+securedAccessBorder = "rgba(220, 53, 69, 0.3)"
+
+# Session colors
+userSessionColor = "#dc3545"
+userSessionBg = "rgba(220, 53, 69, 0.15)"
+guestSessionColor = "#f39c12"
+guestSessionBg = "rgba(243, 156, 18, 0.15)"
+activeSessionColor = "#e67e22"
+activeSessionBg = "rgba(230, 126, 34, 0.15)"
+
+# Drag handle
+dragHandleColor = "#707070"
+dragHandleHover = "#dc3545"
 
 [css]
 content = """
-/* LANCache Official Theme - Gaming Cache Aesthetics */
+/* LANCache Unofficial - Lava Theme */
 
-/* Dramatic red glow effect on cards */
+/* Subtle warm glow on cards */
 .themed-card {
   background-image:
     radial-gradient(
       ellipse at top left,
-      rgba(233, 29, 18, 0.05) 0%,
-      transparent 50%
+      rgba(220, 53, 69, 0.03) 0%,
+      transparent 60%
     );
-  border-left: 2px solid transparent;
-  transition: border-left-color 0.3s ease;
-}
-
-.themed-card:hover {
-  border-left-color: rgba(233, 29, 18, 0.6);
-}
-
-/* Intense red glow on focus */
-*:focus {
-  box-shadow: 0 0 0 3px rgba(233, 29, 18, 0.25), 0 0 12px rgba(233, 29, 18, 0.15);
-  outline: none;
-}
-
-/* Cache-themed hover effects with red accent */
-.hover\:bg-themed-hover:hover {
-  background-image:
-    linear-gradient(
-      90deg,
-      rgba(233, 29, 18, 0.08),
-      transparent
-    );
-}
-
-/* Bold button shadows for action emphasis */
-button {
-  box-shadow: 0 4px 8px rgba(233, 29, 18, 0.15);
   transition: all 0.2s ease;
 }
 
+.themed-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(220, 53, 69, 0.08);
+}
+
+/* Red focus glow */
+*:focus-visible {
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.4);
+  outline: none;
+}
+
+/* Smooth button interactions */
+button {
+  transition: all 0.15s ease;
+}
+
 button:hover {
-  box-shadow: 0 6px 12px rgba(233, 29, 18, 0.25);
   transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
 button:active {
   transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(233, 29, 18, 0.2);
 }
 
-/* Gaming-inspired scrollbar with red accent */
-*::-webkit-scrollbar-track {
-  background: var(--theme-scrollbar-track);
-}
-
+/* Lava scrollbar */
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #E91D12 0%, #C41810 100%);
+  background: linear-gradient(180deg, #454547 0%, #363638 100%);
   border-radius: 4px;
-  border: 1px solid rgba(251, 238, 233, 0.1);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #FF4538 0%, #E91D12 100%);
-  box-shadow: 0 0 8px rgba(233, 29, 18, 0.4);
-}
-
-/* Pulse animation for active elements */
-@keyframes lancache-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-.badge-pulse {
-  animation: lancache-pulse 2s ease-in-out infinite;
-}
-
-/* Status indicators with glow */
-.status-indicator {
-  box-shadow: 0 0 8px currentColor;
-}
-
-/* Data loading shimmer effect */
-@keyframes cache-shimmer {
-  0% { background-position: -200% center; }
-  100% { background-position: 200% center; }
-}
-
-.loading-shimmer {
-  background: linear-gradient(
-    90deg,
-    rgba(233, 29, 18, 0) 0%,
-    rgba(233, 29, 18, 0.1) 50%,
-    rgba(233, 29, 18, 0) 100%
-  );
-  background-size: 200% 100%;
-  animation: cache-shimmer 2s ease-in-out infinite;
+  background: linear-gradient(180deg, #dc3545 0%, #c0392b 100%);
 }
 """

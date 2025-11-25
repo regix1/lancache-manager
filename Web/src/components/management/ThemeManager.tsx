@@ -703,7 +703,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     {currentThemeData.meta.isDark ? (
                       <Moon className="w-4 h-4 text-themed-muted" />
                     ) : (
-                      <Sun className="w-4 h-4 text-yellow-400" />
+                      <Sun className="w-4 h-4 icon-yellow" />
                     )}
                     <div className="flex gap-0.5">
                       {[
@@ -872,9 +872,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   </Button>
                 </div>
                 <div
-                  className={`rounded-lg p-6 text-center transition-all border-2 border-dashed ${
-                    dragActive ? 'border-purple-500 bg-purple-500/10' : ''
-                  }`}
+                  className="rounded-lg p-6 text-center transition-all border-2 border-dashed"
                   style={{
                     borderColor: dragActive ? 'var(--theme-secondary)' : 'var(--theme-border-secondary)',
                     backgroundColor: dragActive ? 'var(--theme-secondary-bg)' : 'transparent'

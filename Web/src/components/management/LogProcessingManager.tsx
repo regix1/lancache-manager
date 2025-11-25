@@ -553,8 +553,10 @@ const LogProcessingManager: React.FC<LogProcessingManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center space-x-2 mb-4">
-          <Zap className="w-5 h-5 icon-purple" />
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+            <Zap className="w-5 h-5 icon-purple" />
+          </div>
           <h3 className="text-lg font-semibold text-themed-primary">Log Processing</h3>
         </div>
         <p className="text-themed-muted text-sm mb-4">

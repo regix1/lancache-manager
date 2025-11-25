@@ -234,9 +234,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
       <div className="space-y-6">
         {/* Community Theme Notice */}
         {editingTheme?.meta.isCommunityTheme && (
-          <div className="p-4 rounded-lg bg-themed-info/10 border border-themed-info">
+          <div className="p-4 rounded-lg border" style={{ backgroundColor: 'var(--theme-info-bg)', borderColor: 'var(--theme-info)' }}>
             <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-themed-info flex-shrink-0 mt-0.5" />
+              <Info className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
               <div className="flex-1">
                 <p className="text-sm font-medium text-themed-primary mb-1">
                   Editing Community Theme

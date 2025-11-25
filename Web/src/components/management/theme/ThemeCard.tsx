@@ -67,7 +67,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
       className="rounded-lg p-4 transition-all hover:shadow-md themed-card relative group"
       style={{
         backgroundColor: 'var(--theme-bg-secondary)',
-        border: `2px solid ${
+        border: `1px solid ${
           isActive
             ? 'var(--theme-primary)'
             : isPreviewing
@@ -99,7 +99,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             {theme.meta.isDark ? (
               <Moon className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
             ) : (
-              <Sun className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
+              <Sun className="w-3.5 h-3.5 icon-yellow flex-shrink-0" />
             )}
             {isSystem && (
               <Lock className="w-3 h-3 text-themed-muted flex-shrink-0" />

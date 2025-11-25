@@ -46,7 +46,12 @@ const MockModeManager: React.FC<{
 }> = ({ mockMode, onToggle, disabled }) => {
   return (
     <Card>
-      <h3 className="text-lg font-semibold text-themed-primary mb-4">Mock Mode</h3>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-gray">
+          <Settings className="w-5 h-5 icon-gray" />
+        </div>
+        <h3 className="text-lg font-semibold text-themed-primary">Mock Mode</h3>
+      </div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex-1">
           <p className="text-themed-secondary">Enable mock data for demonstration</p>
@@ -215,8 +220,10 @@ const DatabaseManager: React.FC<{
   return (
     <>
       <Card>
-        <div className="flex items-center gap-2 mb-4">
-          <Database className="w-5 h-5 icon-cyan flex-shrink-0" />
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
+            <Database className="w-5 h-5 icon-cyan" />
+          </div>
           <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
         </div>
 

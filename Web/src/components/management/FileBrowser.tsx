@@ -62,20 +62,20 @@ const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemCli
       <div
         className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${
           isDrive
-            ? 'bg-blue-500/10'
+            ? 'icon-bg-blue'
             : item.isDirectory
-              ? 'bg-amber-500/10'
+              ? 'icon-bg-orange'
               : isDbFile
-                ? 'bg-green-500/10'
+                ? 'icon-bg-green'
                 : 'bg-themed-tertiary'
         }`}
       >
         {isDrive ? (
-          <HardDrive className="w-4 h-4 text-blue-400" />
+          <HardDrive className="w-4 h-4 icon-blue" />
         ) : item.isDirectory ? (
-          <Folder className="w-4 h-4 text-amber-400" />
+          <Folder className="w-4 h-4 icon-orange" />
         ) : isDbFile ? (
-          <Database className="w-4 h-4 text-green-400" />
+          <Database className="w-4 h-4 icon-green" />
         ) : (
           <File className="w-4 h-4 text-themed-secondary" />
         )}

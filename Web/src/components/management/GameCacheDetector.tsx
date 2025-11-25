@@ -576,11 +576,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         <div className="space-y-4">
           {/* Header Section */}
           {cacheReadOnly ? (
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
                 <HardDrive className="w-5 h-5 icon-purple" />
-                Game Cache Detection
-              </h3>
+              </div>
+              <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -595,14 +595,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             </div>
           ) : (
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-themed-primary flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
                   <HardDrive className="w-5 h-5 icon-purple" />
-                  Game Cache Detection
-                </h3>
-                <p className="text-sm text-themed-secondary mt-1">
-                  Scan cache directory to find which games have stored files
-                </p>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+                  <p className="text-sm text-themed-secondary mt-1">
+                    Scan cache directory to find which games have stored files
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-2 w-full lg:w-auto">
                 {/* Load Data Button */}

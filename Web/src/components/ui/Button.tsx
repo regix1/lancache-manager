@@ -40,7 +40,7 @@ export const Button: React.FC<ButtonProps> = ({
     }
     if (variant === 'subtle') {
       const colors = {
-        red: 'bg-transparent hover:bg-red-500/10 text-red-400 hover:text-red-300',
+        red: 'bg-transparent hover:bg-themed-hover text-themed-error',
         blue: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
         green: 'bg-transparent hover:bg-themed-hover text-themed-secondary',
         yellow: 'bg-transparent hover:bg-themed-hover text-themed-secondary',

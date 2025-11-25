@@ -580,6 +580,51 @@
     color: var(--theme-icon-red);
   }
 
+  .icon-gray {
+    color: var(--theme-icon-gray, var(--theme-text-muted));
+  }
+
+  /* Icon Background Colors - for icon containers (using color-mix for theme support) */
+  .icon-bg-blue {
+    background-color: color-mix(in srgb, var(--theme-icon-blue) 15%, transparent);
+  }
+
+  .icon-bg-green {
+    background-color: color-mix(in srgb, var(--theme-icon-green) 15%, transparent);
+  }
+
+  .icon-bg-emerald {
+    background-color: color-mix(in srgb, var(--theme-icon-emerald) 15%, transparent);
+  }
+
+  .icon-bg-purple {
+    background-color: color-mix(in srgb, var(--theme-icon-purple) 15%, transparent);
+  }
+
+  .icon-bg-indigo {
+    background-color: color-mix(in srgb, var(--theme-icon-indigo) 15%, transparent);
+  }
+
+  .icon-bg-orange {
+    background-color: color-mix(in srgb, var(--theme-icon-orange) 15%, transparent);
+  }
+
+  .icon-bg-yellow {
+    background-color: color-mix(in srgb, var(--theme-icon-yellow) 15%, transparent);
+  }
+
+  .icon-bg-cyan {
+    background-color: color-mix(in srgb, var(--theme-icon-cyan) 15%, transparent);
+  }
+
+  .icon-bg-red {
+    background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
+  }
+
+  .icon-bg-gray {
+    background-color: color-mix(in srgb, var(--theme-icon-gray, var(--theme-text-muted)) 15%, transparent);
+  }
+
   /* Status Indicators */
   .status-active {
     background-color: var(--theme-success-bg);
@@ -694,6 +739,27 @@
     background-color: var(--theme-card-bg);
     border-color: var(--theme-card-border);
     color: var(--theme-text-primary);
+  }
+
+  /* Light mode card shadow for visual separation (Linear/Stripe style) */
+  [data-theme='light'] .themed-card {
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.1),
+      0 1px 2px rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--theme-card-border);
+  }
+
+  [data-theme='light'] .themed-card:hover {
+    box-shadow:
+      0 4px 6px rgba(0, 0, 0, 0.1),
+      0 2px 4px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Light mode collapsible sections */
+  [data-theme='light'] .bg-themed-secondary {
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.1),
+      0 1px 2px rgba(0, 0, 0, 0.06);
   }
 
   /* Theme-aware Button */
@@ -963,6 +1029,22 @@
 
   .text-themed-button {
     color: var(--theme-button-text);
+  }
+
+  .text-themed-error {
+    color: var(--theme-error-text);
+  }
+
+  .text-themed-success {
+    color: var(--theme-success-text);
+  }
+
+  .text-themed-warning {
+    color: var(--theme-warning-text);
+  }
+
+  .text-themed-info {
+    color: var(--theme-info-text);
   }
 
   .bg-themed-primary {

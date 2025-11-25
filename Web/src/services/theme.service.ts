@@ -556,167 +556,168 @@ class ThemeService {
           activeSessionBg: 'rgba(249, 115, 22, 0.15)' // Orange with 15% opacity
         }
       },
-      // In theme.service.ts, update the light-default theme:
-
+      // Modern, clean light theme inspired by Linear/Stripe
+      // Uses subtle off-white background with white cards and shadows for depth
       {
         meta: {
           id: 'light-default',
           name: 'Light Default',
-          description: 'Default light theme with blue accents',
+          description: 'Clean modern light theme with subtle depth',
           author: 'System',
-          version: '1.0.0',
+          version: '3.0.0',
           isDark: false,
           sharpCorners: false,
           disableFocusOutlines: true,
           disableTooltips: false
         },
         colors: {
-          // Core colors
-          primaryColor: '#3b82f6',
-          secondaryColor: '#8b5cf6',
-          accentColor: '#06b6d4',
+          // Core colors - Refined blue primary
+          primaryColor: '#2563eb',
+          secondaryColor: '#7c3aed',
+          accentColor: '#0891b2',
 
-          // Backgrounds - LIGHT GREY INSTEAD OF WHITE
-          bgPrimary: '#f8f9fa',
-          bgSecondary: '#ffffff',
-          bgTertiary: '#f3f4f6',
-          bgHover: '#e5e7eb',
+          // Backgrounds - Subtle off-white, not heavy grey
+          // Key: Very light background, white cards with shadows for separation
+          bgPrimary: '#f8fafc', // slate-50 - very subtle off-white
+          bgSecondary: '#ffffff', // Pure white for cards
+          bgTertiary: '#f1f5f9', // slate-100 - subtle grey for nested elements
+          bgHover: '#e2e8f0', // slate-200 - hover state
 
-          // Text
-          textPrimary: '#111827',
-          textSecondary: '#374151',
-          textMuted: '#6b7280',
-          textAccent: '#2563eb',
-          textPlaceholder: '#9ca3af',
+          // Text - Rich, crisp colors (not washed out)
+          textPrimary: '#0f172a', // slate-900 - near black for crisp readability
+          textSecondary: '#1e293b', // slate-800 - strong secondary
+          textMuted: '#475569', // slate-600 - visible muted text
+          textAccent: '#1d4ed8', // blue-700 - rich blue for links
+          textPlaceholder: '#64748b', // slate-500 - visible placeholders
 
           // Drag handle
-          dragHandleColor: '#9ca3af',
+          dragHandleColor: '#94a3b8',
           dragHandleHover: '#2563eb',
 
-          // Borders
-          borderPrimary: '#e5e7eb',
-          borderSecondary: '#d1d5db',
-          borderFocus: '#3b82f6',
+          // Borders - Subtle but defined
+          borderPrimary: '#e2e8f0', // slate-200 - subtle border
+          borderSecondary: '#cbd5e1', // slate-300 - slightly stronger
+          borderFocus: '#2563eb',
 
-          // Navigation
+          // Navigation - Clean white with subtle border
           navBg: '#ffffff',
-          navBorder: '#e5e7eb',
-          navTabActive: '#3b82f6',
-          navTabInactive: '#6b7280',
-          navTabHover: '#111827',
-          navTabActiveBorder: '#3b82f6',
+          navBorder: '#e2e8f0',
+          navTabActive: '#2563eb',
+          navTabInactive: '#64748b',
+          navTabHover: '#1e293b',
+          navTabActiveBorder: '#2563eb',
           navMobileMenuBg: '#ffffff',
-          navMobileItemHover: '#f3f4f6',
+          navMobileItemHover: '#f1f5f9',
 
-          // Status colors - FIXED FOR BETTER CONTRAST ON LIGHT BACKGROUNDS
-          success: '#10b981',
-          successBg: '#d1fae5',
-          successText: '#047857', // Changed from '#065f46' - darker green for better contrast
-          warning: '#f97316',
-          warningBg: '#fef3c7',
-          warningText: '#b45309', // Changed from '#92400e' - darker amber for better contrast
-          error: '#ef4444',
-          errorBg: '#fee2e2',
-          errorText: '#991b1b',
-          info: '#3b82f6',
-          infoBg: '#dbeafe',
-          infoText: '#1e40af',
+          // Status colors - Vibrant and accessible
+          success: '#059669', // emerald-600
+          successBg: '#ecfdf5', // emerald-50
+          successText: '#047857', // emerald-700
+          warning: '#d97706', // amber-600
+          warningBg: '#fffbeb', // amber-50
+          warningText: '#b45309', // amber-700
+          error: '#dc2626', // red-600
+          errorBg: '#fef2f2', // red-50
+          errorText: '#b91c1c', // red-700
+          info: '#2563eb', // blue-600
+          infoBg: '#eff6ff', // blue-50
+          infoText: '#1d4ed8', // blue-700
 
-          // Service colors
-          steamColor: '#10b981', // Green
-          epicColor: '#8b5cf6', // Purple
-          originColor: '#fb923c', // Bright Orange
-          blizzardColor: '#3b82f6', // Blue
-          wsusColor: '#06b6d4', // Cyan
-          riotColor: '#ef4444', // Red
+          // Service colors - Vibrant
+          steamColor: '#059669',
+          epicColor: '#7c3aed',
+          originColor: '#ea580c',
+          blizzardColor: '#2563eb',
+          wsusColor: '#0891b2',
+          riotColor: '#dc2626',
 
-          // Components
+          // Components - Clean styling with emphasis on shadows
           cardBg: '#ffffff',
-          cardBorder: '#e5e7eb',
-          cardOutline: '#3b82f6',
-          buttonBg: '#3b82f6',
-          buttonHover: '#2563eb',
+          cardBorder: '#e2e8f0',
+          cardOutline: '#2563eb',
+          buttonBg: '#2563eb',
+          buttonHover: '#1d4ed8',
           buttonText: '#ffffff',
           inputBg: '#ffffff',
-          inputBorder: '#d1d5db',
-          inputFocus: '#3b82f6',
-          checkboxAccent: '#3b82f6',
-          checkboxBorder: '#d1d5db',
+          inputBorder: '#e2e8f0',
+          inputFocus: '#2563eb',
+          checkboxAccent: '#2563eb',
+          checkboxBorder: '#cbd5e1',
           checkboxBg: '#ffffff',
           checkboxCheckmark: '#ffffff',
           checkboxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-          checkboxHoverShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)',
-          checkboxHoverBg: '#f9fafb',
-          checkboxFocus: '#3b82f6',
-          sliderAccent: '#3b82f6',
-          sliderThumb: '#3b82f6',
-          sliderTrack: '#e5e7eb',
-          progressBg: '#e5e7eb',
+          checkboxHoverShadow: '0 0 0 3px rgba(37, 99, 235, 0.12)',
+          checkboxHoverBg: '#f8fafc',
+          checkboxFocus: '#2563eb',
+          sliderAccent: '#2563eb',
+          sliderThumb: '#2563eb',
+          sliderTrack: '#e2e8f0',
+          progressBg: '#e2e8f0',
 
-          // Hit rate specific - MUCH PRETTIER COLORS
-          hitRateHighBg: '#d1fae5',
-          hitRateHighText: '#047857', // Changed to match successText for consistency
-          hitRateMediumBg: '#dbeafe',
-          hitRateMediumText: '#1e40af',
-          hitRateLowBg: '#fef3c7',
-          hitRateLowText: '#92400e',
-          hitRateWarningBg: '#fef3c7',
-          hitRateWarningText: '#92400e',
+          // Hit rate specific - Softer backgrounds
+          hitRateHighBg: '#ecfdf5',
+          hitRateHighText: '#047857',
+          hitRateMediumBg: '#eff6ff',
+          hitRateMediumText: '#1d4ed8',
+          hitRateLowBg: '#fffbeb',
+          hitRateLowText: '#b45309',
+          hitRateWarningBg: '#fef2f2',
+          hitRateWarningText: '#b91c1c',
 
           // Action buttons
-          actionResetBg: '#f59e0b',
-          actionResetHover: '#d97706',
-          actionProcessBg: '#10b981',
-          actionProcessHover: '#059669',
-          actionDeleteBg: '#ef4444',
-          actionDeleteHover: '#dc2626',
+          actionResetBg: '#d97706',
+          actionResetHover: '#b45309',
+          actionProcessBg: '#059669',
+          actionProcessHover: '#047857',
+          actionDeleteBg: '#dc2626',
+          actionDeleteHover: '#b91c1c',
 
           // Icon backgrounds
-          iconBgBlue: '#3b82f6',
-          iconBgGreen: '#10b981',
-          iconBgEmerald: '#10b981',
-          iconBgPurple: '#8b5cf6',
-          iconBgIndigo: '#6366f1',
-          iconBgOrange: '#f97316',
-          iconBgYellow: '#eab308',
-          iconBgCyan: '#06b6d4',
-          iconBgRed: '#ef4444',
+          iconBgBlue: '#2563eb',
+          iconBgGreen: '#059669',
+          iconBgEmerald: '#059669',
+          iconBgPurple: '#7c3aed',
+          iconBgIndigo: '#4f46e5',
+          iconBgOrange: '#ea580c',
+          iconBgYellow: '#ca8a04',
+          iconBgCyan: '#0891b2',
+          iconBgRed: '#dc2626',
 
           // Chart colors
-          chartColor1: '#3b82f6',
-          chartColor2: '#10b981',
-          chartColor3: '#f59e0b',
-          chartColor4: '#ef4444',
-          chartColor5: '#8b5cf6',
-          chartColor6: '#06b6d4',
-          chartColor7: '#f97316',
-          chartColor8: '#ec4899',
-          chartBorderColor: '#e5e7eb',
-          chartGridColor: '#d1d5db',
-          chartTextColor: '#6b7280',
-          chartCacheHitColor: '#047857', // Changed to darker green for better contrast
-          chartCacheMissColor: '#b45309', // Changed to darker amber for better contrast
+          chartColor1: '#2563eb',
+          chartColor2: '#059669',
+          chartColor3: '#d97706',
+          chartColor4: '#dc2626',
+          chartColor5: '#7c3aed',
+          chartColor6: '#0891b2',
+          chartColor7: '#ea580c',
+          chartColor8: '#db2777',
+          chartBorderColor: '#f1f5f9',
+          chartGridColor: '#e2e8f0',
+          chartTextColor: '#475569', // Darker for readability
+          chartCacheHitColor: '#059669',
+          chartCacheMissColor: '#d97706',
 
-          // Scrollbar colors - Light theme appropriate
-          scrollbarTrack: '#e5e7eb',
-          scrollbarThumb: '#9ca3af',
-          scrollbarHover: '#6b7280',
+          // Scrollbar colors
+          scrollbarTrack: '#f1f5f9',
+          scrollbarThumb: '#cbd5e1',
+          scrollbarHover: '#94a3b8',
 
           // Access indicator colors
-          publicAccessBg: '#d1fae5', // green-100
-          publicAccessText: '#047857', // green-800
-          publicAccessBorder: '#86efac', // green-300
-          securedAccessBg: '#fef3c7', // yellow-100
-          securedAccessText: '#92400e', // yellow-800
-          securedAccessBorder: '#fde047', // yellow-300
+          publicAccessBg: '#ecfdf5',
+          publicAccessText: '#047857',
+          publicAccessBorder: '#a7f3d0',
+          securedAccessBg: '#fffbeb',
+          securedAccessText: '#b45309',
+          securedAccessBorder: '#fde68a',
 
           // Session colors
-          userSessionColor: '#3b82f6', // Primary blue for authenticated users
-          userSessionBg: '#dbeafe', // Blue-100 for light theme
-          guestSessionColor: '#06b6d4', // Cyan for guest users
-          guestSessionBg: '#cffafe', // Cyan-100 for light theme
-          activeSessionColor: '#ea580c', // Darker orange for active sessions (better contrast on light)
-          activeSessionBg: '#fed7aa' // Orange-200 for light theme
+          userSessionColor: '#2563eb',
+          userSessionBg: '#eff6ff',
+          guestSessionColor: '#0891b2',
+          guestSessionBg: '#ecfeff',
+          activeSessionColor: '#ea580c',
+          activeSessionBg: '#fff7ed'
         }
       }
     ];
@@ -824,25 +825,41 @@ class ThemeService {
 
     const defaultStyles = `
       :root {
+        /* Core Colors */
         --theme-primary: #3b82f6;
+        --theme-primary-rgb: 59, 130, 246;
         --theme-secondary: #8b5cf6;
+        --theme-secondary-rgb: 139, 92, 246;
         --theme-accent: #06b6d4;
+
+        /* Backgrounds */
         --theme-bg-primary: #111827;
         --theme-bg-secondary: #283649;
         --theme-bg-tertiary: #313e52;
         --theme-bg-hover: #4b5563;
+        --theme-bg-elevated: #283649;
+
+        /* Text */
         --theme-text-primary: #ffffff;
         --theme-text-secondary: #d1d5db;
         --theme-text-muted: #9ca3af;
         --theme-text-accent: #60a5fa;
+        --theme-text-placeholder: #6b7280;
+
+        /* Drag Handle */
         --theme-drag-handle: #6b7280;
         --theme-drag-handle-hover: #60a5fa;
+
+        /* Borders */
+        --theme-border: #374151;
         --theme-border-primary: #374151;
         --theme-border-secondary: #4b5563;
         --theme-border-focus: var(--theme-primary);
         --theme-border-radius: ${borderRadius};
         --theme-border-radius-lg: ${borderRadiusLg};
         --theme-border-radius-xl: ${borderRadiusXl};
+
+        /* Navigation */
         --theme-nav-bg: #1f2937;
         --theme-nav-border: #374151;
         --theme-nav-tab-active: #3b82f6;
@@ -851,33 +868,51 @@ class ThemeService {
         --theme-nav-tab-active-border: #3b82f6;
         --theme-nav-mobile-menu-bg: #1f2937;
         --theme-nav-mobile-item-hover: #374151;
+
+        /* Status Colors */
         --theme-success: #10b981;
         --theme-success-bg: #064e3b;
         --theme-success-text: #34d399;
-        --theme-warning: #f59e0b;
-        --theme-warning-bg: #78350f;
-        --theme-warning-text: #fbbf24;
+        --theme-warning: #fb923c;
+        --theme-warning-bg: #44403c;
+        --theme-warning-text: #fcd34d;
         --theme-error: #ef4444;
         --theme-error-bg: #7f1d1d;
         --theme-error-text: #fca5a5;
         --theme-info: #3b82f6;
         --theme-info-bg: #1e3a8a;
         --theme-info-text: #93c5fd;
-        --theme-steam: #3b82f6;
+
+        /* Service Colors - Match getBuiltInThemes() */
+        --theme-steam: #10b981;
         --theme-epic: #8b5cf6;
-        --theme-origin: #10b981;
-        --theme-blizzard: #ef4444;
+        --theme-origin: #fb923c;
+        --theme-blizzard: #3b82f6;
         --theme-wsus: #06b6d4;
-        --theme-riot: #f59e0b;
+        --theme-riot: #ef4444;
+
+        /* Card & Components */
         --theme-card-bg: #1e2938;
         --theme-card-border: #374151;
         --theme-card-outline: #3b82f6;
+        --theme-card-hover: #4b5563;
+
+        /* Buttons */
         --theme-button-bg: #3b82f6;
         --theme-button-hover: #2563eb;
         --theme-button-text: #ffffff;
+        --theme-button-primary: #3b82f6;
+        --theme-primary-hover: #2563eb;
+        --theme-primary-text: #ffffff;
+        --theme-primary-subtle: rgba(59, 130, 246, 0.1);
+        --theme-secondary-bg: #283649;
+
+        /* Inputs */
         --theme-input-bg: #374151;
         --theme-input-border: #4b5563;
         --theme-input-focus: var(--theme-primary);
+
+        /* Checkbox */
         --theme-checkbox-accent: #3b82f6;
         --theme-checkbox-border: #4b5563;
         --theme-checkbox-bg: #1f2937;
@@ -886,24 +921,32 @@ class ThemeService {
         --theme-checkbox-hover-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         --theme-checkbox-hover-bg: #374151;
         --theme-checkbox-focus: var(--theme-primary);
+
+        /* Slider */
         --theme-slider-accent: #3b82f6;
         --theme-slider-thumb: #3b82f6;
         --theme-slider-track: #374151;
         --theme-progress-bg: #374151;
+
+        /* Hit Rate Colors - Match getBuiltInThemes() */
         --theme-hit-rate-high-bg: #064e3b;
         --theme-hit-rate-high-text: #34d399;
         --theme-hit-rate-medium-bg: #1e3a8a;
         --theme-hit-rate-medium-text: #93c5fd;
-        --theme-hit-rate-low-bg: #ea580c;
-        --theme-hit-rate-low-text: #fb923c;
-        --theme-hit-rate-warning-bg: #78350f;
-        --theme-hit-rate-warning-text: #fbbf24;
+        --theme-hit-rate-low-bg: #44403c;
+        --theme-hit-rate-low-text: #fbbf24;
+        --theme-hit-rate-warning-bg: #44403c;
+        --theme-hit-rate-warning-text: #fcd34d;
+
+        /* Action Buttons */
         --theme-action-reset-bg: #f59e0b;
         --theme-action-reset-hover: #d97706;
         --theme-action-process-bg: #10b981;
         --theme-action-process-hover: #059669;
         --theme-action-delete-bg: #ef4444;
         --theme-action-delete-hover: #dc2626;
+
+        /* Icon Colors */
         --theme-icon-blue: #3b82f6;
         --theme-icon-green: #10b981;
         --theme-icon-emerald: #10b981;
@@ -913,6 +956,9 @@ class ThemeService {
         --theme-icon-yellow: #eab308;
         --theme-icon-cyan: #06b6d4;
         --theme-icon-red: #ef4444;
+        --theme-icon-gray: #6b7280;
+
+        /* Chart Colors */
         --theme-chart-1: #3b82f6;
         --theme-chart-2: #10b981;
         --theme-chart-3: #f59e0b;
@@ -926,6 +972,31 @@ class ThemeService {
         --theme-chart-text: #9ca3af;
         --theme-chart-cache-hit: #10b981;
         --theme-chart-cache-miss: #f59e0b;
+
+        /* Scrollbar */
+        --theme-scrollbar-track: #374151;
+        --theme-scrollbar-thumb: #6B7280;
+        --theme-scrollbar-hover: #9CA3AF;
+
+        /* Access Indicators */
+        --theme-public-access-bg: rgba(16, 185, 129, 0.2);
+        --theme-public-access-text: #34d399;
+        --theme-public-access-border: rgba(16, 185, 129, 0.3);
+        --theme-secured-access-bg: rgba(245, 158, 11, 0.2);
+        --theme-secured-access-text: #fbbf24;
+        --theme-secured-access-border: rgba(245, 158, 11, 0.3);
+
+        /* Session Colors */
+        --theme-user-session: #3b82f6;
+        --theme-user-session-bg: rgba(59, 130, 246, 0.15);
+        --theme-guest-session: #06b6d4;
+        --theme-guest-session-bg: rgba(6, 182, 212, 0.15);
+        --theme-active-session: #f97316;
+        --theme-active-session-bg: rgba(249, 115, 22, 0.15);
+
+        /* Muted aliases */
+        --theme-muted: #9ca3af;
+        --theme-muted-bg: #313e52;
       }
     `;
 
@@ -1007,30 +1078,54 @@ class ThemeService {
     const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
     const borderRadiusXl = sharpCorners ? '0px' : '1rem';
 
+    // Helper to convert hex to RGB
+    const hexToRgb = (hex: string): string => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result
+        ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+        : '59, 130, 246'; // fallback to blue
+    };
+
+    const primaryRgb = hexToRgb(colors.primaryColor || '#3b82f6');
+    const secondaryRgb = hexToRgb(colors.secondaryColor || '#8b5cf6');
+
     // Create clean theme styles with only CSS variables - no Tailwind overrides
     const themeStyles = `
     :root {
+      /* Core Colors */
       --theme-primary: ${colors.primaryColor};
+      --theme-primary-rgb: ${primaryRgb};
       --theme-secondary: ${colors.secondaryColor};
+      --theme-secondary-rgb: ${secondaryRgb};
       --theme-accent: ${colors.accentColor};
+
+      /* Backgrounds */
       --theme-bg-primary: ${colors.bgPrimary};
       --theme-bg-secondary: ${colors.bgSecondary};
       --theme-bg-tertiary: ${colors.bgTertiary};
       --theme-bg-hover: ${colors.bgHover};
+      --theme-bg-elevated: ${colors.bgSecondary};
+
+      /* Text */
       --theme-text-primary: ${colors.textPrimary};
       --theme-text-secondary: ${colors.textSecondary};
       --theme-text-muted: ${colors.textMuted};
       --theme-text-accent: ${colors.textAccent};
       --theme-text-placeholder: ${colors.textPlaceholder};
+
+      /* Drag Handle */
       --theme-drag-handle: ${colors.dragHandleColor};
       --theme-drag-handle-hover: ${colors.dragHandleHover};
+
+      /* Borders */
+      --theme-border: ${colors.borderPrimary};
       --theme-border-primary: ${colors.borderPrimary};
       --theme-border-secondary: ${colors.borderSecondary};
       --theme-border-focus: ${colors.borderFocus};
       --theme-border-radius: ${borderRadius};
       --theme-border-radius-lg: ${borderRadiusLg};
       --theme-border-radius-xl: ${borderRadiusXl};
-      
+
       /* Navigation Variables */
       --theme-nav-bg: ${colors.navBg};
       --theme-nav-border: ${colors.navBorder};
@@ -1040,7 +1135,7 @@ class ThemeService {
       --theme-nav-tab-active-border: ${colors.navTabActiveBorder};
       --theme-nav-mobile-menu-bg: ${colors.navMobileMenuBg};
       --theme-nav-mobile-item-hover: ${colors.navMobileItemHover};
-      
+
       /* Status Colors */
       --theme-success: ${colors.success};
       --theme-success-bg: ${colors.successBg};
@@ -1054,7 +1149,7 @@ class ThemeService {
       --theme-info: ${colors.info};
       --theme-info-bg: ${colors.infoBg};
       --theme-info-text: ${colors.infoText};
-      
+
       /* Service Colors */
       --theme-steam: ${colors.steamColor};
       --theme-epic: ${colors.epicColor};
@@ -1062,14 +1157,24 @@ class ThemeService {
       --theme-blizzard: ${colors.blizzardColor};
       --theme-wsus: ${colors.wsusColor};
       --theme-riot: ${colors.riotColor};
-      
-      /* Component Colors */
+
+      /* Card & Component Colors */
       --theme-card-bg: ${colors.cardBg};
       --theme-card-border: ${colors.cardBorder};
       --theme-card-outline: ${colors.cardOutline};
+      --theme-card-hover: ${colors.bgHover};
+
+      /* Buttons */
       --theme-button-bg: ${colors.buttonBg};
       --theme-button-hover: ${colors.buttonHover};
       --theme-button-text: ${colors.buttonText};
+      --theme-button-primary: ${colors.buttonBg};
+      --theme-primary-hover: ${colors.buttonHover};
+      --theme-primary-text: ${colors.buttonText};
+      --theme-primary-subtle: rgba(${primaryRgb}, 0.1);
+      --theme-secondary-bg: ${colors.bgSecondary};
+
+      /* Inputs */
       --theme-input-bg: ${colors.inputBg};
       --theme-input-border: ${colors.inputBorder};
       --theme-input-focus: ${colors.inputFocus};
@@ -1114,6 +1219,7 @@ class ThemeService {
       --theme-icon-yellow: ${colors.iconBgYellow};
       --theme-icon-cyan: ${colors.iconBgCyan};
       --theme-icon-red: ${colors.iconBgRed};
+      --theme-icon-gray: ${colors.textMuted};
       
       /* Chart Colors */
       --theme-chart-1: ${colors.chartColor1};
@@ -1145,11 +1251,16 @@ class ThemeService {
 
       /* Session Colors */
       --theme-user-session: ${colors.userSessionColor || colors.primaryColor};
-      --theme-user-session-bg: ${colors.userSessionBg || 'rgba(59, 130, 246, 0.15)'};
+      --theme-user-session-bg: ${colors.userSessionBg || `rgba(${primaryRgb}, 0.15)`};
       --theme-guest-session: ${colors.guestSessionColor || colors.info};
       --theme-guest-session-bg: ${colors.guestSessionBg || colors.infoBg};
       --theme-active-session: ${colors.activeSessionColor || colors.iconBgOrange};
       --theme-active-session-bg: ${colors.activeSessionBg || 'rgba(249, 115, 22, 0.15)'};
+
+      /* Alias Variables for Compatibility */
+      --theme-muted: ${colors.textMuted};
+      --theme-muted-bg: ${colors.bgTertiary};
+      --theme-icon-gray: ${colors.textMuted};
     }
 
     /* Global Transitions */

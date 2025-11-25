@@ -144,8 +144,10 @@ const DataImporter: React.FC<DataImporterProps> = ({
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-2">
-          <Database className="w-5 h-5 icon-cyan flex-shrink-0" />
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-cyan">
+            <Database className="w-5 h-5 icon-cyan" />
+          </div>
           <h3 className="text-lg font-semibold text-themed-primary">
             Import Historical Data
           </h3>
@@ -323,8 +325,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
         {/* Import Result */}
         {importResult && (
-          <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/20">
-            <p className="font-medium text-green-600 dark:text-green-400 mb-3">{importResult.message}</p>
+          <div className="p-4 rounded-lg" style={{ backgroundColor: 'var(--theme-success-bg)', borderWidth: '1px', borderColor: 'var(--theme-success)' }}>
+            <p className="font-medium text-themed-success mb-3">{importResult.message}</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
               <div>
                 <span className="text-themed-muted">Total:</span>{' '}
@@ -332,25 +334,25 @@ const DataImporter: React.FC<DataImporterProps> = ({
               </div>
               <div>
                 <span className="text-themed-muted">Imported:</span>{' '}
-                <span className="font-medium text-green-600 dark:text-green-400">
+                <span className="font-medium text-themed-success">
                   {importResult.imported.toLocaleString()}
                 </span>
               </div>
               <div>
                 <span className="text-themed-muted">Skipped:</span>{' '}
-                <span className="font-medium text-yellow-600 dark:text-yellow-400">
+                <span className="font-medium text-themed-warning">
                   {importResult.skipped.toLocaleString()}
                 </span>
               </div>
               <div>
                 <span className="text-themed-muted">Errors:</span>{' '}
-                <span className="font-medium text-red-600 dark:text-red-400">
+                <span className="font-medium text-themed-error">
                   {importResult.errors.toLocaleString()}
                 </span>
               </div>
             </div>
             {importResult.backupPath && !importResult.backupPath.includes('(no backup') && (
-              <div className="pt-3 border-t border-green-500/20">
+              <div className="pt-3 border-t" style={{ borderColor: 'var(--theme-success)' }}>
                 <p className="text-xs text-themed-muted mb-1">Database backup created:</p>
                 <p className="text-xs font-mono text-themed-secondary bg-themed-tertiary px-2 py-1 rounded break-all">
                   {importResult.backupPath}
@@ -405,7 +407,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
       >
         <div className="space-y-4">
           <div className="flex items-start space-x-3">
-            <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="w-5 h-5 icon-yellow flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-themed-primary font-medium mb-2">
                 Import {validationResult?.recordCount?.toLocaleString()} records from external database?
@@ -413,7 +415,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               <div className="text-sm text-themed-muted space-y-1">
                 {overwriteExisting ? (
                   <>
-                    <p className="font-medium text-yellow-600 dark:text-yellow-400">Merge/Sync Mode:</p>
+                    <p className="font-medium text-themed-warning">Merge/Sync Mode:</p>
                     <ul className="list-disc list-inside space-y-0.5 ml-2">
                       <li>New records will be added</li>
                       <li>Existing records will be updated with new data</li>
@@ -421,7 +423,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                   </>
                 ) : (
                   <>
-                    <p className="font-medium text-green-600 dark:text-green-400">Append-Only Mode:</p>
+                    <p className="font-medium text-themed-success">Append-Only Mode:</p>
                     <ul className="list-disc list-inside space-y-0.5 ml-2">
                       <li>New records will be added</li>
                       <li>Existing records will be skipped (no changes)</li>

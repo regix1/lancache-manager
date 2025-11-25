@@ -62,8 +62,10 @@ const GrafanaEndpoints: React.FC = () => {
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-2">
-          <Link className="w-5 h-5 icon-indigo" />
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-indigo">
+            <Link className="w-5 h-5 icon-indigo" />
+          </div>
           <h3 className="text-lg font-semibold text-themed-primary">
             Live API Endpoints for Grafana
           </h3>
@@ -94,7 +96,7 @@ const GrafanaEndpoints: React.FC = () => {
       </p>
 
       <div className="space-y-3">
-        <div className="p-3 rounded-lg themed-card border">
+        <div className="p-3 rounded-lg border" style={{ backgroundColor: 'var(--theme-card-bg)', borderColor: 'var(--theme-card-border)' }}>
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium text-themed-primary">Prometheus Metrics</span>
             <Button

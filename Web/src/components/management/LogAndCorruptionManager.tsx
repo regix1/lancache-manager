@@ -382,9 +382,14 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
       <Card>
         {/* Shared Header with Single Refresh Button */}
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 icon-orange flex-shrink-0" />
-            <h3 className="text-lg font-semibold text-themed-primary">Log & Cache Management</h3>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-orange">
+              <FileText className="w-5 h-5 icon-orange" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">Log & Cache Management</h3>
+              <p className="text-xs text-themed-muted">Remove log entries and fix corrupted cache files</p>
+            </div>
           </div>
           <button
             onClick={() => loadAllData(true)}
@@ -437,9 +442,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
         {/* Log File Management Section */}
         <div className="mb-8">
-          {logsReadOnly ? (
-            <div className="flex items-center gap-2 mb-4">
-              <h4 className="text-md font-semibold text-themed-primary">Log File Management</h4>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Log Entries</h4>
+            {logsReadOnly && (
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -451,16 +456,15 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 <Lock className="w-3 h-3" />
                 Read-only
               </span>
-            </div>
-          ) : (
-            <>
-              <p className="text-themed-muted text-sm mb-4 break-words">
-                Remove service log entries from{' '}
-                <code className="bg-themed-tertiary px-2 py-1 rounded text-xs break-all">
-                  {config.logPath}
-                </code>
-              </p>
-            </>
+            )}
+          </div>
+          {!logsReadOnly && (
+            <p className="text-themed-muted text-sm mb-4 break-words">
+              Remove service entries from{' '}
+              <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-xs">
+                {config.logPath}
+              </code>
+            </p>
           )}
 
           {!logsReadOnly && (
@@ -552,11 +556,9 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
 
         {/* Corruption Detection Section */}
         <div className="mb-6">
-          {logsReadOnly || cacheReadOnly ? (
-            <div className="flex items-center gap-2 mb-4">
-              <h4 className="text-md font-semibold text-themed-primary">
-                Corrupted Cache Detection & Removal
-              </h4>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-themed-primary uppercase tracking-wide">Corrupted Cache</h4>
+            {(logsReadOnly || cacheReadOnly) && (
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -568,24 +570,12 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
                 <Lock className="w-3 h-3" />
                 Read-only
               </span>
-            </div>
-          ) : (
-            <div className="flex items-start gap-2 mb-4">
-              <Search className="w-5 h-5 icon-red flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-themed-primary text-sm font-medium mb-1">
-                  Corrupted Cache Detection & Removal
-                </p>
-                <p className="text-themed-muted text-sm hidden sm:block">
-                  Detects corrupted cache chunks by analyzing repeated MISS/UNKNOWN requests (3+
-                  occurrences) in access logs. Removal will <strong>delete cache files</strong> from
-                  disk, <strong>remove log entries</strong>, AND <strong>delete database records</strong> for entire download sessions with corrupted chunks.
-                </p>
-                <p className="text-themed-muted text-sm sm:hidden">
-                  Detects corrupted chunks via repeated MISS/UNKNOWN requests (3+). Removal <strong>deletes cache files, log entries, and database records</strong>.
-                </p>
-              </div>
-            </div>
+            )}
+          </div>
+          {!(logsReadOnly || cacheReadOnly) && (
+            <p className="text-themed-muted text-sm mb-4">
+              Detects chunks with 3+ repeated MISS requests. Removal deletes cache files, log entries, and database records.
+            </p>
           )}
 
           {!(logsReadOnly || cacheReadOnly) && (
@@ -763,25 +753,13 @@ const LogAndCorruptionManager: React.FC<LogAndCorruptionManagerProps> = ({
           )}
         </div>
 
-        {/* Combined Warning for Both Sections - Hide if both are read-only */}
+        {/* Info Section - Hide if both are read-only */}
         {!(logsReadOnly && cacheReadOnly) && (
-          <Alert color="yellow" className="about-section">
-            <div>
-              <p className="text-xs font-medium mb-2">Important:</p>
-              <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-                <li>
-                  <strong>Log removal:</strong> Removes entries from access.log (cache files remain
-                  intact)
-                </li>
-                <li>
-                  <strong>Corruption removal:</strong> Deletes BOTH cache files AND log entries for
-                  corrupted chunks
-                </li>
-                <li>Both require write permissions to logs/cache directories</li>
-                <li>These actions cannot be undone</li>
-              </ul>
-            </div>
-          </Alert>
+          <div className="mt-6 pt-4 border-t text-xs text-themed-muted space-y-1" style={{ borderColor: 'var(--theme-border-primary)' }}>
+            <p><strong>Log removal</strong> removes entries from access.log only (cache files remain intact)</p>
+            <p><strong>Corruption removal</strong> deletes cache files, log entries, and database records</p>
+            <p className="opacity-75">Both require write permissions and cannot be undone</p>
+          </div>
         )}
       </Card>
 

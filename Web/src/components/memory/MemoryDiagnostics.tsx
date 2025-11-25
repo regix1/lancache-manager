@@ -70,7 +70,7 @@ const MemoryDiagnostics: React.FC = () => {
   if (error) {
     return (
       <div className="min-h-screen bg-themed-primary flex items-center justify-center">
-        <div className="text-red-500">Error: {error}</div>
+        <div className="text-themed-error">Error: {error}</div>
       </div>
     );
   }
