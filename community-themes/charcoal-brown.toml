@@ -1,162 +1,209 @@
 [meta]
-name = "Charcoal & Brown"
+name = "Timber & Stone"
 id = "charcoal-brown"
-description = "Deep charcoal blacks with rich coffee browns"
-author = "Community"
-version = "1.0.0"
+description = "Warm browns, rich charcoals, and soft taupes - sophisticated earth tones"
+author = "Nature"
+version = "3.0.0"
 isDark = true
 sharpCorners = false
 
 [colors]
-primaryColor = "#8b5a2b"
-secondaryColor = "#a0522d"
-accentColor = "#cd853f"
-bgPrimary = "#1a1a1a"
-bgSecondary = "#252525"
-bgTertiary = "#2d2d2d"
-bgHover = "#3a3a3a"
-textPrimary = "#e8e4e0"
-textSecondary = "#c4bfb8"
-textMuted = "#8a8480"
-textAccent = "#d4a574"
-textPlaceholder = "#6a6560"
-borderPrimary = "#3a3a3a"
-borderSecondary = "#4a4a4a"
-borderFocus = "#8b5a2b"
-navBg = "#1f1f1f"
-navBorder = "#3a3a3a"
-navTabActive = "#8b5a2b"
-navTabInactive = "#8a8480"
-navTabHover = "#e8e4e0"
-navTabActiveBorder = "#8b5a2b"
-navMobileMenuBg = "#1f1f1f"
-navMobileItemHover = "#2d2d2d"
-success = "#6b8e4e"
-successBg = "#2a3528"
-successText = "#a5c48a"
-warning = "#d4a574"
-warningBg = "#3d3228"
-warningText = "#e8c9a8"
-error = "#c45c4a"
-errorBg = "#3d2828"
-errorText = "#e8a598"
-info = "#7a8fa4"
-infoBg = "#282d35"
-infoText = "#a8c0d8"
-steamColor = "#7a8fa4"
-epicColor = "#a0522d"
-originColor = "#cd853f"
-blizzardColor = "#6b8e9f"
-wsusColor = "#8b7355"
-riotColor = "#c45c4a"
-cardBg = "#222222"
-cardBorder = "#3a3a3a"
-buttonBg = "#8b5a2b"
-buttonHover = "#6b4423"
+# Core - Warm brown and taupe
+primaryColor = "#a67c52"
+secondaryColor = "#8b7355"
+accentColor = "#c9a67a"
+
+# Backgrounds - Rich charcoal with warm undertones
+bgPrimary = "#1f1d1b"
+bgSecondary = "#2a2725"
+bgTertiary = "#333130"
+bgHover = "#3d3a38"
+
+# Text - Warm creams and tans
+textPrimary = "#ebe5dc"
+textSecondary = "#c9c0b5"
+textMuted = "#9a928a"
+textAccent = "#d4b896"
+textPlaceholder = "#706b65"
+
+# Borders - Warm charcoal
+borderPrimary = "#454240"
+borderSecondary = "#5a5653"
+borderFocus = "#a67c52"
+
+# Navigation
+navBg = "#262321"
+navBorder = "#454240"
+navTabActive = "#a67c52"
+navTabInactive = "#9a928a"
+navTabHover = "#c9c0b5"
+navTabActiveBorder = "#a67c52"
+navMobileMenuBg = "#262321"
+navMobileItemHover = "#333130"
+
+# Status colors - WARM PALETTE ONLY (no green/blue)
+success = "#c9a67a"
+successBg = "#3d3528"
+successText = "#e8d4b8"
+warning = "#d4915c"
+warningBg = "#3d2f22"
+warningText = "#f0c9a0"
+error = "#b57161"
+errorBg = "#3d2a28"
+errorText = "#e8b5a6"
+info = "#a8a095"
+infoBg = "#35322f"
+infoText = "#d4cec6"
+
+# Service colors - All warm browns/tans/grays
+steamColor = "#c9a67a"
+epicColor = "#8b7355"
+originColor = "#d4915c"
+blizzardColor = "#a8a095"
+wsusColor = "#b5a48f"
+riotColor = "#b57161"
+
+# Components
+cardBg = "#282523"
+cardBorder = "#454240"
+cardOutline = "#a67c52"
+buttonBg = "#a67c52"
+buttonHover = "#8b6844"
 buttonText = "#ffffff"
-inputBg = "#2d2d2d"
-inputBorder = "#4a4a4a"
-inputFocus = "#8b5a2b"
-checkboxAccent = "#8b5a2b"
-checkboxBorder = "#4a4a4a"
-checkboxBg = "#252525"
+inputBg = "#333130"
+inputBorder = "#5a5653"
+inputFocus = "#a67c52"
+checkboxAccent = "#a67c52"
+checkboxBorder = "#5a5653"
+checkboxBg = "#2a2725"
 checkboxCheckmark = "#ffffff"
 checkboxShadow = "none"
-checkboxHoverShadow = "0 0 0 3px rgba(139, 90, 43, 0.15)"
-checkboxHoverBg = "#3a3a3a"
-checkboxFocus = "#8b5a2b"
-sliderAccent = "#8b5a2b"
-sliderThumb = "#8b5a2b"
-sliderTrack = "#2d2d2d"
-progressBg = "#2d2d2d"
-hitRateHighBg = "#2a3528"
-hitRateHighText = "#a5c48a"
-hitRateMediumBg = "#282d35"
-hitRateMediumText = "#a8c0d8"
-hitRateLowBg = "#3d3228"
-hitRateLowText = "#d4a574"
-hitRateWarningBg = "#3d2828"
-hitRateWarningText = "#e8a598"
-actionResetBg = "#d4a574"
-actionResetHover = "#b8935f"
-actionProcessBg = "#6b8e4e"
-actionProcessHover = "#5a7a40"
-actionDeleteBg = "#c45c4a"
-actionDeleteHover = "#a84a3a"
-iconBgBlue = "#5a7a8f"
-iconBgGreen = "#6b8e4e"
-iconBgEmerald = "#5a8b6a"
-iconBgPurple = "#7a5a6f"
-iconBgIndigo = "#5a5a8a"
-iconBgOrange = "#a0522d"
-iconBgYellow = "#8b7355"
-iconBgCyan = "#5a7a7a"
-iconBgRed = "#8b4a4a"
-chartColor1 = "#8b5a2b"
-chartColor2 = "#6b8e4e"
-chartColor3 = "#d4a574"
-chartColor4 = "#c45c4a"
-chartColor5 = "#a0522d"
-chartColor6 = "#7a8fa4"
-chartColor7 = "#cd853f"
-chartColor8 = "#7a5a6f"
-chartBorderColor = "#222222"
-chartGridColor = "#3a3a3a"
-chartTextColor = "#8a8480"
-chartCacheHitColor = "#6b8e4e"
-chartCacheMissColor = "#d4a574"
-scrollbarTrack = "#252525"
-scrollbarThumb = "#4a4a4a"
-scrollbarHover = "#5a5a5a"
-publicAccessBg = "rgba(107, 142, 78, 0.2)"
-publicAccessText = "#a5c48a"
-publicAccessBorder = "rgba(107, 142, 78, 0.3)"
-securedAccessBg = "rgba(212, 165, 116, 0.2)"
-securedAccessText = "#e8c9a8"
-securedAccessBorder = "rgba(212, 165, 116, 0.3)"
-userSessionColor = "#8b5a2b"
-userSessionBg = "rgba(139, 90, 43, 0.15)"
-guestSessionColor = "#7a8fa4"
-guestSessionBg = "rgba(122, 143, 164, 0.15)"
-activeSessionColor = "#cd853f"
-activeSessionBg = "rgba(205, 133, 63, 0.15)"
-dragHandleColor = "#6a6560"
-dragHandleHover = "#d4a574"
+checkboxHoverShadow = "0 0 0 3px rgba(166, 124, 82, 0.15)"
+checkboxHoverBg = "#3d3a38"
+checkboxFocus = "#a67c52"
+sliderAccent = "#a67c52"
+sliderThumb = "#a67c52"
+sliderTrack = "#333130"
+
+# Badges & Progress
+badgeBg = "#a67c52"
+badgeText = "#ffffff"
+progressBar = "#a67c52"
+progressBg = "#333130"
+
+# Hit rate - Warm tones only
+hitRateHighBg = "#3d3528"
+hitRateHighText = "#e8d4b8"
+hitRateMediumBg = "#35322f"
+hitRateMediumText = "#d4cec6"
+hitRateLowBg = "#3d2f22"
+hitRateLowText = "#f0c9a0"
+hitRateWarningBg = "#3d2a28"
+hitRateWarningText = "#e8b5a6"
+
+# Action buttons - Warm palette
+actionResetBg = "#d4915c"
+actionResetHover = "#b87a4a"
+actionProcessBg = "#c9a67a"
+actionProcessHover = "#a68a60"
+actionDeleteBg = "#b57161"
+actionDeleteHover = "#995d50"
+
+# Icon backgrounds - Browns, tans, charcoals, grays
+iconBgBlue = "#8b7355"
+iconBgGreen = "#a67c52"
+iconBgEmerald = "#b5a48f"
+iconBgPurple = "#7a6b5a"
+iconBgIndigo = "#6b5d4d"
+iconBgOrange = "#c98a50"
+iconBgYellow = "#c9a67a"
+iconBgCyan = "#a8a095"
+iconBgRed = "#a66858"
+
+# Chart colors - Warm earth tones
+chartColor1 = "#a67c52"
+chartColor2 = "#c9a67a"
+chartColor3 = "#d4915c"
+chartColor4 = "#b57161"
+chartColor5 = "#8b7355"
+chartColor6 = "#a8a095"
+chartColor7 = "#7a6b5a"
+chartColor8 = "#c98a50"
+chartBorderColor = "#282523"
+chartGridColor = "#454240"
+chartTextColor = "#9a928a"
+chartCacheHitColor = "#c9a67a"
+chartCacheMissColor = "#d4915c"
+
+# Scrollbar
+scrollbarTrack = "#282523"
+scrollbarThumb = "#5a5653"
+scrollbarHover = "#a67c52"
+
+# Access indicators - Warm tones
+publicAccessBg = "rgba(201, 166, 122, 0.15)"
+publicAccessText = "#e8d4b8"
+publicAccessBorder = "rgba(201, 166, 122, 0.3)"
+securedAccessBg = "rgba(212, 145, 92, 0.15)"
+securedAccessText = "#f0c9a0"
+securedAccessBorder = "rgba(212, 145, 92, 0.3)"
+
+# Session colors
+userSessionColor = "#a67c52"
+userSessionBg = "rgba(166, 124, 82, 0.15)"
+guestSessionColor = "#a8a095"
+guestSessionBg = "rgba(168, 160, 149, 0.15)"
+activeSessionColor = "#d4915c"
+activeSessionBg = "rgba(212, 145, 92, 0.15)"
+
+# Drag handle
+dragHandleColor = "#706b65"
+dragHandleHover = "#c9a67a"
 
 [css]
 content = """
-/* Charcoal & Brown Theme - Deep and Rich */
+/* Timber & Stone Theme - Warm Earth Tones */
 
-/* Subtle warmth on cards */
+/* Subtle warm glow on cards */
 .themed-card {
   background-image:
     linear-gradient(
-      145deg,
-      rgba(139, 90, 43, 0.02) 0%,
-      transparent 60%,
-      rgba(139, 90, 43, 0.02) 100%
+      135deg,
+      rgba(166, 124, 82, 0.02) 0%,
+      transparent 50%,
+      rgba(139, 115, 85, 0.02) 100%
     );
   transition: all 0.2s ease;
 }
 
 .themed-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-/* Brown focus glow */
+/* Warm brown focus glow */
 *:focus-visible {
-  box-shadow: 0 0 0 2px rgba(139, 90, 43, 0.3);
+  box-shadow: 0 0 0 2px rgba(166, 124, 82, 0.3);
   outline: none;
 }
 
-/* Warm button shadows */
+/* Warm hover effects */
+.hover\\:bg-themed-hover:hover {
+  background-image:
+    radial-gradient(
+      circle at center,
+      rgba(166, 124, 82, 0.04),
+      transparent
+    );
+}
+
+/* Earthy button shadows */
 button {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
   transition: all 0.15s ease;
 }
 
 button:hover {
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
   transform: translateY(-1px);
 }
 
@@ -164,13 +211,13 @@ button:active {
   transform: translateY(0);
 }
 
-/* Deep scrollbar */
+/* Warm scrollbar */
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #4a4a4a, #3a3a3a);
+  background: linear-gradient(180deg, #5a5653 0%, #454240 100%);
   border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #5a5a5a, #4a4a4a);
+  background: linear-gradient(180deg, #a67c52 0%, #8b6844 100%);
 }
 """

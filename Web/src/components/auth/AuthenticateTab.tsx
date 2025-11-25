@@ -10,24 +10,27 @@ const AuthenticateTab: React.FC = () => {
   const { refreshAuth } = useAuth();
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+
+  // Helper to show toast notifications
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: { type, message, duration: 4000 }
+    }));
+  };
 
   const handleAuthenticate = async () => {
     if (!apiKey.trim()) {
-      setError('Please enter an API key');
+      showToast('error', 'Please enter an API key');
       return;
     }
 
     setLoading(true);
-    setError('');
-    setSuccess('');
 
     try {
       const result = await authService.register(apiKey);
 
       if (result.success) {
-        setSuccess('Authentication successful! Upgrading to full access...');
+        showToast('success', 'Authentication successful! Upgrading to full access...');
         // Refresh auth context
         await refreshAuth();
         // Clear input
@@ -38,11 +41,11 @@ const AuthenticateTab: React.FC = () => {
           window.location.reload();
         }, 1500);
       } else {
-        setError(result.message || 'Authentication failed');
+        showToast('error', result.message || 'Authentication failed');
       }
     } catch (err: any) {
       console.error('Authentication error:', err);
-      setError(err.message || 'Authentication failed');
+      showToast('error', err.message || 'Authentication failed');
     } finally {
       setLoading(false);
     }
@@ -109,9 +112,6 @@ const AuthenticateTab: React.FC = () => {
                   }}
                 />
               </div>
-
-              {error && <Alert color="red">{error}</Alert>}
-              {success && <Alert color="green">{success}</Alert>}
 
               <Button
                 variant="filled"

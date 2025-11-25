@@ -12,7 +12,6 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Button } from '../../ui/Button';
-import { Alert } from '../../ui/Alert';
 import { Tooltip } from '../../ui/Tooltip';
 import themeService from '../../../services/theme.service';
 import authService from '../../../services/auth.service';
@@ -53,12 +52,17 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 }) => {
   const [communityThemes, setCommunityThemes] = useState<CommunityTheme[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
   const [importedThemes, setImportedThemes] = useState<Set<string>>(new Set());
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showImported, setShowImported] = useState(false);
   const [updatingThemes, setUpdatingThemes] = useState<Set<string>>(new Set());
+
+  // Helper to show toast notifications
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: { type, message, duration: 4000 }
+    }));
+  };
 
   useEffect(() => {
     loadCommunityThemesAndCheckUpdates();
@@ -83,7 +87,6 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
   const loadCommunityThemes = async () => {
     setLoading(true);
-    setError(null);
 
     try {
       // Fetch the list of files from GitHub
@@ -130,7 +133,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         await checkAndUpdateThemes(themes);
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load community themes');
+      showToast('error', err.message || 'Failed to load community themes');
       console.error('Error loading community themes:', err);
     } finally {
       setLoading(false);
@@ -139,13 +142,11 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
   const handleImportTheme = async (theme: CommunityTheme) => {
     if (!isAuthenticated) {
-      setError('Authentication required to import themes');
+      showToast('error', 'Authentication required to import themes');
       return;
     }
 
     setImporting(theme.fileName);
-    setError(null);
-    setSuccessMessage(null);
 
     try {
       // Add isCommunityTheme flag to the TOML content
@@ -189,17 +190,14 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       // Mark theme as imported
       setImportedThemes((prev) => new Set([...prev, theme.fileName]));
-      setSuccessMessage(`Successfully imported "${theme.meta?.name || theme.name}"!`);
+      showToast('success', `Successfully imported "${theme.meta?.name || theme.name}"!`);
 
       // Call the callback to refresh the theme list
       if (onThemeImported) {
         onThemeImported();
       }
-
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setError(err.message || 'Failed to import theme');
+      showToast('error', err.message || 'Failed to import theme');
     } finally {
       setImporting(null);
     }
@@ -248,10 +246,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       }
 
       if (successCount > 0) {
-        setSuccessMessage(
-          `Successfully auto-updated ${successCount} theme${successCount !== 1 ? 's' : ''} to latest version!`
-        );
-        setTimeout(() => setSuccessMessage(null), 5000);
+        showToast('success', `Auto-updated ${successCount} theme${successCount !== 1 ? 's' : ''} to latest version!`);
       }
     }
   };
@@ -410,37 +405,14 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       {/* Content */}
       <div className="p-4">
-        {/* Error Alert */}
-        {error && (
-          <Alert color="red" className="mb-4">
-            {error}
-          </Alert>
-        )}
-
-        {/* Success Alert */}
-        {successMessage && (
-          <Alert color="green" className="mb-4">
-            {successMessage}
-          </Alert>
-        )}
-
-        {/* Auto-Update Progress Alert */}
+        {/* Auto-Update Progress */}
         {updatingThemes.size > 0 && (
-          <Alert color="blue" className="mb-4">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span className="text-sm">
-                Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''}...
-              </span>
-            </div>
-          </Alert>
-        )}
-
-        {/* Authentication Warning */}
-        {!isAuthenticated && (
-          <Alert color="yellow" className="mb-4">
-            Authentication required to import community themes
-          </Alert>
+          <div className="flex items-center gap-2 mb-4 p-3 rounded-lg" style={{ backgroundColor: 'var(--theme-info-bg)' }}>
+            <Loader2 className="w-4 h-4 animate-spin" style={{ color: 'var(--theme-info)' }} />
+            <span className="text-sm" style={{ color: 'var(--theme-info-text)' }}>
+              Auto-updating {updatingThemes.size} theme{updatingThemes.size !== 1 ? 's' : ''}...
+            </span>
+          </div>
         )}
 
         {/* Loading State */}
@@ -452,7 +424,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         )}
 
         {/* Empty State */}
-        {!loading && communityThemes.length === 0 && !error && (
+        {!loading && communityThemes.length === 0 && (
           <div className="text-center py-8 text-themed-muted">
             <Globe className="w-10 h-10 mx-auto mb-2 opacity-30" />
             <p className="text-sm">No community themes available</p>

@@ -87,14 +87,18 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
 
   const [settings, setSettings] = useState<GcSettings>(initialSettings);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [triggering, setTriggering] = useState(false);
   const [triggerResult, setTriggerResult] = useState<GcTriggerResult | null>(null);
 
+  // Helper to show toast notifications
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: { type, message, duration: 4000 }
+    }));
+  };
+
   const loadSettings = async () => {
-    setError(null);
     try {
       // Clear cache and refetch
       settingsPromise = null;
@@ -102,14 +106,12 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       setSettings(data);
       setHasChanges(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load GC settings');
+      showToast('error', err instanceof Error ? err.message : 'Failed to load GC settings');
     }
   };
 
   const saveSettings = async () => {
     setSaving(true);
-    setError(null);
-    setSuccess(null);
     try {
       const response = await fetch(`${API_BASE}/gc/settings`, {
         method: 'PUT',
@@ -123,15 +125,14 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
       if (response.ok) {
         const data = await response.json();
         setSettings(data);
-        setSuccess('GC settings saved successfully');
+        showToast('success', 'GC settings saved successfully');
         setHasChanges(false);
-        setTimeout(() => setSuccess(null), 3000);
       } else {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to save GC settings');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save GC settings');
+      showToast('error', err instanceof Error ? err.message : 'Failed to save GC settings');
     } finally {
       setSaving(false);
     }
@@ -149,7 +150,6 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
 
   const triggerGarbageCollection = async () => {
     setTriggering(true);
-    setError(null);
     setTriggerResult(null);
     try {
       const response = await fetch(`${API_BASE}/gc/trigger`, {
@@ -166,7 +166,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         throw new Error(errorData.error || 'Failed to trigger garbage collection');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to trigger garbage collection');
+      showToast('error', err instanceof Error ? err.message : 'Failed to trigger garbage collection');
     } finally {
       setTriggering(false);
     }
@@ -224,18 +224,6 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
-
-      {error && (
-        <Alert color="red" className="mb-4">
-          <span className="text-sm">{error}</span>
-        </Alert>
-      )}
-
-      {success && (
-        <Alert color="green" className="mb-4">
-          <span className="text-sm">{success}</span>
-        </Alert>
-      )}
 
       <div className="space-y-6">
         {/* Aggressiveness Setting */}

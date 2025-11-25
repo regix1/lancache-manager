@@ -63,8 +63,14 @@ const UserTab: React.FC = () => {
   const { refreshAuth } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
+
+  // Helper to show toast notifications
+  const showToast = (type: 'success' | 'error' | 'info', message: string) => {
+    window.dispatchEvent(new CustomEvent('show-toast', {
+      detail: { type, message, duration: 4000 }
+    }));
+  };
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
@@ -87,7 +93,6 @@ const UserTab: React.FC = () => {
       if (showLoading) {
         setLoading(true);
       }
-      setError(null);
       const response = await fetch(`/api/sessions?page=${page}&pageSize=${pageSize}`, {
         headers: ApiService.getHeaders()
       });
@@ -110,10 +115,10 @@ const UserTab: React.FC = () => {
         setCurrentPage(data.pagination?.page || 1);
       } else {
         const errorData = await response.json();
-        setError(errorData.error || 'Failed to load sessions');
+        showToast('error', errorData.error || 'Failed to load sessions');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load sessions');
+      showToast('error', err.message || 'Failed to load sessions');
     } finally {
       if (showLoading) {
         setLoading(false);
@@ -146,7 +151,7 @@ const UserTab: React.FC = () => {
       await ApiService.setGuestSessionDuration(newDuration);
       setGuestDurationHours(newDuration);
     } catch (err: any) {
-      setError(err.message || 'Failed to update guest session duration');
+      showToast('error', err.message || 'Failed to update guest session duration');
     } finally {
       setUpdatingDuration(false);
     }
@@ -196,10 +201,10 @@ const UserTab: React.FC = () => {
         setDefaultGuestTheme(newThemeId);
       } else {
         const errorData = await response.json();
-        setError(errorData.error || 'Failed to update default guest theme');
+        showToast('error', errorData.error || 'Failed to update default guest theme');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to update default guest theme');
+      showToast('error', err.message || 'Failed to update default guest theme');
     } finally {
       setUpdatingGuestTheme(false);
     }
@@ -266,7 +271,7 @@ const UserTab: React.FC = () => {
         if (isOwnSession) {
           console.warn('[UserTab] You revoked your own session - forcing logout');
           setPendingRevokeSession(null);
-          setError('You revoked your own session. Logging out...');
+          showToast('info', 'You revoked your own session. Logging out...');
 
           // Wait 2 seconds so user can see the message
           setTimeout(async () => {
@@ -280,10 +285,10 @@ const UserTab: React.FC = () => {
         setPendingRevokeSession(null);
       } else {
         const errorData = await response.json();
-        setError(errorData.message || errorData.error || 'Failed to revoke session');
+        showToast('error', errorData.message || errorData.error || 'Failed to revoke session');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to revoke session');
+      showToast('error', err.message || 'Failed to revoke session');
     } finally {
       setRevokingSession(null);
     }
@@ -319,7 +324,7 @@ const UserTab: React.FC = () => {
         if (isOwnSession) {
           console.warn('[UserTab] You deleted your own session - forcing logout');
           setPendingDeleteSession(null);
-          setError('You deleted your own session. Logging out...');
+          showToast('info', 'You deleted your own session. Logging out...');
 
           // Wait 2 seconds so user can see the message
           setTimeout(async () => {
@@ -333,10 +338,10 @@ const UserTab: React.FC = () => {
         setPendingDeleteSession(null);
       } else {
         const errorData = await response.json();
-        setError(errorData.message || errorData.error || 'Failed to delete session');
+        showToast('error', errorData.message || errorData.error || 'Failed to delete session');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to delete session');
+      showToast('error', err.message || 'Failed to delete session');
     } finally {
       setDeletingSession(null);
     }
@@ -381,7 +386,7 @@ const UserTab: React.FC = () => {
         });
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load user preferences');
+      showToast('error', err.message || 'Failed to load user preferences');
       setEditingSession(null);
     } finally {
       setLoadingPreferences(false);
@@ -431,10 +436,10 @@ const UserTab: React.FC = () => {
         setEditingPreferences(null);
       } else {
         const errorData = await response.json();
-        setError(errorData.error || 'Failed to save preferences');
+        showToast('error', errorData.error || 'Failed to save preferences');
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to save preferences');
+      showToast('error', err.message || 'Failed to save preferences');
     } finally {
       setSavingPreferences(false);
     }
@@ -583,21 +588,7 @@ const UserTab: React.FC = () => {
             </div>
           )}
 
-          {error && (
-            <div
-              className="p-4 rounded-lg"
-              style={{
-                backgroundColor: 'var(--theme-error-bg)',
-                border: '1px solid var(--theme-error)'
-              }}
-            >
-              <p className="text-sm" style={{ color: 'var(--theme-error-text)' }}>
-                {error}
-              </p>
-            </div>
-          )}
-
-          {!loading && !error && sessions.length === 0 && (
+          {!loading && sessions.length === 0 && (
             <div className="text-center py-8">
               <Users
                 className="w-12 h-12 mx-auto mb-2"
@@ -607,7 +598,7 @@ const UserTab: React.FC = () => {
             </div>
           )}
 
-          {!loading && !error && sessions.length > 0 && (
+          {!loading && sessions.length > 0 && (
             <div className="space-y-3">
               {sessions.map((session) => (
                 <div
@@ -884,7 +875,7 @@ const UserTab: React.FC = () => {
           )}
 
           {/* Pagination */}
-          {!loading && !error && totalPages > 1 && (
+          {!loading && totalPages > 1 && (
             <div
               className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 border-t pt-4"
               style={{ borderColor: 'var(--theme-border)' }}

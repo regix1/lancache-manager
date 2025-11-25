@@ -1019,66 +1019,172 @@ const DownloadsTab: React.FC = () => {
                 className="border-t my-3 animate-fade-in"
                 style={{ borderColor: 'var(--theme-border-secondary)' }}
               />
-              <div className="space-y-2 animate-slide-in-top">
-                <Checkbox
-                  checked={settings.showZeroBytes}
-                  onChange={(e) => setSettings({ ...settings, showZeroBytes: e.target.checked })}
-                  label="Show metadata (0 bytes)"
-                />
+              <div className="space-y-4 animate-slide-in-top">
+                {/* Quick Presets */}
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                    Quick Presets
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSettings({
+                        ...settings,
+                        showZeroBytes: false,
+                        showSmallFiles: false,
+                        hideLocalhost: true,
+                        hideUnknownGames: true,
+                        groupUnknownGames: false,
+                        aestheticMode: false,
+                        fullHeightBanners: true,
+                        groupByFrequency: false,
+                        enableScrollIntoView: true
+                      })}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
+                      style={{
+                        backgroundColor: 'var(--theme-primary)',
+                        color: 'var(--theme-button-text)',
+                        border: '1px solid var(--theme-primary)'
+                      }}
+                    >
+                      Pretty
+                    </button>
+                    <button
+                      onClick={() => setSettings({
+                        ...settings,
+                        showZeroBytes: false,
+                        showSmallFiles: false,
+                        hideLocalhost: true,
+                        hideUnknownGames: true,
+                        groupUnknownGames: false,
+                        aestheticMode: true,
+                        fullHeightBanners: false,
+                        groupByFrequency: true,
+                        enableScrollIntoView: true
+                      })}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-primary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                    >
+                      Minimal
+                    </button>
+                    <button
+                      onClick={() => setSettings({
+                        ...settings,
+                        showZeroBytes: true,
+                        showSmallFiles: true,
+                        hideLocalhost: false,
+                        hideUnknownGames: false,
+                        groupUnknownGames: true,
+                        aestheticMode: false,
+                        fullHeightBanners: false,
+                        groupByFrequency: true,
+                        enableScrollIntoView: true
+                      })}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-primary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                    >
+                      Show All
+                    </button>
+                    <button
+                      onClick={() => setSettings({
+                        ...settings,
+                        showZeroBytes: false,
+                        showSmallFiles: true,
+                        hideLocalhost: false,
+                        hideUnknownGames: false,
+                        groupUnknownGames: false,
+                        aestheticMode: false,
+                        fullHeightBanners: false,
+                        groupByFrequency: true,
+                        enableScrollIntoView: true
+                      })}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md transition-all hover:scale-105"
+                      style={{
+                        backgroundColor: 'var(--theme-bg-tertiary)',
+                        color: 'var(--theme-text-primary)',
+                        border: '1px solid var(--theme-border-secondary)'
+                      }}
+                    >
+                      Default
+                    </button>
+                  </div>
+                </div>
 
-                <Checkbox
-                  checked={settings.showSmallFiles}
-                  onChange={(e) => setSettings({ ...settings, showSmallFiles: e.target.checked })}
-                  label="Show small files (< 1MB)"
-                />
+                {/* Settings Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-1">
+                  {/* Filters Column */}
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                      Filters
+                    </div>
+                    <Checkbox
+                      checked={settings.showZeroBytes}
+                      onChange={(e) => setSettings({ ...settings, showZeroBytes: e.target.checked })}
+                      label="Show metadata (0 bytes)"
+                    />
+                    <Checkbox
+                      checked={settings.showSmallFiles}
+                      onChange={(e) => setSettings({ ...settings, showSmallFiles: e.target.checked })}
+                      label="Show small files"
+                    />
+                    <Checkbox
+                      checked={settings.hideLocalhost}
+                      onChange={(e) => setSettings({ ...settings, hideLocalhost: e.target.checked })}
+                      label="Hide localhost"
+                    />
+                    <Checkbox
+                      checked={settings.hideUnknownGames}
+                      onChange={(e) => setSettings({ ...settings, hideUnknownGames: e.target.checked })}
+                      label="Hide unknown games"
+                    />
+                  </div>
 
-                <Checkbox
-                  checked={settings.hideLocalhost}
-                  onChange={(e) => setSettings({ ...settings, hideLocalhost: e.target.checked })}
-                  label="Hide localhost (127.0.0.1)"
-                />
+                  {/* Display Column */}
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                      Display
+                    </div>
+                    <Checkbox
+                      checked={settings.aestheticMode}
+                      onChange={(e) => setSettings({ ...settings, aestheticMode: e.target.checked })}
+                      label="Minimal mode"
+                    />
+                    <Checkbox
+                      checked={settings.fullHeightBanners}
+                      onChange={(e) => setSettings({ ...settings, fullHeightBanners: e.target.checked })}
+                      label="Full-height banners"
+                    />
+                  </div>
 
-                <Checkbox
-                  checked={settings.hideUnknownGames}
-                  onChange={(e) => setSettings({ ...settings, hideUnknownGames: e.target.checked })}
-                  label="Hide unknown games"
-                />
-
-                <Checkbox
-                  checked={settings.groupUnknownGames}
-                  onChange={(e) =>
-                    setSettings({ ...settings, groupUnknownGames: e.target.checked })
-                  }
-                  label="Group unknown games together"
-                />
-
-                <Checkbox
-                  checked={settings.aestheticMode}
-                  onChange={(e) => setSettings({ ...settings, aestheticMode: e.target.checked })}
-                  label="Aesthetic mode"
-                />
-
-                <Checkbox
-                  checked={settings.fullHeightBanners}
-                  onChange={(e) =>
-                    setSettings({ ...settings, fullHeightBanners: e.target.checked })
-                  }
-                  label="Full-height game banners"
-                />
-
-                <Checkbox
-                  checked={settings.groupByFrequency}
-                  onChange={(e) => setSettings({ ...settings, groupByFrequency: e.target.checked })}
-                  label="Group downloads by frequency"
-                />
-
-                <Checkbox
-                  checked={settings.enableScrollIntoView}
-                  onChange={(e) =>
-                    setSettings({ ...settings, enableScrollIntoView: e.target.checked })
-                  }
-                  label="Enable scroll-into-view on expand"
-                />
+                  {/* Behavior Column */}
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--theme-text-muted)' }}>
+                      Behavior
+                    </div>
+                    <Checkbox
+                      checked={settings.groupUnknownGames}
+                      onChange={(e) => setSettings({ ...settings, groupUnknownGames: e.target.checked })}
+                      label="Group unknown games"
+                    />
+                    <Checkbox
+                      checked={settings.groupByFrequency}
+                      onChange={(e) => setSettings({ ...settings, groupByFrequency: e.target.checked })}
+                      label="Group by frequency"
+                    />
+                    <Checkbox
+                      checked={settings.enableScrollIntoView}
+                      onChange={(e) => setSettings({ ...settings, enableScrollIntoView: e.target.checked })}
+                      label="Scroll on expand"
+                    />
+                  </div>
+                </div>
               </div>
             </>
           )}
