@@ -219,7 +219,11 @@ const DownloadsTab: React.FC = () => {
       | 'oldest'
       | 'largest'
       | 'smallest'
-      | 'service',
+      | 'service'
+      | 'efficiency'
+      | 'efficiency-low'
+      | 'sessions'
+      | 'alphabetical',
     aestheticMode: storage.getItem(STORAGE_KEYS.AESTHETIC_MODE) === 'true',
     fullHeightBanners: storage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
     groupByFrequency: storage.getItem('lancache_downloads_group_by_frequency') !== 'false',
@@ -329,11 +333,11 @@ const DownloadsTab: React.FC = () => {
 
   const itemsPerPageOptions = useMemo(
     () => [
-      { value: '20', label: '20 groups' },
-      { value: '50', label: '50 groups' },
-      { value: '100', label: '100 groups' },
-      { value: '200', label: '200 groups' },
-      { value: 'unlimited', label: 'Show All' }
+      { value: '20', label: '20' },
+      { value: '50', label: '50' },
+      { value: '100', label: '100' },
+      { value: '200', label: '200' },
+      { value: 'unlimited', label: 'All' }
     ],
     []
   );
@@ -655,6 +659,38 @@ const DownloadsTab: React.FC = () => {
               ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
               : new Date(b.startTimeUtc).getTime();
           return bLatest - aLatest;
+        case 'efficiency':
+          // Sort by cache hit percentage (highest first)
+          const aEfficiency =
+            'downloads' in a
+              ? a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0
+              : (a.totalBytes || 0) > 0 ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100 : 0;
+          const bEfficiency =
+            'downloads' in b
+              ? b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0
+              : (b.totalBytes || 0) > 0 ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100 : 0;
+          return bEfficiency - aEfficiency;
+        case 'efficiency-low':
+          // Sort by cache hit percentage (lowest first)
+          const aEffLow =
+            'downloads' in a
+              ? a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0
+              : (a.totalBytes || 0) > 0 ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100 : 0;
+          const bEffLow =
+            'downloads' in b
+              ? b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0
+              : (b.totalBytes || 0) > 0 ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100 : 0;
+          return aEffLow - bEffLow;
+        case 'sessions':
+          // Sort by number of download sessions (most first)
+          const aSessions = 'downloads' in a ? a.downloads.length : 1;
+          const bSessions = 'downloads' in b ? b.downloads.length : 1;
+          return bSessions - aSessions;
+        case 'alphabetical':
+          // Sort by name alphabetically
+          const aName = 'downloads' in a ? a.name : (a.gameName || a.service);
+          const bName = 'downloads' in b ? b.name : (b.gameName || b.service);
+          return aName.localeCompare(bName);
         case 'latest':
         default:
           const aLatestDefault =
@@ -673,8 +709,9 @@ const DownloadsTab: React.FC = () => {
     if (settings.viewMode === 'normal' || settings.viewMode === 'compact') {
       const mixedItems = [...items] as (Download | DownloadGroup)[];
 
-      // When sorting by service, sort all items together without frequency grouping
-      if (settings.sortOrder === 'service') {
+      // When sorting by service, alphabetical, efficiency, or sessions - sort all items together without frequency grouping
+      const skipFrequencyGrouping = ['service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(settings.sortOrder);
+      if (skipFrequencyGrouping) {
         mixedItems.sort(sortFn);
         items = mixedItems;
       } else {
@@ -927,6 +964,7 @@ const DownloadsTab: React.FC = () => {
                     itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
                   })
                 }
+                prefix="Show:"
                 className="flex-1 min-w-0"
               />
               <EnhancedDropdown
@@ -935,10 +973,15 @@ const DownloadsTab: React.FC = () => {
                   { value: 'oldest', label: 'Oldest' },
                   { value: 'largest', label: 'Largest' },
                   { value: 'smallest', label: 'Smallest' },
+                  { value: 'efficiency', label: 'Best Cache' },
+                  { value: 'efficiency-low', label: 'Worst Cache' },
+                  { value: 'sessions', label: 'Sessions' },
+                  { value: 'alphabetical', label: 'A-Z' },
                   { value: 'service', label: 'Service' }
                 ]}
                 value={settings.sortOrder}
                 onChange={(value) => setSettings({ ...settings, sortOrder: value as any })}
+                prefix="Sort:"
                 className="flex-1 min-w-0"
               />
               {/* View mode toggle inline with dropdowns */}
@@ -976,14 +1019,14 @@ const DownloadsTab: React.FC = () => {
                 options={serviceOptions}
                 value={settings.selectedService}
                 onChange={(value) => setSettings({ ...settings, selectedService: value })}
-                className="w-40"
+                className="w-36"
               />
 
               <EnhancedDropdown
                 options={clientOptions}
                 value={settings.selectedClient}
                 onChange={(value) => setSettings({ ...settings, selectedClient: value })}
-                className="w-48"
+                className="w-36"
               />
 
               <EnhancedDropdown
@@ -999,20 +1042,26 @@ const DownloadsTab: React.FC = () => {
                     itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
                   })
                 }
-                className="w-32"
+                prefix="Show:"
+                className="w-28"
               />
 
               <EnhancedDropdown
                 options={[
-                  { value: 'latest', label: 'Date (Newest)' },
-                  { value: 'oldest', label: 'Date (Oldest)' },
-                  { value: 'largest', label: 'Size (Largest)' },
-                  { value: 'smallest', label: 'Size (Smallest)' },
-                  { value: 'service', label: 'By Service' }
+                  { value: 'latest', label: 'Newest' },
+                  { value: 'oldest', label: 'Oldest' },
+                  { value: 'largest', label: 'Largest' },
+                  { value: 'smallest', label: 'Smallest' },
+                  { value: 'efficiency', label: 'Best Cache' },
+                  { value: 'efficiency-low', label: 'Worst Cache' },
+                  { value: 'sessions', label: 'Sessions' },
+                  { value: 'alphabetical', label: 'A-Z' },
+                  { value: 'service', label: 'Service' }
                 ]}
                 value={settings.sortOrder}
                 onChange={(value) => setSettings({ ...settings, sortOrder: value as any })}
-                className="w-40"
+                prefix="Sort:"
+                className="w-36"
               />
             </div>
 

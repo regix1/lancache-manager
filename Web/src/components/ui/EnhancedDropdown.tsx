@@ -20,6 +20,7 @@ interface EnhancedDropdownProps {
   disabled?: boolean;
   compactMode?: boolean; // When true, shows shortLabel in button trigger
   customTriggerLabel?: string; // Optional custom label to override button display
+  prefix?: string; // Optional prefix shown before the selected value in button (e.g., "Sort:")
   dropdownWidth?: string; // Custom width for dropdown menu (e.g., 'w-64', '16rem')
   alignRight?: boolean; // When true, dropdown aligns to the right of the button
   dropdownTitle?: string; // Optional title/subtitle at the top of the dropdown
@@ -37,6 +38,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   disabled = false,
   compactMode = false,
   customTriggerLabel,
+  prefix,
   dropdownWidth,
   alignRight = false,
   dropdownTitle,
@@ -269,7 +271,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             {customTriggerLabel
               ? customTriggerLabel
               : selectedOption
-              ? (compactMode && selectedOption.shortLabel
+              ? (prefix ? `${prefix} ` : '') + (compactMode && selectedOption.shortLabel
                   ? selectedOption.shortLabel
                   : selectedOption.label)
               : placeholder}
