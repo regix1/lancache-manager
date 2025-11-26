@@ -188,8 +188,8 @@ services:
       # Docker socket for nginx log rotation (optional)
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - PUID=1006
-      - PGID=1006
+      - PUID=1000
+      - PGID=1000
       - TZ=America/Chicago
 
       # Required paths
@@ -531,8 +531,8 @@ docker logs lancache-manager | grep "API Key"
 3. Update docker-compose:
    ```yaml
    environment:
-     - PUID=1006
-     - PGID=1006
+     - PUID=1000
+     - PGID=1000
    ```
 
 <a id="building-from-source"></a>

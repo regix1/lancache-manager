@@ -23,8 +23,8 @@ services:
       # To disable this feature, set NginxLogRotation__Enabled=false and remove this line.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - PUID=1006
-      - PGID=1006
+      - PUID=1000
+      - PGID=1000
       - TZ=America/Chicago
       - ASPNETCORE_URLS=http://+:80
       - LanCache__LogPath=/logs/access.log
