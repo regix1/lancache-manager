@@ -82,8 +82,7 @@ export interface UnifiedNotification {
     isLoggedOn?: boolean;
     downloadsUpdated?: number;
 
-    // For game_detection
-    operationId?: string;
+    // For game_detection (operationId defined above under cache_clearing)
     scanType?: 'full' | 'incremental';
     totalGamesDetected?: number;
     totalServicesDetected?: number;
