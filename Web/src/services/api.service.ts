@@ -274,6 +274,21 @@ class ApiService {
     }
   }
 
+  // Force kill cache clearing operation (requires auth) - kills the Rust process
+  static async forceKillCacheClear(operationId: string): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/cache/operations/${operationId}/kill`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000)
+      }));
+      return await this.handleResponse(res);
+    } catch (error: any) {
+      console.error('forceKillCacheClear error:', error);
+      throw error;
+    }
+  }
+
   // Reset database (requires auth)
   // Note: Triggered through resetSelectedTables when all tables selected
   // Also monitored via SignalR for progress notifications

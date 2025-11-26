@@ -263,6 +263,9 @@ public class CacheClearingService : IHostedService
                     throw new Exception("Failed to start Rust cache_cleaner process");
                 }
 
+                // Store process reference for force kill capability
+                operation.RustProcess = process;
+
                 // Track last logged values for console output
                 var lastLoggedDirs = 0;
                 var lastLogTime = DateTime.UtcNow;
@@ -363,8 +366,9 @@ public class CacheClearingService : IHostedService
                     operation.TotalDirectories = finalProgress.TotalDirectories;
                 }
 
-                // Clean up progress file
+                // Clean up progress file and process reference
                 await _rustProcessHelper.DeleteTemporaryFileAsync(progressFile);
+                operation.RustProcess = null;
 
                 operation.Status = ClearStatus.Completed;
                 operation.StatusMessage = $"Successfully cleared {operation.DirectoriesProcessed} cache directories";
@@ -667,6 +671,64 @@ public class CacheClearingService : IHostedService
         return false;
     }
 
+    /// <summary>
+    /// Force kills the Rust process for a cache clear operation.
+    /// Used as fallback when graceful cancellation fails.
+    /// </summary>
+    public async Task<bool> ForceKillOperation(string operationId)
+    {
+        if (_operations.TryGetValue(operationId, out var operation))
+        {
+            _logger.LogWarning($"Force killing cache clear operation {operationId}");
+
+            try
+            {
+                // First cancel the token to signal the polling task to stop
+                operation.CancellationTokenSource?.Cancel();
+
+                // Kill the Rust process if it exists and is still running
+                if (operation.RustProcess != null && !operation.RustProcess.HasExited)
+                {
+                    _logger.LogWarning($"Killing Rust cache_cleaner process (PID: {operation.RustProcess.Id}) for operation {operationId}");
+                    operation.RustProcess.Kill(entireProcessTree: true);
+
+                    // Wait briefly for the process to exit
+                    await Task.Delay(500);
+
+                    if (!operation.RustProcess.HasExited)
+                    {
+                        _logger.LogError($"Process did not exit after Kill() for operation {operationId}");
+                    }
+                }
+
+                // Update operation status
+                operation.Status = ClearStatus.Cancelled;
+                operation.StatusMessage = "Force killed by user";
+                operation.EndTime = DateTime.UtcNow;
+
+                // Notify via SignalR
+                await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+                {
+                    success = false,
+                    message = "Cache clear operation force killed",
+                    operationId,
+                    cancelled = true,
+                    timestamp = DateTime.UtcNow
+                });
+
+                SaveOperationToState(operation);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error force killing operation {operationId}");
+                return false;
+            }
+        }
+
+        return false;
+    }
+
 
     public void SetDeleteMode(string deleteMode)
     {
@@ -777,6 +839,9 @@ public class CacheClearOperation
 
     [JsonIgnore]
     public CancellationTokenSource? CancellationTokenSource { get; set; }
+
+    [JsonIgnore]
+    public Process? RustProcess { get; set; }
 }
 
 public enum ClearStatus

@@ -185,6 +185,32 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
+    /// POST /api/cache/operations/{id}/kill - Force kill a cache clear operation's process
+    /// Used as fallback when graceful cancellation fails
+    /// </summary>
+    [HttpPost("operations/{id}/kill")]
+    [RequireAuth]
+    public async Task<IActionResult> ForceKillCacheClear(string id)
+    {
+        try
+        {
+            var result = await _cacheClearingService.ForceKillOperation(id);
+
+            if (!result)
+            {
+                return NotFound(new { error = "Cache clear operation not found or no process to kill", operationId = id });
+            }
+
+            return Ok(new { message = "Cache clear operation force killed successfully", operationId = id });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error force killing cache clear operation {OperationId}", id);
+            return StatusCode(500, new { error = "Failed to force kill cache clear operation" });
+        }
+    }
+
+    /// <summary>
     /// GET /api/cache/corruption/summary - Get corruption summary for all services
     /// </summary>
     [HttpGet("corruption/summary")]

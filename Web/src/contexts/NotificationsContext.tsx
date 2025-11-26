@@ -59,6 +59,8 @@ export interface UnifiedNotification {
     filesDeleted?: number;
     directoriesProcessed?: number;
     bytesDeleted?: number;
+    operationId?: string;
+    cancelling?: boolean;
 
     // For service_removal
     service?: string;
@@ -780,7 +782,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   ...n.details,
                   filesDeleted: payload.filesDeleted || 0,
                   directoriesProcessed: payload.directoriesProcessed || 0,
-                  bytesDeleted: payload.bytesDeleted || 0
+                  bytesDeleted: payload.bytesDeleted || 0,
+                  operationId: payload.operationId || n.details?.operationId
                 }
               };
             }
@@ -801,7 +804,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               details: {
                 filesDeleted: payload.filesDeleted || 0,
                 directoriesProcessed: payload.directoriesProcessed || 0,
-                bytesDeleted: payload.bytesDeleted || 0
+                bytesDeleted: payload.bytesDeleted || 0,
+                operationId: payload.operationId
               }
             }
           ];

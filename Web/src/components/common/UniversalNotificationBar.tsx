@@ -15,6 +15,7 @@ import ApiService from '@services/api.service';
 import { useNotifications, type UnifiedNotification } from '@contexts/NotificationsContext';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import themeService from '@services/theme.service';
+import { Tooltip } from '@components/ui/Tooltip';
 
 // Unified notification component that handles all types
 const UnifiedNotificationItem = ({
@@ -299,14 +300,22 @@ const UnifiedNotificationItem = ({
         {notification.type === 'cache_clearing' &&
           notification.status === 'running' &&
           onCancel && (
-            <button
-              onClick={onCancel}
-              className="p-1 rounded hover:bg-themed-hover transition-colors"
-              aria-label="Cancel operation"
-              title="Cancel cache clearing"
-            >
-              <X className="w-4 h-4 text-themed-secondary" />
-            </button>
+            notification.details?.cancelling ? (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs" style={{ backgroundColor: 'var(--theme-error-bg)', color: 'var(--theme-error)' }}>
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Cancelling...</span>
+              </div>
+            ) : (
+              <Tooltip content="Cancel cache clearing" position="left">
+                <button
+                  onClick={onCancel}
+                  className="p-1 rounded hover:bg-themed-hover transition-colors"
+                  aria-label="Cancel operation"
+                >
+                  <X className="w-4 h-4 text-themed-secondary" />
+                </button>
+              </Tooltip>
+            )
           )}
         {(notification.status === 'completed' || notification.status === 'failed') && (
           <button
@@ -323,7 +332,7 @@ const UnifiedNotificationItem = ({
 };
 
 const UniversalNotificationBar: React.FC = () => {
-  const { notifications, removeNotification } = useNotifications();
+  const { notifications, removeNotification, updateNotification } = useNotifications();
   const [stickyDisabled, setStickyDisabled] = useState(
     themeService.getDisableStickyNotificationsSync()
   );
@@ -400,9 +409,27 @@ const UniversalNotificationBar: React.FC = () => {
   };
 
   // Cancel handler for cache clearing
-  const handleCancelCacheClearing = async (notificationId: string) => {
+  const handleCancelCacheClearing = async (notification: UnifiedNotification) => {
+    const operationId = notification.details?.operationId;
+    const notificationId = notification.id;
+
+    if (!operationId) {
+      console.error('[UniversalNotificationBar] No operationId found for cache clearing notification');
+      removeNotification(notificationId);
+      return;
+    }
+
+    // Set cancelling state to show UI feedback
+    updateNotification(notificationId, {
+      details: {
+        ...notification.details,
+        cancelling: true
+      }
+    });
+
     try {
-      await ApiService.cancelCacheClear(notificationId);
+      // First attempt: Try graceful cancellation
+      await ApiService.cancelCacheClear(operationId);
       removeNotification(notificationId);
     } catch (err: any) {
       // If operation is already completed/not found, just dismiss the notification silently
@@ -416,6 +443,15 @@ const UniversalNotificationBar: React.FC = () => {
         removeNotification(notificationId);
       } else {
         console.error('Failed to cancel cache clearing:', err);
+        // Try force kill as fallback
+        try {
+          await ApiService.forceKillCacheClear(operationId);
+          removeNotification(notificationId);
+        } catch (forceErr) {
+          console.error('Force kill also failed:', forceErr);
+          // Still remove notification to prevent stuck UI
+          removeNotification(notificationId);
+        }
       }
     }
   };
@@ -452,7 +488,7 @@ const UniversalNotificationBar: React.FC = () => {
             onDismiss={() => handleDismiss(notification.id)}
             onCancel={
               notification.type === 'cache_clearing'
-                ? () => handleCancelCacheClearing(notification.id)
+                ? () => handleCancelCacheClearing(notification)
                 : undefined
             }
             isAnimatingOut={dismissingIds.has(notification.id)}
