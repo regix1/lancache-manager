@@ -289,6 +289,36 @@ class ApiService {
     }
   }
 
+  // Cancel service removal operation (requires auth)
+  static async cancelServiceRemoval(): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/remove/cancel`, this.getFetchOptions({
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000)
+      }));
+      return await this.handleResponse(res);
+    } catch (error: any) {
+      console.error('cancelServiceRemoval error:', error);
+      throw error;
+    }
+  }
+
+  // Force kill service removal operation (requires auth) - kills the Rust process
+  static async forceKillServiceRemoval(): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE}/logs/remove/kill`, this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000)
+      }));
+      return await this.handleResponse(res);
+    } catch (error: any) {
+      console.error('forceKillServiceRemoval error:', error);
+      throw error;
+    }
+  }
+
   // Reset database (requires auth)
   // Note: Triggered through resetSelectedTables when all tables selected
   // Also monitored via SignalR for progress notifications

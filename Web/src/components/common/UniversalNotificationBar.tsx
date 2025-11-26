@@ -297,7 +297,7 @@ const UnifiedNotificationItem = ({
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        {notification.type === 'cache_clearing' &&
+        {(notification.type === 'cache_clearing' || notification.type === 'service_removal' || notification.type === 'depot_mapping') &&
           notification.status === 'running' &&
           onCancel && (
             notification.details?.cancelling ? (
@@ -306,7 +306,11 @@ const UnifiedNotificationItem = ({
                 <span>Cancelling...</span>
               </div>
             ) : (
-              <Tooltip content="Cancel cache clearing" position="left">
+              <Tooltip content={
+                notification.type === 'cache_clearing' ? 'Cancel cache clearing' :
+                notification.type === 'service_removal' ? 'Cancel service removal' :
+                'Cancel depot mapping'
+              } position="left">
                 <button
                   onClick={onCancel}
                   className="p-1 rounded hover:bg-themed-hover transition-colors"
@@ -456,6 +460,69 @@ const UniversalNotificationBar: React.FC = () => {
     }
   };
 
+  // Cancel handler for service removal
+  const handleCancelServiceRemoval = async (notification: UnifiedNotification) => {
+    const notificationId = notification.id;
+
+    // Set cancelling state to show UI feedback
+    updateNotification(notificationId, {
+      details: {
+        ...notification.details,
+        cancelling: true
+      }
+    });
+
+    try {
+      // First attempt: Try graceful cancellation
+      await ApiService.cancelServiceRemoval();
+      removeNotification(notificationId);
+    } catch (err: any) {
+      // If operation is already completed/not found, just dismiss the notification silently
+      if (
+        err?.message?.includes('not found') ||
+        err?.message?.includes('No service removal')
+      ) {
+        console.log(
+          '[UniversalNotificationBar] Service removal already completed, dismissing notification'
+        );
+        removeNotification(notificationId);
+      } else {
+        console.error('Failed to cancel service removal:', err);
+        // Try force kill as fallback
+        try {
+          await ApiService.forceKillServiceRemoval();
+          removeNotification(notificationId);
+        } catch (forceErr) {
+          console.error('Force kill also failed:', forceErr);
+          // Still remove notification to prevent stuck UI
+          removeNotification(notificationId);
+        }
+      }
+    }
+  };
+
+  // Cancel handler for depot mapping
+  const handleCancelDepotMapping = async (notification: UnifiedNotification) => {
+    const notificationId = notification.id;
+
+    // Set cancelling state to show UI feedback
+    updateNotification(notificationId, {
+      details: {
+        ...notification.details,
+        cancelling: true
+      }
+    });
+
+    try {
+      await ApiService.cancelSteamKitRebuild();
+      removeNotification(notificationId);
+    } catch (err: any) {
+      console.error('Failed to cancel depot mapping:', err);
+      // Still remove notification to prevent stuck UI
+      removeNotification(notificationId);
+    }
+  };
+
   // Don't render if no notifications and not animating
   if (!shouldRender) {
     return null;
@@ -489,7 +556,11 @@ const UniversalNotificationBar: React.FC = () => {
             onCancel={
               notification.type === 'cache_clearing'
                 ? () => handleCancelCacheClearing(notification)
-                : undefined
+                : notification.type === 'service_removal'
+                  ? () => handleCancelServiceRemoval(notification)
+                  : notification.type === 'depot_mapping'
+                    ? () => handleCancelDepotMapping(notification)
+                    : undefined
             }
             isAnimatingOut={dismissingIds.has(notification.id)}
           />

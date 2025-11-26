@@ -205,15 +205,20 @@ public class LogsController : ControllerBase
                 return BadRequest(new { error = "Service name is required" });
             }
 
-            var operationId = await _rustLogRemovalService.StartServiceRemovalAsync(service);
-            _logger.LogInformation("Started log removal for service: {Service}, OperationId: {OperationId}",
-                service, operationId);
+            // StartServiceRemovalAsync returns bool but runs async - operation started if true
+            var started = await _rustLogRemovalService.StartServiceRemovalAsync(service);
+
+            if (!started)
+            {
+                return Conflict(new { error = "Service removal already in progress" });
+            }
+
+            _logger.LogInformation("Started log removal for service: {Service}", service);
 
             return Accepted(new
             {
                 message = $"Started log removal for service: {service}",
                 service,
-                operationId,
                 status = "started"
             });
         }
@@ -249,6 +254,58 @@ public class LogsController : ControllerBase
         {
             _logger.LogError(ex, "Error getting log removal status");
             return StatusCode(500, new { error = "Failed to get log removal status" });
+        }
+    }
+
+    /// <summary>
+    /// DELETE /api/logs/remove/cancel - Cancel current service removal operation
+    /// RESTful: DELETE for cancelling/removing the operation
+    /// </summary>
+    [HttpDelete("remove/cancel")]
+    [RequireAuth]
+    public IActionResult CancelServiceRemoval()
+    {
+        try
+        {
+            var result = _rustLogRemovalService.CancelOperation();
+
+            if (!result)
+            {
+                return NotFound(new { error = "No service removal operation running" });
+            }
+
+            return Ok(new { message = "Service removal cancellation requested", cancelled = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error cancelling service removal");
+            return StatusCode(500, new { error = "Failed to cancel service removal" });
+        }
+    }
+
+    /// <summary>
+    /// POST /api/logs/remove/kill - Force kill service removal operation
+    /// Used as fallback when graceful cancellation fails
+    /// </summary>
+    [HttpPost("remove/kill")]
+    [RequireAuth]
+    public async Task<IActionResult> ForceKillServiceRemoval()
+    {
+        try
+        {
+            var result = await _rustLogRemovalService.ForceKillOperation();
+
+            if (!result)
+            {
+                return NotFound(new { error = "No service removal operation running or no process to kill" });
+            }
+
+            return Ok(new { message = "Service removal force killed successfully" });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error force killing service removal");
+            return StatusCode(500, new { error = "Failed to force kill service removal" });
         }
     }
 

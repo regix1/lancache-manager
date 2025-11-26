@@ -25,6 +25,7 @@ public class RustLogRemovalService
 
     public bool IsProcessing { get; private set; }
     public string? CurrentService { get; private set; }
+    public string? CurrentOperationId { get; private set; }
 
     /// <summary>
     /// Starts service removal operation (wrapper for StartRemovalAsync)
@@ -210,6 +211,21 @@ public class RustLogRemovalService
                 }
             }, _cancellationTokenSource.Token); // Close ExecuteWithLockAsync lambda
         }
+        catch (OperationCanceledException)
+        {
+            // Handle cancellation gracefully
+            _logger.LogInformation("Service removal for {Service} was cancelled by user", service);
+
+            await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+            {
+                success = false,
+                message = $"Service removal for {service} was cancelled",
+                cancelled = true,
+                service
+            });
+
+            return false;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during log removal for {Service}", service);
@@ -232,8 +248,8 @@ public class RustLogRemovalService
         {
             IsProcessing = false;
             CurrentService = null;
+            _rustProcess = null;
             _cancellationTokenSource?.Dispose();
-            _rustProcess?.Dispose();
         }
     }
 
@@ -282,5 +298,72 @@ public class RustLogRemovalService
         var dataDirectory = _pathResolver.GetDataDirectory();
         var progressPath = Path.Combine(dataDirectory, "log_remove_progress.json");
         return await ReadProgressFileAsync(progressPath);
+    }
+
+    /// <summary>
+    /// Cancels the current service removal operation gracefully
+    /// </summary>
+    public bool CancelOperation()
+    {
+        if (!IsProcessing || _cancellationTokenSource == null)
+        {
+            return false;
+        }
+
+        _logger.LogInformation("Cancelling service removal operation for {Service}", CurrentService);
+        _cancellationTokenSource.Cancel();
+        return true;
+    }
+
+    /// <summary>
+    /// Force kills the Rust process for service removal.
+    /// Used as fallback when graceful cancellation fails.
+    /// </summary>
+    public async Task<bool> ForceKillOperation()
+    {
+        if (!IsProcessing)
+        {
+            return false;
+        }
+
+        _logger.LogWarning("Force killing service removal operation for {Service}", CurrentService);
+
+        try
+        {
+            // First cancel the token
+            _cancellationTokenSource?.Cancel();
+
+            // Kill the Rust process if it exists and is still running
+            if (_rustProcess != null && !_rustProcess.HasExited)
+            {
+                _logger.LogWarning("Killing Rust log_manager process (PID: {ProcessId}) for service {Service}",
+                    _rustProcess.Id, CurrentService);
+                _rustProcess.Kill(entireProcessTree: true);
+
+                // Wait briefly for the process to exit
+                await Task.Delay(500);
+
+                if (!_rustProcess.HasExited)
+                {
+                    _logger.LogError("Process did not exit after Kill() for service {Service}", CurrentService);
+                }
+            }
+
+            // Send cancellation notification
+            await _hubContext.Clients.All.SendAsync("LogRemovalComplete", new
+            {
+                success = false,
+                message = $"Service removal for {CurrentService} was cancelled",
+                cancelled = true,
+                service = CurrentService
+            });
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error force killing service removal for {Service}", CurrentService);
+            return false;
+        }
     }
 }

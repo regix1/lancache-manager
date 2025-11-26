@@ -395,6 +395,29 @@ public class CacheClearingService : IHostedService
                 SaveOperationToState(operation);
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Handle cancellation gracefully - this is expected when user cancels
+            _logger.LogInformation("Cache clear operation {OperationId} was cancelled by user", operation.Id);
+
+            operation.Status = ClearStatus.Cancelled;
+            operation.StatusMessage = "Cancelled by user";
+            operation.EndTime = DateTime.UtcNow;
+            operation.RustProcess = null;
+            await NotifyProgress(operation);
+
+            // Send cancellation notification
+            await _hubContext.Clients.All.SendAsync("CacheClearComplete", new
+            {
+                success = false,
+                message = "Cache clear cancelled by user",
+                cancelled = true,
+                operationId = operation.Id,
+                timestamp = DateTime.UtcNow
+            });
+
+            SaveOperationToState(operation);
+        }
         catch (Exception ex)
         {
             // Distinguish between expected failures and unexpected errors
@@ -414,6 +437,7 @@ public class CacheClearingService : IHostedService
             operation.Error = ex.Message;
             operation.StatusMessage = $"Failed: {ex.Message}";
             operation.EndTime = DateTime.UtcNow;
+            operation.RustProcess = null;
             await NotifyProgress(operation);
 
             // Send failure notification
