@@ -354,28 +354,62 @@ public class CacheController : ControllerBase
     {
         try
         {
-            var cachePath = _pathResolver.GetCacheDirectory();
-            var serviceDirectory = Path.Combine(cachePath, name.ToLowerInvariant());
+            _logger.LogInformation("Starting background service removal for: {Service}", name);
 
-            if (!Directory.Exists(serviceDirectory))
+            // Fire-and-forget background removal with SignalR notification
+            _ = Task.Run(async () =>
             {
-                return NotFound(new { error = $"Service cache not found: {name}" });
-            }
+                try
+                {
+                    // Use CacheManagementService which actually deletes files via Rust binary
+                    var report = await _cacheService.RemoveServiceFromCache(name);
 
-            Directory.Delete(serviceDirectory, true);
-            _logger.LogInformation("Deleted cache directory for service: {Service}", name);
+                    // Also remove from detection cache so it doesn't show in UI
+                    await _gameCacheDetectionService.RemoveServiceFromCacheAsync(name);
 
-            return Ok(new { message = $"Successfully deleted cache for service: {name}", service = name });
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            _logger.LogError(ex, "Permission denied when deleting cache for service: {Service}", name);
-            return StatusCode(403, new { error = "Permission denied", details = ex.Message });
+                    _logger.LogInformation("Service removal completed for: {Service} - Deleted {Files} files, freed {Bytes} bytes",
+                        name, report.CacheFilesDeleted, report.TotalBytesFreed);
+
+                    // Send SignalR notification on success
+                    await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
+                    {
+                        success = true,
+                        serviceName = name,
+                        filesDeleted = report.CacheFilesDeleted,
+                        bytesFreed = report.TotalBytesFreed,
+                        logEntriesRemoved = report.LogEntriesRemoved,
+                        message = $"Successfully removed {name} service from cache"
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during service removal for: {Service}", name);
+
+                    // Send SignalR notification on failure
+                    await _hubContext.Clients.All.SendAsync("ServiceRemovalComplete", new
+                    {
+                        success = false,
+                        serviceName = name,
+                        message = $"Failed to remove {name} service: {ex.Message}"
+                    });
+                }
+            });
+
+            return Accepted(new
+            {
+                message = $"Started removal of {name} service from cache",
+                serviceName = name,
+                status = "running"
+            });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting cache for service: {Service}", name);
-            return StatusCode(500, new { error = $"Failed to delete cache for service: {name}", details = ex.Message });
+            _logger.LogError(ex, "Error starting service removal for: {Service}", name);
+            return StatusCode(500, new
+            {
+                error = $"Failed to start service removal for: {name}",
+                details = ex.Message
+            });
         }
     }
 }

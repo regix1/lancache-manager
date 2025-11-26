@@ -1,7 +1,9 @@
 using LancacheManager.Application.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Controllers;
 
@@ -14,15 +16,21 @@ namespace LancacheManager.Controllers;
 public class GamesController : ControllerBase
 {
     private readonly GameCacheDetectionService _gameCacheDetectionService;
+    private readonly CacheManagementService _cacheManagementService;
+    private readonly IHubContext<DownloadHub> _hubContext;
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
+        CacheManagementService cacheManagementService,
+        IHubContext<DownloadHub> hubContext,
         ILogger<GamesController> logger,
         IPathResolver pathResolver)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
+        _cacheManagementService = cacheManagementService;
+        _hubContext = hubContext;
         _logger = logger;
         _pathResolver = pathResolver;
     }
@@ -89,17 +97,42 @@ public class GamesController : ControllerBase
         {
             _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
 
-            // Fire-and-forget background removal (no progress tracking needed)
+            // Fire-and-forget background removal with SignalR notification
             _ = Task.Run(async () =>
             {
                 try
                 {
+                    // Use CacheManagementService which actually deletes files via Rust binary
+                    var report = await _cacheManagementService.RemoveGameFromCache((uint)appId);
+
+                    // Also remove from detection cache so it doesn't show in UI
                     await _gameCacheDetectionService.RemoveGameFromCacheAsync((uint)appId);
-                    _logger.LogInformation("Game removal completed for AppId: {AppId}", appId);
+
+                    _logger.LogInformation("Game removal completed for AppId: {AppId} - Deleted {Files} files, freed {Bytes} bytes",
+                        appId, report.CacheFilesDeleted, report.TotalBytesFreed);
+
+                    // Send SignalR notification on success
+                    await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
+                    {
+                        success = true,
+                        gameAppId = appId,
+                        filesDeleted = report.CacheFilesDeleted,
+                        bytesFreed = report.TotalBytesFreed,
+                        logEntriesRemoved = report.LogEntriesRemoved,
+                        message = $"Successfully removed game {appId} from cache"
+                    });
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error during game removal for AppId: {AppId}", appId);
+
+                    // Send SignalR notification on failure
+                    await _hubContext.Clients.All.SendAsync("GameRemovalComplete", new
+                    {
+                        success = false,
+                        gameAppId = appId,
+                        message = $"Failed to remove game {appId}: {ex.Message}"
+                    });
                 }
             });
 

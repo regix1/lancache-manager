@@ -158,6 +158,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       style={{
         borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
         maxHeight,
+        isolation: 'isolate',
       }}
     >
       {/* Content area */}
@@ -186,13 +187,12 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
         onClick={handleTrackClick}
         className="absolute"
         style={{
-          right: '2px',
+          right: '0px',
           top: '2px',
           bottom: '2px',
           width: '8px',
-          zIndex: 10,
           background: showScrollbar ? 'var(--theme-scrollbar-track)' : 'transparent',
-          borderRadius: 'var(--theme-border-radius, 0.5rem)',
+          borderRadius: 'var(--theme-border-radius-lg, 0.75rem)',
           opacity: showScrollbar ? 1 : 0,
           pointerEvents: showScrollbar ? 'auto' : 'none',
         }}

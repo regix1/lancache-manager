@@ -23,6 +23,7 @@ public class CacheClearingService : IHostedService
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
     private string _deleteMode;
+    private int? _threadCountOverride;
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
@@ -244,9 +245,16 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operation);
             SaveOperationToState(operation);
 
+            // Build arguments - thread count is optional (Rust auto-detects if not provided)
+            var arguments = $"\"{_cachePath}\" \"{progressFile}\" {_deleteMode}";
+            if (_threadCountOverride.HasValue)
+            {
+                arguments += $" {_threadCountOverride.Value}";
+            }
+
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustBinaryPath,
-                $"\"{_cachePath}\" \"{progressFile}\" {_deleteMode}");
+                arguments);
 
             using (var process = Process.Start(startInfo))
             {
@@ -674,6 +682,23 @@ public class CacheClearingService : IHostedService
     public string GetDeleteMode()
     {
         return _deleteMode;
+    }
+
+    public void SetThreadCount(int? threadCount)
+    {
+        if (threadCount.HasValue && (threadCount.Value < 1 || threadCount.Value > 32))
+        {
+            throw new ArgumentException("Thread count must be between 1 and 32", nameof(threadCount));
+        }
+
+        _threadCountOverride = threadCount;
+        _logger.LogInformation("Cache clear thread count updated to {ThreadCount}",
+            threadCount.HasValue ? threadCount.Value.ToString() : "auto");
+    }
+
+    public int? GetThreadCount()
+    {
+        return _threadCountOverride;
     }
 
     public bool IsRsyncAvailable()

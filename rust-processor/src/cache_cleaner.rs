@@ -541,32 +541,65 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     Ok(())
 }
 
+/// Determine optimal thread count based on delete mode and available CPUs
+fn get_optimal_thread_count(delete_mode: &str) -> usize {
+    let cpu_count = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(4);
+
+    match delete_mode {
+        // Fast mode uses remove_dir_all which is already efficient
+        // Use fewer threads to avoid overwhelming the filesystem
+        "full" => std::cmp::min(cpu_count, 8),
+
+        // Rsync mode - each rsync process is independent
+        // Can use moderate parallelism
+        "rsync" => std::cmp::min(cpu_count, 6),
+
+        // Preserve mode does individual file deletes - I/O bound
+        // Use high parallelism to maximize throughput on SSDs
+        // For NAS this might be too aggressive but user can override
+        _ => std::cmp::min(cpu_count * 2, 16),
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 3 || args.len() > 4 {
+    if args.len() < 3 || args.len() > 5 {
         eprintln!("Usage:");
-        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [delete_mode]");
+        eprintln!("  cache_cleaner <cache_path> <progress_json_path> [delete_mode] [thread_count]");
         eprintln!("\nExample:");
         eprintln!("  cache_cleaner /var/cache/lancache ./data/cache_clear_progress.json preserve");
-        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json full");
+        eprintln!("  cache_cleaner /mnt/nas/cache ./data/progress.json full 8");
         eprintln!("\nOptions:");
         eprintln!("  delete_mode: Deletion method (default: preserve)");
         eprintln!("    - 'preserve': Safe Mode - Individual file deletion (slower, keeps structure)");
         eprintln!("    - 'full': Fast Mode - Directory removal (faster)");
         eprintln!("    - 'rsync': Rsync - With empty directory (network storage, Linux only)");
-        eprintln!("\nNote: Uses 4 threads for optimal I/O performance");
+        eprintln!("  thread_count: Number of parallel threads (default: auto-detected based on mode)");
+        eprintln!("    - preserve: 2x CPU cores (max 16) for I/O-bound operations");
+        eprintln!("    - full: CPU cores (max 8) for syscall-efficient operations");
+        eprintln!("    - rsync: CPU cores (max 6) for process-based operations");
         std::process::exit(1);
     }
 
     let cache_path = &args[1];
     let progress_path = Path::new(&args[2]);
-    let thread_count = 4; // Hardcoded to 4 threads for I/O operations
     let delete_mode = if args.len() >= 4 {
         &args[3]
     } else {
         "preserve"
     };
+
+    // Thread count: use provided value or auto-detect based on mode
+    let thread_count = if args.len() >= 5 {
+        args[4].parse::<usize>().unwrap_or_else(|_| get_optimal_thread_count(delete_mode))
+    } else {
+        get_optimal_thread_count(delete_mode)
+    };
+
+    eprintln!("Thread count: {} (mode: {})", thread_count, delete_mode);
 
     match clear_cache(cache_path, progress_path, thread_count, delete_mode) {
         Ok(_) => {
