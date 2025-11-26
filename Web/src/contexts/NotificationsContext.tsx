@@ -1386,10 +1386,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         const response = await fetch('/api/depots/rebuild/progress');
         if (response.ok) {
           const data = await response.json();
+          const notificationId = 'depot_mapping';
 
           if (data.isRunning) {
-            const notificationId = 'depot_mapping';
-
             // Build the detail message from backend data
             const detailMessage = (() => {
               if (data.processedBatches !== undefined && data.totalBatches !== undefined) {
@@ -1444,6 +1443,46 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             });
 
             console.log('[NotificationsContext] Recovered depot mapping notification');
+          } else {
+            // Backend says NOT running - clear any stale state from localStorage
+            // This handles the case where DepotMappingComplete was missed (SignalR disconnection)
+            const savedNotification = localStorage.getItem('depot_mapping_notification');
+            const githubDownloading = localStorage.getItem('githubDownloading');
+
+            if (savedNotification || githubDownloading) {
+              console.log('[NotificationsContext] Clearing stale depot mapping state - backend is idle');
+              localStorage.removeItem('depot_mapping_notification');
+              localStorage.removeItem('githubDownloading'); // Clear stale GitHub download flag
+
+              // Remove or mark as completed any existing notification
+              setNotifications((prev) => {
+                const existing = prev.find((n) => n.id === notificationId && n.status === 'running');
+                if (existing) {
+                  // Mark as completed since scan finished while we were disconnected
+                  return prev.map((n) => {
+                    if (n.id === notificationId) {
+                      return {
+                        ...n,
+                        status: 'completed' as NotificationStatus,
+                        message: 'Depot mapping completed',
+                        progress: 100,
+                        details: {
+                          ...n.details,
+                          totalMappings: data.depotMappingsFound
+                        }
+                      };
+                    }
+                    return n;
+                  });
+                }
+                return prev;
+              });
+
+              // Schedule auto-dismiss if there was a notification
+              if (savedNotification) {
+                scheduleAutoDismiss(notificationId);
+              }
+            }
           }
         }
       } catch (err) {

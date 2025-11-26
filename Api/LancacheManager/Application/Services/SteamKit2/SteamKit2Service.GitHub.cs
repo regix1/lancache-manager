@@ -99,15 +99,24 @@ public partial class SteamKit2Service
             // Clear cache so next load reads the new file
             _picsDataService.ClearCache();
 
+            // Send progress update for clearing phase
+            await SendGitHubProgress("Clearing existing depot mappings...", 25);
+
             // Full replace: Clear existing depot mappings first, then import fresh data
             // This ensures the database always matches GitHub exactly (removes stale/deleted mappings)
             _logger.LogInformation("[GitHub Mode] Clearing existing depot mappings for full replace...");
             await _picsDataService.ClearDepotMappingsAsync(cancellationToken);
 
+            // Send progress update for import phase
+            await SendGitHubProgress("Importing depot mappings to database...", 50);
+
             // Import fresh data from GitHub
             _logger.LogInformation("[GitHub Mode] Importing {Count} depot mappings to database (full replace mode)",
                 downloadedData.DepotMappings.Count);
             await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
+
+            // Send progress update for apply phase
+            await SendGitHubProgress("Applying mappings to downloads...", 90);
 
             // Apply depot mappings to existing downloads
             // This only updates downloads that don't have game info yet (or missing image)
@@ -196,6 +205,26 @@ public partial class SteamKit2Service
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[GitHub Mode] Failed to send error notification via SignalR");
+        }
+    }
+
+    private async Task SendGitHubProgress(string message, int percentComplete)
+    {
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+            {
+                status = message,
+                percentComplete,
+                scanMode = "github",
+                message,
+                isLoggedOn = IsSteamAuthenticated,
+                timestamp = DateTime.UtcNow
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GitHub Mode] Failed to send progress notification via SignalR");
         }
     }
 }

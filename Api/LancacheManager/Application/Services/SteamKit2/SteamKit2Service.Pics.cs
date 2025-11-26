@@ -434,15 +434,15 @@ public partial class SteamKit2Service
             _currentStatus = "Saving PICS data to JSON";
             _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
 
-            // DISABLED: Using OwnerId from PICS data instead of log-based fallback
-            // Add log-based fallback mappings for depots that appear in actual downloads
-            // Only adds mappings where depotId = appId and no existing mapping exists
-            // await AddLogBasedFallbackDepotMappingsAsync();
+            // Send progress update for post-processing phase
+            await SendPostProcessingProgress("Saving depot mappings to JSON...", 100, _depotToAppMappings.Count);
 
             // Final save - use merge for incremental, full save for complete rebuild
             await SaveAllMappingsToJsonAsync(incrementalOnly);
 
             _currentStatus = "Importing to database";
+            await SendPostProcessingProgress("Importing to database...", 100, _depotToAppMappings.Count);
+
             // Import to database BEFORE updating downloads so mappings are available
             try
             {
@@ -456,6 +456,7 @@ public partial class SteamKit2Service
 
             // Auto-apply depot mappings to downloads after PICS data is ready
             _currentStatus = "Applying depot mappings";
+            await SendPostProcessingProgress("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
             _logger.LogInformation("Automatically applying depot mappings after PICS completion");
 
             var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappings();
@@ -972,6 +973,30 @@ public partial class SteamKit2Service
         {
             _logger.LogWarning(ex, "Failed to check unmapped downloads");
             return 0;
+        }
+    }
+
+    /// <summary>
+    /// Send SignalR progress update during post-processing phases (after batch loop)
+    /// </summary>
+    private async Task SendPostProcessingProgress(string message, double percentComplete, int depotMappingsFound)
+    {
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("DepotMappingProgress", new
+            {
+                status = message,
+                percentComplete,
+                processedBatches = _processedBatches,
+                totalBatches = _totalBatches,
+                depotMappingsFound,
+                isLoggedOn = IsSteamAuthenticated,
+                message
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send post-processing progress via SignalR");
         }
     }
 }
