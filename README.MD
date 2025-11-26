@@ -76,7 +76,7 @@ A web interface for monitoring and managing your LANCache. Track downloads, see 
 <img width="1563" height="599" alt="Authentication & Access" src="https://github.com/user-attachments/assets/9b08a54a-cfc4-44d0-bfa5-efa7237a6f9b" />
 
 **Integration & Services**
-<img width="1544" height="1244" alt="Integration & Services" src="https://github.com/user-attachments/assets/b59b2ab5-877d-44ab-a8cf-fd9079fd3741" />
+<img width="1544" height="1244" alt="Integration & Services" src="https://github.com/user-attachments/assets/ad272fc0-8f3a-4e31-a6c9-e2b4a2116dcb" />
 
 **Database Management**
 <img width="1521" height="1201" alt="Database Management" src="https://github.com/user-attachments/assets/b3398a91-fccf-4d0b-9fab-45c059278b55" />
