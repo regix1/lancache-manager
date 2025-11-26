@@ -156,8 +156,10 @@ public partial class SteamKit2Service
                 }
             }
 
-            // Clear stored refresh token (GuardData not used in modern auth)
+            // Clear stored credentials and reset to anonymous mode
             _stateService.SetSteamRefreshToken(null);
+            _stateService.SetSteamAuthMode("anonymous");
+            _stateService.SetSteamUsername(null);
 
             // Disconnect from Steam
             _intentionalDisconnect = true;

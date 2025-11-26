@@ -6,8 +6,9 @@ namespace LancacheManager.Application.Services;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Download pre-created depot mappings from GitHub and import them incrementally
-    /// This is used for the "GitHub mode" in periodic scans
+    /// Download pre-created depot mappings from GitHub and perform a full replace in the database.
+    /// This ensures the database always matches GitHub exactly (no stale mappings from previous imports).
+    /// This is used for the "GitHub mode" in periodic scans.
     /// </summary>
     public async Task<bool> DownloadAndImportGitHubDataAsync(CancellationToken cancellationToken = default)
     {
@@ -90,21 +91,6 @@ public partial class SteamKit2Service
                 return false;
             }
 
-            // Load existing data to check if incremental update is possible
-            var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
-            bool isIncremental = existingData?.Metadata != null && existingData.DepotMappings != null;
-
-            if (isIncremental)
-            {
-                _logger.LogInformation("[GitHub Mode] Existing data found - performing incremental update (existing change number: {ExistingChange}, new: {NewChange})",
-                    existingData?.Metadata?.LastChangeNumber ?? 0,
-                    downloadedData.Metadata?.LastChangeNumber ?? 0);
-            }
-            else
-            {
-                _logger.LogInformation("[GitHub Mode] No existing data found - performing full import");
-            }
-
             // Save to local file (overwrites existing)
             var localPath = _picsDataService.GetPicsJsonFilePath();
             await System.IO.File.WriteAllTextAsync(localPath, jsonContent, cancellationToken);
@@ -113,9 +99,14 @@ public partial class SteamKit2Service
             // Clear cache so next load reads the new file
             _picsDataService.ClearCache();
 
-            // Import to database - the ImportJsonDataToDatabaseAsync method already handles incremental updates intelligently
-            // It will update existing mappings if JSON data is newer, or insert new ones
-            _logger.LogInformation("[GitHub Mode] Importing depot mappings to database (incremental mode: updates existing, adds new)");
+            // Full replace: Clear existing depot mappings first, then import fresh data
+            // This ensures the database always matches GitHub exactly (removes stale/deleted mappings)
+            _logger.LogInformation("[GitHub Mode] Clearing existing depot mappings for full replace...");
+            await _picsDataService.ClearDepotMappingsAsync(cancellationToken);
+
+            // Import fresh data from GitHub
+            _logger.LogInformation("[GitHub Mode] Importing {Count} depot mappings to database (full replace mode)",
+                downloadedData.DepotMappings.Count);
             await _picsDataService.ImportJsonDataToDatabaseAsync(cancellationToken);
 
             // Apply depot mappings to existing downloads
@@ -142,9 +133,7 @@ public partial class SteamKit2Service
                 {
                     success = true,
                     scanMode = "github",
-                    message = isIncremental
-                        ? "GitHub depot data updated incrementally"
-                        : "GitHub depot data imported successfully",
+                    message = "GitHub depot data imported successfully",
                     totalMappings,
                     isLoggedOn = IsSteamAuthenticated,
                     timestamp = DateTime.UtcNow

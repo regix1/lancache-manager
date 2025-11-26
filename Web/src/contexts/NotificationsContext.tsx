@@ -1390,10 +1390,42 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           if (data.isRunning) {
             const notificationId = 'depot_mapping';
 
+            // Build the detail message from backend data
+            const detailMessage = (() => {
+              if (data.processedBatches !== undefined && data.totalBatches !== undefined) {
+                return `${data.processedBatches.toLocaleString()} / ${data.totalBatches.toLocaleString()} batches${
+                  data.depotMappingsFound !== undefined
+                    ? ` • ${data.depotMappingsFound.toLocaleString()} mappings found`
+                    : ''
+                }`;
+              }
+              return undefined;
+            })();
+
             setNotifications((prev) => {
               const existing = prev.find((n) => n.id === notificationId);
-              if (existing) return prev;
 
+              // If notification exists, update it with fresh data from backend
+              if (existing) {
+                return prev.map((n) => {
+                  if (n.id === notificationId) {
+                    return {
+                      ...n,
+                      status: 'running' as NotificationStatus,
+                      message: data.status || 'Processing depot mappings...',
+                      progress: data.progressPercent || 0,
+                      details: {
+                        ...n.details,
+                        isLoggedOn: data.isLoggedOn
+                      },
+                      detailMessage
+                    };
+                  }
+                  return n;
+                });
+              }
+
+              // Create new notification if it doesn't exist
               return [
                 ...prev,
                 {
@@ -1406,16 +1438,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
                   details: {
                     isLoggedOn: data.isLoggedOn
                   },
-                  detailMessage: (() => {
-                    if (data.processedBatches !== undefined && data.totalBatches !== undefined) {
-                      return `${data.processedBatches.toLocaleString()} / ${data.totalBatches.toLocaleString()} batches${
-                        data.depotMappingsFound !== undefined
-                          ? ` • ${data.depotMappingsFound.toLocaleString()} mappings found`
-                          : ''
-                      }`;
-                    }
-                    return undefined;
-                  })()
+                  detailMessage
                 }
               ];
             });

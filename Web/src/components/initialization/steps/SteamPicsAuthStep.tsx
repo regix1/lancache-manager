@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Shield, CheckCircle, Users, User, Loader2 } from 'lucide-react';
+import { Shield, CheckCircle, Users, User, Loader2, Info } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
+import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import ApiService from '@services/api.service';
 
 interface SteamPicsAuthStepProps {
@@ -16,6 +17,12 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
+
+  // Steam account login requires V2 API. V1 API key acts as authentication itself.
+  const isV2Available = webApiStatus?.isV2Available ?? false;
+  const hasV1ApiKey = webApiStatus?.hasApiKey ?? false;
+  const steamAuthDisabled = !isV2Available;
 
   const { state, actions } = useSteamAuthentication({
     autoStartPics: false,
@@ -31,6 +38,11 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
   });
 
   const handleModeSelect = (mode: AuthMode) => {
+    // Block account login if V2 API is not available
+    if (mode === 'account' && steamAuthDisabled) {
+      setError('Steam account login requires V2 API which is currently unavailable');
+      return;
+    }
     setSelectedMode(mode);
     setError(null);
     if (mode === 'account') {
@@ -122,8 +134,8 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
                 <Users className="w-5 h-5" style={{ color: 'var(--theme-primary)' }} />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-themed-primary">Anonymous (Public Only)</h4>
-                <p className="text-sm text-themed-secondary">No Steam login required</p>
+                <h4 className="font-semibold text-themed-primary">Anonymous (Public Games)</h4>
+                <p className="text-sm text-themed-secondary">No authentication required</p>
               </div>
               {selectedMode === 'anonymous' && (
                 <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
@@ -134,29 +146,59 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           {/* Account Login Mode */}
           <button
             onClick={() => handleModeSelect('account')}
-            className="w-full p-4 rounded-lg border-2 text-left transition-all"
+            className={`w-full p-4 rounded-lg border-2 text-left transition-all ${steamAuthDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             style={{
               borderColor: selectedMode === 'account' ? 'var(--theme-primary)' : 'var(--theme-border-primary)',
               backgroundColor: selectedMode === 'account' ? 'var(--theme-primary-bg, rgba(var(--theme-primary-rgb), 0.1))' : 'transparent'
             }}
+            disabled={steamAuthDisabled}
           >
             <div className="flex items-center gap-3">
               <div
                 className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                 style={{ backgroundColor: 'var(--theme-bg-tertiary)' }}
               >
-                <User className="w-5 h-5" style={{ color: 'var(--theme-success)' }} />
+                <User className="w-5 h-5" style={{ color: steamAuthDisabled ? 'var(--theme-muted)' : 'var(--theme-success)' }} />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-themed-primary">Account Login (All Games)</h4>
-                <p className="text-sm text-themed-secondary">Access playtest and restricted games</p>
+                <h4 className={`font-semibold ${steamAuthDisabled ? 'text-themed-muted' : 'text-themed-primary'}`}>
+                  {steamAuthDisabled ? 'Account Login (Requires V2 API)' : 'Account Login (Playtest/Restricted)'}
+                </h4>
+                <p className="text-sm text-themed-secondary">
+                  {steamAuthDisabled
+                    ? 'V2 API unavailable - use V1 API key instead'
+                    : 'Access playtest and restricted games via V2'}
+                </p>
               </div>
-              {selectedMode === 'account' && (
+              {selectedMode === 'account' && !steamAuthDisabled && (
                 <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--theme-primary)' }} />
               )}
             </div>
           </button>
         </div>
+
+        {/* V2 API Required Info Banner */}
+        {steamAuthDisabled && !webApiLoading && (
+          <div
+            className="p-3 rounded-lg border"
+            style={{
+              backgroundColor: 'var(--theme-info-bg)',
+              borderColor: 'var(--theme-info)'
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <Info className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: 'var(--theme-info)' }} />
+              <div className="flex-1">
+                <p className="text-xs" style={{ color: 'var(--theme-info-text)', opacity: 0.9 }}>
+                  <strong>Steam account login requires V2 API</strong> which is currently unavailable.
+                  {hasV1ApiKey
+                    ? ' Your V1 API key already provides access to playtest/restricted games since it\'s tied to your Steam account.'
+                    : ' You can configure a V1 API key later in Settings to access playtest/restricted games.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Error Display */}
         {error && (
