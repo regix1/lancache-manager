@@ -61,14 +61,12 @@ public class GameImagesController : ControllerBase
                 .OrderByDescending(d => d.StartTimeUtc)
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (download?.GameImageUrl == null)
-            {
-                _logger.LogTrace($"No game image URL found for app {appId} in database");
-                return NotFound(new { error = $"Game image URL not found for app {appId}" });
-            }
+            // Use database URL if available, otherwise fallback to Steam CDN (for mock mode/screenshots)
+            var imageUrl = download?.GameImageUrl
+                ?? $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
 
             // FAST PATH with PICS validation: Check cache and validate URL hasn't changed
-            var cachedResult = await _imageCacheService.GetCachedImageAsync(appId, download.GameImageUrl, cancellationToken);
+            var cachedResult = await _imageCacheService.GetCachedImageAsync(appId, imageUrl, cancellationToken);
 
             if (cachedResult.HasValue)
             {
@@ -82,7 +80,7 @@ public class GameImagesController : ControllerBase
             }
 
             // SLOW PATH: Not in cache or URL changed - download and cache the image
-            var result = await _imageCacheService.GetOrDownloadImageAsync(appId, download.GameImageUrl, cancellationToken);
+            var result = await _imageCacheService.GetOrDownloadImageAsync(appId, imageUrl, cancellationToken);
 
             if (result.HasValue)
             {

@@ -1,19 +1,19 @@
 # LANCache Manager
 
-A modern web interface for monitoring and managing your LANCache deployment. Track downloads, identify games, monitor bandwidth savings in real-time, and manage your cache with a beautiful, customizable interface.
+A web interface for monitoring and managing your LANCache. Track downloads, see which games are being cached, check bandwidth savings, and customize everything with themes.
 
 ## IMPORTANT: Docker Installation
 
 > [!IMPORTANT]
-> **Always use the `latest` tag for stable releases:**
+> **Always use the `latest` tag:**
 >
 > ```bash
 > docker pull ghcr.io/regix1/lancache-manager:latest
 > ```
 >
-> GitHub's package page may show `:dev` in the installation command because dev builds are pushed more frequently. **The `:dev` tag is unstable development code.**
+> GitHub's package page shows `:dev` in the installation command because dev builds are pushed more frequently. **`:dev` is unstable.**
 >
-> **Use `:latest` for production. Use `:dev` only for testing new features.**
+> **Use `:latest` for production. Use `:dev` only for testing.**
 
 ## 📑 Table of Contents
 
@@ -22,8 +22,6 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [Quick Start](#quick-start)
-  - [Basic Docker Run](#basic-docker-run)
-  - [Complete Docker Compose Example](#complete-docker-compose-example)
 - [Getting Started](#getting-started)
 - [Admin Features](#admin-features)
 - [Custom Themes](#custom-themes)
@@ -47,74 +45,102 @@ A modern web interface for monitoring and managing your LANCache deployment. Tra
 <div align="center">
 
 ### Dashboard
-<img width="1524" height="1083" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/4069eb3a-aefb-44bd-876f-3a486e9aae4e" />
+<img width="1539" height="1085" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/2eb41fb5-e3f1-4770-aeda-62b6fb324174" />
+<img width="1738" height="609" alt="Dashboard Charts" src="https://github.com/user-attachments/assets/56f668a1-526d-442f-b496-65021f2c0a68" />
 
-*Monitor your cache performance, bandwidth savings, and active downloads at a glance*
+*Stats at a glance - drag and drop to reorder cards, filter by time range*
 
 ### Downloads
 
 **Normal View**
-<img width="1533" height="1248" alt="Downloads Tab - Normal View" src="https://github.com/user-attachments/assets/b7b92470-d769-4471-bc25-3c3e74f0fa0f" />
+<img width="1530" height="1254" alt="Downloads Tab - Normal View" src="https://github.com/user-attachments/assets/188b1e9d-05fa-40c3-8185-230e0b4cf32f" />
 
 **Compact View**
-<img width="1527" height="1245" alt="Downloads Tab - Compact View" src="https://github.com/user-attachments/assets/53419342-3ecc-49be-8793-daa7ccc55829" />
+<img width="1533" height="1255" alt="Downloads Tab - Compact View" src="https://github.com/user-attachments/assets/8a882729-9274-4843-814d-2d01c877b737" />
 
-*Track all downloads with detailed game information, progress, and bandwidth data*
+*Switch between normal and compact views, filter and sort however you want*
 
 ### Clients
-<img width="1525" height="1082" alt="Client Statistics" src="https://github.com/user-attachments/assets/11515589-2030-44ef-9e46-43b9a1ee90b1" />
+<img width="1550" height="911" alt="Clients" src="https://github.com/user-attachments/assets/8901db78-dca6-4a37-8139-ce87907e6c23" />
 
-*See which devices are using your cache and how much bandwidth they're saving*
+*See which devices are using your cache*
+
+### Users
+<img width="1527" height="1055" alt="Users" src="https://github.com/user-attachments/assets/e82c881d-bf5c-414d-9b23-2107f7042b0c" />
+
+*Manage sessions and control access*
 
 ### Management
 
-<img width="1528" height="917" alt="Management - Cache Operations" src="https://github.com/user-attachments/assets/2340d975-3981-4f1e-8cae-758d2ff23427" />
+**Authentication & Access**
+<img width="1563" height="599" alt="Authentication & Access" src="https://github.com/user-attachments/assets/9b08a54a-cfc4-44d0-bfa5-efa7237a6f9b" />
 
-<img width="1522" height="883" alt="Management - Log Processing" src="https://github.com/user-attachments/assets/08e019e0-6b1e-404d-9f04-132a22fca4b8" />
+**Integration & Services**
+<img width="1544" height="1244" alt="Integration & Services" src="https://github.com/user-attachments/assets/b59b2ab5-877d-44ab-a8cf-fd9079fd3741" />
 
-<img width="1513" height="1223" alt="Management - Depot Mappings" src="https://github.com/user-attachments/assets/2dd06323-6fc4-4b73-b677-f904987bc257" />
+**Database Management**
+<img width="1521" height="1201" alt="Database Management" src="https://github.com/user-attachments/assets/b3398a91-fccf-4d0b-9fab-45c059278b55" />
 
-<img width="1527" height="566" alt="Management - Settings" src="https://github.com/user-attachments/assets/05140260-32f8-477a-8b85-ee7831ecc364" />
+**Import Historical Data**
+<img width="1475" height="786" alt="Import Historical Data" src="https://github.com/user-attachments/assets/664ddff5-9656-422a-9630-3ec001c3f45b" />
 
-*Manage your cache, process logs, customize depot mappings, and configure settings*
+**Disk Cache Management and Log Processing**
+<img width="1483" height="608" alt="Disk Cache Management and Log Processing" src="https://github.com/user-attachments/assets/ca975cfb-970e-4d5e-b830-6d7166ded4cb" />
 
-### Theme Customization
+**Depot Mapping**
+<img width="1472" height="745" alt="Depot Mapping" src="https://github.com/user-attachments/assets/736ef150-09f3-4acf-9ad7-5c6d6ac35928" />
 
-<img width="1524" height="1245" alt="Theme Management" src="https://github.com/user-attachments/assets/83501aac-726d-4d19-ac9b-c44bdb89409a" />
+**Log & Cache Management**
+<img width="1481" height="663" alt="Log & Cache Management" src="https://github.com/user-attachments/assets/defae056-2e99-48e8-b3cb-5fadf21fdf30" />
 
-*Create and customize themes to match your style*
+**Game Cache Detection**
+<img width="1481" height="490" alt="Game Cache Detection" src="https://github.com/user-attachments/assets/b2745ef0-ead8-47de-95d2-46bd03e5aa5a" />
 
-### Users
+**Theme Management**
+<img width="1468" height="1079" alt="Theme Management" src="https://github.com/user-attachments/assets/00212a80-0f15-432b-9849-22967e7119f9" />
 
-<img width="1502" height="991" alt="Users Page" src="https://github.com/user-attachments/assets/820bc238-8da0-4b89-830a-3b748b962e9e" />
-
-*Manage user sessions, view connected devices, and control access*
+*Manage cache, process logs, configure depot mappings, and tweak settings*
 
 ### Theme Examples
 
-**LANCache Unofficial**
-<img width="1527" height="1081" alt="LANCache Unofficial Theme" src="https://github.com/user-attachments/assets/215d43bc-1912-44f7-b488-4e892c61e82a" />
-
 **Sage and Wood**
-<img width="1525" height="1088" alt="Sage and Wood Theme" src="https://github.com/user-attachments/assets/1be6eb4c-6f46-4639-9942-f83a082ecc81" />
+<img width="1526" height="1085" alt="Sage and Wood Theme" src="https://github.com/user-attachments/assets/17d710e1-4b9b-4dd0-bac6-c9f89ef8b3f0" />
 
-*Choose from built-in themes or create your own*
+**LANCache Unofficial**
+<img width="1527" height="1085" alt="LANCache Unofficial Theme" src="https://github.com/user-attachments/assets/7aa8d363-ab61-4e63-a50e-94021d95eb68" />
 
 </div>
 
 <a id="features"></a>
 ## Features [⬆](#-table-of-contents)
 
-- **Real-Time Monitoring** - Watch downloads happen live with bandwidth tracking and progress updates
-- **Game Identification** - Automatically identifies Steam games from depot IDs with support for custom mappings
-- **Bandwidth Analytics** - See exactly how much bandwidth your cache is saving
-- **Client Tracking** - Monitor which devices are using your cache
-- **Cache Management** - Clear cache, remove specific games, and detect corrupted files
-- **Session Management** - Control who has access with device limits and session tracking
-- **Custom Themes** - Personalize the interface with built-in themes or create your own
-- **Prometheus Metrics** - Export stats to Grafana for advanced visualization
-- **Read-Only Support** - Works with read-only volumes while clearly showing what's available
-- **Easy Depot Updates** - Download 290,000+ depot mappings from [lancache-pics](https://github.com/regix1/lancache-pics) with one click
+### Dashboard
+- **Draggable stat cards** - Reorder them how you want, hide the ones you don't care about
+- **Time range filtering** - Live, last hour, 24h, 7 days, 30 days, or custom date ranges
+- **Service breakdown** - See which services (Steam, Epic, etc.) are eating your bandwidth
+- **Recent downloads** - Quick view of what's been cached lately
+- **Top clients** - See who's downloading the most
+
+### Downloads
+- **Normal and Compact views** - Cards or list, your choice
+- **Sorting** - By date, size, cache efficiency, number of sessions, alphabetical
+- **Filtering** - By service, client, hide small files, hide unknown games
+- **Presets** - Pretty, Minimal, Show All, or tweak every setting yourself
+- **Export** - JSON or CSV
+
+### Management (requires authentication)
+- **Cache operations** - Clear cache, remove specific games or services
+- **Log processing** - Reprocess logs, remove corruption
+- **Game detection** - See what games are in your cache with actual sizes
+- **Database management** - Clear specific tables without nuking everything
+- **Steam integration** - PICS authentication for depot mappings
+
+### Other Stuff
+- **Custom themes** - Build your own or grab community themes
+- **Prometheus metrics** - Export to Grafana
+- **Multi-device auth** - Share API key across devices (configurable limit)
+- **Guest mode** - Read-only access without API key
+- **Read-only volume support** - Works fine with `:ro` mounts
 
 <a id="quick-start"></a>
 ## Quick Start [⬆](#-table-of-contents)
@@ -134,7 +160,7 @@ docker run -d \
   ghcr.io/regix1/lancache-manager:latest
 ```
 
-### Complete Docker Compose Example
+### Docker Compose
 
 ```yaml
 version: '3.8'
@@ -151,191 +177,113 @@ services:
       # Your data directory (database, API key, themes)
       - ./data:/data
 
-      # Your LANCache log directory (read-only recommended)
+      # LANCache log directory (read-only recommended)
       - /mnt/logs:/logs:ro
 
-      # Your LANCache cache directory
+      # LANCache cache directory
       # Use :ro for read-only monitoring
       # Remove :ro to enable cache clearing and game removal
       - /mnt/cache/cache:/cache:ro
 
-      # Docker socket for nginx log rotation (optional but recommended)
-      # Allows automatic nginx signaling when log files are rotated
-      # Mounted read-only for security - only needs to run docker exec
-      # Remove this line and set NginxLogRotation__Enabled=false if you don't need it
+      # Docker socket for nginx log rotation (optional)
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      # User/Group IDs for file permissions
       - PUID=1006
       - PGID=1006
-
-      # Timezone for accurate timestamps
       - TZ=America/Chicago
 
-      # Required: Path to LANCache nginx access.log
+      # Required paths
       - LanCache__LogPath=/logs/access.log
-
-      # Required: Path to LANCache cache directory
       - LanCache__CachePath=/cache
 
-      # Start reading logs from end (default: true)
-      # Set to false to process entire log history on first run
+      # Log processing
       - LanCache__StartFromEndOfLog=true
-
-      # Process historical logs on startup (default: false)
       - LanCache__ProcessHistoricalLogs=false
 
-      # Security Settings
-
-      # Enable authentication (default: true)
-      # Set to 'false' to disable authentication (not recommended)
+      # Security
       - Security__EnableAuthentication=true
-
-      # Maximum admin devices sharing the same API key (default: 3)
       - Security__MaxAdminDevices=3
-
-      # Require API key for /metrics endpoint (default: false)
-      # Set to 'true' to protect Prometheus metrics
       - Security__RequireAuthForMetrics=false
 
-      # Nginx Log Rotation Settings
-
-      # Enable automatic nginx signaling (default: true)
-      # Prevents monolithic LANCache containers from losing log file access
-      # Set to 'false' if you don't use log rotation or don't mount docker.sock
+      # Nginx log rotation
       - NginxLogRotation__Enabled=true
-
-      # Specify nginx container name (optional)
-      # Leave empty for automatic detection, or set to your container name
-      # Example: - NginxLogRotation__ContainerName=lancache
       - NginxLogRotation__ContainerName=
 
-      # Optimization Settings
-
-      # Enable garbage collection management (default: false)
-      # Set to 'true' to enable memory optimization controls in the UI
+      # Memory management (optional)
       - Optimizations__EnableGarbageCollectionManagement=false
 ```
 
-Visit **http://localhost:8080** and get your **API key** from the logs:
+Get your **API key**:
 
 ```bash
 docker logs lancache-manager | grep "API Key"
 ```
 
-**API key is also saved to `/data/api_key.txt`**
+Also saved to `/data/api_key.txt`
 
 <a id="getting-started"></a>
 ## Getting Started [⬆](#-table-of-contents)
 
-### First Time Setup
+1. Start the container
+2. Get your API key from the logs or `/data/api_key.txt`
+3. Open `http://localhost:8080`
+4. Go to Management and enter your API key
+5. Click "Process Logs" to start analyzing
 
-1. **Start the container** using the docker-compose example above
-2. **Get your API key** from the logs or `/data/api_key.txt`
-3. **Open your browser** to `http://localhost:8080`
-4. **Navigate to Management** and enter your API key when prompted
-5. **Click "Process Logs"** to start analyzing your cache data
+### Read-Only Volumes
 
-That's it! The dashboard will populate with your cache statistics and download history.
+If you mount with `:ro`, you'll see lock badges in Management. Totally fine for monitoring.
 
-### Understanding Read-Only Volumes
+**With read-only:**
+- View stats and downloads
+- Monitor performance
+- Track clients
 
-If you mount your cache or log directories with `:ro` (read-only), you'll see lock badges in the Management section. This is completely normal and the app will work fine for monitoring.
-
-**With read-only volumes, you can:**
-- View all statistics and downloads
-- Monitor cache performance
-- Track client activity
-- Process and analyze logs
-
-**To enable management features, remove `:ro`:**
+**To enable management features:**
 ```yaml
 volumes:
-  - /path/to/cache:/cache      # Can clear cache and remove games
-  - /path/to/logs:/logs:ro     # Keep logs read-only (recommended)
+  - /path/to/cache:/cache      # Can clear cache
+  - /path/to/logs:/logs:ro     # Keep logs read-only
 ```
 
 <a id="admin-features"></a>
 ## Admin Features [⬆](#-table-of-contents)
 
-Access the **Users** tab (visible only to authenticated users) to manage all sessions and control access to your LANCache Manager.
-
 ### User Management
 
-**Real-Time Session Monitoring**
-- Live refresh every 3 seconds shows current connection status
-- View total users, authenticated users, and guest sessions at a glance
-- Track all active and historical sessions in one place
+- **Real-time sessions** - See who's connected, what devices they're using
+- **Session types** - Authenticated users get full access, guests get 6-hour read-only access
+- **Controls** - Revoke sessions, delete records
 
-**Session Types**
-- **Authenticated Users** - Full access via API key, multiple devices can share the same key (configurable limit, default: 3)
-- **Guest Sessions** - Temporary 6-hour read-only access without requiring an API key
+### API Key
 
-**Detailed Session Information**
-- Device name and unique session ID
-- IP address (with localhost detection)
-- Operating system and browser
-- Creation time and last seen timestamp
-- Session expiry countdown (for guests)
-- Revocation status and history
+- Auto-generated on first startup
+- Saved to `/data/api_key.txt`
+- Multi-device support (default 3 devices)
 
-**Session Controls**
-- **Revoke** - Immediately kick out guest users (they'll see "expired" on next request)
-- **Delete** - Permanently remove session records from history
-- Visual indicators for expired, revoked, and active sessions
-
-### API Key Management
-
-**Setup & Storage**
-- API key automatically generated on first startup
-- Securely saved to `/data/api_key.txt`
-- Display in container logs for easy retrieval
-
-**Multi-Device Support**
-- Configure maximum devices per API key (default: 3)
-- Each device tracked separately with full session details
-- Regenerating the API key revokes all existing sessions
-
-**Access Control**
 ```yaml
 environment:
-  # Maximum admin devices sharing the same API key (default: 3)
   - Security__MaxAdminDevices=3
 ```
 
 <a id="custom-themes"></a>
 ## Custom Themes [⬆](#-table-of-contents)
 
-Fully customize LANCache Manager to match your personal style or branding:
+### Built-in Options
 
-### Features
+- Create themes from scratch with the visual editor
+- Browse and install community themes
+- Import/export as TOML files
+- Auto-updates for installed themes
 
-- **Built-in Themes** - Start with professionally designed themes like "LANCache Unofficial" and "Sage and Wood"
-- **Visual Theme Editor** - Live preview as you customize colors, backgrounds, and accents
-- **Community Themes** - Browse and install themes from the community gallery
-- **Import/Export** - Share your creations as TOML files
-- **Auto-Updates** - Installed themes can receive updates from creators
-- **Theme Preview** - See changes in real-time before applying
-
-### Creating a Custom Theme
+### Creating a Theme
 
 1. Go to **Management > Preferences > Theme Management**
-2. Click **"Create Theme"** or edit an existing one
-3. Customize colors, backgrounds, borders, and service icons
-4. Preview your changes live
-5. Save and apply your theme
+2. Click **Create Theme** or edit existing
+3. Customize colors with live preview
+4. Save and apply
 
-### Importing Community Themes
-
-1. Go to **Management > Preferences > Theme Management**
-2. Click **"Community Themes"**
-3. Browse available themes with previews
-4. Click **"Install"** on any theme you like
-5. Optionally enable auto-updates
-
-### Theme File Format
-
-Themes use TOML format for easy editing:
+### Theme Format
 
 ```toml
 [meta]
@@ -346,228 +294,99 @@ version = "1.0.0"
 author = "Your Name"
 
 [colors]
-# Primary colors
 primaryColor = "#3b82f6"
-secondaryColor = "#10b981"
-
-# Backgrounds
 bgPrimary = "#111827"
-bgSecondary = "#1f2937"
-bgHover = "#374151"
-
-# Text
 textPrimary = "#ffffff"
-textSecondary = "#d1d5db"
-textMuted = "#9ca3af"
-
-# Service icons (Steam, Epic, etc.)
-steam = "#1b2838"
-epic = "#2a2a2a"
-# ... and more
+# ... lots more options
 ```
 
-### Theme Storage
-
-Themes are saved to `/data/themes/` and can be backed up with your data directory.
+Themes save to `/data/themes/`
 
 <a id="optimization-settings"></a>
 ## Optimization Settings [⬆](#-table-of-contents)
 
-### Memory Management (Advanced)
+### Memory Management
 
-LANCache Manager includes optional garbage collection controls for managing memory usage. This is disabled by default and only recommended for advanced users experiencing memory issues.
-
-**To enable:**
+Optional GC controls for low-memory systems. Disabled by default.
 
 ```yaml
 environment:
   - Optimizations__EnableGarbageCollectionManagement=true
 ```
 
-Once enabled, you'll see an **Optimizations** section in the Management tab where you can:
+Once enabled, you get controls in Management:
+- Collection aggressiveness
+- Memory threshold
+- Manual GC trigger
 
-- **Set Collection Aggressiveness** - Control how often garbage collection runs (from disabled to every second)
-- **Configure Memory Threshold** - Set when GC should trigger (2GB - 16GB)
-- **Manual Trigger** - Run garbage collection on demand for testing
+**Use if:** Low memory system, memory climbing over time
 
-**When to use this:**
-- You're running on low-memory systems (< 4GB RAM)
-- You notice memory usage climbing over time
-- You have limited resources and need tight memory control
-
-**When NOT to use this:**
-- Your system has adequate RAM (8GB+)
-- Performance is more important than memory usage
-- The default .NET memory management works fine for you
-
-### Performance Notes
-
-- **Disabled (default)**: Best performance, lets .NET handle memory automatically
-- **On Page Load**: Balanced approach, runs GC only when you open/refresh the page
-- **Timed intervals**: More aggressive, can impact performance but keeps memory lower
+**Skip if:** 8GB+ RAM, performance matters more than memory
 
 <a id="image-caching"></a>
 ## Image Caching [⬆](#-table-of-contents)
 
-LANCache Manager automatically caches game artwork to provide instant loading and reduce bandwidth usage.
+Game artwork gets cached automatically to `/data/cached-img/`. Loads instantly after first fetch, auto-updates when Steam changes artwork.
 
-### How It Works
-
-- **First Load**: Game images are downloaded from Steam's CDN
-- **Subsequent Loads**: Images are served from local cache instantly
-- **Auto-Updates**: When Steam updates game artwork, the cache automatically refreshes
-- **Smart Handling**: Games without images are remembered to avoid repeated lookups
-
-### Cache Location
-
-Images are stored in `/data/cached-img/` inside your data directory.
-
-### Cache Management
-
-**Clear the cache:**
+**Clear cache:**
 ```bash
-# Stop the container
 docker stop lancache-manager
-
-# Remove cached images
 rm -rf ./data/cached-img
-
-# Start the container
 docker start lancache-manager
 ```
-
-The cache will rebuild automatically as you browse your downloads.
-
-### Benefits
-
-- **Instant Loading** - Game headers appear immediately when scrolling
-- **Reduced Bandwidth** - Steam images are fetched once, not repeatedly
-- **Always Fresh** - Automatically detects when Steam updates artwork
-- **Efficient Storage** - Only images you've seen are cached
 
 <a id="nginx-log-rotation"></a>
 ## Nginx Log Rotation [⬆](#-table-of-contents)
 
-LANCache uses a monolithic container that runs nginx. When you rotate log files (to manage disk space), the nginx process inside the container keeps writing to the old file handle instead of the new log file. This means new downloads don't get logged until you manually tell nginx to reopen its log files.
+LANCache's monolithic container has an nginx quirk - when you rotate logs, nginx keeps writing to the old file handle. This tool can signal nginx automatically.
 
-LANCache Manager can automatically handle this signaling for you.
-
-### How It Works
-
-When you mount the Docker socket and enable nginx log rotation:
-
-1. **Automatic Detection** - LANCache Manager detects when you've rotated or manipulated log files
-2. **Smart Signaling** - Sends the appropriate signal to nginx in your monolithic container to reopen log files
-3. **Seamless Logging** - Nginx starts writing to the new log file immediately
-4. **No Manual Work** - Everything happens automatically in the background
-
-### Setup (Optional)
-
-**1. Mount the Docker socket in your docker-compose:**
+### Setup
 
 ```yaml
 volumes:
   - /var/run/docker.sock:/var/run/docker.sock:ro
-```
 
-**2. Configure the settings (already enabled by default):**
-
-```yaml
 environment:
-  # Enable automatic nginx signaling (default: true)
   - NginxLogRotation__Enabled=true
-
-  # Container name (leave empty for auto-detection)
-  - NginxLogRotation__ContainerName=
+  - NginxLogRotation__ContainerName=   # leave empty for auto-detect
 ```
 
-### Security Considerations
+**Security:** Socket is read-only, only runs `docker exec` to send signals.
 
-**What access does this give?**
-- The Docker socket is mounted **read-only** (`:ro`)
-- LANCache Manager only runs `docker exec` commands to send signals to nginx
-- No ability to create, modify, or destroy containers
-- No access to other containers' filesystems
-
-**When to disable:**
-- You never rotate your log files
-- You manually signal nginx after rotating logs
-- Security policies don't allow Docker socket access
-
-**To disable:**
-1. Remove the Docker socket volume mount
-2. Set `NginxLogRotation__Enabled=false`
-
-### Manual Alternative
-
-If you don't want to mount the Docker socket, you'll need to manually signal nginx after each log rotation:
-
+**Manual alternative:**
 ```bash
-# After rotating or truncating your access.log file
 docker exec lancache nginx -s reopen
-
-# Or if your container has a different name
-docker exec your-container-name nginx -s reopen
 ```
-
-Without this signal, nginx will continue writing to the old file handle and your new log file will stay empty.
 
 <a id="depot-mappings"></a>
 ## Depot Mappings [⬆](#-table-of-contents)
 
-LANCache Manager automatically identifies Steam games using depot mappings from the community-maintained [lancache-pics](https://github.com/regix1/lancache-pics) repository.
+Game identification uses mappings from [lancache-pics](https://github.com/regix1/lancache-pics) - 290,000+ depot mappings, updated every 4 hours.
 
-The lancache-pics repository updates **every 4 hours** with the latest Steam depot information, containing **290,000+ current depot mappings**. You can download the latest mappings directly within the app - no external setup required!
-
-**To download mappings:**
+**Download mappings:**
 1. Go to **Management > Depot Mappings**
-2. Click **"Download from GitHub"**
-3. Wait 1-2 minutes for the download and import to complete
+2. Click **Download from GitHub**
+3. Wait 1-2 minutes
 
-The app will automatically apply the mappings to your existing downloads.
-
-### Adding Custom Mappings
-
-For unrecognized games, private depots, or beta branches:
-
-1. Go to **Management > Depot Mappings**
-2. Click **"Add Custom Mapping"**
-3. Enter the depot ID and game name
-4. Save and reprocess logs
-
-You can also upload your own JSON file following the lancache-pics format.
+For private depots or unrecognized games, add custom mappings in the same section.
 
 <a id="grafana--prometheus-integration"></a>
 ## Grafana & Prometheus Integration [⬆](#-table-of-contents)
 
-Export your cache statistics to Grafana for advanced visualization and monitoring.
-
 ### Available Metrics
 
-**Cache Statistics:**
-- `lancache_cache_capacity_bytes` - Total storage capacity
-- `lancache_cache_size_bytes` - Current used space
-- `lancache_cache_usage_ratio` - How full your cache is (0-1)
+- `lancache_cache_capacity_bytes` - Total storage
+- `lancache_cache_size_bytes` - Used space
+- `lancache_cache_hit_bytes_total` - Bandwidth saved
+- `lancache_cache_miss_bytes_total` - New data cached
+- `lancache_active_downloads` - Current downloads
+- `lancache_cache_hit_ratio` - Effectiveness (0-1)
+- `lancache_downloads_by_service` - Per-service breakdown
+- `lancache_bytes_served_by_service` - Bandwidth per service
 
-**Bandwidth & Performance:**
-- `lancache_cache_hit_bytes_total` - Bandwidth saved from cache hits
-- `lancache_cache_miss_bytes_total` - New data added to cache
-- `lancache_total_bytes_served` - Total data served
-- `lancache_cache_hit_ratio` - Cache effectiveness (0-1)
+### Prometheus Config
 
-**Activity:**
-- `lancache_active_downloads` - Downloads in progress
-- `lancache_active_clients` - Active client IPs
-- `lancache_total_downloads` - Total downloads tracked
-
-**Per-Service Metrics:**
-- `lancache_downloads_by_service` - Downloads by service (Steam, Epic, etc.)
-- `lancache_bytes_served_by_service` - Bandwidth by service
-
-### Prometheus Setup (No Authentication)
-
-Add this to your `prometheus.yml`:
-
+**No auth:**
 ```yaml
 scrape_configs:
   - job_name: 'lancache-manager'
@@ -577,16 +396,11 @@ scrape_configs:
     metrics_path: /metrics
 ```
 
-### Prometheus Setup (With Authentication)
-
-**1. Enable metrics authentication in your docker-compose:**
-
+**With auth:**
 ```yaml
 environment:
   - Security__RequireAuthForMetrics=true
 ```
-
-**2. Add your API key to Prometheus config:**
 
 ```yaml
 scrape_configs:
@@ -600,62 +414,43 @@ scrape_configs:
       credentials: 'your-api-key-here'
 ```
 
-### Grafana Dashboard Examples
+### Grafana Examples
 
-**Cache Hit Rate (Percentage)**
 ```promql
+# Cache hit rate
 lancache_cache_hit_ratio * 100
-```
 
-**Bandwidth Saved Today**
-```promql
+# Bandwidth saved today
 increase(lancache_cache_hit_bytes_total[24h])
-```
 
-**Cache Usage (GB)**
-```promql
+# Cache usage in GB
 lancache_cache_size_bytes / 1024 / 1024 / 1024
-```
-
-**Most Popular Services**
-```promql
-topk(5, rate(lancache_bytes_served_by_service[1h]))
-```
-
-### Testing Your Metrics
-
-```bash
-# Without authentication
-curl http://localhost:8080/metrics
-
-# With authentication
-curl -H "X-Api-Key: your-key-here" http://localhost:8080/metrics
 ```
 
 <a id="api-examples"></a>
 ## API Examples [⬆](#-table-of-contents)
 
-Stats endpoints are **public** and don't require authentication. Management endpoints require your **API key**.
+Stats endpoints are public. Management endpoints need your API key.
 
 ```bash
-# View dashboard stats
+# Dashboard stats
 curl http://localhost:8080/api/stats/dashboard?period=24h
 
-# Get top games
+# Top games
 curl http://localhost:8080/api/stats/top-games?limit=10
 
-# Get client statistics
+# Client stats
 curl http://localhost:8080/api/stats/clients
 
-# Process logs (requires API key)
+# Process logs (needs API key)
 curl -X POST -H "X-Api-Key: your-key" \
   http://localhost:8080/api/management/process-all-logs
 
-# Clear cache for a specific service (requires API key)
+# Clear service cache (needs API key)
 curl -X POST -H "X-Api-Key: your-key" \
   http://localhost:8080/api/management/cache/clear/steam
 
-# View Prometheus metrics (public by default)
+# Prometheus metrics
 curl http://localhost:8080/metrics
 ```
 
@@ -664,65 +459,49 @@ curl http://localhost:8080/metrics
 
 ### Logs Not Processing?
 
-1. Check the log path in **Management > Settings**
-2. Verify your volume mount matches the log path:
+1. Check log path in **Management > Settings**
+2. Verify volume mount matches:
    ```yaml
    volumes:
      - /your/logs:/logs:ro  # Must match LanCache__LogPath
    ```
-3. Click **"Process Logs"** in the Management tab
-4. Check container logs for errors:
-   ```bash
-   docker logs lancache-manager
-   ```
+3. Click **Process Logs** in Management
+4. Check container logs: `docker logs lancache-manager`
 
 ### Games Not Identified?
 
-1. Download the latest depot mappings from **Management > Depot Mappings > Download from GitHub**
-2. Add custom mappings for private depots or unrecognized games
-3. After adding mappings, click **"Reprocess All Logs"** to update existing downloads
+1. Download latest mappings from **Management > Depot Mappings > Download from GitHub**
+2. Add custom mappings for private depots
+3. Click **Reprocess All Logs** after adding mappings
 
-### Lost Your API Key?
+### Lost API Key?
 
-**Option 1: Check the file**
 ```bash
+# Option 1: Check the file
 cat ./data/api_key.txt
-```
 
-**Option 2: Check container logs**
-```bash
+# Option 2: Check logs
 docker logs lancache-manager | grep "API Key"
-```
 
-**Option 3: Generate a new one**
-```bash
-# Stop container
+# Option 3: Generate new one
 docker stop lancache-manager
-
-# Delete the API key file
 rm ./data/api_key.txt
-
-# Start container (new key will be generated)
 docker start lancache-manager
-
-# Get the new key
 docker logs lancache-manager | grep "API Key"
 ```
 
 ### Permission Issues?
 
-If you see permission errors when trying to clear cache or remove games:
-
-1. Check that volumes aren't mounted as read-only
-2. Verify PUID and PGID match your file ownership:
+1. Check volumes aren't read-only
+2. Verify PUID/PGID match file ownership:
    ```bash
-   ls -n /path/to/cache  # Check numeric user/group IDs
+   ls -n /path/to/cache
    ```
-3. Update docker-compose with correct IDs:
+3. Update docker-compose:
    ```yaml
    environment:
-     - PUID=1006  # Your user ID
-     - PGID=1006  # Your group ID
+     - PUID=1006
+     - PGID=1006
    ```
 
 <a id="building-from-source"></a>
@@ -731,26 +510,24 @@ If you see permission errors when trying to clear cache or remove games:
 **Requirements:** .NET 8 SDK, Node.js 20+, Rust 1.75+
 
 ```bash
-# Clone the repository
 git clone https://github.com/regix1/lancache-manager.git
 cd lancache-manager
 
-# Build Rust processor
+# Rust processor
 cd rust-processor
 cargo build --release
 
-# Build and run the web interface
+# Web interface
 cd ../Web
 npm install
-npm run dev  # Opens at http://localhost:3000
+npm run dev  # http://localhost:3000
 
-# Build and run the API
+# API
 cd ../Api/LancacheManager
-dotnet run  # Opens at http://localhost:5000
+dotnet run  # http://localhost:5000
 ```
 
-**Build Docker image:**
-
+**Docker build:**
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
@@ -762,7 +539,7 @@ docker buildx build \
 <a id="contributing"></a>
 ## Contributing [⬆](#-table-of-contents)
 
-Found a bug or have a feature request? [Open an issue](https://github.com/regix1/lancache-manager/issues) on GitHub!
+Found a bug or have a feature request? [Open an issue](https://github.com/regix1/lancache-manager/issues) on GitHub.
 
 <a id="support"></a>
 ## Support [⬆](#-table-of-contents)
@@ -771,7 +548,7 @@ Found a bug or have a feature request? [Open an issue](https://github.com/regix1
 
 ### Enjoying LANCache Manager?
 
-If this project has been helpful, consider supporting its development!
+If this project has been helpful, consider supporting development.
 
 <br>
 
@@ -783,7 +560,7 @@ If this project has been helpful, consider supporting its development!
 
 <br>
 
-*Every coffee helps keep this project alive and growing!*
+*Every coffee helps keep this project alive!*
 
 </div>
 

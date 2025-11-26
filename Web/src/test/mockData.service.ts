@@ -10,47 +10,75 @@ interface MockData {
 }
 
 interface GameInfo {
+  appId: number;
   name: string;
   size: number;
 }
 
+// Real Steam games with actual app IDs for proper banner/image display
+const STEAM_GAMES: GameInfo[] = [
+  // Popular AAA titles
+  { appId: 730, name: 'Counter-Strike 2', size: 35 * 1024 * 1024 * 1024 },
+  { appId: 570, name: 'Dota 2', size: 40 * 1024 * 1024 * 1024 },
+  { appId: 440, name: 'Team Fortress 2', size: 25 * 1024 * 1024 * 1024 },
+  { appId: 271590, name: 'Grand Theft Auto V', size: 95 * 1024 * 1024 * 1024 },
+  { appId: 1172470, name: 'Apex Legends', size: 70 * 1024 * 1024 * 1024 },
+  { appId: 1245620, name: 'ELDEN RING', size: 50 * 1024 * 1024 * 1024 },
+  { appId: 1086940, name: "Baldur's Gate 3", size: 120 * 1024 * 1024 * 1024 },
+  { appId: 1091500, name: 'Cyberpunk 2077', size: 70 * 1024 * 1024 * 1024 },
+  { appId: 1174180, name: 'Red Dead Redemption 2', size: 120 * 1024 * 1024 * 1024 },
+  { appId: 1085660, name: 'Destiny 2', size: 105 * 1024 * 1024 * 1024 },
+  { appId: 578080, name: 'PUBG: BATTLEGROUNDS', size: 40 * 1024 * 1024 * 1024 },
+  { appId: 292030, name: 'The Witcher 3: Wild Hunt', size: 50 * 1024 * 1024 * 1024 },
+  { appId: 1716740, name: 'Starfield', size: 140 * 1024 * 1024 * 1024 },
+  { appId: 2358720, name: 'Black Myth: Wukong', size: 130 * 1024 * 1024 * 1024 },
+  { appId: 2050650, name: 'Resident Evil 4', size: 60 * 1024 * 1024 * 1024 },
+  { appId: 883710, name: 'Resident Evil 2', size: 26 * 1024 * 1024 * 1024 },
+  // Popular multiplayer games
+  { appId: 381210, name: 'Dead by Daylight', size: 45 * 1024 * 1024 * 1024 },
+  { appId: 252490, name: 'Rust', size: 25 * 1024 * 1024 * 1024 },
+  { appId: 230410, name: 'Warframe', size: 55 * 1024 * 1024 * 1024 },
+  { appId: 892970, name: 'Valheim', size: 1.5 * 1024 * 1024 * 1024 },
+  { appId: 322330, name: "Don't Starve Together", size: 3 * 1024 * 1024 * 1024 },
+  { appId: 550, name: 'Left 4 Dead 2', size: 13 * 1024 * 1024 * 1024 },
+  { appId: 632360, name: 'Risk of Rain 2', size: 3 * 1024 * 1024 * 1024 },
+  { appId: 1599340, name: 'Lost Ark', size: 80 * 1024 * 1024 * 1024 },
+  { appId: 438100, name: 'VRChat', size: 2 * 1024 * 1024 * 1024 },
+  // Indie favorites
+  { appId: 367520, name: 'Hollow Knight', size: 9 * 1024 * 1024 * 1024 },
+  { appId: 413150, name: 'Stardew Valley', size: 0.5 * 1024 * 1024 * 1024 },
+  { appId: 105600, name: 'Terraria', size: 0.5 * 1024 * 1024 * 1024 },
+  { appId: 1868140, name: 'DAVE THE DIVER', size: 4 * 1024 * 1024 * 1024 },
+  // Other popular titles
+  { appId: 546560, name: 'Half-Life: Alyx', size: 67 * 1024 * 1024 * 1024 },
+  { appId: 4000, name: "Garry's Mod", size: 5 * 1024 * 1024 * 1024 },
+  { appId: 812140, name: "Assassin's Creed Odyssey", size: 100 * 1024 * 1024 * 1024 },
+  { appId: 238960, name: 'Path of Exile', size: 40 * 1024 * 1024 * 1024 },
+  { appId: 1938090, name: 'Call of Duty', size: 150 * 1024 * 1024 * 1024 }
+];
+
+// Client IPs simulating a LAN environment
+const CLIENT_IPS = [
+  '192.168.1.100',
+  '192.168.1.101',
+  '192.168.1.102',
+  '192.168.1.103',
+  '192.168.1.104',
+  '192.168.1.105',
+  '192.168.1.106',
+  '192.168.1.107',
+  '192.168.1.110',
+  '192.168.1.115',
+  '10.0.0.50',
+  '10.0.0.51',
+  '10.0.0.52'
+];
+
 class MockDataService {
   static generateMockData(downloadCount: number | 'unlimited' = 'unlimited'): MockData {
-    const clients = [
-      '192.168.1.100',
-      '192.168.1.101',
-      '192.168.1.102',
-      '192.168.1.103',
-      '192.168.1.104',
-      '192.168.1.105',
-      '192.168.1.106',
-      '192.168.1.107',
-      '192.168.1.108',
-      '192.168.1.109',
-      '192.168.1.110',
-      '192.168.1.111',
-      '10.0.0.50',
-      '10.0.0.51',
-      '10.0.0.52',
-      '10.0.0.53',
-      '127.0.0.1'
-    ];
+    const clients = CLIENT_IPS;
 
-    const steamGames: GameInfo[] = [
-      { name: 'Counter-Strike 2', size: 30 * 1024 * 1024 * 1024 },
-      { name: 'Dota 2', size: 35 * 1024 * 1024 * 1024 },
-      { name: 'Team Fortress 2', size: 25 * 1024 * 1024 * 1024 },
-      { name: 'Grand Theft Auto V', size: 95 * 1024 * 1024 * 1024 },
-      { name: 'Apex Legends', size: 60 * 1024 * 1024 * 1024 },
-      { name: 'Dead by Daylight', size: 45 * 1024 * 1024 * 1024 },
-      { name: 'Marvel Rivals', size: 55 * 1024 * 1024 * 1024 },
-      { name: 'Path of Exile', size: 40 * 1024 * 1024 * 1024 },
-      { name: 'Warframe', size: 50 * 1024 * 1024 * 1024 },
-      { name: 'Destiny 2', size: 105 * 1024 * 1024 * 1024 },
-      { name: 'Rust', size: 35 * 1024 * 1024 * 1024 },
-      { name: 'Valheim', size: 1 * 1024 * 1024 * 1024 },
-      { name: 'Unknown Steam Game', size: 15 * 1024 * 1024 * 1024 }
-    ];
+    const steamGames = STEAM_GAMES;
 
     // Generate cache info
     const cacheInfo = {
@@ -116,12 +144,14 @@ class MockDataService {
       } else {
         // Regular download
         let gameName = null;
+        let gameAppId = null;
         let totalBytes: number;
 
-        if (service === 'steam' && Math.random() < 0.7) {
-          // 70% chance of identifiable Steam game
+        if (service === 'steam' && Math.random() < 0.85) {
+          // 85% chance of identifiable Steam game
           const game = steamGames[Math.floor(Math.random() * steamGames.length)];
           gameName = game.name;
+          gameAppId = game.appId;
           // Vary the size a bit (80-100% of full game size)
           totalBytes = Math.floor(game.size * (0.8 + Math.random() * 0.2));
         } else {
@@ -153,10 +183,7 @@ class MockDataService {
           cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
           isActive: i < 3 && hoursAgo < 0.5, // First 3 recent downloads are active
           gameName,
-          gameAppId:
-            gameName && gameName !== 'Unknown Steam Game'
-              ? 200000 + Math.floor(Math.random() * 2000000)
-              : null
+          gameAppId
         };
       }
 
@@ -291,25 +318,14 @@ class MockDataService {
   }
 
   static generateRealtimeUpdate(): any {
-    const clients = [
-      '192.168.1.100',
-      '192.168.1.101',
-      '192.168.1.102',
-      '192.168.1.103',
-      '192.168.1.104',
-      '192.168.1.105',
-      '192.168.1.106',
-      '192.168.1.107'
-    ];
-
-    const isMetadata = Math.random() < 0.2;
+    const isMetadata = Math.random() < 0.15;
     const nowIso = new Date().toISOString();
 
     if (isMetadata) {
       return {
         id: Date.now(),
         service: SERVICES[Math.floor(Math.random() * SERVICES.length)],
-        clientIp: clients[Math.floor(Math.random() * clients.length)],
+        clientIp: CLIENT_IPS[Math.floor(Math.random() * CLIENT_IPS.length)],
         startTimeUtc: nowIso,
         endTimeUtc: nowIso,
         startTimeLocal: nowIso,
@@ -322,23 +338,28 @@ class MockDataService {
       };
     }
 
-    const cacheHitBytes = Math.floor(Math.random() * 500000000);
-    const cacheMissBytes = Math.floor(Math.random() * 100000000);
+    // Pick a random real game for realistic updates
+    const game = STEAM_GAMES[Math.floor(Math.random() * STEAM_GAMES.length)];
+    const cacheHitRatio = 0.7 + Math.random() * 0.25;
+    const totalBytes = Math.floor(game.size * (0.1 + Math.random() * 0.9));
+    const cacheHitBytes = Math.floor(totalBytes * cacheHitRatio);
+    const cacheMissBytes = totalBytes - cacheHitBytes;
 
     return {
       id: Date.now(),
-      service: SERVICES[Math.floor(Math.random() * SERVICES.length)],
-      clientIp: clients[Math.floor(Math.random() * clients.length)],
+      service: 'steam',
+      clientIp: CLIENT_IPS[Math.floor(Math.random() * CLIENT_IPS.length)],
       startTimeUtc: nowIso,
       endTimeUtc: null,
       startTimeLocal: nowIso,
       endTimeLocal: null,
       cacheHitBytes,
       cacheMissBytes,
-      totalBytes: cacheHitBytes + cacheMissBytes,
-      cacheHitPercent: (cacheHitBytes / (cacheHitBytes + cacheMissBytes)) * 100,
+      totalBytes,
+      cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
       isActive: true,
-      gameName: Math.random() < 0.5 ? 'Counter-Strike 2' : null
+      gameName: game.name,
+      gameAppId: game.appId
     };
   }
 }
