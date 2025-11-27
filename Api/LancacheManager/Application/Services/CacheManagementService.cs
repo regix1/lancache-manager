@@ -473,65 +473,6 @@ public class CacheManagementService
         public string CacheFilePath { get; set; } = string.Empty;
     }
 
-    // Get list of unique services from logs with improved filtering
-    public async Task<List<string>> GetServicesFromLogs()
-    {
-        try
-        {
-            // Get all services that have counts (uses Rust binary for fast counting)
-            var serviceCounts = await GetServiceLogCounts();
-
-            // Filter out invalid services:
-            // - localhost
-            // - "ip-address" marker
-            // - Raw IP addresses (regex match)
-            // Keep valid CDN services (domains with dots like "officecdn.microsoft.com")
-            var filteredOut = new List<string>();
-            var services = serviceCounts.Keys
-                .Where(service =>
-                {
-                    if (string.IsNullOrEmpty(service)) { filteredOut.Add($"{service} (empty)"); return false; }
-                    if (service.Equals("localhost", StringComparison.OrdinalIgnoreCase)) { filteredOut.Add($"{service} (localhost)"); return false; }
-                    if (service.Equals("ip-address", StringComparison.OrdinalIgnoreCase)) { filteredOut.Add($"{service} (ip-address marker)"); return false; }
-
-                    // Check if it's a raw IP address (e.g., 192.168.1.1)
-                    if (System.Text.RegularExpressions.Regex.IsMatch(service, @"^\d+\.\d+\.\d+\.\d+$"))
-                    {
-                        filteredOut.Add($"{service} (raw IP)");
-                        return false;
-                    }
-
-                    return true;
-                })
-                .OrderBy(s => s)
-                .ToList();
-
-            if (services.Count > 0)
-            {
-                if (filteredOut.Count > 0)
-                {
-                }
-                return services;
-            }
-
-            // Log which services were filtered out to help debugging
-            if (filteredOut.Count > 0)
-            {
-                _logger.LogInformation($"No valid services found. All {filteredOut.Count} services were filtered out: {string.Join(", ", filteredOut)}");
-            }
-            else
-            {
-                LogThrottledWarning("No valid services found in log file - logs may be empty or all entries were removed");
-            }
-            return new List<string>();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting services from logs");
-            return new List<string>();
-        }
-    }
-
     /// <summary>
     /// Get corruption summary with caching based on log file modification time
     /// </summary>

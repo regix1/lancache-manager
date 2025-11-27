@@ -51,28 +51,6 @@ public class DatabaseRepository : IDatabaseRepository
         return await _context.LogEntries.CountAsync();
     }
 
-    /// <summary>
-    /// Performs database cleanup operations
-    /// Executes VACUUM to reclaim disk space and optimize database
-    /// </summary>
-    public async Task CleanupDatabaseAsync()
-    {
-        try
-        {
-            _logger.LogInformation("Starting database cleanup (VACUUM)");
-
-            // SQLite VACUUM command to reclaim disk space
-            await _context.Database.ExecuteSqlRawAsync("VACUUM;");
-
-            _logger.LogInformation("Database cleanup completed successfully");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during database cleanup");
-            throw;
-        }
-    }
-
     public async Task ResetDatabase()
     {
         try

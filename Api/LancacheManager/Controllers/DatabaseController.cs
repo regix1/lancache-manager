@@ -1,6 +1,5 @@
 using LancacheManager.Infrastructure.Repositories;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Infrastructure.Services.Interfaces;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,7 +7,7 @@ namespace LancacheManager.Controllers;
 
 /// <summary>
 /// RESTful controller for database management operations
-/// Handles database reset, cleanup, and status operations
+/// Handles database reset operations
 /// </summary>
 [ApiController]
 [Route("api/database")]
@@ -17,40 +16,15 @@ public class DatabaseController : ControllerBase
     private readonly DatabaseRepository _dbService;
     private readonly RustDatabaseResetService _rustDatabaseResetService;
     private readonly ILogger<DatabaseController> _logger;
-    private readonly IPathResolver _pathResolver;
 
     public DatabaseController(
         DatabaseRepository dbService,
         RustDatabaseResetService rustDatabaseResetService,
-        ILogger<DatabaseController> logger,
-        IPathResolver pathResolver)
+        ILogger<DatabaseController> logger)
     {
         _dbService = dbService;
         _rustDatabaseResetService = rustDatabaseResetService;
         _logger = logger;
-        _pathResolver = pathResolver;
-    }
-
-    /// <summary>
-    /// GET /api/database/status - Get database status
-    /// </summary>
-    [HttpGet("status")]
-    public IActionResult GetDatabaseStatus()
-    {
-        try
-        {
-            // You can add more database stats here if needed
-            return Ok(new
-            {
-                status = "connected",
-                path = _pathResolver.GetDatabasePath()
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting database status");
-            return StatusCode(500, new { error = "Failed to get database status", details = ex.Message });
-        }
     }
 
     /// <summary>
@@ -154,28 +128,6 @@ public class DatabaseController : ControllerBase
         {
             _logger.LogError(ex, "Error getting log entries count");
             return StatusCode(500, new { error = "Failed to get log entries count", details = ex.Message });
-        }
-    }
-
-    /// <summary>
-    /// POST /api/database/maintenance/cleanup - Run database cleanup/optimization
-    /// Note: Using POST here is acceptable as this is an operation/action
-    /// </summary>
-    [HttpPost("maintenance/cleanup")]
-    [RequireAuth]
-    public async Task<IActionResult> CleanupDatabase()
-    {
-        try
-        {
-            await _dbService.CleanupDatabaseAsync();
-            _logger.LogInformation("Database cleanup completed successfully");
-
-            return Ok(new { message = "Database cleanup completed successfully" });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during database cleanup");
-            return StatusCode(500, new { error = "Database cleanup failed", details = ex.Message });
         }
     }
 
