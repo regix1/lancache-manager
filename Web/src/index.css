@@ -1088,31 +1088,6 @@
     @apply text-xs px-2 py-1 rounded font-medium;
   }
 
-  /* Section Dividers - Subtle dividers between management sections */
-  .section-dividers > *:not(:last-child) {
-    position: relative;
-    padding-bottom: 1.5rem;
-  }
-
-  .section-dividers > *:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(
-      to right,
-      transparent,
-      var(--theme-border-secondary) 10%,
-      var(--theme-border-secondary) 90%,
-      transparent
-    );
-    opacity: 0.8;
-    z-index: 1;
-    pointer-events: none;
-  }
-
   /* Responsive Hit Rate Badge Helper */
   .hit-rate-badge {
     @apply themed-badge;

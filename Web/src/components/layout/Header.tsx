@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import TimeFilter from '../common/TimeFilter';
 import PollingRateSelector from '../common/PollingRateSelector';
 import TimezoneSelector from '../common/TimezoneSelector';
@@ -24,8 +24,6 @@ const Header: React.FC<HeaderProps> = ({
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [isRevoked, setIsRevoked] = useState(false);
   const [deviceId, setDeviceId] = useState('');
-  const [pollingButtonWidth, setPollingButtonWidth] = useState<number | null>(null);
-  const pollingButtonRef = useRef<HTMLDivElement>(null);
 
   // Event-driven updates from AuthContext - no polling needed
   useEffect(() => {
@@ -37,36 +35,6 @@ const Header: React.FC<HeaderProps> = ({
       setDeviceId(authService.getGuestSessionId() || '');
     }
   }, [authMode]);
-
-  // Measure polling button width with resize observer
-  useEffect(() => {
-    if (!pollingButtonRef.current) return;
-
-    const measureWidth = () => {
-      if (pollingButtonRef.current) {
-        const width = pollingButtonRef.current.offsetWidth;
-        setPollingButtonWidth(width);
-      }
-    };
-
-    // Initial measurement
-    measureWidth();
-
-    // Create resize observer to re-measure on layout changes
-    const resizeObserver = new ResizeObserver(() => {
-      measureWidth();
-    });
-
-    resizeObserver.observe(pollingButtonRef.current);
-
-    // Also listen for window resize
-    window.addEventListener('resize', measureWidth);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener('resize', measureWidth);
-    };
-  }, []);
 
   return (
     <>
@@ -300,9 +268,7 @@ const Header: React.FC<HeaderProps> = ({
               {/* Right: Controls in a row */}
               <div className="flex items-center gap-1.5">
                 <TimezoneSelector />
-                <div ref={pollingButtonRef}>
-                  <PollingRateSelector disabled={mockMode} />
-                </div>
+                <PollingRateSelector disabled={mockMode} />
                 <TimeFilter disabled={mockMode} />
               </div>
             </div>

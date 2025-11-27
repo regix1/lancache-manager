@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Modal } from '@components/ui/Modal';
-import { HelpPopover, HelpCode, HelpSection } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpCode, HelpSection, HelpNote, HelpKeyword } from '@components/ui/HelpPopover';
 import ApiService from '@services/api.service';
 import FileBrowser from '../file-browser/FileBrowser';
 
@@ -144,33 +144,32 @@ const DataImporter: React.FC<DataImporterProps> = ({
             <h3 className="text-lg font-semibold text-themed-primary">
               Import Historical Data
             </h3>
-            <HelpPopover position="left" width="w-96" maxHeight="400px">
+            <HelpPopover position="left" width={380} maxHeight="420px">
               <HelpSection title="Compatibility">
-                This importer supports SQLite databases from DeveLanCacheUI_Backend and other compatible lancache management tools.
+                Supports <HelpKeyword color="cyan">SQLite</HelpKeyword> databases from{' '}
+                <HelpKeyword color="purple">DeveLanCacheUI_Backend</HelpKeyword> and other compatible tools.
               </HelpSection>
 
-              <HelpSection title="For Docker users (recommended)">
-                <p className="mb-2">Mount the external database directory as a volume in your docker-compose.yml:</p>
+              <HelpSection title="Docker Setup" variant="subtle">
+                <p className="mb-2">Mount your external database as a volume:</p>
                 <HelpCode block>
                   volumes:<br />
                   &nbsp;&nbsp;- ./data:/data<br />
-                  &nbsp;&nbsp;- /path/to/external/data:/mnt/import:ro
+                  &nbsp;&nbsp;- /path/to/data:/mnt/import:ro
                 </HelpCode>
                 <p className="mt-2">
-                  The <HelpCode>:ro</HelpCode> flag mounts it read-only for safety.
-                  Use the file browser to navigate to <HelpCode>/mnt/import/lancache.db</HelpCode>
+                  <HelpKeyword color="green">:ro</HelpKeyword> = read-only mount for safety.
+                  Browse to <HelpCode>/mnt/import/lancache.db</HelpCode>
                 </p>
               </HelpSection>
 
-              <HelpSection title="Manual input">
-                You can paste the file path directly (e.g., <HelpCode>/mnt/import/lancache.db</HelpCode>) or use a connection string format.
+              <HelpSection title="Manual Input">
+                Paste the file path directly or use a connection string format.
               </HelpSection>
 
-              <HelpSection title="Important">
-                <span style={{ color: 'var(--theme-warning)' }}>
-                  Stop the external application before importing to avoid database locks.
-                </span>
-              </HelpSection>
+              <HelpNote type="warning">
+                Stop the external application before importing to avoid database locks.
+              </HelpNote>
             </HelpPopover>
           </div>
         </div>

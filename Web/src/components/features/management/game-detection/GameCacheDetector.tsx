@@ -5,6 +5,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
+import { HelpPopover, HelpSection, HelpNote, HelpKeyword, HelpDefinition } from '@components/ui/HelpPopover';
 import { useNotifications } from '@contexts/NotificationsContext';
 import { useBackendOperation } from '@hooks/useBackendOperation';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -580,7 +581,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
                 <HardDrive className="w-5 h-5 icon-purple" />
               </div>
-              <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+                <HelpPopover position="left" width={340}>
+                  <HelpNote type="info">
+                    Access logs must be processed first to populate the database.
+                  </HelpNote>
+
+                  <HelpSection title="How It Works" variant="subtle">
+                    Scans database for <HelpKeyword color="blue">games</HelpKeyword> and{' '}
+                    <HelpKeyword color="purple">services</HelpKeyword>, verifies cache files exist on disk,
+                    then displays <HelpKeyword color="green">size</HelpKeyword> and file count for each.
+                  </HelpSection>
+
+                  <HelpSection title="Removal">
+                    <div className="space-y-1.5">
+                      <HelpDefinition term="Game" termColor="green">
+                        Removes cache files, log entries, and database records
+                      </HelpDefinition>
+                      <HelpDefinition term="Service" termColor="purple">
+                        Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
+                      </HelpDefinition>
+                    </div>
+                  </HelpSection>
+                </HelpPopover>
+              </div>
               <span
                 className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border"
                 style={{
@@ -600,7 +625,31 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   <HardDrive className="w-5 h-5 icon-purple" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-themed-primary">Game Cache Detection</h3>
+                    <HelpPopover position="left" width={340}>
+                      <HelpNote type="info">
+                        Access logs must be processed first to populate the database.
+                      </HelpNote>
+
+                      <HelpSection title="How It Works" variant="subtle">
+                        Scans database for <HelpKeyword color="blue">games</HelpKeyword> and{' '}
+                        <HelpKeyword color="purple">services</HelpKeyword>, verifies cache files exist on disk,
+                        then displays <HelpKeyword color="green">size</HelpKeyword> and file count for each.
+                      </HelpSection>
+
+                      <HelpSection title="Removal">
+                        <div className="space-y-1.5">
+                          <HelpDefinition term="Game" termColor="green">
+                            Removes cache files, log entries, and database records
+                          </HelpDefinition>
+                          <HelpDefinition term="Service" termColor="purple">
+                            Cleans up non-game caches (Riot, Blizzard, Epic, WSUS)
+                          </HelpDefinition>
+                        </div>
+                      </HelpSection>
+                    </HelpPopover>
+                  </div>
                   <p className="text-sm text-themed-secondary mt-1">
                     Scan cache directory to find which games have stored files
                   </p>
@@ -774,34 +823,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   </div>
                 )}
 
-              {/* Information Alert */}
-              <Alert color="blue" className="about-section">
-                <div className="space-y-3">
-                  <p className="text-xs font-medium">About Game & Service Cache Detection</p>
-
-                  <div>
-                    <p className="text-xs font-medium text-themed-secondary mb-1">Prerequisite</p>
-                    <p className="text-xs ml-2">Access logs must be processed first to populate the database</p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-medium text-themed-secondary mb-1">How It Works</p>
-                    <ul className="list-disc list-inside text-xs space-y-0.5 ml-2">
-                      <li>Scans the database for game and service records</li>
-                      <li>Verifies whether corresponding cache files exist on disk</li>
-                      <li>Displays total cache size and file count for each item</li>
-                    </ul>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-medium text-themed-secondary mb-1">Removal Behavior</p>
-                    <ul className="list-disc list-inside text-xs space-y-0.5 ml-2">
-                      <li><strong>Game removal:</strong> Deletes all cache files, log entries, and database records</li>
-                      <li><strong>Service removal:</strong> Cleans up cache for non-game services (Riot, Blizzard, Epic, WSUS, etc.)</li>
-                    </ul>
-                  </div>
-                </div>
-              </Alert>
             </>
           )}
         </div>

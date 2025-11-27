@@ -578,6 +578,7 @@ const UserTab: React.FC = () => {
               All Sessions
             </h2>
             <HelpPopover
+              width={300}
               sections={[
                 {
                   title: 'Session Types',
