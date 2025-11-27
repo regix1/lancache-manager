@@ -37,6 +37,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 
 // Mock Mode Manager Component
 const MockModeManager: React.FC<{
@@ -225,6 +226,25 @@ const DatabaseManager: React.FC<{
             <Database className="w-5 h-5 icon-cyan" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">Database Management</h3>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title="What Gets Cleared">
+              <div className="space-y-1.5">
+                <HelpDefinition term="Log Entries" termColor="blue">
+                  Raw nginx access log records used for analytics
+                </HelpDefinition>
+                <HelpDefinition term="Downloads" termColor="green">
+                  Game download records with statistics and timestamps
+                </HelpDefinition>
+                <HelpDefinition term="Depot Mappings" termColor="purple">
+                  Steam depot-to-game associations (also clears game names)
+                </HelpDefinition>
+              </div>
+            </HelpSection>
+
+            <HelpNote type="info">
+              Cached files on disk are never touched — only database records are cleared.
+            </HelpNote>
+          </HelpPopover>
         </div>
 
         <p className="text-themed-secondary mb-4">

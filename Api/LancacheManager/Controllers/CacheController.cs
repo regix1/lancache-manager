@@ -234,25 +234,16 @@ public class CacheController : ControllerBase
 
     /// <summary>
     /// GET /api/cache/services/{name}/corruption - Get detailed corruption info for specific service
+    /// Returns array of corrupted chunks with URLs, miss counts, and cache file paths
     /// </summary>
     [HttpGet("services/{service}/corruption")]
     public async Task<IActionResult> GetCorruptionDetails(string service, [FromQuery] bool forceRefresh = false)
     {
         try
         {
-            var summary = await _cacheService.GetCorruptionSummary(forceRefresh);
-
-            // Summary is a Dictionary<string, long> mapping service names to corruption counts
-            if (summary.TryGetValue(service, out var corruptionCount))
-            {
-                return Ok(new
-                {
-                    service,
-                    corruptedChunks = corruptionCount
-                });
-            }
-
-            return NotFound(new { error = $"No corruption data found for service: {service}" });
+            // Get detailed corruption information (not just counts)
+            var details = await _cacheService.GetCorruptionDetails(service, forceRefresh);
+            return Ok(details);
         }
         catch (Exception ex)
         {
